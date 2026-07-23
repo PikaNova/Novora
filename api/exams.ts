@@ -116,6 +116,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sql = database();
 
     const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
+    if (action === 'class-bindings') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      if (await isPasswordRequired()) {
+        const token = extractBearer(req.headers.authorization);
+        if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; }
+      }
+      const selectBindings = async () => (
+        await sql`SELECT instance_id, class_tag, updated_at FROM class_instance_bindings ORDER BY updated_at DESC LIMIT 501`
+      ) as unknown as Array<{ instance_id: string; class_tag: string; updated_at: number | string }>;
+      let rows: Awaited<ReturnType<typeof selectBindings>>;
+      try { rows = await selectBindings(); }
+      catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); rows = await selectBindings(); }
+      const truncated = rows.length > 500;
+      res.status(200).json({
+        ok: true,
+        bindings: rows.slice(0, 500).map(row => ({ instanceId: row.instance_id, classTag: row.class_tag, updatedAt: Number(row.updated_at) })),
+        truncated,
+      });
+      return;
+    }
     if (action === 'class-binding') {
       const instanceId = String(req.method === 'GET' ? req.query?.instanceId ?? '' : req.body?.instanceId ?? '').trim().slice(0, 128);
       if (!instanceId) { res.status(400).json({ ok: false, error: 'instanceId is required' }); return; }

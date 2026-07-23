@@ -186,6 +186,9 @@ export default function ExamPage() {
   // 确保两者在同一时刻跳变，消除偶发的 1 秒时差。
   const nowTick = Math.floor(now / 1000) * 1000;
   const raw = useMemo(() => computeRawState(items, nowTick), [items, nowTick]);
+  const displayMasterTitle = raw.currentExam && (raw.currentExam as { kind?: string }).kind === 'weekly'
+    ? '周测'
+    : title || '考试看板';
   examLiveRef.current = raw.phase === 'live';
   useEffect(() => {
     if (raw.phase === 'live') return;
@@ -204,7 +207,7 @@ export default function ExamPage() {
     currentExam: raw.currentExam,
     nextExam: raw.nextExam,
     settings: alerts,
-    masterTitle: title,
+    masterTitle: displayMasterTitle,
   });
   // 浮层启用时，抑制设计内的轻量通知条，避免重复
   const inDesignNotification = alerts.enabled ? null : notification;
@@ -214,7 +217,7 @@ export default function ExamPage() {
     : (raw.phase === 'ended' ? 100 : 0);
 
   const vm: ExamViewModel = {
-    masterTitle: title,
+    masterTitle: displayMasterTitle,
     phase: raw.phase,
     clock: formatClockInZone(nowTick),
     dateText: fmtDateText(nowTick),

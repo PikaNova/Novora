@@ -13,6 +13,7 @@ import type { Announcement } from '../services/announcements';
 import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
 import WeeklyPanel from '../components/WeeklyPanel';
+import DeviceStatusPanel from '../components/DeviceStatusPanel';
 import { collectClassTags } from '../utils/classSettings';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { saveBoundClassTag } from '../services/classBinding';
@@ -511,7 +512,9 @@ export default function AdminPage() {
       <div className="admin-tabbar__tabs">
         <button className={`admin-tab${adminTab === 'major' ? ' is-active' : ''}`} onClick={() => setAdminTab('major')}>🏫 大型考试</button>
         <button className={`admin-tab${adminTab === 'weekly' ? ' is-active' : ''}`} onClick={() => setAdminTab('weekly')}>📅 周测{weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>
+        <button className={`admin-tab${adminTab === 'devices' ? ' is-active' : ''}`} onClick={() => setAdminTab('devices')}>设备情况</button>
       </div>
+      {adminTab !== 'devices' && <>
       <label className="admin-tabbar__mode">运行模式
         <select className="admin-input" value={scheduleMode} onChange={e => handleScheduleModeChange(e.target.value as ScheduleMode)}>
           <option value="major-only">仅大型考试</option>
@@ -525,6 +528,7 @@ export default function AdminPage() {
           {classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
         </select>
       </label>
+      </>}
     </div>
     <div className="admin-body">
       {adminTab === 'weekly' ? (
@@ -540,6 +544,8 @@ export default function AdminPage() {
           onSavePlans={handleSaveWeeklyPlans}
           onConflictPolicyChange={handleConflictPolicyChange}
         />
+      ) : adminTab === 'devices' ? (
+        <DeviceStatusPanel />
       ) : (
       <>
       <aside className="admin-sidebar">
