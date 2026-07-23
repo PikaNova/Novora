@@ -2,6 +2,7 @@ import { getInstanceId } from './telemetry';
 
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
+const CLASS_BINDING_CACHE_KEY = 'exam_board_class_binding_cache';
 const ADMIN_TOKEN_KEY = 'admin_auth_token';
 
 export interface ClassBindingInfo {
@@ -18,18 +19,39 @@ export function markClassChoiceConfirmed(): void {
   try { localStorage.setItem(CLASS_CHOICE_KEY, 'true'); } catch { /* local settings remain usable in memory */ }
 }
 
+export function getClassBindingInstanceId(): string {
+  return getInstanceId();
+}
+
+export function getCachedBoundClassTag(): string | null | undefined {
+  try {
+    const cached = JSON.parse(localStorage.getItem(CLASS_BINDING_CACHE_KEY) || 'null');
+    if (!cached || cached.instanceId !== getInstanceId()) return undefined;
+    return typeof cached.classTag === 'string' ? cached.classTag : (cached.classTag === null ? null : undefined);
+  } catch { return undefined; }
+}
+
+export function cacheBoundClassTag(classTag: string | null): void {
+  try {
+    localStorage.setItem(CLASS_BINDING_CACHE_KEY, JSON.stringify({ instanceId: getInstanceId(), classTag, checkedAt: Date.now() }));
+  } catch { /* local settings remain usable in memory */ }
+}
+
 export async function fetchBoundClassTag(): Promise<string | null> {
   try {
     const instanceId = encodeURIComponent(getInstanceId());
     const response = await fetch(`${API_URL}?action=class-binding&instanceId=${instanceId}`, { cache: 'no-store' });
     if (!response.ok) return null;
     const data = await response.json();
-    return data?.ok && typeof data.classTag === 'string' ? data.classTag : null;
+    const classTag = data?.ok && typeof data.classTag === 'string' ? data.classTag : null;
+    cacheBoundClassTag(classTag);
+    return classTag;
   } catch { return null; }
 }
 
 export async function saveBoundClassTag(classTag: string): Promise<boolean> {
   markClassChoiceConfirmed();
+  cacheBoundClassTag(classTag.trim());
   try {
     const response = await fetch(API_URL, {
       method: 'POST',

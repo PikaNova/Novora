@@ -85,8 +85,26 @@ type ExamRow = {
   active_weekly_plan_by_class?: unknown;
   weekly_conflict_policy?: unknown;
   updated_at?: number | string | null;
+  bound_class_tag?: string | null;
 };
 type UpdatedRow = { updated_at: number | string };
+
+function examPayload(row: ExamRow) {
+  return {
+    ok: true,
+    items: row.items ?? [],
+    title: row.title ?? '',
+    majors: row.majors ?? [],
+    activeMajorId: row.active_major_id ?? '',
+    alerts: row.alerts ?? null,
+    weeklyPlans: row.weekly_plans ?? [],
+    scheduleMode: row.schedule_mode ?? 'major-only',
+    activeWeeklyPlanId: row.active_weekly_plan_id ?? '',
+    activeWeeklyPlanIdByClass: row.active_weekly_plan_by_class ?? {},
+    weeklyConflictPolicy: row.weekly_conflict_policy ?? null,
+    updatedAt: Number(row.updated_at ?? 0),
+  };
+}
 
 // 判断是否因“表/列尚未创建”报错，仅在首次遇到时才跑迁移并重试。
 function missingRelation(err: unknown): boolean {
@@ -116,6 +134,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sql = database();
 
     const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
+    if (action === 'bootstrap') {
+      res.setHeader('Cache-Control', 'private, no-store');
+      if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const instanceId = String(req.query?.instanceId ?? '').trim().slice(0, 128);
+      if (!instanceId) { res.status(400).json({ ok: false, error: 'instanceId is required' }); return; }
+      const selectBootstrap = async (): Promise<ExamRow[]> => (
+        await sql`
+          SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode,
+                 active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, updated_at,
+                 (SELECT class_tag FROM class_instance_bindings WHERE instance_id = ${instanceId}) AS bound_class_tag
+          FROM exam_data
+          WHERE id = 1
+        `
+      ) as unknown as ExamRow[];
+      let rows: ExamRow[];
+      try { rows = await selectBootstrap(); }
+      catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); rows = await selectBootstrap(); }
+      const row = rows[0] ?? {};
+      res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
+      res.status(200).json({ ...examPayload(row), boundClassTag: row.bound_class_tag ?? null });
+      return;
+    }
     if (action === 'class-bindings') {
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
@@ -184,7 +224,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rows = await selectRow();
       }
       const row = rows[0] ?? { items: [], title: '', majors: [], active_major_id: '', alerts: null, weekly_plans: [], schedule_mode: 'major-only', active_weekly_plan_id: '', active_weekly_plan_by_class: {}, weekly_conflict_policy: null, updated_at: 0 };
-      const payload = { ok: true, items: row.items ?? [], title: row.title ?? '', majors: row.majors ?? [], activeMajorId: row.active_major_id ?? '', alerts: row.alerts ?? null, weeklyPlans: row.weekly_plans ?? [], scheduleMode: row.schedule_mode ?? 'major-only', activeWeeklyPlanId: row.active_weekly_plan_id ?? '', activeWeeklyPlanIdByClass: row.active_weekly_plan_by_class ?? {}, weeklyConflictPolicy: row.weekly_conflict_policy ?? null, updatedAt: Number(row.updated_at ?? 0) };
+      const payload = examPayload(row);
       const body = JSON.stringify(payload); const etag = `\"exam-${payload.updatedAt}\"`;
       getCache = { body, etag, expiresAt: Date.now() + GET_CACHE_MS };
       res.setHeader('ETag', etag);
@@ -240,7 +280,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!updatedRows?.length) {
         const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
         const row = rows[0] ?? {};
-        res.status(409).json({ ok: false, error: 'Conflict', remote: { items: row.items ?? [], title: row.title ?? '', majors: row.majors ?? [], activeMajorId: row.active_major_id ?? '', alerts: row.alerts ?? null, weeklyPlans: row.weekly_plans ?? [], scheduleMode: row.schedule_mode ?? 'major-only', activeWeeklyPlanId: row.active_weekly_plan_id ?? '', activeWeeklyPlanIdByClass: row.active_weekly_plan_by_class ?? {}, weeklyConflictPolicy: row.weekly_conflict_policy ?? null, updatedAt: Number(row.updated_at ?? 0) } });
+        const { ok: _ok, ...remote } = examPayload(row);
+        res.status(409).json({ ok: false, error: 'Conflict', remote });
         return;
       }
       getCache = null;

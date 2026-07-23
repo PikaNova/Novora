@@ -12,6 +12,7 @@ export interface ExamPayload {
   activeWeeklyPlanId?: string | null;
   activeWeeklyPlanIdByClass?: Record<string, string | null>;
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
+  boundClassTag?: string | null;
   updatedAt: number;
 }
 
@@ -41,6 +42,9 @@ function toPayload(data: any): ExamPayload {
     weeklyConflictPolicy: data?.weeklyConflictPolicy && typeof data.weeklyConflictPolicy === 'object'
       ? (data.weeklyConflictPolicy as WeeklyConflictPolicy)
       : undefined,
+    boundClassTag: typeof data?.boundClassTag === 'string'
+      ? data.boundClassTag
+      : (data?.boundClassTag === null ? null : undefined),
     updatedAt: Number(data?.updatedAt ?? 0),
   };
 }
@@ -60,13 +64,17 @@ export function getCloudSnapshot(): ExamPayload | null {
   } catch { return null; }
 }
 
-export async function fetchExamsFromServer(): Promise<ExamPayload | null> {
+export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
   try {
     const headers: Record<string, string> = {};
-    const etag = localStorage.getItem(CLOUD_ETAG_KEY);
+    const isBootstrap = !!bootstrapInstanceId;
+    const etag = isBootstrap ? null : localStorage.getItem(CLOUD_ETAG_KEY);
     if (etag) headers['If-None-Match'] = etag;
+    const url = isBootstrap
+      ? `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`
+      : API_URL;
     // no-cache validates at the edge but does not force a database round-trip when the ETag is unchanged.
-    const res = await fetch(API_URL, { method: 'GET', headers, cache: 'no-cache' });
+    const res = await fetch(url, { method: 'GET', headers, cache: isBootstrap ? 'no-store' : 'no-cache' });
     if (res.status === 304) {
       // 304 = 云端数据自上次拉取后未变更，本身即“已同步”成功状态。
       const snap = getCloudSnapshot();

@@ -8,15 +8,24 @@ import { getResolvedExamItems } from '../utils/appSchedule';
 interface Options {
   onUpdate?: (data: { items: ExamItem[]; title: string; alerts: AlertsSettings }) => void;
   intervalMs?: number;
+  bootstrapInstanceId?: string;
+  onBootstrapBinding?: (classTag: string | null) => void;
 }
 
 export type ExamDataSyncState = 'local' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error' | 'auth-required';
+const AUTO_REFRESH_COOLDOWN_MS = 10_000;
 
-export function useExamSync({ onUpdate, intervalMs = 60000 }: Options = {}) {
+export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId, onBootstrapBinding }: Options = {}) {
   const lastApplied = useRef(0);
+  const lastPullAt = useRef(0);
   const pulling = useRef(false);
+  const bootstrapResolved = useRef(false);
+  const bootstrapInstanceIdRef = useRef(bootstrapInstanceId);
+  if (!bootstrapResolved.current && bootstrapInstanceId) bootstrapInstanceIdRef.current = bootstrapInstanceId;
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  const onBootstrapBindingRef = useRef(onBootstrapBinding);
+  onBootstrapBindingRef.current = onBootstrapBinding;
   const [syncState, setSyncState] = useState<ExamDataSyncState>(() => typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (getPendingExamSync() ? 'pending' : 'local'));
   const [lastSyncAt, setLastSyncAt] = useState(0);
   const [hasPendingSync, setHasPendingSync] = useState(() => !!getPendingExamSync());
@@ -51,10 +60,13 @@ export function useExamSync({ onUpdate, intervalMs = 60000 }: Options = {}) {
   }, []);
 
   const refresh = useCallback(async (force = false) => {
+    if (pulling.current) return;
+    const pullStartedAt = Date.now();
+    if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < AUTO_REFRESH_COOLDOWN_MS) return;
     // 手动/恢复时先应用本地快照；离线永远可立即显示最新本机编辑。
     applyLocal();
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-    if (pulling.current) return;
+    lastPullAt.current = pullStartedAt;
     pulling.current = true;
     setSyncState('syncing');
     try {
@@ -69,7 +81,12 @@ export function useExamSync({ onUpdate, intervalMs = 60000 }: Options = {}) {
 
       // 本地仍有待办时绝不以云端旧数据覆盖；等待下一次冲刷/三方合并。
       if (getPendingExamSync()) { setHasPendingSync(true); setSyncState('pending'); return; }
-      const remote = await fetchExamsFromServer();
+      const bootstrapId = bootstrapResolved.current ? undefined : bootstrapInstanceIdRef.current;
+      const remote = await fetchExamsFromServer(bootstrapId);
+      if (bootstrapId && remote) {
+        onBootstrapBindingRef.current?.(remote.boundClassTag ?? null);
+        bootstrapResolved.current = true;
+      }
       if (!remote) { setSyncState('error'); return; }
       const localAt = getAppSettings().exam?.updatedAt ?? 0;
       const baseline = Math.max(lastApplied.current, localAt);

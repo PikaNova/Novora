@@ -8,7 +8,7 @@ import Watermark from '../components/Watermark';
 import type { ExamItem } from '../types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import { APP_SETTINGS_CHANGED_EVENT, APP_SETTINGS_KEY } from '../utils/appSettings';
-import { fetchBoundClassTag, hasConfirmedClassChoice, markClassChoiceConfirmed, saveBoundClassTag } from '../services/classBinding';
+import { cacheBoundClassTag, getCachedBoundClassTag, getClassBindingInstanceId, hasConfirmedClassChoice, markClassChoiceConfirmed, saveBoundClassTag } from '../services/classBinding';
 import { collectClassTags } from '../utils/classSettings';
 import { useExamSync } from '../hooks/useExamSync';
 import '../styles/welcome.css';
@@ -30,7 +30,6 @@ function fmtRemain(ms: number): string { const total = Math.max(0, Math.floor(ms
 const LAST_OPENED_KEY = 'exam_board_last_opened_at';
 export default function WelcomePage() {
   const navigate = useNavigate();
-  const { syncState } = useExamSync();
   const lastOpenedRef = useRef<number>(0);
   useEffect(() => {
     const prev = Number(localStorage.getItem(LAST_OPENED_KEY) || 0);
@@ -42,14 +41,18 @@ export default function WelcomePage() {
   const [idleLeft, setIdleLeft] = useState(10);
   const [pwaAvailable, setPwaAvailable] = useState(false);
   const [classPromptOpen, setClassPromptOpen] = useState(() => !hasConfirmedClassChoice());
-  const [remoteClassTag, setRemoteClassTag] = useState<string | null | undefined>(undefined);
+  const [remoteClassTag, setRemoteClassTag] = useState<string | null | undefined>(() => getCachedBoundClassTag());
   const [classTags, setClassTags] = useState<string[]>(() => { const exam = getAppSettings().exam; return collectClassTags(exam.weeklyPlans, exam.majors); });
+  const { syncState } = useExamSync({
+    bootstrapInstanceId: hasConfirmedClassChoice() ? undefined : getClassBindingInstanceId(),
+    onBootstrapBinding: classTag => { cacheBoundClassTag(classTag); setRemoteClassTag(classTag); },
+  });
+  const appliedRemoteClassTagRef = useRef<string | null | undefined>(undefined);
   const deadline = useRef(Date.now() + IDLE_MS);
   const resetIdle = () => { deadline.current = Date.now() + IDLE_MS; setIdleLeft(10); };
 
   useEffect(() => { const update = () => { const t = nowMs(); const exam = getAppSettings().exam; setNow(t); setNextExam(getNextExam(getResolvedExamItems(t), t)); setClassTags(collectClassTags(exam.weeklyPlans, exam.majors)); }; const onStorage = (event: StorageEvent) => { if (event.key === APP_SETTINGS_KEY) update(); }; update(); const id = window.setInterval(update, 1000); window.addEventListener(APP_SETTINGS_CHANGED_EVENT, update); window.addEventListener('storage', onStorage); window.addEventListener('focus', update); window.addEventListener('pageshow', update); return () => { clearInterval(id); window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, update); window.removeEventListener('storage', onStorage); window.removeEventListener('focus', update); window.removeEventListener('pageshow', update); }; }, []);
-  useEffect(() => { let cancelled = false; void (async () => { if (hasConfirmedClassChoice()) return; const remote = await fetchBoundClassTag(); if (cancelled || hasConfirmedClassChoice()) return; setRemoteClassTag(remote); })(); return () => { cancelled = true; }; }, []);
-  useEffect(() => { if (remoteClassTag === undefined || hasConfirmedClassChoice()) return; if (remoteClassTag === '' || (remoteClassTag !== null && classTags.includes(remoteClassTag))) { updateExamSettings({ selectedClassTag: remoteClassTag }); markClassChoiceConfirmed(); setClassPromptOpen(false); } }, [remoteClassTag, classTags]);
+  useEffect(() => { if (remoteClassTag == null || appliedRemoteClassTagRef.current === remoteClassTag) return; if (remoteClassTag === '' || classTags.includes(remoteClassTag)) { appliedRemoteClassTagRef.current = remoteClassTag; updateExamSettings({ selectedClassTag: remoteClassTag }); markClassChoiceConfirmed(); setClassPromptOpen(false); } }, [remoteClassTag, classTags]);
   useEffect(() => { const tick = () => { if (classPromptOpen) { resetIdle(); return; } const left = Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000)); setIdleLeft(left); if (left <= 0) navigate('/exam'); }; const events: Array<keyof WindowEventMap> = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'click']; events.forEach(e => window.addEventListener(e, resetIdle, { passive: true })); tick(); const id = window.setInterval(tick, 250); return () => { clearInterval(id); events.forEach(e => window.removeEventListener(e, resetIdle)); }; }, [navigate, classPromptOpen]);
   useEffect(() => { const refresh = () => { const dismissed = Number(localStorage.getItem(PWA_DISMISS_KEY) ?? 0); setPwaAvailable(!nextExam && !isStandalonePwa() && canInstallPwa() && Date.now() - dismissed > 7 * 86400000); }; refresh(); window.addEventListener('pwa:available', refresh); return () => window.removeEventListener('pwa:available', refresh); }, [nextExam]);
   const install = async () => { resetIdle(); const installed = await promptInstallPwa(); if (installed) setPwaAvailable(false); };
@@ -57,7 +60,7 @@ export default function WelcomePage() {
   const chooseClass = (classTag: string) => { updateExamSettings({ selectedClassTag: classTag }); void saveBoundClassTag(classTag); setClassPromptOpen(false); resetIdle(); };
   const ongoing = nextExam?.phase === 'ongoing'; const startMs = nextExam ? parseZonedTime(nextExam.exam.startTime) : NaN; const endMs = nextExam ? parseZonedTime(nextExam.exam.endTime) : NaN; const countdownMs = nextExam ? (ongoing ? endMs - now : startMs - now) : 0;
   const currentClass = getAppSettings().exam.selectedClassTag;
-  const classOptionsReady = classTags.length > 0 || (remoteClassTag !== undefined && syncState !== 'local' && syncState !== 'syncing');
+  const classOptionsReady = classTags.length > 0 || (syncState !== 'local' && syncState !== 'syncing');
   return <div className="welcome-page"><div className="welcome-header"><p className="welcome-kicker">EXAM BOARD · LOCAL FIRST</p><h1 className="welcome-title">考试看板</h1><p className="welcome-subtitle">{currentClass ? `${currentClass} · ` : ''}{getAppSettings().exam.title} · {new Date(now).toLocaleTimeString('zh-CN', { hour12: false })}</p>{lastOpenedRef.current > 0 && <p className="welcome-lastopen">上次打开 {formatDateTimeInZone(lastOpenedRef.current)}</p>}</div>
     {!nextExam && <div className="welcome-exam-banner is-ended"><div className="welcome-exam-banner__eyebrow">当前状态</div><span className="welcome-exam-banner__icon">✓</span><div className="welcome-exam-banner__info"><strong>暂无进行中的考试</strong><span>可进入管理后台安排下一场考试</span></div><div className="welcome-exam-banner__count"><small>看板状态</small>待安排</div></div>}
     {nextExam && <div className={`welcome-exam-banner ${ongoing ? 'is-ongoing' : 'is-waiting'}`}><div className="welcome-exam-banner__eyebrow">{ongoing ? (examKind(nextExam.exam) === 'weekly' ? '周测进行中' : '正在考试') : (examKind(nextExam.exam) === 'weekly' ? '下一场周测' : '下一场考试')}</div><span className="welcome-exam-banner__icon">{ongoing ? '●' : '→'}</span><div className="welcome-exam-banner__info"><strong>{nextExam.exam.name}</strong><span>{ongoing ? '开始 ' : '开考 '}{formatDateTimeInZone(startMs)}</span></div><div className="welcome-exam-banner__count"><small>{ongoing ? '距结束' : '距开考'}</small>{fmtRemain(countdownMs)}</div></div>}
