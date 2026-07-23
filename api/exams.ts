@@ -53,7 +53,15 @@ function ensureTableOnce(): Promise<void> {
       await sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_plans JSONB NOT NULL DEFAULT '[]'`;
       await sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS schedule_mode TEXT NOT NULL DEFAULT 'major-only'`;
       await sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_weekly_plan_id TEXT NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_weekly_plan_by_class JSONB NOT NULL DEFAULT '{}'`;
       await sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_conflict_policy JSONB`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS class_instance_bindings (
+          instance_id TEXT PRIMARY KEY,
+          class_tag TEXT NOT NULL DEFAULT '',
+          updated_at BIGINT NOT NULL
+        )
+      `;
       await ensureUpdatedAtBigIntOnce();
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
@@ -74,6 +82,7 @@ type ExamRow = {
   weekly_plans?: unknown;
   schedule_mode?: string;
   active_weekly_plan_id?: string;
+  active_weekly_plan_by_class?: unknown;
   weekly_conflict_policy?: unknown;
   updated_at?: number | string | null;
 };
@@ -106,6 +115,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const sql = database();
 
+    const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
+    if (action === 'class-binding') {
+      const instanceId = String(req.method === 'GET' ? req.query?.instanceId ?? '' : req.body?.instanceId ?? '').trim().slice(0, 128);
+      if (!instanceId) { res.status(400).json({ ok: false, error: 'instanceId is required' }); return; }
+      const runBinding = async () => {
+        if (req.method === 'GET') {
+          const rows = await sql`SELECT class_tag FROM class_instance_bindings WHERE instance_id = ${instanceId}` as unknown as Array<{ class_tag?: string }>;
+          res.status(200).json({ ok: true, classTag: rows[0]?.class_tag ?? null });
+          return;
+        }
+        if (req.method === 'POST') {
+          const classTag = String(req.body?.classTag ?? '').trim().slice(0, 80);
+          const updatedAt = Date.now();
+          await sql`
+            INSERT INTO class_instance_bindings (instance_id, class_tag, updated_at)
+            VALUES (${instanceId}, ${classTag}, ${updatedAt})
+            ON CONFLICT (instance_id) DO UPDATE SET class_tag = EXCLUDED.class_tag, updated_at = EXCLUDED.updated_at
+          `;
+          res.status(200).json({ ok: true, classTag, updatedAt });
+          return;
+        }
+        res.status(405).json({ ok: false, error: 'Method not allowed' });
+      };
+      try { await runBinding(); }
+      catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); await runBinding(); }
+      return;
+    }
+
     if (req.method === 'GET') {
       // Warm cache and ETag avoid repeat database reads for unchanged display data.
       if (getCache && getCache.expiresAt > Date.now()) {
@@ -115,7 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       // 快路径：直接查询（一次往返）；仅当表/列缺失时才迁移后重试。
       const selectRow = async (): Promise<ExamRow[]> => (
-        await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, weekly_conflict_policy, updated_at FROM exam_data WHERE id = 1`
+        await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, updated_at FROM exam_data WHERE id = 1`
       ) as unknown as ExamRow[];
       let rows: ExamRow[];
       try {
@@ -125,8 +162,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await ensureTableOnce();
         rows = await selectRow();
       }
-      const row = rows[0] ?? { items: [], title: '', majors: [], active_major_id: '', alerts: null, weekly_plans: [], schedule_mode: 'major-only', active_weekly_plan_id: '', weekly_conflict_policy: null, updated_at: 0 };
-      const payload = { ok: true, items: row.items ?? [], title: row.title ?? '', majors: row.majors ?? [], activeMajorId: row.active_major_id ?? '', alerts: row.alerts ?? null, weeklyPlans: row.weekly_plans ?? [], scheduleMode: row.schedule_mode ?? 'major-only', activeWeeklyPlanId: row.active_weekly_plan_id ?? '', weeklyConflictPolicy: row.weekly_conflict_policy ?? null, updatedAt: Number(row.updated_at ?? 0) };
+      const row = rows[0] ?? { items: [], title: '', majors: [], active_major_id: '', alerts: null, weekly_plans: [], schedule_mode: 'major-only', active_weekly_plan_id: '', active_weekly_plan_by_class: {}, weekly_conflict_policy: null, updated_at: 0 };
+      const payload = { ok: true, items: row.items ?? [], title: row.title ?? '', majors: row.majors ?? [], activeMajorId: row.active_major_id ?? '', alerts: row.alerts ?? null, weeklyPlans: row.weekly_plans ?? [], scheduleMode: row.schedule_mode ?? 'major-only', activeWeeklyPlanId: row.active_weekly_plan_id ?? '', activeWeeklyPlanIdByClass: row.active_weekly_plan_by_class ?? {}, weeklyConflictPolicy: row.weekly_conflict_policy ?? null, updatedAt: Number(row.updated_at ?? 0) };
       const body = JSON.stringify(payload); const etag = `\"exam-${payload.updatedAt}\"`;
       getCache = { body, etag, expiresAt: Date.now() + GET_CACHE_MS };
       res.setHeader('ETag', etag);
@@ -140,7 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const token = extractBearer(req.headers.authorization);
         if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; }
       }
-      const { items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, weeklyConflictPolicy, baseUpdatedAt } = req.body ?? {};
+      const { items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, activeWeeklyPlanIdByClass, weeklyConflictPolicy, baseUpdatedAt } = req.body ?? {};
       if (!Array.isArray(items)) { res.status(400).json({ ok: false, error: 'items must be an array' }); return; }
       const expectedVersion = Number(baseUpdatedAt ?? 0);
       const updatedAt = Date.now();
@@ -156,6 +193,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               weekly_plans = COALESCE(${weeklyPlans !== undefined ? JSON.stringify(Array.isArray(weeklyPlans) ? weeklyPlans : []) : null}::jsonb, weekly_plans),
               schedule_mode = COALESCE(${typeof scheduleMode === 'string' ? scheduleMode : null}, schedule_mode),
               active_weekly_plan_id = COALESCE(${typeof activeWeeklyPlanId === 'string' ? activeWeeklyPlanId : null}, active_weekly_plan_id),
+              active_weekly_plan_by_class = COALESCE(${activeWeeklyPlanIdByClass && typeof activeWeeklyPlanIdByClass === 'object' ? JSON.stringify(activeWeeklyPlanIdByClass) : null}::jsonb, active_weekly_plan_by_class),
               weekly_conflict_policy = COALESCE(${weeklyConflictPolicy && typeof weeklyConflictPolicy === 'object' ? JSON.stringify(weeklyConflictPolicy) : null}::jsonb, weekly_conflict_policy),
               updated_at = ${updatedAt}
           -- 显式 BIGINT：毫秒级 baseUpdatedAt 不能在与字面量 0 比较时被 PostgreSQL 推断为 INTEGER。
@@ -179,9 +217,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
       if (!updatedRows?.length) {
-        const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, weekly_conflict_policy, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
+        const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
         const row = rows[0] ?? {};
-        res.status(409).json({ ok: false, error: 'Conflict', remote: { items: row.items ?? [], title: row.title ?? '', majors: row.majors ?? [], activeMajorId: row.active_major_id ?? '', alerts: row.alerts ?? null, weeklyPlans: row.weekly_plans ?? [], scheduleMode: row.schedule_mode ?? 'major-only', activeWeeklyPlanId: row.active_weekly_plan_id ?? '', weeklyConflictPolicy: row.weekly_conflict_policy ?? null, updatedAt: Number(row.updated_at ?? 0) } });
+        res.status(409).json({ ok: false, error: 'Conflict', remote: { items: row.items ?? [], title: row.title ?? '', majors: row.majors ?? [], activeMajorId: row.active_major_id ?? '', alerts: row.alerts ?? null, weeklyPlans: row.weekly_plans ?? [], scheduleMode: row.schedule_mode ?? 'major-only', activeWeeklyPlanId: row.active_weekly_plan_id ?? '', activeWeeklyPlanIdByClass: row.active_weekly_plan_by_class ?? {}, weeklyConflictPolicy: row.weekly_conflict_policy ?? null, updatedAt: Number(row.updated_at ?? 0) } });
         return;
       }
       getCache = null;

@@ -39,6 +39,10 @@ export interface ExamSettings {
   weeklyPlans: WeeklyPlan[];
   /** 当前参与调度的周测计划 id（v1.24.0 仅单个计划参与）。 */
   activeWeeklyPlanId: string | null;
+  /** 多班级模式下每个班级当前参与调度的计划。 */
+  activeWeeklyPlanIdByClass: Record<string, string | null>;
+  /** 当前设备/浏览器选择的班级标签；空值表示通用计划。 */
+  selectedClassTag: string;
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
   alertEnabled: boolean;
@@ -166,6 +170,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     scheduleMode: 'major-only',
     weeklyPlans: [],
     activeWeeklyPlanId: null,
+    activeWeeklyPlanIdByClass: {},
+    selectedClassTag: '',
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
     alertEnabled: true,
     announcementPermanentlyHidden: false,
@@ -207,6 +213,9 @@ export function normalizeExam(raw: unknown): ExamSettings {
       name: m.name || `考试${i + 1}`,
       items: normalizeExamItems(Array.isArray(m.items) ? m.items : []),
       order: typeof m.order === 'number' ? m.order : i,
+      targetClasses: Array.isArray(m.targetClasses)
+        ? m.targetClasses.map(String).map(v => v.trim()).filter(Boolean).filter((v, j, a) => a.indexOf(v) === j)
+        : [],
     }))
     .sort((a, b) => a.order - b.order)
     .map((m, i) => ({ ...m, order: i }));
@@ -227,6 +236,21 @@ export function normalizeExam(raw: unknown): ExamSettings {
   let activeWeeklyPlanId: string | null = src.activeWeeklyPlanId ?? null;
   if (activeWeeklyPlanId && !weeklyPlans.some(p => p.id === activeWeeklyPlanId)) activeWeeklyPlanId = null;
   if (!activeWeeklyPlanId && weeklyPlans.length) activeWeeklyPlanId = weeklyPlans[0].id;
+  const activeWeeklyPlanIdByClass: Record<string, string | null> = {};
+  const rawByClass = src.activeWeeklyPlanIdByClass && typeof src.activeWeeklyPlanIdByClass === 'object'
+    ? src.activeWeeklyPlanIdByClass as Record<string, unknown> : {};
+  for (const [tag, id] of Object.entries(rawByClass)) {
+    const value = typeof id === 'string' && weeklyPlans.some(p => p.id === id && (p.classTag || '') === tag) ? id : null;
+    activeWeeklyPlanIdByClass[tag] = value;
+  }
+  for (const plan of weeklyPlans) {
+    const tag = plan.classTag || '';
+    if (!(tag in activeWeeklyPlanIdByClass)) {
+      const fallback = tag === (src.selectedClassTag || '') ? activeWeeklyPlanId : null;
+      activeWeeklyPlanIdByClass[tag] = fallback || (weeklyPlans.find(p => (p.classTag || '') === tag)?.id ?? null);
+    }
+  }
+  const selectedClassTag = typeof src.selectedClassTag === 'string' ? src.selectedClassTag.trim() : '';
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 
   return {
@@ -236,6 +260,8 @@ export function normalizeExam(raw: unknown): ExamSettings {
     scheduleMode,
     weeklyPlans,
     activeWeeklyPlanId,
+    activeWeeklyPlanIdByClass,
+    selectedClassTag,
     weeklyConflictPolicy,
     // items/title 始终镜像激活大型考试，保证展示端无需改动。
     title: active.name,

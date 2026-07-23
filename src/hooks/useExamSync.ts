@@ -30,7 +30,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000 }: Options = {}) {
     setSyncState(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (pending ? 'pending' : 'local'));
   }, []);
 
-  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; weeklyConflictPolicy?: any }) => {
+  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; activeWeeklyPlanIdByClass?: any; weeklyConflictPolicy?: any }) => {
     const updates: Record<string, unknown> = {
       items: payload.items,
       title: payload.title,
@@ -42,6 +42,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000 }: Options = {}) {
     if (payload.scheduleMode !== undefined) updates.scheduleMode = payload.scheduleMode;
     if (payload.weeklyPlans !== undefined) updates.weeklyPlans = payload.weeklyPlans;
     if (payload.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = payload.activeWeeklyPlanId;
+    if (payload.activeWeeklyPlanIdByClass !== undefined) updates.activeWeeklyPlanIdByClass = payload.activeWeeklyPlanIdByClass;
     if (payload.weeklyConflictPolicy !== undefined) updates.weeklyConflictPolicy = payload.weeklyConflictPolicy;
     updateExamSettings(updates as any);
     if (payload.alerts) updateAlertsSettings(payload.alerts);

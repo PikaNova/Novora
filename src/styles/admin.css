@@ -222,4 +222,38 @@
 .admin-tabbar__mode .admin-input { padding:5px 8px; font-size:0.78rem; }
 .weekly-groups { display:flex; flex-direction:column; gap:16px; }
 .weekly-group__title { font-size:0.82rem; font-weight:600; opacity:0.7; margin:0 0 8px; }
+
+.weekly-list-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.weekly-calendar-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;padding:2px 0 8px;scrollbar-gutter:stable;touch-action:pan-x pan-y}
+.weekly-calendar-scroll:focus-visible{outline:2px solid #3498db;outline-offset:3px}
+.weekly-calendar { display:grid; grid-template-columns:repeat(7,minmax(112px,1fr)); gap:8px; min-width:820px; padding-bottom:6px; }
+.weekly-calendar__day { min-height:148px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.035); border-radius:8px; padding:8px; overflow:hidden; }
+.weekly-calendar__day.has-events { border-color:rgba(52,152,219,.35); }
+.weekly-calendar__day>header { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:7px; font-size:12px; }
+.weekly-calendar__day>header span { opacity:.55; font-variant-numeric:tabular-nums; }
+.weekly-calendar__events { display:flex; flex-direction:column; gap:5px; }
+.weekly-calendar__empty { display:block; padding:18px 2px; text-align:center; font-size:11px; opacity:.35; }
+.weekly-calendar__event { display:grid; grid-template-columns:minmax(0,1fr) 24px; align-items:stretch; border-radius:6px; overflow:hidden; background:rgba(52,152,219,.13); }
+.weekly-calendar__event.is-suppressed { background:rgba(230,162,60,.13); opacity:.72; }
+.weekly-calendar__event.is-forced { background:rgba(103,194,58,.13); }
+.weekly-calendar__event-main,.weekly-calendar__remove { border:0; color:inherit; background:transparent; cursor:pointer; }
+.weekly-calendar__event-main { min-width:0; padding:6px; text-align:left; }
+.weekly-calendar__event-main b,.weekly-calendar__event-main span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.weekly-calendar__event-main b { font-size:11px; }
+.weekly-calendar__event-main span { margin-top:2px; font-size:10px; opacity:.68; font-variant-numeric:tabular-nums; }
+.weekly-calendar__remove { width:24px; font-size:16px; opacity:.55; }
+.weekly-calendar__remove:hover { opacity:1; background:rgba(220,53,69,.16); }
+
+@media (max-width:900px) {
+  .weekly-calendar { grid-template-columns:repeat(7,116px); }
+}
+@media (max-width:600px) {
+  .weekly-list-actions{width:100%;margin-left:0;justify-content:stretch}
+  .weekly-list-actions .admin-btn{flex:1 1 132px;min-height:44px;white-space:normal}
+  .weekly-calendar-scroll{margin-inline:-2px;padding-bottom:12px;scroll-snap-type:x proximity}
+  .weekly-calendar { grid-template-columns:repeat(7,108px); gap:6px; min-width:792px; }
+  .weekly-calendar__day { min-height:132px; padding:7px; scroll-snap-align:start; }
+  .weekly-calendar__event-main { padding:6px 5px; }
+  .weekly-calendar__remove{width:30px;min-height:36px}
+}
 @media (max-width: 600px) { .admin-tabbar { padding:8px 14px; } .admin-tabbar__mode { width:100%; justify-content:space-between; } }

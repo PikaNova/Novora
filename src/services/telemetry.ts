@@ -83,7 +83,9 @@ export function getWeeklyUsageSnapshot(): WeeklyUsageSnapshot | null {
     const exam = getAppSettings().exam;
     const plans = Array.isArray(exam.weeklyPlans) ? exam.weeklyPlans : [];
     const enabledPlans = plans.filter((p) => p.enabled);
-    const activePlan = plans.find((p) => p.id === exam.activeWeeklyPlanId);
+    const selectedClassTag = exam.selectedClassTag || '';
+    const activePlanId = selectedClassTag ? exam.activeWeeklyPlanIdByClass[selectedClassTag] : exam.activeWeeklyPlanId;
+    const activePlan = plans.find((p) => p.id === activePlanId && (p.classTag || '') === selectedClassTag);
     const activeItemsEnabled = activePlan ? activePlan.items.filter((i) => i.enabled).length : 0;
     const itemsEnabledTotal = enabledPlans.reduce((sum, p) => sum + p.items.filter((i) => i.enabled).length, 0);
     const inUse = exam.scheduleMode !== 'major-only' && !!activePlan?.enabled && activeItemsEnabled > 0;

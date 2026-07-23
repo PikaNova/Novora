@@ -17,6 +17,8 @@ export function getResolvedSchedule(now: number = nowMs()): ResolvedSchedule {
       scheduleMode: exam.scheduleMode,
       activeMajorId: exam.activeMajorId || null,
       activeWeeklyPlanId: exam.activeWeeklyPlanId ?? null,
+      activeWeeklyPlanIdByClass: exam.activeWeeklyPlanIdByClass,
+      selectedClassTag: exam.selectedClassTag,
       majors: exam.majors,
       weeklyPlans: exam.weeklyPlans,
       weeklyConflictPolicy: exam.weeklyConflictPolicy,

@@ -17,6 +17,7 @@ export interface PendingExamSync {
     scheduleMode?: ScheduleMode;
     weeklyPlans?: WeeklyPlan[];
     activeWeeklyPlanId?: string | null;
+    activeWeeklyPlanIdByClass?: Record<string, string | null>;
     weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   };
   /** 编辑发生前最后一个已知云端完整快照，用于恢复网络后的三方合并。 */
@@ -81,6 +82,7 @@ export async function flushPendingExamSync(force = false): Promise<FlushResult> 
     scheduleMode: pending.payload.scheduleMode ?? first.remote.scheduleMode,
     weeklyPlans: pending.payload.weeklyPlans ?? first.remote.weeklyPlans,
     activeWeeklyPlanId: pending.payload.activeWeeklyPlanId !== undefined ? pending.payload.activeWeeklyPlanId : first.remote.activeWeeklyPlanId,
+    activeWeeklyPlanIdByClass: pending.payload.activeWeeklyPlanIdByClass ?? first.remote.activeWeeklyPlanIdByClass,
     weeklyConflictPolicy: pending.payload.weeklyConflictPolicy ?? first.remote.weeklyConflictPolicy,
   };
   const mergedPending: PendingExamSync = {

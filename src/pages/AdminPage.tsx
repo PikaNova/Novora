@@ -13,6 +13,9 @@ import type { Announcement } from '../services/announcements';
 import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
 import WeeklyPanel from '../components/WeeklyPanel';
+import { collectClassTags } from '../utils/classSettings';
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
+import { saveBoundClassTag } from '../services/classBinding';
 import type { AdminTab, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import '../styles/admin.css';
 
@@ -53,7 +56,7 @@ const SYNC_META: Record<SyncState, { label: string; cls: string }> = {
 };
 
 type EditItem = Omit<ExamItem, 'id' | 'order'> & { id?: string };
-type MajorModal = { mode: 'add' | 'rename'; name: string } | null;
+type MajorModal = { mode: 'add' | 'rename'; name: string; targetClasses: string } | null;
 
 // 内置提醒状态的展示顺序与触发时机说明
 const ALERT_STATE_ORDER: AlertState[] = ['15min', '5min', 'start', 'end15', 'ended', 'next'];
@@ -80,6 +83,7 @@ const ANCHOR_OPTIONS: Array<{ value: CustomReminder['anchor']; label: string }> 
 ];
 
 export default function AdminPage() {
+  const backdropProps = useBackdropDismiss();
   const navigate = useNavigate();
   const location = useLocation();
   const initial = getAppSettings().exam;
@@ -90,6 +94,8 @@ export default function AdminPage() {
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initial.scheduleMode);
   const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(initial.weeklyPlans);
   const [activeWeeklyPlanId, setActiveWeeklyPlanId] = useState<string | null>(initial.activeWeeklyPlanId);
+  const [activeWeeklyPlanIdByClass, setActiveWeeklyPlanIdByClass] = useState<Record<string, string | null>>(initial.activeWeeklyPlanIdByClass);
+  const [selectedClassTag, setSelectedClassTag] = useState(initial.selectedClassTag);
   const [weeklyConflictPolicy, setWeeklyConflictPolicy] = useState<WeeklyConflictPolicy>(initial.weeklyConflictPolicy);
   // 有本地令牌时初始即就绪，立即渲染后台（本地缓存数据），鉴权与拉取在后台并行进行。
   const [ready, setReady] = useState<boolean>(() => hasValidLocalToken());
@@ -123,8 +129,8 @@ export default function AdminPage() {
   const stateRef = useRef({ majors, activeMajorId });
   stateRef.current = { majors, activeMajorId };
   const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const weeklyStateRef = useRef({ scheduleMode, weeklyPlans, activeWeeklyPlanId, weeklyConflictPolicy });
-  weeklyStateRef.current = { scheduleMode, weeklyPlans, activeWeeklyPlanId, weeklyConflictPolicy };
+  const weeklyStateRef = useRef({ scheduleMode, weeklyPlans, activeWeeklyPlanId, activeWeeklyPlanIdByClass, weeklyConflictPolicy });
+  weeklyStateRef.current = { scheduleMode, weeklyPlans, activeWeeklyPlanId, activeWeeklyPlanIdByClass, weeklyConflictPolicy };
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
 
@@ -148,6 +154,14 @@ export default function AdminPage() {
 
   const activeMajor = majors.find(m => m.id === activeMajorId) ?? majors[0];
   const items = activeMajor?.items ?? [];
+  const classTags = collectClassTags(weeklyPlans, majors);
+  const activeMajorApplies = !activeMajor?.targetClasses?.length || (!!selectedClassTag && activeMajor.targetClasses.includes(selectedClassTag));
+
+  const changeSelectedClass = (tag: string) => {
+    setSelectedClassTag(tag);
+    updateExamSettings({ selectedClassTag: tag });
+    void saveBoundClassTag(tag);
+  };
 
   // 构造待推送的完整载荷（items/title 镜像激活大型考试）
   const buildPayload = (ms: MajorExam[], activeId: string) => {
@@ -181,12 +195,16 @@ export default function AdminPage() {
       const merged = threeWayMergeExam(baseSnapshot ?? result.remote, local, result.remote);
       if (merged.conflictCount) void recordSyncConflict(merged.conflictCount, local, result.remote);
       const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
+      const normalizedMergedExam = {
+        ...mergedExam,
+        weeklyConflictPolicy: mergedExam.weeklyConflictPolicy ?? weeklyStateRef.current.weeklyConflictPolicy,
+      };
       // 先把合并结果持久化到本机；同字段并发冲突时自动保留当前操作者的值。
       setMajors(merged.payload.majors);
       setActiveMajorId(merged.payload.activeMajorId);
       const mergedQueuedAt = Date.now();
       queuePendingExamSync({ payload: merged.payload, baseSnapshot: result.remote, savedAt: mergedQueuedAt });
-      updateExamSettings({ ...mergedExam, updatedAt: result.remote.updatedAt });
+      updateExamSettings({ ...normalizedMergedExam, updatedAt: result.remote.updatedAt });
       if (mergedAlerts) {
         updateAlertsSettings({ ...mergedAlerts, updatedAt: result.remote.updatedAt });
         setAlerts(getAppSettings().alerts);
@@ -195,7 +213,7 @@ export default function AdminPage() {
       if (typeof retry === 'number') {
         pendingRef.current = false;
         clearPendingExamSync(mergedQueuedAt);
-        updateExamSettings({ ...mergedExam, updatedAt: retry });
+        updateExamSettings({ ...normalizedMergedExam, updatedAt: retry });
         if (mergedAlerts) updateAlertsSettings({ ...mergedAlerts, updatedAt: retry });
         setSync('saved');
         if (merged.conflictCount) window.alert(`已合并本机与云端修改；其中 ${merged.conflictCount} 个同字段冲突已保留本机值，并已记录到本地冲突历史。`);
@@ -206,7 +224,7 @@ export default function AdminPage() {
       window.alert('已自动合并本机与云端数据，但再次保存时云端又发生变化；合并结果已保留在本机，请稍后重新保存。');
       return;
     }
-    if (result == null) {
+    if (typeof result !== 'number') {
       pendingRef.current = true;
       setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error');
       return;
@@ -214,7 +232,11 @@ export default function AdminPage() {
     pendingRef.current = false;
     clearPendingExamSync(queued?.savedAt);
     const { alerts: pAlerts, ...examPayload } = payload;
-    updateExamSettings({ ...examPayload, updatedAt: result });
+    updateExamSettings({
+      ...examPayload,
+      weeklyConflictPolicy: queued?.payload.weeklyConflictPolicy ?? weeklyStateRef.current.weeklyConflictPolicy,
+      updatedAt: result,
+    });
     if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
     setSync('saved');
   }, [navigate]);
@@ -247,7 +269,7 @@ export default function AdminPage() {
   }, [commit]);
 
   // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
-  const pushWeeklyToServer = useCallback(async (weekly: { scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; weeklyConflictPolicy: WeeklyConflictPolicy }) => {
+  const pushWeeklyToServer = useCallback(async (weekly: { scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; activeWeeklyPlanIdByClass: Record<string, string | null>; weeklyConflictPolicy: WeeklyConflictPolicy }) => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       pendingRef.current = true; setSync('offline');
       // 持久化到本地 outbox，确保离线时的周测编辑在应用重启后仍能在恢复联网时推送。
@@ -276,15 +298,15 @@ export default function AdminPage() {
       window.alert('周测保存时云端数据发生变化，已自动重试一次仍失败；请刷新后台后重新保存。');
       return;
     }
-    if (result == null) { pendingRef.current = true; setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error'); return; }
+    if (typeof result !== 'number') { pendingRef.current = true; setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error'); return; }
     pendingRef.current = false;
     updateExamSettings({ ...weekly, updatedAt: result });
     setSync('saved');
   }, [navigate]);
 
-  const commitWeekly = useCallback((weekly: Partial<{ scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; weeklyConflictPolicy: WeeklyConflictPolicy }>, immediate = false) => {
+  const commitWeekly = useCallback((weekly: Partial<{ scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; activeWeeklyPlanIdByClass: Record<string, string | null>; weeklyConflictPolicy: WeeklyConflictPolicy }>, immediate = false) => {
     const next = { ...weeklyStateRef.current, ...weekly };
-    setScheduleMode(next.scheduleMode); setWeeklyPlans(next.weeklyPlans); setActiveWeeklyPlanId(next.activeWeeklyPlanId); setWeeklyConflictPolicy(next.weeklyConflictPolicy);
+    setScheduleMode(next.scheduleMode); setWeeklyPlans(next.weeklyPlans); setActiveWeeklyPlanId(next.activeWeeklyPlanId); setActiveWeeklyPlanIdByClass(next.activeWeeklyPlanIdByClass); setWeeklyConflictPolicy(next.weeklyConflictPolicy);
     weeklyStateRef.current = next;
     updateExamSettings({ ...next, updatedAt: Date.now() });
     pendingRef.current = true;
@@ -295,7 +317,10 @@ export default function AdminPage() {
   }, [pushWeeklyToServer]);
 
   const handleScheduleModeChange = (mode: ScheduleMode) => commitWeekly({ scheduleMode: mode }, true);
-  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, immediate = false) => commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: activeId }, immediate);
+  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, classTag: string, immediate = false) => {
+    const nextByClass = { ...weeklyStateRef.current.activeWeeklyPlanIdByClass, [classTag]: activeId };
+    commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: classTag ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClass: nextByClass }, immediate);
+  };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
 
   // 开机：鉴权 + 拉取服务器数据
@@ -329,12 +354,13 @@ export default function AdminPage() {
         if (remote.scheduleMode !== undefined) remoteUpdates.scheduleMode = remote.scheduleMode;
         if (remote.weeklyPlans !== undefined) remoteUpdates.weeklyPlans = remote.weeklyPlans;
         if (remote.activeWeeklyPlanId !== undefined) remoteUpdates.activeWeeklyPlanId = remote.activeWeeklyPlanId;
+        if (remote.activeWeeklyPlanIdByClass !== undefined) remoteUpdates.activeWeeklyPlanIdByClass = remote.activeWeeklyPlanIdByClass;
         if (remote.weeklyConflictPolicy !== undefined) remoteUpdates.weeklyConflictPolicy = remote.weeklyConflictPolicy;
         updateExamSettings(remoteUpdates as any);
         if (remote.alerts) { updateAlertsSettings(remote.alerts); setAlerts(getAppSettings().alerts); }
         const merged = getAppSettings().exam;
         setMajors(merged.majors); setActiveMajorId(merged.activeMajorId);
-        setScheduleMode(merged.scheduleMode); setWeeklyPlans(merged.weeklyPlans); setActiveWeeklyPlanId(merged.activeWeeklyPlanId); setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
+        setScheduleMode(merged.scheduleMode); setWeeklyPlans(merged.weeklyPlans); setActiveWeeklyPlanId(merged.activeWeeklyPlanId); setActiveWeeklyPlanIdByClass(merged.activeWeeklyPlanIdByClass); setSelectedClassTag(merged.selectedClassTag); setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
         pendingRef.current = false;
         setSync('saved');
       } else if (localAt > (remote?.updatedAt ?? 0)) {
@@ -342,7 +368,7 @@ export default function AdminPage() {
         pendingRef.current = true;
         const localExam = getAppSettings().exam;
         void pushToServer(localExam.majors, localExam.activeMajorId);
-        void pushWeeklyToServer({ scheduleMode: localExam.scheduleMode, weeklyPlans: localExam.weeklyPlans, activeWeeklyPlanId: localExam.activeWeeklyPlanId, weeklyConflictPolicy: localExam.weeklyConflictPolicy });
+        void pushWeeklyToServer({ scheduleMode: localExam.scheduleMode, weeklyPlans: localExam.weeklyPlans, activeWeeklyPlanId: localExam.activeWeeklyPlanId, activeWeeklyPlanIdByClass: localExam.activeWeeklyPlanIdByClass, weeklyConflictPolicy: localExam.weeklyConflictPolicy });
       } else {
         setSync(remote ? 'saved' : 'offline');
       }
@@ -372,13 +398,14 @@ export default function AdminPage() {
   const commitMajorModal = () => {
     if (!majorModal) return;
     const name = majorModal.name.trim();
+    const targetClasses = majorModal.targetClasses.split(/[，,]/).map(v => v.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
     if (!name) { setMajorError('请输入大型考试名称'); return; }
     if (majorModal.mode === 'add') {
-      const nm: MajorExam = { id: genMajorId(), name, items: [], order: majors.length };
+      const nm: MajorExam = { id: genMajorId(), name, items: [], order: majors.length, targetClasses };
       const ms = [...majors, nm];
       commit(ms, nm.id, true);
     } else {
-      const ms = majors.map(m => m.id === activeMajorId ? { ...m, name } : m);
+      const ms = majors.map(m => m.id === activeMajorId ? { ...m, name, targetClasses } : m);
       commit(ms, activeMajorId, true);
     }
     setMajorModal(null); setMajorError('');
@@ -475,8 +502,8 @@ export default function AdminPage() {
         </span>
         <button className="admin-btn admin-btn--primary" onClick={() => setAlertsOpen(true)}>🔔 提醒管理{alerts.enabled ? '' : '（已停用）'}</button>
         <button className="admin-btn" onClick={() => setAnnounceOpen(true)}>📢 公告</button>
-        <div className="admin-header__desktop-data"><button className="admin-btn" onClick={() => setImportOpen(true)}>导入 JSON</button><button className="admin-btn" onClick={exportJson}>导出 JSON</button></div>
-        <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 600px)').matches) { const width = Math.min(260, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: Math.min(rect.bottom + 8, window.innerHeight - 110), left: Math.min(Math.max(14, rect.left), window.innerWidth - width - 14), width }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen}>⋯ 更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle}><button onClick={() => { setImportOpen(true); setMoreOpen(false); }}>导入 JSON</button><button onClick={() => { exportJson(); setMoreOpen(false); }}>导出 JSON</button></div>}</div>
+        {adminTab === 'major' && <div className="admin-header__desktop-data"><button className="admin-btn" onClick={() => setImportOpen(true)}>导入大型考试 JSON</button><button className="admin-btn" onClick={exportJson}>导出大型考试 JSON</button></div>}
+        {adminTab === 'major' && <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 600px)').matches) { const width = Math.min(260, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: Math.min(rect.bottom + 8, window.innerHeight - 110), left: Math.min(Math.max(14, rect.left), window.innerWidth - width - 14), width }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen}>⋯ 更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle}><button onClick={() => { setImportOpen(true); setMoreOpen(false); }}>导入大型考试 JSON</button><button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button></div>}</div>}
         <button className="admin-btn" onClick={() => navigate('/settings')}>🛠️ 设置</button>
       </div>
     </header>
@@ -492,15 +519,23 @@ export default function AdminPage() {
           <option value="automatic">自动（大型考试优先，自动避让周测）</option>
         </select>
       </label>
+      <label className="admin-tabbar__mode">当前班级
+        <select className="admin-input" value={selectedClassTag} onChange={e => changeSelectedClass(e.target.value)}>
+          <option value="">通用 / 未分组</option>
+          {classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+        </select>
+      </label>
     </div>
     <div className="admin-body">
       {adminTab === 'weekly' ? (
         <WeeklyPanel
           weeklyPlans={weeklyPlans}
           activeWeeklyPlanId={activeWeeklyPlanId}
+          activeWeeklyPlanIdByClass={activeWeeklyPlanIdByClass}
+          selectedClassTag={selectedClassTag}
           scheduleMode={scheduleMode}
           weeklyConflictPolicy={weeklyConflictPolicy}
-          majorItems={items}
+          majorItems={activeMajorApplies ? items : []}
           majorName={activeMajor?.name ?? ''}
           onSavePlans={handleSaveWeeklyPlans}
           onConflictPolicyChange={handleConflictPolicyChange}
@@ -524,8 +559,8 @@ export default function AdminPage() {
             </label>
           )}
           <div className="admin-major-card__btns">
-            <button className="admin-btn admin-btn--primary" onClick={() => { setMajorModal({ mode: 'add', name: '' }); setMajorError(''); }}>+ 新建</button>
-            <button className="admin-btn" onClick={() => { setMajorModal({ mode: 'rename', name: activeMajor.name }); setMajorError(''); }}>重命名</button>
+            <button className="admin-btn admin-btn--primary" onClick={() => { setMajorModal({ mode: 'add', name: '', targetClasses: selectedClassTag }); setMajorError(''); }}>+ 新建</button>
+            <button className="admin-btn" onClick={() => { setMajorModal({ mode: 'rename', name: activeMajor.name, targetClasses: (activeMajor.targetClasses || []).join('，') }); setMajorError(''); }}>设置</button>
             <button className="admin-btn admin-btn--danger" onClick={() => setDeleteMajorOpen(true)} disabled={majors.length <= 1}>删除</button>
           </div>
           <p className="admin-major-card__hint">切换后大屏与本页均展示该大型考试的分考试。</p>
@@ -559,10 +594,10 @@ export default function AdminPage() {
       </>
       )}
     </div>
-    {majorModal && <div className="admin-modal-overlay" onClick={() => setMajorModal(null)}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '重命名大型考试'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') commitMajorModal(); }} placeholder="如：2026年高考 / 高三一模" /></label><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
-    {deleteMajorOpen && <div className="admin-modal-overlay" onClick={() => setDeleteMajorOpen(false)}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
-    {deleteTarget && <div className="admin-modal-overlay" onClick={() => setDeleteTarget(null)}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">确认删除</h2><p className="admin-modal__body">确定删除「{deleteTarget.name}」？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={() => remove(deleteTarget)}>删除</button><button className="admin-btn" onClick={() => setDeleteTarget(null)}>取消</button></div></div></div>}
-    {alertsOpen && <div className="admin-modal-overlay" onClick={() => setAlertsOpen(false)}>
+    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用班级（可选）<input className="admin-input" value={majorModal.targetClasses} onChange={e => setMajorModal(p => p && { ...p, targetClasses: e.target.value })} placeholder="留空=全部班级；多个班级用逗号分隔" /></label><p className="admin-major-card__hint">只在当前设备所选班级命中时参与大屏和周测冲突判断。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
+    {deleteMajorOpen && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteMajorOpen(false))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
+    {deleteTarget && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteTarget(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">确认删除</h2><p className="admin-modal__body">确定删除「{deleteTarget.name}」？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={() => remove(deleteTarget)}>删除</button><button className="admin-btn" onClick={() => setDeleteTarget(null)}>取消</button></div></div></div>}
+    {alertsOpen && <div className="admin-modal-overlay" {...backdropProps(() => setAlertsOpen(false))}>
       <div className="admin-modal admin-modal--wide admin-alerts" onClick={e => e.stopPropagation()}>
         <div className="admin-alerts__head">
           <h2 className="admin-modal__title" style={{ margin: 0 }}>🔔 统一提醒管理</h2>
@@ -640,7 +675,7 @@ export default function AdminPage() {
         </div>
       </div>
     </div>}
-    {announceOpen && <div className="admin-modal-overlay" onClick={() => setAnnounceOpen(false)}>
+    {announceOpen && <div className="admin-modal-overlay" {...backdropProps(() => setAnnounceOpen(false))}>
       <div className="admin-modal admin-modal--wide admin-announce" onClick={e => e.stopPropagation()}>
         <div className="admin-alerts__head">
           <h2 className="admin-modal__title" style={{ margin: 0 }}>📢 公告</h2>
@@ -656,6 +691,6 @@ export default function AdminPage() {
         )}
       </div>
     </div>}
-    {importOpen && <div className="admin-modal-overlay" onClick={() => setImportOpen(false)}><div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">导入分考试 JSON</h2><p className="admin-modal__body">导入到当前大型考试「{activeMajor.name}」，导入后自动保存到云。支持纯数组，或含 <code>title</code> 与 <code>items</code> 的备份文件。</p>{importError && <div className="admin-error">{importError}</div>}<textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>导入并自动保存</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div></div></div>}
+    {importOpen && <div className="admin-modal-overlay" {...backdropProps(() => setImportOpen(false))}><div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">导入分考试 JSON</h2><p className="admin-modal__body">导入到当前大型考试「{activeMajor.name}」，导入后自动保存到云。支持纯数组，或含 <code>title</code> 与 <code>items</code> 的备份文件。</p>{importError && <div className="admin-error">{importError}</div>}<textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>导入并自动保存</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div></div></div>}
   </div>;
 }

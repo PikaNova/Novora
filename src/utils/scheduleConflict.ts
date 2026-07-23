@@ -169,8 +169,10 @@ export interface ResolveScheduleInput {
   scheduleMode: ScheduleMode;
   activeMajorId: string | null;
   activeWeeklyPlanId: string | null;
-  majors: Array<{ id: string; name: string; items: ExamItem[] }>;
+  majors: Array<{ id: string; name: string; items: ExamItem[]; targetClasses?: string[] }>;
   weeklyPlans: Array<Parameters<typeof resolveWeeklyOccurrences>[0]>;
+  activeWeeklyPlanIdByClass?: Record<string, string | null>;
+  selectedClassTag?: string;
   weeklyConflictPolicy?: WeeklyConflictPolicy;
 }
 
@@ -183,10 +185,18 @@ export function resolveEffectiveSchedule(
   now: number,
   options?: ResolveWeeklyOptions,
 ): ResolvedSchedule {
+  const selectedClassTag = (data.selectedClassTag || '').trim();
   const activeMajor = data.majors.find(m => m.id === data.activeMajorId) ?? null;
-  const majorItems = activeMajor ? sortExamItemsByTime(activeMajor.items.filter(i => i.enabled)) : [];
+  const majorApplies = !activeMajor?.targetClasses?.length || (!!selectedClassTag && activeMajor.targetClasses.includes(selectedClassTag));
+  const majorItems = activeMajor && majorApplies ? sortExamItemsByTime(activeMajor.items.filter(i => i.enabled)) : [];
 
-  const activePlan = data.weeklyPlans.find(p => p && p.id === data.activeWeeklyPlanId) ?? null;
+  const classPlanId = selectedClassTag
+    ? data.activeWeeklyPlanIdByClass?.[selectedClassTag]
+    : data.activeWeeklyPlanId;
+  const activePlan = data.weeklyPlans.find(p => p && p.id === classPlanId && (p.classTag || '') === selectedClassTag)
+    ?? data.weeklyPlans.find(p => p && (p.classTag || '') === selectedClassTag)
+    ?? data.weeklyPlans.find(p => p && p.id === classPlanId)
+    ?? null;
   const weeklyOccurrences = resolveWeeklyOccurrences(activePlan, now, options);
 
   if (data.scheduleMode === 'major-only') {

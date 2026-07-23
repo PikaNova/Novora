@@ -1,4 +1,5 @@
 import type { AlertsSettings, ExamItem, MajorExam } from '../types';
+import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 
 export interface MergeableExamPayload {
   items: ExamItem[];
@@ -6,6 +7,11 @@ export interface MergeableExamPayload {
   majors: MajorExam[];
   activeMajorId: string;
   alerts: AlertsSettings | null;
+  scheduleMode?: ScheduleMode;
+  weeklyPlans?: WeeklyPlan[];
+  activeWeeklyPlanId?: string | null;
+  activeWeeklyPlanIdByClass?: Record<string, string | null>;
+  weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   updatedAt: number;
 }
 
@@ -99,6 +105,11 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
   if (!majors.some(major => major.id === activeMajorId)) activeMajorId = majors[0]?.id ?? '';
   const active = majors.find(major => major.id === activeMajorId) ?? majors[0];
   const alerts = mergeValue(base.alerts, local.alerts, remote.alerts, ctx) as AlertsSettings | null;
+  const weeklyPlans = mergeValue(base.weeklyPlans ?? [], local.weeklyPlans ?? [], remote.weeklyPlans ?? [], ctx) as WeeklyPlan[];
+  const activeWeeklyPlanId = mergeValue(base.activeWeeklyPlanId ?? null, local.activeWeeklyPlanId ?? null, remote.activeWeeklyPlanId ?? null, ctx) as string | null;
+  const activeWeeklyPlanIdByClass = mergeValue(base.activeWeeklyPlanIdByClass ?? {}, local.activeWeeklyPlanIdByClass ?? {}, remote.activeWeeklyPlanIdByClass ?? {}, ctx) as Record<string, string | null>;
+  const scheduleMode = mergeValue(base.scheduleMode ?? 'major-only', local.scheduleMode ?? 'major-only', remote.scheduleMode ?? 'major-only', ctx) as ScheduleMode;
+  const weeklyConflictPolicy = mergeValue(base.weeklyConflictPolicy ?? null, local.weeklyConflictPolicy ?? null, remote.weeklyConflictPolicy ?? null, ctx) as WeeklyConflictPolicy | null;
 
   return {
     payload: {
@@ -108,6 +119,11 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
       majors,
       activeMajorId,
       alerts,
+      weeklyPlans,
+      activeWeeklyPlanId,
+      activeWeeklyPlanIdByClass,
+      scheduleMode,
+      weeklyConflictPolicy,
       updatedAt: remote.updatedAt,
     },
     conflictCount: ctx.conflicts,

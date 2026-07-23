@@ -10,6 +10,7 @@ export interface ExamPayload {
   scheduleMode?: ScheduleMode;
   weeklyPlans?: WeeklyPlan[];
   activeWeeklyPlanId?: string | null;
+  activeWeeklyPlanIdByClass?: Record<string, string | null>;
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   updatedAt: number;
 }
@@ -34,6 +35,9 @@ function toPayload(data: any): ExamPayload {
     activeWeeklyPlanId: typeof data?.activeWeeklyPlanId === 'string'
       ? data.activeWeeklyPlanId
       : (data?.activeWeeklyPlanId === null ? null : undefined),
+    activeWeeklyPlanIdByClass: data?.activeWeeklyPlanIdByClass && typeof data.activeWeeklyPlanIdByClass === 'object'
+      ? data.activeWeeklyPlanIdByClass as Record<string, string | null>
+      : undefined,
     weeklyConflictPolicy: data?.weeklyConflictPolicy && typeof data.weeklyConflictPolicy === 'object'
       ? (data.weeklyConflictPolicy as WeeklyConflictPolicy)
       : undefined,
@@ -99,6 +103,7 @@ export interface SaveExamsInput {
   scheduleMode?: ScheduleMode;
   weeklyPlans?: WeeklyPlan[];
   activeWeeklyPlanId?: string | null;
+  activeWeeklyPlanIdByClass?: Record<string, string | null>;
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
 }
 
@@ -125,6 +130,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     if (input.scheduleMode !== undefined) requestBody.scheduleMode = input.scheduleMode;
     if (input.weeklyPlans !== undefined) requestBody.weeklyPlans = input.weeklyPlans;
     if (input.activeWeeklyPlanId !== undefined) requestBody.activeWeeklyPlanId = input.activeWeeklyPlanId;
+    if (input.activeWeeklyPlanIdByClass !== undefined) requestBody.activeWeeklyPlanIdByClass = input.activeWeeklyPlanIdByClass;
     if (input.weeklyConflictPolicy !== undefined) requestBody.weeklyConflictPolicy = input.weeklyConflictPolicy;
     const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) });
     if (res.status === 401) { logoutAdmin(); return 'unauthorized'; }
@@ -145,6 +151,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       scheduleMode: input.scheduleMode,
       weeklyPlans: input.weeklyPlans,
       activeWeeklyPlanId: input.activeWeeklyPlanId,
+      activeWeeklyPlanIdByClass: input.activeWeeklyPlanIdByClass,
       weeklyConflictPolicy: input.weeklyConflictPolicy,
       updatedAt,
     });
