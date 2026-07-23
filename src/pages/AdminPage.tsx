@@ -12,6 +12,8 @@ import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
+import WeeklyPanel from '../components/WeeklyPanel';
+import type { AdminTab, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import '../styles/admin.css';
 
 function fmtAnnTime(ms: number) {
@@ -84,6 +86,11 @@ export default function AdminPage() {
 
   const [majors, setMajors] = useState<MajorExam[]>(initial.majors);
   const [activeMajorId, setActiveMajorId] = useState<string>(initial.activeMajorId);
+  const [adminTab, setAdminTab] = useState<AdminTab>('major');
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initial.scheduleMode);
+  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(initial.weeklyPlans);
+  const [activeWeeklyPlanId, setActiveWeeklyPlanId] = useState<string | null>(initial.activeWeeklyPlanId);
+  const [weeklyConflictPolicy, setWeeklyConflictPolicy] = useState<WeeklyConflictPolicy>(initial.weeklyConflictPolicy);
   // 有本地令牌时初始即就绪，立即渲染后台（本地缓存数据），鉴权与拉取在后台并行进行。
   const [ready, setReady] = useState<boolean>(() => hasValidLocalToken());
   const [editing, setEditing] = useState<EditItem | null>(null);
@@ -115,6 +122,9 @@ export default function AdminPage() {
   const pendingRef = useRef(false); // 是否有尚未推送到服务器的本地变更
   const stateRef = useRef({ majors, activeMajorId });
   stateRef.current = { majors, activeMajorId };
+  const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const weeklyStateRef = useRef({ scheduleMode, weeklyPlans, activeWeeklyPlanId, weeklyConflictPolicy });
+  weeklyStateRef.current = { scheduleMode, weeklyPlans, activeWeeklyPlanId, weeklyConflictPolicy };
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
 
@@ -139,7 +149,7 @@ export default function AdminPage() {
   const activeMajor = majors.find(m => m.id === activeMajorId) ?? majors[0];
   const items = activeMajor?.items ?? [];
 
-  // 构造待推送的完整载荷（items/title 镜像激活大型考试���
+  // 构造待推送的完整载荷（items/title 镜像激活大型考试�����
   const buildPayload = (ms: MajorExam[], activeId: string) => {
     const active = ms.find(m => m.id === activeId) ?? ms[0];
     return { items: active?.items ?? [], title: active?.name ?? '', majors: ms, activeMajorId: activeId, alerts: alertsRef.current };
@@ -236,6 +246,51 @@ export default function AdminPage() {
     commit(ms, stateRef.current.activeMajorId);
   }, [commit]);
 
+  // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
+  const pushWeeklyToServer = useCallback(async (weekly: { scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; weeklyConflictPolicy: WeeklyConflictPolicy }) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) { pendingRef.current = true; setSync('offline'); return; }
+    setSync('saving');
+    const ms = stateRef.current.majors; const activeId = stateRef.current.activeMajorId;
+    const base = buildPayload(ms, activeId);
+    const baseUpdatedAt = getCloudSnapshot()?.updatedAt ?? 0;
+    const result = await saveExamsToServer({ ...base, baseUpdatedAt, ...weekly });
+    if (result === 'unauthorized') { navigate('/login?next=/admin', { replace: true }); return; }
+    if (result && typeof result === 'object' && result.kind === 'conflict') {
+      if (result.remote) {
+        const retryBase = { items: result.remote.items, title: result.remote.title, majors: result.remote.majors, activeMajorId: result.remote.activeMajorId, alerts: result.remote.alerts };
+        const retry = await saveExamsToServer({ ...retryBase, baseUpdatedAt: result.remote.updatedAt, ...weekly });
+        if (typeof retry === 'number') {
+          if (result.remote.majors && result.remote.majors.length) { setMajors(result.remote.majors); setActiveMajorId(result.remote.activeMajorId || result.remote.majors[0].id); }
+          updateExamSettings({ majors: result.remote.majors, activeMajorId: result.remote.activeMajorId, title: result.remote.title, items: result.remote.items, ...weekly, updatedAt: retry });
+          pendingRef.current = false; setSync('saved'); return;
+        }
+      }
+      pendingRef.current = true; setSync('error');
+      window.alert('周测保存时云端数据发生变化，已自动重试一次仍失败；请刷新后台后重新保存。');
+      return;
+    }
+    if (result == null) { pendingRef.current = true; setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error'); return; }
+    pendingRef.current = false;
+    updateExamSettings({ ...weekly, updatedAt: result });
+    setSync('saved');
+  }, [navigate]);
+
+  const commitWeekly = useCallback((weekly: Partial<{ scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; weeklyConflictPolicy: WeeklyConflictPolicy }>, immediate = false) => {
+    const next = { ...weeklyStateRef.current, ...weekly };
+    setScheduleMode(next.scheduleMode); setWeeklyPlans(next.weeklyPlans); setActiveWeeklyPlanId(next.activeWeeklyPlanId); setWeeklyConflictPolicy(next.weeklyConflictPolicy);
+    weeklyStateRef.current = next;
+    updateExamSettings({ ...next, updatedAt: Date.now() });
+    pendingRef.current = true;
+    if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current);
+    if (immediate) { void pushWeeklyToServer(next); return; }
+    setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'saving');
+    weeklySaveTimer.current = setTimeout(() => { void pushWeeklyToServer(next); }, 650);
+  }, [pushWeeklyToServer]);
+
+  const handleScheduleModeChange = (mode: ScheduleMode) => commitWeekly({ scheduleMode: mode }, true);
+  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, immediate = false) => commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: activeId }, immediate);
+  const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
+
   // 开机：鉴权 + 拉取服务器数据
   useEffect(() => {
     let cancelled = false;
@@ -272,6 +327,7 @@ export default function AdminPage() {
         if (remote.alerts) { updateAlertsSettings(remote.alerts); setAlerts(getAppSettings().alerts); }
         const merged = getAppSettings().exam;
         setMajors(merged.majors); setActiveMajorId(merged.activeMajorId);
+        setScheduleMode(merged.scheduleMode); setWeeklyPlans(merged.weeklyPlans); setActiveWeeklyPlanId(merged.activeWeeklyPlanId); setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
         pendingRef.current = false;
         setSync('saved');
       } else if (localAt > (remote?.updatedAt ?? 0)) {
@@ -283,20 +339,20 @@ export default function AdminPage() {
       }
     };
     void boot();
-    return () => { cancelled = true; if (saveTimer.current) clearTimeout(saveTimer.current); };
+    return () => { cancelled = true; if (saveTimer.current) clearTimeout(saveTimer.current); if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current); };
   }, [navigate, pushToServer]);
 
   // 网络状态：回线时自动回推未同步变更
   useEffect(() => {
     const goOnline = () => {
       setOnline(true);
-      if (pendingRef.current) void pushToServer(stateRef.current.majors, stateRef.current.activeMajorId);
+      if (pendingRef.current) { void pushToServer(stateRef.current.majors, stateRef.current.activeMajorId); void pushWeeklyToServer(weeklyStateRef.current); }
     };
     const goOffline = () => { setOnline(false); setSync('offline'); };
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
     return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); };
-  }, [pushToServer]);
+  }, [pushToServer, pushWeeklyToServer]);
 
   // ===== 大型考试：添加 / 切换 / 重命名 / 删除 =====
   const switchMajor = (id: string) => {
@@ -358,7 +414,7 @@ export default function AdminPage() {
   const updateStateCfg = (state: AlertState, patch: Partial<AlertsSettings['states'][AlertState]>) =>
     commitAlerts({ ...alertsRef.current, states: { ...alertsRef.current.states, [state]: { ...alertsRef.current.states[state], ...patch } } });
   const addCustomReminder = () => {
-    const rmd: CustomReminder = { id: genReminderId(), name: '新提醒', enabled: true, anchor: 'beforeStart', offsetMin: 30, tone: '15min', label: '提醒', title: '距开考还有一段时间', subtext: '请提前做好准备' };
+    const rmd: CustomReminder = { id: genReminderId(), name: '新提醒', enabled: true, anchor: 'beforeStart', offsetMin: 30, tone: '15min', label: '提醒', title: '距开考��有一段时间', subtext: '请提前做好准备' };
     commitAlerts({ ...alertsRef.current, custom: [...alertsRef.current.custom, rmd] });
   };
   const updateCustomReminder = (id: string, patch: Partial<CustomReminder>) =>
@@ -415,7 +471,33 @@ export default function AdminPage() {
         <button className="admin-btn" onClick={() => navigate('/settings')}>🛠️ 设置</button>
       </div>
     </header>
+    <div className="admin-tabbar">
+      <div className="admin-tabbar__tabs">
+        <button className={`admin-tab${adminTab === 'major' ? ' is-active' : ''}`} onClick={() => setAdminTab('major')}>🏫 大型考试</button>
+        <button className={`admin-tab${adminTab === 'weekly' ? ' is-active' : ''}`} onClick={() => setAdminTab('weekly')}>📅 周测{weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>
+      </div>
+      <label className="admin-tabbar__mode">运行模式
+        <select className="admin-input" value={scheduleMode} onChange={e => handleScheduleModeChange(e.target.value as ScheduleMode)}>
+          <option value="major-only">仅大型考试</option>
+          <option value="weekly-only">仅周测</option>
+          <option value="automatic">自动（大型考试优先，自动避让周测）</option>
+        </select>
+      </label>
+    </div>
     <div className="admin-body">
+      {adminTab === 'weekly' ? (
+        <WeeklyPanel
+          weeklyPlans={weeklyPlans}
+          activeWeeklyPlanId={activeWeeklyPlanId}
+          scheduleMode={scheduleMode}
+          weeklyConflictPolicy={weeklyConflictPolicy}
+          majorItems={items}
+          majorName={activeMajor?.name ?? ''}
+          onSavePlans={handleSaveWeeklyPlans}
+          onConflictPolicyChange={handleConflictPolicyChange}
+        />
+      ) : (
+      <>
       <aside className="admin-sidebar">
         {/* 大型考试：添加 / 切换 / 重命名 / 删除 */}
         <div className="admin-major-card">
@@ -465,6 +547,8 @@ export default function AdminPage() {
           </li>;
         })}</ul>}
       </main>
+      </>
+      )}
     </div>
     {majorModal && <div className="admin-modal-overlay" onClick={() => setMajorModal(null)}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '重命名大型考试'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') commitMajorModal(); }} placeholder="如：2026年高考 / 高三一模" /></label><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
     {deleteMajorOpen && <div className="admin-modal-overlay" onClick={() => setDeleteMajorOpen(false)}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
