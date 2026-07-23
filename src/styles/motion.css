@@ -1,0 +1,24 @@
+/* ===== 全局动效模式（后台设置） =====
+   <html data-motion="auto|best-effects|best-performance"> 由 motionSettings.ts 写入。 */
+
+/* 最佳性能：全局关停动画/过渡/毛玻璃，适合一体机、投影电视与低端设备。 */
+html[data-motion="best-performance"] *,
+html[data-motion="best-performance"] *::before,
+html[data-motion="best-performance"] *::after {
+  animation-duration: .001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-motion="best-performance"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 最佳效果：开满动效（忽略系统“减少动态效果”），并对关键动效显式保底开启。 */
+html[data-motion="best-effects"] { scroll-behavior: smooth; }
+html[data-motion="best-effects"] .bb__ring { transition: background .6s ease !important; }
+html[data-motion="best-effects"] .dsw-card { transition: transform .18s ease, background .18s ease !important; }
+html[data-motion="best-effects"] .dsw-card:hover { transform: translateY(-2px) !important; }

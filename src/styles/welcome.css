@@ -1,0 +1,49 @@
+.welcome-page{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:max(36px,env(safe-area-inset-top)) 24px max(30px,env(safe-area-inset-bottom));background:radial-gradient(circle at 50% 0%,#172842 0,#0d1119 42%,#090b0f 100%);color:#f0f5fa;font-family:var(--font-region-content);overflow-y:auto;}
+.welcome-header{text-align:center;}.welcome-header:before{content:"EXAM BOARD · LOCAL FIRST";display:block;margin-bottom:8px;color:#73c8ff;font-size:.68rem;font-weight:700;letter-spacing:.18em;}
+.welcome-title{font-family:var(--font-region-display);font-size:clamp(2.25rem,7vw,4.3rem);font-weight:750;letter-spacing:.04em;margin:0 0 8px;}
+.welcome-subtitle{font-size:1rem;opacity:0.5;margin:0;}
+.welcome-exam-banner{width:min(100%,760px);display:flex;align-items:center;gap:16px;padding:20px 24px;border-radius:20px;background:linear-gradient(135deg,rgba(41,114,181,.25),rgba(21,36,57,.9));border:1px solid rgba(117,198,255,.34);box-shadow:0 20px 60px rgba(0,0,0,.24);}
+.welcome-exam-banner__icon{font-size:1.6rem;flex-shrink:0;}
+.welcome-exam-banner__info{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
+.welcome-exam-banner__info strong{font-size:clamp(1.2rem,3vw,1.6rem);}
+.welcome-exam-banner__info span{font-size:0.85rem;font-weight:600;}
+.welcome-exam-banner__time{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:0.78rem;opacity:0.6;flex-shrink:0;}
+.welcome-exam-banner__count{font-family:var(--font-region-numeric);font-size:clamp(1.15rem,3vw,1.75rem)!important;font-weight:750!important;font-variant-numeric:tabular-nums;letter-spacing:.02em;}
+.welcome-idle-hint{font-size:0.75rem;opacity:0.38;margin:0;letter-spacing:0.03em;}
+.welcome-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;width:100%;max-width:720px;}
+.welcome-grid--has-exam{grid-template-columns:1fr 1fr;}
+.welcome-grid--has-exam .welcome-card--featured{grid-column:1/-1;}
+.welcome-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.04);cursor:pointer;transition:background 0.2s,transform 0.15s;text-align:center;color:inherit;font:inherit;outline:none;}
+.welcome-card:hover{background:rgba(255,255,255,0.09);transform:translateY(-2px);}
+.welcome-card--featured{flex-direction:row;justify-content:center;padding:24px 28px;background:rgba(52,152,219,0.12);border-color:rgba(52,152,219,0.45);gap:16px;}
+.welcome-card--featured:hover{background:rgba(52,152,219,0.2);}
+.welcome-card--featured .welcome-card__icon{font-size:2.4rem;}
+.welcome-card--featured .welcome-card__label{font-size:1.4rem;font-weight:600;}
+.welcome-card--featured .welcome-card__desc{font-size:0.95rem;opacity:0.7;}
+.welcome-card__icon{font-size:1.8rem;}
+.welcome-card__label{font-size:1rem;font-weight:500;}
+.welcome-card__desc{font-size:0.78rem;opacity:0.55;}
+.welcome-card__text{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;}
+.welcome-card--featured .welcome-card__text{align-items:flex-start;text-align:left;}
+.welcome-card__badge{position:absolute;top:-10px;right:14px;padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:600;color:#fff;white-space:nowrap;}
+.welcome-card--featured .welcome-card__badge{position:static;font-size:0.85rem;padding:4px 12px;}
+.welcome-footer{margin-top:8px;}
+.welcome-countdown{display:flex;align-items:center;gap:10px;font-size:0.85rem;opacity:0.5;}
+.welcome-countdown__ring{width:36px;height:36px;flex-shrink:0;}
+
+/* 弱提示：仅无考试且浏览器可安装 PWA 时展示，不抢占首页主操作。 */
+.welcome-pwa{display:flex;align-items:center;gap:9px;color:rgba(240,240,240,.42);font-size:.73rem;letter-spacing:.01em}.welcome-pwa button{border:1px solid rgba(255,255,255,.16);border-radius:7px;background:transparent;color:rgba(240,240,240,.68);padding:4px 9px;font:inherit;cursor:pointer}.welcome-pwa button:hover{border-color:rgba(126,200,255,.5);color:#bfe3ff}.welcome-pwa .welcome-pwa__dismiss{border-color:transparent;color:rgba(240,240,240,.32);padding-left:2px;padding-right:2px}.welcome-idle-hint b{font-family:var(--font-region-numeric);font-variant-numeric:tabular-nums;color:rgba(200,225,255,.75)}
+
+@media(max-width:560px){.welcome-page{justify-content:flex-start;padding:calc(env(safe-area-inset-top) + 42px) 16px max(24px,env(safe-area-inset-bottom));gap:18px}.welcome-exam-banner{padding:18px}.welcome-exam-banner__time{display:none}.welcome-grid,.welcome-grid--has-exam{grid-template-columns:1fr}.welcome-grid--has-exam .welcome-card--featured{grid-column:auto}.welcome-card--featured{padding:20px}.welcome-idle-hint{margin-top:2px}}
+/* v1.20 responsive status treatment: all states use a fixed, non-shifting banner. */
+.welcome-exam-banner{width:min(760px,100%);min-height:104px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;padding:16px 18px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(69,143,246,.14);box-shadow:0 14px 32px rgba(0,0,0,.18);overflow:hidden}
+.welcome-exam-banner.is-waiting{background:rgba(68,151,255,.16);border-color:rgba(112,185,255,.45)}
+.welcome-exam-banner.is-ongoing{background:rgba(49,181,115,.15);border-color:rgba(97,220,145,.48)}
+.welcome-exam-banner.is-ended{background:rgba(136,145,159,.13);border-color:rgba(185,193,204,.28)}
+.welcome-exam-banner__eyebrow{grid-column:1/-1;margin-bottom:-8px;font-size:11px;font-weight:800;letter-spacing:.12em;color:#9fcaff}.welcome-exam-banner.is-ongoing .welcome-exam-banner__eyebrow{color:#86ebb0}.welcome-exam-banner.is-ended .welcome-exam-banner__eyebrow{color:#c4cbd4}
+.welcome-exam-banner__info{min-width:0}.welcome-exam-banner__info strong,.welcome-exam-banner__info span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.welcome-exam-banner__count{min-width:116px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.welcome-grid{width:min(760px,100%)}.welcome-card{min-width:0;min-height:128px}.welcome-card__text{min-width:0}.welcome-card__label,.welcome-card__desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:560px){.welcome-page{justify-content:flex-start;gap:18px;padding:calc(env(safe-area-inset-top) + 28px) 16px calc(env(safe-area-inset-bottom) + 28px)}.welcome-exam-banner{grid-template-columns:auto minmax(0,1fr);gap:10px;padding:14px;min-height:118px}.welcome-exam-banner__count{grid-column:1/-1;justify-self:stretch;display:flex;justify-content:space-between;align-items:center;min-width:0;text-align:left;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}.welcome-grid{grid-template-columns:1fr}.welcome-card{min-height:88px;flex-direction:row;justify-content:flex-start;text-align:left;padding:16px}.welcome-card--featured{min-height:104px}.welcome-card__text{align-items:flex-start}}
+
+/* v1.21.0 上次打开时间 */
+.welcome-lastopen { margin: 6px 0 0; font-size: 12px; letter-spacing: .02em; color: rgba(255,255,255,.55); }

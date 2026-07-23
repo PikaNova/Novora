@@ -1,0 +1,90 @@
+/* ===== 考试大屏宿主容器 ===== */
+/* 多版设计切换入口已拆到独立的 design-switcher.css 悬浮窗。 */
+.exam-root { position: fixed; inset: 0; }
+
+/* 大屏数据同步：独立于五套设计的轻量操作入口，不遮挡各设计顶栏。 */
+.exam-sync-action { position:fixed; left:max(12px, env(safe-area-inset-left)); bottom:max(12px, env(safe-area-inset-bottom)); z-index:40; display:flex; flex-direction:column; align-items:flex-start; gap:5px; font:500 12px/1.2 system-ui,sans-serif; pointer-events:none; }
+.exam-sync-action__button { pointer-events:auto; display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:7px 10px; border:1px solid rgba(255,255,255,.2); border-radius:999px; color:#eaf3ff; background:rgba(10,18,32,.78); box-shadow:0 4px 16px rgba(0,0,0,.24); backdrop-filter:blur(10px); font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
+.exam-sync-action__button:hover { background:rgba(29,76,119,.92); }
+.exam-sync-action__button:disabled { opacity:.7; cursor:wait; }
+.exam-sync-action__status { max-width:220px; padding:3px 7px; border-radius:6px; color:rgba(235,243,255,.82); background:rgba(0,0,0,.32); opacity:.45; transition:opacity .2s; }
+.exam-sync-action:hover .exam-sync-action__status, .exam-sync-action.has-pending .exam-sync-action__status, .exam-sync-action.is-offline .exam-sync-action__status, .exam-sync-action.is-error .exam-sync-action__status { opacity:1; }
+.exam-sync-action.has-pending .exam-sync-action__button { border-color:rgba(245,180,65,.75); color:#ffe2a1; }
+.exam-sync-action.is-offline .exam-sync-action__button { border-color:rgba(245,180,65,.65); color:#ffe2a1; }
+.exam-sync-action.is-error .exam-sync-action__button { border-color:rgba(255,113,105,.7); color:#ffd0cc; }
+@media (max-width:620px) { .exam-sync-action { bottom:max(10px, env(safe-area-inset-bottom)); left:max(8px, env(safe-area-inset-left)); } .exam-sync-action__status { max-width:185px; } }
+
+/* Attribution sits bottom-right, opposite the sync control, and disappears below full-screen alerts. */
+.exam-watermark{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:30;pointer-events:none;user-select:none;font:600 11px/1 "Exam Source Han",system-ui,sans-serif;letter-spacing:.045em;color:rgba(255,255,255,.68);mix-blend-mode:difference;white-space:nowrap}@media(max-width:620px){.exam-watermark{display:none}}
+
+.exam-design-loading{position:fixed;inset:0;display:grid;place-items:center;background:#101216;color:#f4f7fb;font:600 16px var(--font-region-content,system-ui)}
+/* Responsive safety rail: design internals may scale, but never grow the viewport. */
+.exam-root,.exam-root *{min-width:0}.exam-root{width:100%;min-height:100dvh;overflow:hidden;isolation:isolate}.exam-root button{max-width:100%;touch-action:manipulation}.exam-root [class*="title"],.exam-root [class*="subject"],.exam-root [class*="headline"],.exam-root [class*="master"]{overflow:hidden;text-overflow:ellipsis}.exam-root [class*="clock"],.exam-root [class*="time"],.exam-root [class*="count"],.exam-root [class*="remaining"]{font-variant-numeric:tabular-nums;white-space:nowrap}.exam-root [class*="top"],.exam-root [class*="head"]{max-width:100%;overflow:hidden}.exam-root img,.exam-root svg{max-width:100%;height:auto}.exam-root [class*="actions"],.exam-root [class*="buttons"]{flex-wrap:nowrap}.exam-root [class*="notify"],.exam-root [class*="notice"]{max-width:min(92vw,900px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}@media(max-width:720px){.exam-root [class*="top"],.exam-root [class*="head"]{gap:clamp(5px,1.5vw,10px)!important}.exam-root [class*="master"],.exam-root [class*="title"]{max-width:48vw}.exam-root [class*="actions"] button,.exam-root [class*="buttons"] button{min-width:32px;padding-inline:clamp(5px,1.5vw,9px)!important}.exam-root [class*="meta"],.exam-root [class*="label"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.exam-root [class*="card"],.exam-root [class*="panel"]{min-width:0!important}}@media(max-height:600px){.exam-root [class*="foot"],.exam-root [class*="bottom"]{padding-block:clamp(5px,1vh,12px)!important}.exam-root [class*="top"],.exam-root [class*="head"]{padding-block:clamp(6px,1.5vh,14px)!important}}
+
+/* ===== v1.22.0 全屏 / 触摸大屏适配 ===== */
+/* 触摸投屏：禁止长按选中、去除点按高亮、禁止橡皮筋滚动，避免误操作影响展示。 */
+.exam-root{ -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; overscroll-behavior:none; }
+.exam-root button{ -webkit-tap-highlight-color:transparent; }
+/* 粗指针（触摸屏）下放大顶栏与同步按钮的可点区域至 ≥44px，符合触控热区标准；
+   仅在较宽视口生效，避免挤压窄屏布局。 */
+@media (pointer:coarse) and (min-width:721px){
+  .exam-root [class*="actions"] button,
+  .exam-root [class*="head-right"] button,
+  .exam-root [class*="head-actions"] button,
+  .exam-root [class*="top-right"] button{ min-width:44px; min-height:44px; }
+  .exam-sync-action__button{ min-height:44px; padding-inline:14px; }
+}
+
+/* 矮窗口双保险：短视口（含带浏览器工具栏的窗口化投屏）强制收紧时钟行高，
+   并进一步用 vh 夹住字号，杜绝大时钟纵向压住科目名 / 标题。
+   注：各时钟用 FitText(transform:scale) 适配宽度，这里改 font-size 不冲突。 */
+@media (max-height:640px){
+  .exam-root [class*="clock"]{ line-height:1 !important; }
+}
+@media (max-height:560px){
+  .bb__clock{ font-size:min(clamp(52px,8vw,150px),24vh)!important; margin-top:clamp(8px,1.8vh,18px)!important; }
+  .cf__clock{ font-size:min(clamp(60px,10vw,200px),30vh)!important; }
+  .nd-clock{ font-size:min(clamp(76px,12vw,240px),30vh)!important; margin:clamp(8px,1.6vh,22px) auto 12px!important; }
+  .em__clock{ font-size:min(clamp(84px,14vw,240px),32vh)!important; }
+  .ed__clock{ line-height:.86!important; }
+  .ld-primary .ld-clock,
+  .ld-orbit-main>.ld-clock,
+  .ld-ice-main .ld-clock,
+  .ld-poster .ld-primary .ld-clock,
+  .ld-palette .ld-primary .ld-clock{ font-size:min(clamp(64px,11vw,220px),26vh)!important; }
+}
+
+/* 无操作自动全屏的引导浮层：静置 1 分钟且浏览器阻止自动全屏时出现，
+   由用户轻触完成手势授权。任意点击遮罩即进入全屏。 */
+.exam-fs-prompt{ position:fixed; inset:0; z-index:60; display:grid; place-items:center;
+  background:rgba(6,10,18,.72); backdrop-filter:blur(6px); animation:exam-fs-fade .25s ease; cursor:pointer; }
+.exam-fs-prompt__card{ max-width:min(88vw,420px); padding:clamp(24px,4vw,40px); border-radius:20px; text-align:center;
+  color:#eaf3ff; background:rgba(16,26,44,.94); border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 18px 60px rgba(0,0,0,.5); cursor:default; }
+.exam-fs-prompt__icon{ font-size:clamp(40px,7vw,60px); line-height:1; margin-bottom:12px; }
+.exam-fs-prompt__title{ margin:0 0 8px; font:700 clamp(19px,2.4vw,26px)/1.3 system-ui,sans-serif; }
+.exam-fs-prompt__hint{ margin:0 0 20px; font:500 clamp(13px,1.4vw,15px)/1.5 system-ui,sans-serif; color:rgba(214,228,247,.72); }
+.exam-fs-prompt__actions{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+.exam-fs-prompt__go,.exam-fs-prompt__later{ min-height:46px; padding:0 22px; border-radius:12px; font:700 15px/1 system-ui,sans-serif; cursor:pointer; }
+.exam-fs-prompt__go{ border:0; color:#04121f; background:#5db4ff; }
+.exam-fs-prompt__go:hover{ background:#7cc4ff; }
+.exam-fs-prompt__later{ border:1px solid rgba(255,255,255,.22); background:transparent; color:#c7d6ea; }
+.exam-fs-prompt__later:hover{ background:rgba(255,255,255,.08); }
+@keyframes exam-fs-fade{ from{opacity:0} to{opacity:1} }
+
+/* ===== 考试结束退出全屏浮层 + 手机端提示 ===== */
+/* 考试结束后 15 分钟内单独弹出的退出全屏浮层：独立于结束提醒浮层，层级高于 .eao(4000) 以保证可点 */
+.exam-ended-exit{position:fixed;left:50%;bottom:max(28px,calc(env(safe-area-inset-bottom) + 20px));transform:translateX(-50%);z-index:4200;display:flex;align-items:center;gap:14px;padding:12px 16px 12px 20px;border:1px solid #ffffff2e;border-radius:16px;background:#0b1220f2;color:#fff;box-shadow:0 18px 50px #000a;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);animation:exam-ended-pop .32s cubic-bezier(.2,.9,.3,1.2) both}
+.exam-ended-exit__text{font-size:14px;font-weight:600;letter-spacing:.02em;color:#dbe6f7;white-space:nowrap}
+.exam-ended-exit__btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:0;border-radius:999px;background:#e5484d;color:#fff;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 6px 18px #e5484d55}
+.exam-ended-exit__btn:hover{background:#f2555a}
+.exam-ended-exit__btn:focus-visible{outline:3px solid #ffd0d2;outline-offset:2px}
+@keyframes exam-ended-pop{from{opacity:0;transform:translateX(-50%) translateY(16px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+@media(pointer:coarse){.exam-ended-exit__btn{padding:13px 24px;font-size:16px}}
+@media(max-width:620px){.exam-ended-exit{left:12px;right:12px;transform:none;justify-content:space-between;bottom:max(18px,calc(env(safe-area-inset-bottom) + 12px));animation:exam-ended-pop-m .32s cubic-bezier(.2,.9,.3,1.2) both}}
+@keyframes exam-ended-pop-m{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.exam-ended-exit{animation:none}}
+.exam-mobile-notice{position:fixed;top:max(10px,env(safe-area-inset-top));left:10px;right:10px;z-index:65;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:12px;background:#1b2740f2;color:#eaf1ff;font-size:13px;line-height:1.45;box-shadow:0 8px 24px #0007;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.exam-mobile-notice__actions{display:flex;align-items:center;gap:8px;flex:none}
+.exam-mobile-notice button{border:0;border-radius:8px;background:#4f8cff;color:#fff;font-weight:700;font-size:12.5px;padding:7px 12px;cursor:pointer}
+.exam-mobile-notice__close{background:#ffffff1f!important;width:32px;padding:7px 0!important;font-size:16px!important;line-height:1}

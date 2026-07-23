@@ -1,0 +1,58 @@
+/* ===== 方案 03 · 校园黑板 ===== */
+.bb {
+  --bg:#153e35; --chalk:#f8fbf5; --muted:#dde7d8; --soft:#b9d3c5; --yellow:#f7e59b; --track:#416c60;
+  position:fixed; inset:0; padding:clamp(16px,2vw,34px); background:var(--bg); color:var(--chalk);
+  font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif; font-variant-numeric:tabular-nums; overflow:hidden;
+}
+.bb__frame { height:100%; border:2px solid var(--soft); border-radius:14px; padding:clamp(16px,2.2vw,40px); display:flex; flex-direction:column; align-items:center; }
+.bb__top { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:start; column-gap:10px; }
+.bb__title-col { display:flex; flex-direction:column; align-items:center; gap:clamp(6px,1.1vh,14px); }
+.bb__master { font-size:clamp(16px,1.6vw,24px); font-weight:600; line-height:1.25; color:var(--muted); letter-spacing:.06em; }
+.bb__subject { font-size:clamp(22px,2.6vw,40px); font-weight:700; line-height:1.12; padding-bottom:.14em; }
+.bb__top-right { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
+.bb__ghost { width:36px; height:36px; border-radius:9px; background:transparent; border:1px solid var(--soft); color:var(--muted); font-size:16px; cursor:pointer; }
+.bb__ghost:hover { background:rgba(255,255,255,.08); color:#fff; }
+.bb__sync { font-size:13px; font-weight:600; padding:5px 12px; border-radius:999px; border:1px solid var(--soft); }
+.bb__sync.is-ok { color:#bdeccb; } .bb__sync.is-wait { color:var(--yellow); } .bb__sync.is-off { color:#ffb3a0; }
+.bb__clock { font-size:min(clamp(56px,7.4vw,150px), 30vh); font-weight:800; line-height:1.06; margin-top:clamp(22px,4.6vh,54px); text-shadow:0 4px 24px rgba(0,0,0,.3); }
+.bb__date { margin:clamp(8px,1.6vh,18px) 0 0; font-size:clamp(15px,1.5vw,22px); color:var(--muted); letter-spacing:.12em; }
+.bb__notify { display:flex; align-items:center; gap:10px; margin-top:12px; padding:8px 14px; border-radius:10px; background:rgba(247,229,155,.14); border:1px solid rgba(247,229,155,.4); color:var(--yellow); font-size:14px; }
+.bb__notify button { background:none; border:none; color:inherit; font-size:17px; cursor:pointer; }
+.bb__lower { flex:1; width:100%; display:flex; align-items:center; justify-content:center; gap:clamp(20px,4vw,70px); margin-top:clamp(6px,1.5vh,20px); }
+.bb__side { display:flex; flex-direction:column; gap:clamp(14px,2.4vh,30px); min-width:clamp(180px,18vw,300px); }
+.bb__side--left { align-items:flex-end; text-align:right; }
+.bb__side--right { align-items:flex-start; text-align:left; }
+.bb__k { display:block; font-size:14px; color:var(--soft); margin-bottom:3px; }
+.bb__v { display:block; font-size:clamp(20px,2.1vw,32px); font-weight:700; }
+.bb__v.is-warn { color:var(--yellow); } .bb__v.is-crit { color:#ff9d84; }
+.bb__remind { font-size:clamp(16px,1.7vw,24px); max-width:16em; }
+.bb__ring {
+  width:clamp(240px,26vw,400px); aspect-ratio:1; border-radius:50%; display:grid; place-items:center;
+  background:conic-gradient(var(--ring) calc(var(--pct)*1%), var(--track) 0);
+  transition:background .6s ease;
+}
+.bb__ring-inner { width:76%; aspect-ratio:1; border-radius:50%; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+.bb__ring-label { font-size:clamp(14px,1.4vw,20px); color:var(--soft); }
+.bb__ring-value { font-size:clamp(40px,5vw,84px); font-weight:800; }
+.bb__empty { flex:1; display:flex; align-items:center; font-size:clamp(18px,2vw,28px); color:var(--soft); }
+@media (max-width:1100px){ .bb__lower{flex-direction:column; gap:18px} .bb__side{flex-direction:row; gap:26px; align-items:center; text-align:center} }
+@media (prefers-reduced-motion:reduce){ .bb__ring{transition:none} }
+
+/* 公告入口加入后，小屏优先保证右侧操作按钮不折行。 */
+@media (max-width:620px){
+  .bb__top { gap:8px; }
+  .bb__title-col { min-width:0; overflow:hidden; }
+  .bb__master,.bb__subject { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bb__top-right { gap:5px; flex:0 0 auto; }
+  .bb__ghost { width:32px; height:32px; flex:0 0 32px; font-size:14px; }
+  .bb__sync { display:none; }
+}
+
+/* v1.17.5 campus display typography */
+.bb,.bb__clock,.bb__subject{font-family:var(--font-chalk)}.bb__clock,.bb__subject{font-weight:900;letter-spacing:.045em}
+/* v1.18.1 local role split */
+.bb__clock{font-family:var(--font-numeric)}.bb__subject{font-family:var(--font-chalk);font-weight:800}
+/* v1.18.5 user-configurable regional typography */
+.bb{--font-design-display:var(--font-chalk)}.bb__top,.bb__master,.bb__date,.bb__k,.bb__remind,.bb__ring-label,.bb__side,.bb__notify{font-family:var(--font-region-navigation)}.bb__subject{font-family:var(--font-region-display)}.bb__v,.bb__empty{font-family:var(--font-region-content)}.bb__clock,.bb__ring-value{font-family:var(--font-region-numeric)}
+
+.bb__clock.eao-fit-text{margin-bottom:0}

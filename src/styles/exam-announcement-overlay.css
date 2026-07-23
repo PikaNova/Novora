@@ -1,0 +1,43 @@
+/* 考试大屏公告：视觉与设置页深色公告卡片一致，内容区独立滚动。 */
+.eann-overlay {
+  position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center;
+  padding: clamp(16px, 3vw, 48px); background: rgba(4, 8, 18, .72); backdrop-filter: blur(9px);
+}
+.eann-window {
+  width: min(760px, 100%); max-height: min(82vh, 820px); display: flex; flex-direction: column;
+  overflow: hidden; color: #e9edf2; background: #0d0f14; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px; box-shadow: 0 26px 80px rgba(0,0,0,.48); font-family: var(--font-region-content);
+}
+.eann-window__head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px 15px;
+  border-bottom: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.025);
+}
+.eann-window__title { margin: 0; font-size: 18px; line-height: 1.35; font-family: var(--font-region-display); }
+.eann-window__lead { margin: 6px 0 0; color: #8b95a1; font-size: 12.5px; line-height: 1.55; }
+.eann-window__close {
+  width: 34px; height: 34px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
+  color: #cdd4dc; background: rgba(255,255,255,.04); font-size: 23px; line-height: 1; cursor: pointer;
+}
+.eann-window__close:hover { color: #fff; background: rgba(255,255,255,.1); }
+.eann-window__body { overflow: auto; overscroll-behavior: contain; padding: 16px 20px 20px; }
+.eann-empty { padding: 30px 10px; color: #8b95a1; text-align: center; font-size: 14px; }
+.eann-list { display: flex; flex-direction: column; gap: 14px; }
+.eann-card { padding: 16px 18px; background: #0f1114; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; }
+.eann-card__title { display: flex; align-items: center; gap: 8px; color: #f2f5f8; font-size: 14.5px; font-weight: 700; }
+.eann-card__pin { font-size: 13px; }
+.eann-card__body { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); }
+.eann-card__meta { margin-top: 10px; color: #8b95a1; font-size: 12px; }
+.eann-window .md-body { color: #d5dbe2; font-size: 13.5px; line-height: 1.75; overflow-wrap: anywhere; }
+.eann-window .md-body .md-h { color: #f2f5f8; font-weight: 700; line-height: 1.35; margin: 16px 0 8px; font-family: var(--font-region-display); }
+.eann-window .md-body .md-h1 { padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.1); font-size: 19px; }
+.eann-window .md-body .md-h2 { font-size: 16px; }.eann-window .md-body .md-h3 { font-size: 14.5px; }
+.eann-window .md-body .md-p { margin: 8px 0; }.eann-window .md-body .md-ul,.eann-window .md-body .md-ol { margin: 8px 0; padding-left: 22px; }.eann-window .md-body li { margin: 3px 0; }
+.eann-window .md-body a { color: #7ec8ff; text-decoration: none; }.eann-window .md-body a:hover { text-decoration: underline; }
+.eann-window .md-body .md-img { display: block; width: 100%; max-width: 220px; height: auto; margin: 10px 0; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; }
+.eann-window .md-body code { padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,.09); font: 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+.eann-window .md-body .md-pre { margin: 10px 0; padding: 12px 14px; overflow-x: auto; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: #07090c; }
+.eann-window .md-body .md-pre code { padding: 0; color: #cfd6de; background: none; white-space: pre; }
+.eann-window .md-body .md-hr { margin: 16px 0; border: 0; border-top: 1px solid rgba(255,255,255,.12); }
+.eann-window .md-body .md-quote { margin: 10px 0; padding: 6px 14px; border-left: 3px solid #3498db; border-radius: 0 6px 6px 0; color: #a9b3bd; background: rgba(52,152,219,.08); }
+.eann-window .md-body .md-table { width: 100%; margin: 10px 0; border-collapse: collapse; font-size: 12.5px; }.eann-window .md-body .md-table th,.eann-window .md-body .md-table td { padding: 6px 10px; border: 1px solid rgba(255,255,255,.12); text-align: left; }.eann-window .md-body .md-table th { font-weight: 600; background: rgba(255,255,255,.05); }
+@media (max-width: 620px) { .eann-overlay { padding: 12px; align-items: flex-end; } .eann-window { max-height: 78vh; border-radius: 14px; } .eann-window__head,.eann-window__body { padding-left: 15px; padding-right: 15px; } .eann-card { padding: 14px; } }

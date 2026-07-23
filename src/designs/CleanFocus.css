@@ -1,0 +1,59 @@
+/* ===== 方案 02 · 清爽聚焦 ===== */
+.cf {
+  --page:#f7fafe; --surface:#fff; --border:#d8e5f3; --text:#132b3b;
+  --muted:#5c7485; --blue:#146eb4; --progress:#1681d4; --soft:#e6f4ff; --warning:#d06d32;
+  position:fixed; inset:0; padding:clamp(20px,3vw,48px); background:var(--page); color:var(--text);
+  font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif; font-variant-numeric:tabular-nums; overflow:hidden;
+}
+.cf__panel {
+  height:100%; background:var(--surface); border:1px solid var(--border); border-radius:28px;
+  padding:clamp(20px,2.6vw,44px); display:flex; flex-direction:column;
+}
+.cf__top { display:flex; align-items:center; justify-content:space-between; }
+.cf__top-left,.cf__top-right { display:flex; align-items:center; gap:12px; }
+.cf__master { font-size:clamp(16px,1.5vw,22px); font-weight:700; color:var(--blue); }
+.cf__ghost { width:38px; height:38px; border-radius:10px; background:var(--soft); border:1px solid var(--border); color:var(--blue); font-size:17px; cursor:pointer; }
+.cf__ghost:hover { background:#d6ecff; }
+.cf__sync { font-size:14px; font-weight:600; padding:6px 14px; border-radius:999px; border:1px solid var(--border); }
+.cf__sync.is-ok { color:var(--blue); background:var(--soft); }
+.cf__sync.is-wait { color:var(--warning); background:#fdeede; border-color:#f3d6bb; }
+.cf__sync.is-off { color:#c0392b; background:#fbe6e4; border-color:#f0cbc6; }
+.cf__notify { display:flex; align-items:center; gap:10px; align-self:center; margin-top:14px; padding:10px 16px; border-radius:12px; background:var(--soft); border:1px solid var(--border); color:var(--blue); font-size:15px; }
+.cf__notify button { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
+.cf__center { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:clamp(8px,1.5vh,20px); }
+.cf__headline { margin:0; font-size:clamp(24px,3.4vw,52px); font-weight:700; }
+.cf__period { margin:0; font-size:clamp(15px,1.6vw,24px); color:var(--muted); letter-spacing:.1em; }
+.cf__clock { font-size:min(clamp(88px,15vw,280px), 46vh); font-weight:800; line-height:.98; color:var(--blue); letter-spacing:.01em; }
+.cf__date { margin:0; font-size:clamp(15px,1.5vw,22px); color:var(--muted); letter-spacing:.12em; }
+.cf__segments { display:flex; gap:6px; width:78%; margin-top:8px; }
+.cf__seg { flex:1; height:14px; border-radius:4px; background:var(--soft); transition:background .4s ease; }
+.cf__seg.is-on { background:var(--progress); }
+.cf__meta { display:flex; gap:clamp(24px,5vw,90px); margin-top:6px; }
+.cf__meta > div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.cf__meta-k { font-size:14px; color:var(--muted); }
+.cf__meta-v { font-size:clamp(20px,2vw,30px); font-weight:700; }
+.cf__meta-v.is-warn { color:var(--warning); }
+.cf__next { margin:0; font-size:clamp(16px,1.7vw,24px); color:var(--muted); }
+.cf__next b { color:var(--blue); }
+@media (max-width:900px){ .cf__master{display:none} .cf__meta{gap:20px} }
+@media (prefers-reduced-motion:reduce){ .cf__seg{transition:none} }
+
+/* 公告入口加入后，小屏顶栏保持单行，避免按钮挤压。 */
+@media (max-width:620px){
+  .cf__top { gap:8px; }
+  .cf__top-right { gap:6px; min-width:0; }
+  .cf__ghost { width:34px; height:34px; flex:0 0 34px; font-size:14px; }
+  .cf__sync { padding:5px 8px; font-size:11px; white-space:nowrap; }
+}
+
+/* v1.17.5 design typography */
+.cf,.cf__clock,.cf__headline{font-family:var(--font-clean)}.cf__headline{letter-spacing:.025em}
+/* v1.18.1 local role split */
+.cf__clock{font-family:var(--font-numeric)}.cf__headline{font-family:var(--font-clean);font-weight:800}
+/* v1.18.5 user-configurable regional typography */
+.cf{--font-design-display:var(--font-clean)}.cf__top,.cf__master,.cf__date,.cf__period,.cf__meta-k,.cf__notify{font-family:var(--font-region-navigation)}.cf__headline{font-family:var(--font-region-display)}.cf__meta-v,.cf__next{font-family:var(--font-region-content)}.cf__clock{font-family:var(--font-region-numeric)}
+
+.cf__clock.eao-fit-text{margin:0}
+
+/* v1.23.0 手机端安全区（刘海/刘口遮挡） */
+@media (max-width:620px){ .cf{ padding-top:max(env(safe-area-inset-top),20px); padding-left:max(env(safe-area-inset-left),16px); padding-right:max(env(safe-area-inset-right),16px); } }

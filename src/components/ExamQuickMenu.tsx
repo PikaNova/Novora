@@ -1,0 +1,3 @@
+import { useState } from 'react';
+import '../styles/exam-quick-menu.css';
+export default function ExamQuickMenu({onHome,onAdmin,onDesign}:{onHome:()=>void;onAdmin:()=>void;onDesign:()=>void}){const [open,setOpen]=useState(false);const go=(fn:()=>void,confirm?:string)=>{if(!confirm||window.confirm(confirm)){setOpen(false);fn()}};return <div className="exam-quick"><button aria-label="更多大屏操作" aria-expanded={open} onClick={()=>setOpen(v=>!v)}>⋯</button>{open&&<div className="exam-quick__menu"><button onClick={()=>go(onDesign)}>切换设计</button><button onClick={()=>go(onHome,'返回首页不会修改考试数据，确定继续？')}>返回首页</button><button onClick={()=>go(onAdmin,'进入管理后台？大屏将停止全屏展示。')}>管理后台</button></div>}</div>}

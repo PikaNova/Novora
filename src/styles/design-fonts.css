@@ -1,0 +1,30 @@
+.font-command{font-family:var(--font-command)}.font-clean{font-family:var(--font-clean)}.font-chalk{font-family:var(--font-chalk)}.font-emergency{font-family:var(--font-emergency)}.font-editorial{font-family:var(--font-editorial)}.font-numeric{font-family:var(--font-numeric);font-variant-numeric:tabular-nums}
+
+/* v1.18.4 · 区域级字体分配：导航/标签、展示标题、动态内容与数字信息各自独立。 */
+/* 01 指挥舱 */
+.cd__top,.cd__master,.cd__date,.cd__period,.cd__track-meta,.cd__card-label,.cd__foot,.cd__notify{font-family:"Exam Source Han",var(--font-fallback)}
+.cd__headline{font-family:var(--font-command);font-weight:800}.cd__clock{font-family:var(--font-numeric)}.cd__card-value{font-family:var(--font-command);font-weight:700}
+/* 02 清爽聚焦 */
+.cf__top,.cf__master,.cf__date,.cf__period,.cf__meta-k,.cf__notify{font-family:"Exam Source Han",var(--font-fallback)}
+.cf__headline{font-family:var(--font-clean);font-weight:800}.cf__clock{font-family:var(--font-numeric)}.cf__meta-v,.cf__next{font-family:var(--font-clean)}
+/* 03 校园黑板 */
+.bb__top,.bb__master,.bb__date,.bb__k,.bb__remind,.bb__ring-label,.bb__side,.bb__notify{font-family:"Exam Source Han",var(--font-fallback)}
+.bb__subject{font-family:var(--font-chalk);font-weight:800}.bb__clock,.bb__ring-value{font-family:var(--font-numeric)}.bb__v{font-family:"Exam Source Han",var(--font-fallback)}
+/* 04 高对比应急 */
+.em__head,.em__date,.em__subject,.em__track-meta,.em__card-k,.em__notify{font-family:"Exam Source Han",var(--font-fallback)}
+.em__sys,.em__card-v{font-family:var(--font-emergency);font-weight:900}.em__clock{font-family:var(--font-numeric)}
+/* 05 编辑排版 */
+.ed__head,.ed__gaokao,.ed__kicker,.ed__masthead,.ed__side-k,.ed__side-sync{font-family:"Exam Source Han",var(--font-fallback)}
+.ed__period,.ed__side-foot,.ed__notify{font-family:var(--font-editorial)}.ed__hm,.ed__ss{font-family:var(--font-numeric)}.ed__side-v{font-family:"Exam Source Han",var(--font-fallback)}
+/* 09–14 亮色设计：所有页面均按同一功能分区处理。 */
+.ld-head,.ld-brand,.ld-sync,.ld-actions,.ld-notice,.ld-tag,.ld-meta,.ld-cards span,.ld-orbit-row span,.ld-queue span,.ld-ice-main aside span{font-family:"Exam Source Han",var(--font-fallback)}
+.ld-primary>p,.ld-orbit-main>p,.ld-ice-main section>p,.ld-peach-main>section>p{font-family:var(--font-editorial)}
+.ld-clock,.ld-ring>strong,.ld-poster-side>b,.ld-peach-main>aside strong,.ld-ice-main>aside:first-child strong,.ld-ice-main>aside:last-child strong,.ld-meta b,.ld-cards>div:nth-child(1) b,.ld-cards>div:nth-child(2) b,.ld-queue em{font-family:var(--font-numeric)}
+.ld-cards>div:nth-child(3) b,.ld-cards>div:nth-child(4) b,.ld-orbit-row b,.ld-queue b,.ld-poster-side>div b,.ld-ice-main aside b{font-family:"Exam Source Han",var(--font-fallback)}
+/* 不同设计仅在其“展示标题”区域使用相应的设计字体。 */
+.ld-sunrise .ld-primary h1,.ld-sunrise .ld-brand{font-family:var(--font-command)}
+.ld-palette .ld-primary h1,.ld-palette .ld-brand{font-family:var(--font-clean)}
+.ld-orbit h1{font-family:var(--font-emergency)}
+.ld-peach h1,.ld-peach .ld-tag{font-family:var(--font-chalk)}
+.ld-poster .ld-primary h1,.ld-poster .ld-brand{font-family:var(--font-command)}
+.ld-ice h1{font-family:var(--font-emergency)}
