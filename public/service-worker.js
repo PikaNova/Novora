@@ -1,4 +1,4 @@
-const CACHE = 'exam-board-shell-v1.27.0-bootstrap-sync-1';
+const CACHE = 'exam-board-shell-v1.28.0-calendar-classes-1';
 const RUNTIME = 'exam-board-runtime-v27';
 // Keep installation light. Fonts are cached after a design actually requests them.
 const CORE = ['/', '/index.html', '/favicon.svg', '/icon-512.png', '/manifest.webmanifest', '/fonts/exam-numeric-subset.ttf', '/fonts/source-han-sc-standard-subset.woff2'];

@@ -7,6 +7,8 @@ import type {
   WeeklyExamOverride,
   WeeklyConflictPolicy,
   IsoWeekday,
+  WeeklyWeekMode,
+  WeeklyWeekType,
 } from '../types/exam';
 import { ALL_CONFLICT_SCOPES } from '../types/exam';
 import {
@@ -16,10 +18,14 @@ import {
   resolveWeeklyOccurrences,
   addDaysToDateKey,
   getShanghaiDateKey,
+  getWeekTypeForDate,
+  genWeeklyPlanId,
   isoWeekdayOfDateKey,
+  normalizeWeeklyPlan,
 } from '../utils/weeklySchedule';
 import { resolveMajorWeeklyConflicts } from '../utils/scheduleConflict';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
+import { getOfficialHolidayName, OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
 const WEEKDAY_ORDER: IsoWeekday[] = [1, 2, 3, 4, 5, 6, 7];
@@ -30,7 +36,7 @@ const SCOPE_LABEL: Record<WeeklyConflictPolicy['scope'], string> = {
 };
 
 type ItemEdit = Omit<WeeklyExamItem, 'id' | 'order'> & { id?: string };
-type PlanModal = { mode: 'add' | 'settings'; name: string; classTag: string; activeFrom: string; activeUntil: string; forever: boolean; repeatEveryWeeks: number } | null;
+type PlanModal = { mode: 'add' | 'settings'; name: string; classTag: string; activeFrom: string; activeUntil: string; anchorDate: string; forever: boolean; repeatEveryWeeks: number; weekMode: WeeklyWeekMode; excludeOfficialHolidays: boolean } | null;
 type PreviewOcc = {
   date: string; weekday: IsoWeekday; name: string; startTime: string; endTime: string;
   suppressed: boolean; forced: boolean; weeklyItemId: string; message?: string;
@@ -42,7 +48,7 @@ function makeItemId() { return genWeeklyItemId(); }
 function padHM(v: string) { const [h = '0', m = '0'] = v.split(':'); return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`; }
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
+const WEEK_TYPE_LABEL: Record<WeeklyWeekType, string> = { all: '每周', a: 'A 周', b: 'B 周' };
 export interface WeeklyPanelProps {
   weeklyPlans: WeeklyPlan[];
   activeWeeklyPlanId: string | null;
@@ -124,9 +130,11 @@ export default function WeeklyPanel({
     const first = getShanghaiDateKey(Date.now());
     return Array.from({ length: 14 }, (_, index) => {
       const date = addDaysToDateKey(first, index);
-      return { date, weekday: isoWeekdayOfDateKey(date), entries: preview.filter(item => item.date === date) };
+      const officialHoliday = activePlan?.excludeOfficialHolidays ? getOfficialHolidayName(date) : null;
+      const manuallyExcluded = !!activePlan?.excludedDates.includes(date);
+      return { date, weekday: isoWeekdayOfDateKey(date), entries: preview.filter(item => item.date === date), officialHoliday, manuallyExcluded, weekType: activePlan?.weekMode === 'ab' ? getWeekTypeForDate(activePlan, date) : null };
     });
-  }, [preview]);
+  }, [preview, activePlan]);
 
   if (!activePlan) {
     return (
@@ -145,7 +153,7 @@ export default function WeeklyPanel({
           <div className="admin-empty">
             <div className="admin-empty__icon">📅</div>
             <p>还没有周测计划</p>
-            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={() => { setPlanModal({ mode: 'add', name: selectedClassTag ? `${selectedClassTag}周测计划` : '周测计划', classTag: selectedClassTag, activeFrom: new Date().toISOString().slice(0, 10), activeUntil: '', forever: true, repeatEveryWeeks: 1 }); setPlanError(''); }}>+ 新建周测计划</button>
+            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: selectedClassTag ? `${selectedClassTag}周测计划` : '周测计划', classTag: selectedClassTag, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建周测计划</button>
           </div>
         </main>
         {planModal && renderPlanModal()}
@@ -158,13 +166,14 @@ export default function WeeklyPanel({
     const name = planModal.name.trim();
     if (!name) { setPlanError('请输入计划名称'); return; }
     if (!DATE_RE.test(planModal.activeFrom)) { setPlanError('请填写生效日期'); return; }
+    if (!DATE_RE.test(planModal.anchorDate)) { setPlanError('请填写学期开始日期'); return; }
     if (!planModal.forever && planModal.activeUntil && planModal.activeUntil < planModal.activeFrom) { setPlanError('结束日期不得早于生效日期'); return; }
     const repeat = Math.min(8, Math.max(1, Math.round(planModal.repeatEveryWeeks) || 1));
     if (planModal.mode === 'add') {
-      const plan = { ...createEmptyWeeklyPlan(Date.now(), name), classTag: planModal.classTag.trim(), activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.activeFrom, repeatEveryWeeks: repeat, order: weeklyPlans.length };
+      const plan = { ...createEmptyWeeklyPlan(Date.now(), name), classTag: planModal.classTag.trim(), activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays, order: weeklyPlans.length };
       onSavePlans([...weeklyPlans, plan], plan.id, plan.classTag || '', true);
     } else {
-      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, name, classTag: planModal.classTag.trim(), activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), repeatEveryWeeks: repeat } : p);
+      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, name, classTag: planModal.classTag.trim(), activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays } : p);
       onSavePlans(plans, activePlan.id, planModal.classTag.trim(), true);
     }
     setPlanModal(null); setPlanError('');
@@ -200,7 +209,7 @@ export default function WeeklyPanel({
     if (editing.id) {
       nextItems = items.map(x => x.id === editing.id ? { ...x, ...editing, startTime: start, endTime: end, id: x.id, order: x.order } : x);
     } else {
-      nextItems = [...items, { id: makeItemId(), order: items.length ? Math.max(...items.map(x => x.order)) + 1 : 0, name, weekday: editing.weekday, startTime: start, endTime: end, endNextDay: editing.endNextDay, enabled: editing.enabled, location: editing.location, note: editing.note }];
+      nextItems = [...items, { id: makeItemId(), order: items.length ? Math.max(...items.map(x => x.order)) + 1 : 0, name, weekday: editing.weekday, startTime: start, endTime: end, endNextDay: editing.endNextDay, enabled: editing.enabled, location: editing.location, note: editing.note, weekType: editing.weekType ?? 'all' }];
     }
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
     onSavePlans(plans, activePlan.id, selectedClassTag, true);
@@ -304,6 +313,25 @@ export default function WeeklyPanel({
     setImportError('');
     try {
       const source = JSON.parse(importText);
+      if (source?.plan && typeof source.plan === 'object') {
+        const imported = normalizeWeeklyPlan(source.plan, weeklyPlans.length);
+        const newPlanId = genWeeklyPlanId();
+        const idMap = new Map(imported.items.map(item => [item.id, makeItemId()]));
+        const importedPlan: WeeklyPlan = {
+          ...imported,
+          id: newPlanId,
+          name: `${imported.name}（导入）`,
+          classTag: selectedClassTag,
+          order: weeklyPlans.length,
+          items: imported.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })),
+          overrides: imported.overrides
+            .filter(item => idMap.has(item.sourceItemId))
+            .map(item => ({ ...item, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date), sourceItemId: idMap.get(item.sourceItemId)! })),
+        };
+        onSavePlans([...weeklyPlans, importedPlan], importedPlan.id, selectedClassTag, true);
+        setImportText(''); setImportOpen(false);
+        return;
+      }
       const list = Array.isArray(source) ? source : source.items;
       if (!Array.isArray(list)) throw new Error('JSON 必须是周测数组，或包含 items 数组');
       const nextItems: WeeklyExamItem[] = list.map((raw: unknown, index: number) => {
@@ -315,8 +343,9 @@ export default function WeeklyPanel({
           startTime: padHM(String(row.startTime)), endTime: padHM(String(row.endTime)),
           endNextDay: !!row.endNextDay, enabled: row.enabled !== false,
           order: typeof row.order === 'number' ? row.order : index,
-          location: typeof row.location === 'string' ? row.location : undefined,
-          note: typeof row.note === 'string' ? row.note : undefined,
+           location: typeof row.location === 'string' ? row.location : undefined,
+           note: typeof row.note === 'string' ? row.note : undefined,
+           weekType: (['all', 'a', 'b'] as WeeklyWeekType[]).includes(row.weekType as WeeklyWeekType) ? row.weekType as WeeklyWeekType : 'all',
         };
       });
       const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
@@ -326,10 +355,26 @@ export default function WeeklyPanel({
   }
 
   function exportJson() {
-    const file = new Blob([JSON.stringify({ plan: activePlan.name, items, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json;charset=utf-8' });
+    const file = new Blob([JSON.stringify({ schemaVersion: 1, plan: activePlan, items, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(file); const link = document.createElement('a');
     link.href = url; link.download = `${activePlan.name || 'weekly'}-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  }
+
+  function copyPlan() {
+    const idMap = new Map(activePlan.items.map(item => [item.id, makeItemId()]));
+    const copy: WeeklyPlan = {
+      ...activePlan,
+      id: genWeeklyPlanId(),
+      name: `${activePlan.name}（副本）`,
+      enabled: false,
+      order: weeklyPlans.length,
+      items: activePlan.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })),
+      overrides: activePlan.overrides
+        .filter(item => idMap.has(item.sourceItemId))
+        .map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })),
+    };
+    onSavePlans([...weeklyPlans, copy], copy.id, copy.classTag || '', true);
   }
 
   const grouped = WEEKDAY_ORDER.map(wd => ({ wd, list: items.filter(i => i.weekday === wd).sort((a, b) => a.order - b.order) }));
@@ -345,11 +390,14 @@ export default function WeeklyPanel({
             <label className="admin-label">计划名称<input className="admin-input" autoFocus value={planModal.name} onChange={e => setPlanModal(p => p && { ...p, name: e.target.value })} placeholder="如：高三周测 / 晚自习周测" /></label>
             <label className="admin-label">所属班级<input className="admin-input" value={planModal.classTag} onChange={e => setPlanModal(p => p && { ...p, classTag: e.target.value })} placeholder="留空表示通用 / 未分组" /></label>
             <label className="admin-label">生效日期<input className="admin-input" type="date" value={planModal.activeFrom} onChange={e => setPlanModal(p => p && { ...p, activeFrom: e.target.value })} /></label>
+            <label className="admin-label">学期开始日期（A 周锚点）<input className="admin-input" type="date" value={planModal.anchorDate} onChange={e => setPlanModal(p => p && { ...p, anchorDate: e.target.value })} /></label>
+            <label className="admin-label">周次模式<select className="admin-input" value={planModal.weekMode} onChange={e => setPlanModal(p => p && { ...p, weekMode: e.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></label>
             <label className="admin-toggle-label"><input type="checkbox" checked={planModal.forever} onChange={e => setPlanModal(p => p && { ...p, forever: e.target.checked })} />长期有效（不设结束日期）</label>
             {!planModal.forever && <label className="admin-label">结束日期<input className="admin-input" type="date" value={planModal.activeUntil} onChange={e => setPlanModal(p => p && { ...p, activeUntil: e.target.value })} /></label>}
-            <label className="admin-label">重复周期<select className="admin-input" value={planModal.repeatEveryWeeks} onChange={e => setPlanModal(p => p && { ...p, repeatEveryWeeks: Number(e.target.value) })}>
+            {planModal.weekMode === 'single' && <label className="admin-label">重复周期<select className="admin-input" value={planModal.repeatEveryWeeks} onChange={e => setPlanModal(p => p && { ...p, repeatEveryWeeks: Number(e.target.value) })}>
               {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n === 1 ? '每周' : `每 ${n} 周（隔 ${n - 1} 周）`}</option>)}
-            </select></label>
+            </select></label>}
+            <label className="admin-toggle-label"><input type="checkbox" checked={planModal.excludeOfficialHolidays} onChange={e => setPlanModal(p => p && { ...p, excludeOfficialHolidays: e.target.checked })} />自动排除 2026 年法定节假日</label>
             <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={commitPlanModal}>确认并保存</button><button className="admin-btn admin-btn--ghost" onClick={() => { setPlanModal(null); setPlanError(''); }}>取消</button></div>
           </div>
         </div>
@@ -364,7 +412,7 @@ export default function WeeklyPanel({
           <div className="admin-major-card__head"><label className="admin-label" style={{ opacity: .9 }}>{selectedClassTag || '通用'} · 周测计划</label><span className="admin-major-card__count">共 {scopedPlans.length} 个</span></div>
           <div className="admin-major-card__active">
             <span className="admin-major-card__active-name" title={activePlan.name}>{activePlan.name}{!activePlan.enabled ? '（已停用）' : ''}</span>
-            <span className="admin-major-card__active-meta">{items.length} 条周测 · {items.filter(i => i.enabled).length} 条启用 · {activePlan.repeatEveryWeeks === 1 ? '每周' : `每 ${activePlan.repeatEveryWeeks} 周`}</span>
+            <span className="admin-major-card__active-meta">{items.length} 条周测 · {items.filter(i => i.enabled).length} 条启用 · {activePlan.weekMode === 'ab' ? 'A/B 周' : activePlan.repeatEveryWeeks === 1 ? '每周' : `每 ${activePlan.repeatEveryWeeks} 周`}</span>
           </div>
           {scopedPlans.length > 1 && (
             <label className="admin-major-card__switch">
@@ -375,12 +423,13 @@ export default function WeeklyPanel({
             </label>
           )}
           <div className="admin-major-card__btns">
-            <button className="admin-btn admin-btn--primary" onClick={() => { setPlanModal({ mode: 'add', name: selectedClassTag ? `${selectedClassTag}周测计划` : '周测计划', classTag: selectedClassTag, activeFrom: new Date().toISOString().slice(0, 10), activeUntil: '', forever: true, repeatEveryWeeks: 1 }); setPlanError(''); }}>+ 新建</button>
-            <button className="admin-btn" onClick={() => { setPlanModal({ mode: 'settings', name: activePlan.name, classTag: activePlan.classTag || '', activeFrom: activePlan.activeFrom, activeUntil: activePlan.activeUntil ?? '', forever: !activePlan.activeUntil, repeatEveryWeeks: activePlan.repeatEveryWeeks }); setPlanError(''); }}>计划设置</button>
+            <button className="admin-btn admin-btn--primary" onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: selectedClassTag ? `${selectedClassTag}周测计划` : '周测计划', classTag: selectedClassTag, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建</button>
+            <button className="admin-btn" onClick={() => { setPlanModal({ mode: 'settings', name: activePlan.name, classTag: activePlan.classTag || '', activeFrom: activePlan.activeFrom, activeUntil: activePlan.activeUntil ?? '', anchorDate: activePlan.anchorDate, forever: !activePlan.activeUntil, repeatEveryWeeks: activePlan.repeatEveryWeeks, weekMode: activePlan.weekMode ?? 'single', excludeOfficialHolidays: activePlan.excludeOfficialHolidays === true }); setPlanError(''); }}>计划设置</button>
             <button className="admin-btn admin-btn--danger" onClick={() => setDeletePlanOpen(true)}>删除</button>
           </div>
           <div className="admin-major-card__btns">
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
+            <button className="admin-btn" style={{ flex: 1 }} onClick={copyPlan}>复制计划</button>
           </div>
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
@@ -413,7 +462,7 @@ export default function WeeklyPanel({
           <div className="weekly-list-actions">
             <button className="admin-btn" onClick={() => setImportOpen(true)}>导入周测 JSON</button>
             <button className="admin-btn" onClick={exportJson}>导出周测 JSON</button>
-            <button className="admin-btn admin-btn--primary" onClick={() => { setEditing({ name: '', weekday: 1, startTime: '19:00', endTime: '20:00', endNextDay: false, enabled: true }); setEditError(''); }}>+ 添加周测</button>
+            <button className="admin-btn admin-btn--primary" onClick={() => { setEditing({ name: '', weekday: 1, startTime: '19:00', endTime: '20:00', endNextDay: false, enabled: true, weekType: 'all' }); setEditError(''); }}>+ 添加周测</button>
           </div>
         </div>
 
@@ -431,7 +480,7 @@ export default function WeeklyPanel({
                     <li className={`admin-item${!item.enabled ? ' admin-item--disabled' : ''}`} key={item.id}>
                       <div className="admin-item__order"><span className="admin-item__order-num">{WEEKDAY_LABEL[item.weekday]}</span></div>
                       <div className="admin-item__info">
-                        <div className="admin-item__name-row"><span className="admin-item__name">{item.name}</span>{!item.enabled && <span className="admin-item__status" style={{ color: '#6c757d', background: 'rgba(108,117,125,.1)' }}>已停用</span>}</div>
+                        <div className="admin-item__name-row"><span className="admin-item__name">{item.name}</span>{activePlan.weekMode === 'ab' && <span className="admin-item__status weekly-week-badge">{WEEK_TYPE_LABEL[item.weekType ?? 'all']}</span>}{!item.enabled && <span className="admin-item__status" style={{ color: '#6c757d', background: 'rgba(108,117,125,.1)' }}>已停用</span>}</div>
                         <div className="admin-item__times"><span>{item.startTime}</span><span className="admin-item__times-sep">–</span><span>{item.endTime}{item.endNextDay ? '（次日）' : ''}</span>{item.location && <span className="admin-item__duration">{item.location}</span>}</div>
                       </div>
                       <div className="admin-item__actions">
@@ -453,10 +502,11 @@ export default function WeeklyPanel({
         </div>
         <div className="weekly-calendar-scroll" tabIndex={0} aria-label="横向滚动查看未来两周">
           <div className="weekly-calendar" role="grid" aria-label="未来两周周测日历">
-            {calendarDays.map(day => <section className={`weekly-calendar__day${day.entries.length ? ' has-events' : ''}`} key={day.date} role="gridcell">
-              <header><strong>{WEEKDAY_LABEL[day.weekday]}</strong><span>{day.date.slice(5)}</span></header>
+            {calendarDays.map(day => <section className={`weekly-calendar__day${day.entries.length ? ' has-events' : ''}${day.officialHoliday || day.manuallyExcluded ? ' is-holiday' : ''}`} key={day.date} role="gridcell">
+              <header><strong>{WEEKDAY_LABEL[day.weekday]}{day.weekType ? ` · ${day.weekType.toUpperCase()}周` : ''}</strong><span>{day.date.slice(5)}</span></header>
               <div className="weekly-calendar__events">
-                {day.entries.length === 0 ? <span className="weekly-calendar__empty">无安排</span> : day.entries.map(entry => <article className={`weekly-calendar__event${entry.suppressed ? ' is-suppressed' : ''}${entry.forced ? ' is-forced' : ''}`} key={`${entry.date}-${entry.weeklyItemId}`}>
+                {(day.officialHoliday || day.manuallyExcluded) && <span className="weekly-calendar__holiday">{day.officialHoliday || '已排除'}</span>}
+                {day.entries.length === 0 ? <span className="weekly-calendar__empty">{day.officialHoliday || day.manuallyExcluded ? '周测已暂停' : '无安排'}</span> : day.entries.map(entry => <article className={`weekly-calendar__event${entry.suppressed ? ' is-suppressed' : ''}${entry.forced ? ' is-forced' : ''}`} key={`${entry.date}-${entry.weeklyItemId}`}>
                   <button className="weekly-calendar__event-main" onClick={() => entry.suppressed ? setConflictTarget(entry) : openReschedule(entry)} title={entry.message || '点击临时调整'}>
                     <b>{entry.name}</b><span>{entry.startTime}–{entry.endTime}</span>
                   </button>
@@ -489,6 +539,7 @@ export default function WeeklyPanel({
               <label className="admin-label">星期<select className="admin-input" value={editing.weekday} onChange={e => setEditing(p => p && { ...p, weekday: Number(e.target.value) as IsoWeekday })}>
                 {WEEKDAY_ORDER.map(wd => <option key={wd} value={wd}>{WEEKDAY_LABEL[wd]}</option>)}
               </select></label>
+              {activePlan.weekMode === 'ab' && <label className="admin-label">适用周次<select className="admin-input" value={editing.weekType ?? 'all'} onChange={e => setEditing(p => p && { ...p, weekType: e.target.value as WeeklyWeekType })}><option value="all">A/B 周都进行</option><option value="a">仅 A 周</option><option value="b">仅 B 周</option></select></label>}
               <label className="admin-label">开始时间<input className="admin-input" type="time" value={editing.startTime} onChange={e => setEditing(p => p && { ...p, startTime: e.target.value })} /></label>
               <label className="admin-label">结束时间<input className="admin-input" type="time" value={editing.endTime} onChange={e => setEditing(p => p && { ...p, endTime: e.target.value })} /></label>
               <label className="admin-toggle-label"><input type="checkbox" checked={!!editing.endNextDay} onChange={e => setEditing(p => p && { ...p, endNextDay: e.target.checked })} />跨日结束（结束时间落在次日）</label>
@@ -512,7 +563,7 @@ export default function WeeklyPanel({
         <div className="admin-modal-overlay" {...backdropProps(() => setImportOpen(false))}>
           <div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}>
             <h2 className="admin-modal__title">导入周测 JSON</h2>
-            <p className="admin-modal__body">导入到当前计划「{activePlan.name}」，会覆盖该计划现有的周测列表。支持纯数组，或含 <code>items</code> 数组的备份文件。</p>
+            <p className="admin-modal__body">旧版 items 数据会覆盖当前周测列表；新版整份计划备份会创建一个独立的新计划，并保留 A/B 周、例外和节假日设置。</p>
             {importError && <div className="admin-error">{importError}</div>}
             <textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"items":[{"name":"周测","weekday":1,"startTime":"19:00","endTime":"20:00","enabled":true}]}' />
             <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>导入并自动保存</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div>
@@ -544,6 +595,8 @@ export default function WeeklyPanel({
           <div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}>
             <h2 className="admin-modal__title">例外日期管理</h2>
             <p className="admin-modal__body">整日排除的日期当天完全不生成周测；下方“单次调整”是“取消本次 / 临时调课 / 本周仍然进行”产生的记录，可在此撤销。</p>
+            <label className="admin-toggle-label"><input type="checkbox" checked={activePlan.excludeOfficialHolidays === true} onChange={e => onSavePlans(weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludeOfficialHolidays: e.target.checked } : p), activePlan.id, selectedClassTag, true)} />自动排除 2026 年法定节假日</label>
+            {activePlan.excludeOfficialHolidays && <p className="admin-major-card__hint weekly-holiday-summary">{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
             <div className="admin-form">
               <label className="admin-label">添加整日排除<input className="admin-input" type="date" value={newExcludeDate} onChange={e => setNewExcludeDate(e.target.value)} /></label>
               <button className="admin-btn admin-btn--primary" onClick={addExcludedDate}>添加排除日</button>

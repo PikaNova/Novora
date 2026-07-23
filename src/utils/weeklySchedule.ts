@@ -5,8 +5,10 @@ import type {
   WeeklyOccurrence,
   IsoWeekday,
   ScheduleValidationIssue,
+  WeeklyWeekType,
 } from '../types/exam';
 import { getZonedParts, DISPLAY_TIME_ZONE } from './timeSource';
+import { expandOfficialHolidayDates } from '../data/officialHolidays';
 
 /**
  * 周测周期规则 -> 实际实例 的纯函数集合。
@@ -47,6 +49,11 @@ export function weekIndexOfDateKey(dateKey: string): number {
   const iso = isoWeekdayOfDateKey(dateKey);
   const mondayMs = dateKeyToAnchorMs(dateKey) - (iso - 1) * DAY_MS;
   return Math.floor(mondayMs / (7 * DAY_MS));
+}
+
+export function getWeekTypeForDate(plan: Pick<WeeklyPlan, 'anchorDate'>, dateKey: string): 'a' | 'b' {
+  const anchorWeek = weekIndexOfDateKey(plan.anchorDate || dateKey);
+  return mod(weekIndexOfDateKey(dateKey) - anchorWeek, 2) === 0 ? 'a' : 'b';
 }
 
 function mod(a: number, n: number): number {
@@ -99,6 +106,9 @@ export function resolveWeeklyOccurrences(
   const anchorWeek = weekIndexOfDateKey(plan.anchorDate || getShanghaiDateKey(now));
   const todayKey = getShanghaiDateKey(now);
   const excluded = new Set(Array.isArray(plan.excludedDates) ? plan.excludedDates : []);
+  if (plan.excludeOfficialHolidays) {
+    for (const date of expandOfficialHolidayDates()) excluded.add(date);
+  }
   const overrides = Array.isArray(plan.overrides) ? plan.overrides : [];
   const items = Array.isArray(plan.items) ? plan.items : [];
 
@@ -106,12 +116,14 @@ export function resolveWeeklyOccurrences(
   for (let offset = -daysBack; offset <= daysForward; offset++) {
     const dateKey = addDaysToDateKey(todayKey, offset);
     if (!isBetweenKeys(dateKey, plan.activeFrom, plan.activeUntil)) continue;
-    if (mod(weekIndexOfDateKey(dateKey) - anchorWeek, repeat) !== 0) continue;
+    if (plan.weekMode !== 'ab' && mod(weekIndexOfDateKey(dateKey) - anchorWeek, repeat) !== 0) continue;
     if (excluded.has(dateKey)) continue; // 整日排除
     const iso = isoWeekdayOfDateKey(dateKey);
 
     for (const item of items) {
       if (!item.enabled || item.weekday !== iso) continue;
+      const weekType = item.weekType ?? 'all';
+      if (plan.weekMode === 'ab' && weekType !== 'all' && weekType !== getWeekTypeForDate(plan, dateKey)) continue;
       const ov = overrides.find(o => o.sourceItemId === item.id && o.date === dateKey);
       if (ov?.action === 'cancel') continue; // 单次取消
       out.push(buildOccurrence(plan.id, item, dateKey, ov));
@@ -174,6 +186,8 @@ export function createEmptyWeeklyPlan(now: number, name = '周测计划'): Weekl
     activeUntil: null,
     repeatEveryWeeks: 1,
     anchorDate: todayKey,
+    weekMode: 'single',
+    excludeOfficialHolidays: false,
     items: [],
     excludedDates: [],
     overrides: [],
@@ -200,6 +214,8 @@ export function normalizeWeeklyPlan(raw: unknown, index = 0): WeeklyPlan {
     activeUntil: DATE_RE.test(src.activeUntil || '') ? (src.activeUntil as string) : null,
     repeatEveryWeeks: clampRepeat(src.repeatEveryWeeks as number),
     anchorDate: DATE_RE.test(src.anchorDate || '') ? (src.anchorDate as string) : (src.activeFrom || ''),
+    weekMode: src.weekMode === 'ab' ? 'ab' : 'single',
+    excludeOfficialHolidays: src.excludeOfficialHolidays === true,
     items,
     excludedDates: (Array.isArray(src.excludedDates) ? src.excludedDates : []).filter(d => DATE_RE.test(d)),
     overrides: (Array.isArray(src.overrides) ? src.overrides : []).filter(Boolean) as WeeklyExamOverride[],
@@ -224,6 +240,7 @@ function normalizeWeeklyItem(raw: unknown, index: number): WeeklyExamItem {
     order: typeof s.order === 'number' ? s.order : index,
     location: s.location,
     note: s.note,
+    weekType: (['all', 'a', 'b'] as WeeklyWeekType[]).includes(s.weekType as WeeklyWeekType) ? s.weekType : 'all',
   };
 }
 
@@ -253,7 +270,7 @@ export function validateWeeklyPlan(plan: WeeklyPlan): ScheduleValidationIssue[] 
     } else if (!item.endNextDay && item.endTime <= item.startTime) {
       issues.push({ level: 'error', code: 'item.range', message: `「${item.name}」结束时间必须晚于开始时间`, itemId: item.id });
     }
-    const dup = `${item.weekday}|${item.startTime}|${item.endTime}|${item.name}`;
+    const dup = `${item.weekType ?? 'all'}|${item.weekday}|${item.startTime}|${item.endTime}|${item.name}`;
     if (seen.has(dup)) {
       issues.push({ level: 'warn', code: 'item.duplicate', message: `「${item.name}」存在完全重复的周测项`, itemId: item.id });
     } else {

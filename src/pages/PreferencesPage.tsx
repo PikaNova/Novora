@@ -38,7 +38,7 @@ export default function PreferencesPage() {
   const [typography, setTypography] = useState<TypographySettings>(initial.general.typography);
   const [selectedClassTag, setSelectedClassTag] = useState(initial.exam.selectedClassTag);
   const classTags = useMemo(
-    () => collectClassTags(initial.exam.weeklyPlans, initial.exam.majors),
+    () => collectClassTags(initial.exam.weeklyPlans, initial.exam.majors, initial.exam.activeWeeklyPlanIdByClass),
     [],
   );
 
@@ -88,7 +88,7 @@ export default function PreferencesPage() {
         <div className="set-card__head"><h2 className="set-card__title">当前班级</h2></div>
         <p className="set-card__lead">只影响这台设备显示的周测与适用班级考试，不会修改其他设备。</p>
         <div className="set-row"><label className="set-label">班级 / 分组</label><select className="set-input" value={selectedClassTag} onChange={e => patchClass(e.target.value)}><option value="">通用 / 未分组</option>{classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select></div>
-        {classTags.length === 0 && <p className="set-note">管理员尚未创建带班级标签的周测计划。</p>}
+        {classTags.length === 0 && <p className="set-note">管理员尚未在班级管理中添加班级。</p>}
       </section>
     </main>
   </div>;

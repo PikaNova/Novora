@@ -4,6 +4,7 @@ import {
   getAppSettings,
   updateAppSettings,
   updateTimeSyncSettings,
+  updateExamSettings,
   APP_SETTINGS_KEY,
 } from '../utils/appSettings';
 import { DEFAULT_TYPOGRAPHY, updateAlertsSettings, updateMotionMode } from '../utils/appSettings';
@@ -16,7 +17,10 @@ import { DESIGNS } from '../designs/registry';
 import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
 import readmeRaw from '../../README.md?raw';
-import { changeAdminPassword, hasValidLocalToken, isLoginRequired } from '../services/examService';
+import { changeAdminPassword, getCloudSnapshot, hasValidLocalToken, isLoginRequired, saveExamsToServer } from '../services/examService';
+import type { WeeklyPlan, WeeklyWeekMode } from '../types/exam';
+import { collectClassTags } from '../utils/classSettings';
+import { OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
 import { getConsent, isEnabled, setEnabled, getInstanceId, reportNow } from '../services/telemetry';
 import { checkForUpdate, getRedeployConfigured, triggerRedeploy } from '../services/update';
 import type { UpdateInfo } from '../services/update';
@@ -86,6 +90,11 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordMsg, setPasswordMsg] = useState('');
   const [passwordBusy, setPasswordBusy] = useState(false);
+  const initialExam = useMemo(() => getAppSettings().exam, []);
+  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(initialExam.weeklyPlans);
+  const [calendarClass, setCalendarClass] = useState(initialExam.selectedClassTag);
+  const [calendarPlanId, setCalendarPlanId] = useState(() => initialExam.activeWeeklyPlanIdByClass[initialExam.selectedClassTag] ?? initialExam.activeWeeklyPlanId ?? '');
+  const [calendarSave, setCalendarSave] = useState('');
   const toggleTele = (v: boolean) => { setEnabled(v); setTeleOn(v); };
   const reportTele = async () => {
     setTeleMsg('上报中…');
@@ -191,6 +200,51 @@ export default function SettingsPage() {
     window.location.reload();
   };
 
+  const classTags = useMemo(() => collectClassTags(weeklyPlans, initialExam.majors, initialExam.activeWeeklyPlanIdByClass), [weeklyPlans, initialExam]);
+  const classPlans = weeklyPlans.filter(plan => (plan.classTag || '') === calendarClass);
+  const calendarPlan = classPlans.find(plan => plan.id === calendarPlanId) ?? classPlans[0] ?? null;
+
+  const selectCalendarClass = (tag: string) => {
+    setCalendarClass(tag);
+    const exam = getAppSettings().exam;
+    setCalendarPlanId(exam.activeWeeklyPlanIdByClass[tag] ?? weeklyPlans.find(plan => (plan.classTag || '') === tag)?.id ?? '');
+  };
+
+  const saveCalendarPlan = async (updates: Partial<WeeklyPlan>) => {
+    if (!calendarPlan) return;
+    const nextPlans = weeklyPlans.map(plan => plan.id === calendarPlan.id ? { ...plan, ...updates } : plan);
+    setWeeklyPlans(nextPlans);
+    updateExamSettings({ weeklyPlans: nextPlans, updatedAt: Date.now() });
+    setCalendarSave('正在保存到云端…');
+    const exam = getAppSettings().exam;
+    const input = { items: exam.items, title: exam.title, majors: exam.majors, activeMajorId: exam.activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: nextPlans, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClass: exam.activeWeeklyPlanIdByClass, weeklyConflictPolicy: exam.weeklyConflictPolicy };
+    let persistedPlans = nextPlans;
+    let result = await saveExamsToServer({ ...input, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
+    if (result && typeof result === 'object' && result.kind === 'conflict' && result.remote) {
+      const remote = result.remote;
+      const mergedPlans = (remote.weeklyPlans ?? nextPlans).map(plan => plan.id === calendarPlan.id ? { ...plan, ...updates } : plan);
+      if (!mergedPlans.some(plan => plan.id === calendarPlan.id)) mergedPlans.push({ ...calendarPlan, ...updates });
+      persistedPlans = mergedPlans;
+      result = await saveExamsToServer({
+        ...input,
+        items: remote.items,
+        title: remote.title,
+        majors: remote.majors,
+        activeMajorId: remote.activeMajorId,
+        alerts: remote.alerts,
+        scheduleMode: remote.scheduleMode ?? input.scheduleMode,
+        weeklyPlans: mergedPlans,
+        activeWeeklyPlanId: remote.activeWeeklyPlanId ?? input.activeWeeklyPlanId,
+        activeWeeklyPlanIdByClass: remote.activeWeeklyPlanIdByClass ?? input.activeWeeklyPlanIdByClass,
+        weeklyConflictPolicy: remote.weeklyConflictPolicy ?? input.weeklyConflictPolicy,
+        baseUpdatedAt: remote.updatedAt,
+      });
+    }
+    if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
+    if (typeof result === 'number') { setWeeklyPlans(persistedPlans); updateExamSettings({ weeklyPlans: persistedPlans, updatedAt: result }); setCalendarSave('已保存到云端'); }
+    else setCalendarSave('保存失败，请检查网络后重试');
+  };
+
   if (!authed) return <div className="set-loading">正在验证管理权限…</div>;
 
   const ready = isTimeSyncReady();
@@ -207,6 +261,22 @@ export default function SettingsPage() {
       </header>
 
       <div className="set-body">
+        <section className="set-card">
+          <div className="set-card__head"><h2 className="set-card__title">周测日历</h2></div>
+          <p className="set-card__lead">配置学期周次和法定节假日。学期开始日期所在周按 A 周计算，下一周自动切换为 B 周。</p>
+          <div className="set-fieldset">
+            <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={calendarClass} onChange={event => selectCalendarClass(event.target.value)}><option value="">通用 / 未分组</option>{classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select></div>
+            {classPlans.length > 1 && <div className="set-row"><label className="set-label">周测计划</label><select className="set-input" value={calendarPlan?.id ?? ''} onChange={event => setCalendarPlanId(event.target.value)}>{classPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></div>}
+            {calendarPlan ? <>
+              <div className="set-row"><label className="set-label">学期开始日期</label><input className="set-input" type="date" value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
+              <div className="set-row"><label className="set-label">周次模式</label><select className="set-input" value={calendarPlan.weekMode ?? 'single'} onChange={event => void saveCalendarPlan({ weekMode: event.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></div>
+              <div className="set-row"><label className="set-label">法定节假日自动排除</label><Switch checked={calendarPlan.excludeOfficialHolidays === true} onChange={value => void saveCalendarPlan({ excludeOfficialHolidays: value })} /></div>
+              {calendarPlan.excludeOfficialHolidays && <p className="set-note set-holiday-list">已启用：{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
+              {calendarSave && <p className="set-note" aria-live="polite">{calendarSave}</p>}
+            </> : <div className="set-note set-note--warn">当前班级还没有周测计划，请先到管理后台的“周测”页创建计划。</div>}
+          </div>
+        </section>
+
         {/* ―― 时间同步 ―― */}
         <section className="set-card">
           <div className="set-card__head">

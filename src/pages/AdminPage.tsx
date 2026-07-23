@@ -14,6 +14,7 @@ import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
 import WeeklyPanel from '../components/WeeklyPanel';
 import DeviceStatusPanel from '../components/DeviceStatusPanel';
+import ClassManagementPanel from '../components/ClassManagementPanel';
 import { collectClassTags } from '../utils/classSettings';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { saveBoundClassTag } from '../services/classBinding';
@@ -155,7 +156,7 @@ export default function AdminPage() {
 
   const activeMajor = majors.find(m => m.id === activeMajorId) ?? majors[0];
   const items = activeMajor?.items ?? [];
-  const classTags = collectClassTags(weeklyPlans, majors);
+  const classTags = collectClassTags(weeklyPlans, majors, activeWeeklyPlanIdByClass);
   const activeMajorApplies = !activeMajor?.targetClasses?.length || (!!selectedClassTag && activeMajor.targetClasses.includes(selectedClassTag));
 
   const changeSelectedClass = (tag: string) => {
@@ -287,11 +288,15 @@ export default function AdminPage() {
     if (result === 'unauthorized') { navigate('/login?next=/admin', { replace: true }); return; }
     if (result && typeof result === 'object' && result.kind === 'conflict') {
       if (result.remote) {
-        const retryBase = { items: result.remote.items, title: result.remote.title, majors: result.remote.majors, activeMajorId: result.remote.activeMajorId, alerts: result.remote.alerts };
-        const retry = await saveExamsToServer({ ...retryBase, baseUpdatedAt: result.remote.updatedAt, ...weekly });
+        const baseline = getCloudSnapshot() ?? { ...result.remote, updatedAt: baseUpdatedAt };
+        const merged = threeWayMergeExam(baseline, { ...base, ...weekly, updatedAt: baseUpdatedAt }, result.remote);
+        const retry = await saveExamsToServer({ ...merged.payload, baseUpdatedAt: result.remote.updatedAt });
         if (typeof retry === 'number') {
-          if (result.remote.majors && result.remote.majors.length) { setMajors(result.remote.majors); setActiveMajorId(result.remote.activeMajorId || result.remote.majors[0].id); }
-          updateExamSettings({ majors: result.remote.majors, activeMajorId: result.remote.activeMajorId, title: result.remote.title, items: result.remote.items, ...weekly, updatedAt: retry });
+          const mergedWeekly = { scheduleMode: merged.payload.scheduleMode ?? weekly.scheduleMode, weeklyPlans: merged.payload.weeklyPlans ?? weekly.weeklyPlans, activeWeeklyPlanId: merged.payload.activeWeeklyPlanId ?? null, activeWeeklyPlanIdByClass: merged.payload.activeWeeklyPlanIdByClass ?? {}, weeklyConflictPolicy: merged.payload.weeklyConflictPolicy ?? weekly.weeklyConflictPolicy };
+          if (merged.payload.majors.length) { setMajors(merged.payload.majors); setActiveMajorId(merged.payload.activeMajorId || merged.payload.majors[0].id); }
+          setScheduleMode(mergedWeekly.scheduleMode); setWeeklyPlans(mergedWeekly.weeklyPlans); setActiveWeeklyPlanId(mergedWeekly.activeWeeklyPlanId); setActiveWeeklyPlanIdByClass(mergedWeekly.activeWeeklyPlanIdByClass); setWeeklyConflictPolicy(mergedWeekly.weeklyConflictPolicy);
+          weeklyStateRef.current = mergedWeekly;
+          updateExamSettings({ ...merged.payload, ...mergedWeekly, updatedAt: retry });
           pendingRef.current = false; setSync('saved'); return;
         }
       }
@@ -323,6 +328,14 @@ export default function AdminPage() {
     commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: classTag ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClass: nextByClass }, immediate);
   };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
+  const addClassTag = (tag: string) => commitWeekly({ activeWeeklyPlanIdByClass: { ...weeklyStateRef.current.activeWeeklyPlanIdByClass, [tag]: null } }, true);
+  const removeClassTag = (tag: string) => {
+    if (!window.confirm(`确定删除班级「${tag}」？`)) return;
+    const next = { ...weeklyStateRef.current.activeWeeklyPlanIdByClass };
+    delete next[tag];
+    if (selectedClassTag === tag) changeSelectedClass('');
+    commitWeekly({ activeWeeklyPlanIdByClass: next }, true);
+  };
 
   // 开机：鉴权 + 拉取服务器数据
   useEffect(() => {
@@ -512,9 +525,10 @@ export default function AdminPage() {
       <div className="admin-tabbar__tabs">
         <button className={`admin-tab${adminTab === 'major' ? ' is-active' : ''}`} onClick={() => setAdminTab('major')}>🏫 大型考试</button>
         <button className={`admin-tab${adminTab === 'weekly' ? ' is-active' : ''}`} onClick={() => setAdminTab('weekly')}>📅 周测{weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>
+        <button className={`admin-tab${adminTab === 'classes' ? ' is-active' : ''}`} onClick={() => setAdminTab('classes')}>班级管理</button>
         <button className={`admin-tab${adminTab === 'devices' ? ' is-active' : ''}`} onClick={() => setAdminTab('devices')}>设备情况</button>
       </div>
-      {adminTab !== 'devices' && <>
+      {adminTab !== 'devices' && adminTab !== 'classes' && <>
       <label className="admin-tabbar__mode">运行模式
         <select className="admin-input" value={scheduleMode} onChange={e => handleScheduleModeChange(e.target.value as ScheduleMode)}>
           <option value="major-only">仅大型考试</option>
@@ -544,6 +558,8 @@ export default function AdminPage() {
           onSavePlans={handleSaveWeeklyPlans}
           onConflictPolicyChange={handleConflictPolicyChange}
         />
+      ) : adminTab === 'classes' ? (
+        <ClassManagementPanel classTags={classTags} weeklyPlans={weeklyPlans} majors={majors} onAdd={addClassTag} onRemove={removeClassTag} />
       ) : adminTab === 'devices' ? (
         <DeviceStatusPanel />
       ) : (

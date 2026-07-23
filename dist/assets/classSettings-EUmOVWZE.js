@@ -1,0 +1,1 @@
+function n(c,o,e={}){const r=new Set;return Object.keys(e).forEach(t=>{const a=t.trim();a&&r.add(a)}),c.forEach(t=>{const a=(t.classTag||"").trim();a&&r.add(a)}),o.forEach(t=>{var a;return(a=t.targetClasses)==null?void 0:a.forEach(f=>{const s=f.trim();s&&r.add(s)})}),Array.from(r).sort((t,a)=>t.localeCompare(a,"zh-CN"))}export{n as c};

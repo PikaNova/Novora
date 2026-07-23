@@ -12,6 +12,18 @@ function formatUpdatedAt(value: number): string {
   return new Date(value).toLocaleString('zh-CN', { hour12: false });
 }
 
+function formatRelativeTime(value: number): string {
+  const delta = Date.now() - value;
+  if (!Number.isFinite(delta) || delta < 0) return '刚刚';
+  const minutes = Math.floor(delta / 60_000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  return days < 30 ? `${days} 天前` : formatUpdatedAt(value).slice(0, 10);
+}
+
 export default function DeviceStatusPanel() {
   const [bindings, setBindings] = useState<ClassBindingInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +32,7 @@ export default function DeviceStatusPanel() {
   const [classFilter, setClassFilter] = useState('*');
   const [copiedId, setCopiedId] = useState('');
   const [truncated, setTruncated] = useState(false);
+  const [sort, setSort] = useState<'recent' | 'class'>('recent');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,9 +57,10 @@ export default function DeviceStatusPanel() {
       const matchesClass = classFilter === '*' || (classFilter === '' ? item.classTag === '' : item.classTag === classFilter);
       const matchesQuery = !keyword || item.instanceId.toLocaleLowerCase().includes(keyword) || item.classTag.toLocaleLowerCase().includes(keyword);
       return matchesClass && matchesQuery;
-    });
-  }, [bindings, classFilter, query]);
+    }).sort((a, b) => sort === 'class' ? (a.classTag || '通用').localeCompare(b.classTag || '通用', 'zh-CN') || b.updatedAt - a.updatedAt : b.updatedAt - a.updatedAt);
+  }, [bindings, classFilter, query, sort]);
   const generalCount = bindings.filter(item => item.classTag === '').length;
+  const recentCount = bindings.filter(item => Date.now() - item.updatedAt <= 24 * 60 * 60 * 1000).length;
 
   const copyInstanceId = async (instanceId: string) => {
     try {
@@ -67,22 +81,28 @@ export default function DeviceStatusPanel() {
       <div><span>已绑定实例</span><strong>{bindings.length}</strong></div>
       <div><span>班级数</span><strong>{classTags.length}</strong></div>
       <div><span>通用 / 未分组</span><strong>{generalCount}</strong></div>
+      <div><span>24 小时内更新</span><strong>{recentCount}</strong></div>
     </div>
     <div className="device-status__toolbar">
       <label><span>搜索</span><input className="admin-input" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="实例 ID 或班级" /></label>
       <label><span>班级</span><select className="admin-input" value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="*">全部班级</option><option value="">通用 / 未分组</option>{classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select></label>
+      <label><span>排序</span><select className="admin-input" value={sort} onChange={event => setSort(event.target.value as 'recent' | 'class')}><option value="recent">最近更新</option><option value="class">按班级</option></select></label>
       <span className="device-status__result">显示 {filtered.length} / {bindings.length}</span>
     </div>
     {error && <div className="admin-error device-status__error">{error}<button className="admin-btn admin-btn--ghost" onClick={() => void load()}>重试</button></div>}
     {truncated && <p className="device-status__notice">当前仅显示最近更新的 500 个实例。</p>}
     {!loading && !error && filtered.length === 0 && <div className="admin-empty"><p>{bindings.length ? '没有符合筛选条件的设备' : '暂无设备绑定记录'}</p></div>}
-    {filtered.length > 0 && <div className="device-status__list" role="list">
-      {filtered.map(item => <div className="device-status__row" role="listitem" key={item.instanceId}>
+    {loading && <div className="device-status__loading">正在读取设备绑定…</div>}
+    {filtered.length > 0 && <div className="device-status__table" role="table">
+      <div className="device-status__table-head" role="row"><span>实例 ID</span><span>班级</span><span>绑定更新时间</span><span>操作</span></div>
+      <div className="device-status__list" role="rowgroup">
+      {filtered.map(item => <div className="device-status__row" role="row" key={item.instanceId}>
         <div className="device-status__instance"><span>实例 ID</span><code title={item.instanceId}>{formatInstanceId(item.instanceId)}</code></div>
         <div className="device-status__class"><span>班级</span><strong>{item.classTag || '通用 / 未分组'}</strong></div>
-        <div className="device-status__updated"><span>绑定更新时间</span><time dateTime={new Date(item.updatedAt).toISOString()}>{formatUpdatedAt(item.updatedAt)}</time></div>
+        <div className="device-status__updated"><span>绑定更新时间</span><time dateTime={new Date(item.updatedAt).toISOString()}><b>{formatRelativeTime(item.updatedAt)}</b><small>{formatUpdatedAt(item.updatedAt)}</small></time></div>
         <button className="admin-btn admin-btn--ghost" onClick={() => void copyInstanceId(item.instanceId)} title="复制完整实例 ID">{copiedId === item.instanceId ? '已复制' : '复制'}</button>
       </div>)}
+      </div>
     </div>}
   </main>;
 }

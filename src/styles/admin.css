@@ -263,7 +263,7 @@
 .device-status__heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:16px; }
 .device-status__heading h2 { margin:0; font-size:1.05rem; }
 .device-status__heading p { margin:6px 0 0; color:rgba(255,255,255,.55); font-size:.8rem; }
-.device-status__stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+.device-status__stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
 .device-status__stats>div { padding:13px 15px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.035); }
 .device-status__stats span { display:block; color:rgba(255,255,255,.55); font-size:.74rem; }
 .device-status__stats strong { display:block; margin-top:6px; font-size:1.35rem; font-variant-numeric:tabular-nums; }
@@ -272,26 +272,67 @@
 .device-status__result { margin-left:auto; padding-bottom:7px; color:rgba(255,255,255,.48); font-size:.74rem; white-space:nowrap; }
 .device-status__error { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .device-status__notice { margin:10px 0; padding:8px 10px; border-radius:7px; background:rgba(230,162,60,.1); color:#f4c977; font-size:.76rem; }
-.device-status__list { display:flex; flex-direction:column; gap:7px; }
-.device-status__row { display:grid; grid-template-columns:minmax(190px,1.35fr) minmax(150px,1fr) minmax(190px,1fr) auto; align-items:center; gap:14px; padding:11px 12px; border:1px solid rgba(255,255,255,.075); border-radius:8px; background:rgba(255,255,255,.025); }
+.device-status__table { overflow:hidden; border:1px solid rgba(255,255,255,.09); border-radius:8px; }
+.device-status__table-head,.device-status__row { display:grid; grid-template-columns:minmax(190px,1.35fr) minmax(150px,1fr) minmax(190px,1fr) 74px; align-items:center; gap:14px; }
+.device-status__table-head { padding:8px 12px; color:rgba(255,255,255,.46); background:rgba(255,255,255,.045); font-size:.68rem; font-weight:600; }
+.device-status__list { display:flex; flex-direction:column; }
+.device-status__row { padding:9px 12px; border-top:1px solid rgba(255,255,255,.065); background:rgba(255,255,255,.018); }
+.device-status__row:first-child { border-top:0; }
+.device-status__row:hover { background:rgba(255,255,255,.04); }
 .device-status__row>div { min-width:0; }
 .device-status__row span { display:block; margin-bottom:4px; color:rgba(255,255,255,.42); font-size:.67rem; }
 .device-status__row code,.device-status__row strong,.device-status__row time { display:block; overflow:hidden; color:#edf3f7; font-size:.8rem; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
 .device-status__row code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:#8fd0ff; }
+.device-status__updated time b,.device-status__updated time small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.device-status__updated time b { font-size:.78rem; font-weight:600; }
+.device-status__updated time small { margin-top:2px; color:rgba(255,255,255,.42); font-size:.66rem; }
+.device-status__loading { padding:28px; border:1px solid rgba(255,255,255,.08); border-radius:8px; color:rgba(255,255,255,.5); text-align:center; }
+.weekly-calendar__day.is-holiday { border-color:rgba(230,162,60,.38); background:rgba(230,162,60,.055); }
+.weekly-calendar__holiday { display:block; padding:5px 6px; border-radius:5px; background:rgba(230,162,60,.16); color:#f4c977; font-size:10px; font-weight:700; text-align:center; }
+.weekly-week-badge { color:#8fd0ff; background:rgba(52,152,219,.14); }
+.weekly-holiday-summary { margin:8px 0 12px!important; }
+.class-management { grid-column:1/-1; width:100%; max-width:900px; margin:0 auto; padding:22px; box-sizing:border-box; }
+.class-management__heading h2 { margin:0; font-size:1.05rem; }
+.class-management__heading p { margin:6px 0 16px; color:rgba(255,255,255,.55); font-size:.8rem; }
+.class-management__add { display:grid; grid-template-columns:minmax(220px,1fr) auto; align-items:end; gap:10px; padding:14px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.025); }
+.class-management__add .admin-error { grid-column:1/-1; margin:0; }
+.class-management__list { margin-top:12px; border:1px solid rgba(255,255,255,.09); border-radius:8px; overflow:hidden; }
+.class-management__row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:11px 13px; border-top:1px solid rgba(255,255,255,.07); }
+.class-management__row:first-child { border-top:0; }
+.class-management__row strong,.class-management__row span { display:block; }
+.class-management__row strong { font-size:.88rem; }
+.class-management__row span { margin-top:4px; color:rgba(255,255,255,.48); font-size:.7rem; }
+.admin-btn:disabled { opacity:.4; cursor:not-allowed; }
 @media(max-width:700px){
   .admin-tabbar__tabs { width:100%; overflow-x:auto; padding-bottom:2px; }
   .admin-tab { flex:0 0 auto; min-height:40px; }
   .device-status { padding:16px 14px 26px; overflow:visible; }
   .device-status__heading { align-items:center; }
   .device-status__heading p { line-height:1.55; }
-  .device-status__stats { grid-template-columns:1fr; gap:7px; }
+  .device-status__stats { grid-template-columns:1fr 1fr; gap:7px; }
   .device-status__stats>div { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; }
   .device-status__stats strong { margin:0; font-size:1.05rem; }
   .device-status__toolbar { align-items:stretch; flex-direction:column; }
   .device-status__toolbar label { min-width:0; width:100%; }
   .device-status__toolbar .admin-input { min-height:42px; width:100%; box-sizing:border-box; }
   .device-status__result { margin-left:0; padding:0; }
-  .device-status__row { grid-template-columns:minmax(0,1fr) auto; gap:11px 8px; }
+  .device-status__table { overflow:visible; border:0; }
+  .device-status__table-head { display:none; }
+  .device-status__list { gap:8px; }
+  .device-status__row { grid-template-columns:minmax(0,1fr) auto; gap:11px 8px; border:1px solid rgba(255,255,255,.085); border-radius:8px; padding:11px 12px; }
   .device-status__class,.device-status__updated { grid-column:1/-1; }
   .device-status__row>.admin-btn { grid-column:2; grid-row:1; min-height:38px; }
+  .class-management { padding:16px 14px 28px; }
+  .class-management__add { grid-template-columns:1fr; }
+  .class-management__add .admin-btn { min-height:44px; }
+  .class-management__row { align-items:flex-start; }
+  .class-management__row .admin-btn { min-height:40px; }
+}
+
+@media(max-width:600px){
+  .admin-modal-overlay { align-items:flex-end; padding:12px; padding-bottom:max(12px,env(safe-area-inset-bottom)); }
+  .admin-modal { max-height:calc(100dvh - 24px); overflow-y:auto; box-sizing:border-box; padding:18px 16px 16px; border-radius:10px; }
+  .admin-modal__actions { position:sticky; bottom:-16px; margin-inline:-16px; padding:12px 16px 16px; background:#1a1a1a; }
+  .admin-modal__actions .admin-btn { flex:1; min-height:44px; white-space:normal; }
+  .admin-form .admin-input,.admin-textarea { min-height:44px; font-size:16px; box-sizing:border-box; }
 }

@@ -11,7 +11,7 @@ import type { ExamItem, MajorExam } from './index';
 export type ScheduleMode = 'major-only' | 'weekly-only' | 'automatic';
 
 /** 后台当前编辑的模块（仅影响编辑界面，不决定大屏显示）。 */
-export type AdminTab = 'major' | 'weekly' | 'devices';
+export type AdminTab = 'major' | 'weekly' | 'classes' | 'devices';
 
 /** 大型考试与周测的冲突作用范围。 */
 export type WeeklyConflictScope =
@@ -31,6 +31,8 @@ export interface WeeklyConflictPolicy {
 
 /** ISO 星期：1=周一 … 7=周日。 */
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type WeeklyWeekMode = 'single' | 'ab';
+export type WeeklyWeekType = 'all' | 'a' | 'b';
 
 /** 单条周测规则（周期项，不含具体日期）。 */
 export interface WeeklyExamItem {
@@ -47,6 +49,8 @@ export interface WeeklyExamItem {
   order: number;
   location?: string;
   note?: string;
+  /** A/B 周模式下的适用周；旧数据默认 all。 */
+  weekType?: WeeklyWeekType;
 }
 
 /** 单次例外：取消或临时修改某一天的某条周测（v1.24.1 起提供 UI，v1.24.0 解析器已支持）。 */
@@ -80,6 +84,10 @@ export interface WeeklyPlan {
   repeatEveryWeeks: number;
   /** 'YYYY-MM-DD' 基准周锚点，用于隔周/每 N 周对齐。 */
   anchorDate: string;
+  /** single=统一周表；ab=锚点周为 A 周、下一周为 B 周。 */
+  weekMode?: WeeklyWeekMode;
+  /** 自动排除内置的中国法定节假日放假日期。 */
+  excludeOfficialHolidays?: boolean;
   items: WeeklyExamItem[];
   /** 整日排除（'YYYY-MM-DD' 列表）。 */
   excludedDates: string[];
