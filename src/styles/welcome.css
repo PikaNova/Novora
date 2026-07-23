@@ -57,4 +57,7 @@
 .welcome-class-options button{min-width:0;min-height:46px;padding:10px;border:1px solid rgba(115,200,255,.3);border-radius:7px;background:rgba(115,200,255,.09);color:#f0f5fa;font:inherit;font-weight:700;cursor:pointer;overflow-wrap:anywhere}
 .welcome-class-options button:hover{background:rgba(115,200,255,.17)}
 .welcome-class-options .is-general{grid-column:1/-1;border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.05)}
+.welcome-class-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:46px;color:rgba(240,245,250,.72);font-size:14px}
+.welcome-class-loading span{width:16px;height:16px;border:2px solid rgba(115,200,255,.25);border-top-color:#73c8ff;border-radius:50%;animation:welcomeClassSpin .75s linear infinite}
+@keyframes welcomeClassSpin{to{transform:rotate(360deg)}}
 @media(max-width:420px){.welcome-class-dialog{padding:20px 16px}.welcome-class-options{grid-template-columns:1fr}.welcome-class-options .is-general{grid-column:auto}}
