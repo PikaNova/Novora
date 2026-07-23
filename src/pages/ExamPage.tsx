@@ -318,7 +318,7 @@ export default function ExamPage() {
         loading={announcementsLoading}
         onClose={() => setAnnouncementsOpen(false)}
       />
-      {/* 设计切换窗：由各设计顶栏“▣ 切换设计”按���触发，避免悬浮按钮遮挡大屏元素 */}
+      {/* 设计切换窗：由各设计顶栏“▣ 切换设计”按钮触发，避免悬浮按钮遮挡大屏元素 */}
       <DesignSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} currentId={designId} onSelect={chooseDesign} />
       {/* 全屏提醒浮层：风格跟随当前展示设计自动切换 */}
       <ExamAlertOverlay

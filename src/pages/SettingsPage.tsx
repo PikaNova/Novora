@@ -112,7 +112,7 @@ export default function SettingsPage() {
   };
 
   const doRedeploy = async () => {
-    if (!window.confirm('确定触发 Vercel 重新部署？\n将从 GitHub 拉取最新代码并重新构���，约需 1–3 分钟，完成后刷新页面即为新版本。')) return;
+    if (!window.confirm('确定触发 Vercel 重新部署？\n将从 GitHub 拉取最新代码并重新构建，约需 1–3 分钟，完成后刷新页面即为新版本。')) return;
     setRedeploy({ status: 'running', msg: '已触发，正在部署…' });
     const r = await triggerRedeploy();
     if (r.ok) setRedeploy({ status: 'done', msg: '已触发部署 ✓ 请稍后在 Vercel 查看进度，构建完成后刷新页面。' });
@@ -362,7 +362,7 @@ export default function SettingsPage() {
             <h2 className="set-card__title">🛰️ 使用遥测</h2>
             <Switch checked={teleOn} onChange={toggleTele} />
           </div>
-          <p className="set-card__lead">���作者端上报匿名部署/运行数据（版本、主机、时区、地区、匿名 IP 哈希）；不含考试内容与个人信息。</p>
+          <p className="set-card__lead">作者端上报匿名部署/运行数据（版本、主机、时区、地区、匿名 IP 哈希）；不含考试内容与个人信息。</p>
           <ul className="set-status__list">
             <li><span>同意状态</span><b>{consent === 'granted' ? '已同意' : consent === 'denied' ? '已拒绝' : '未决定'}</b></li>
             <li><span>实例 ID</span><b>{instId.slice(0, 8)}…</b></li>

@@ -1,4 +1,5 @@
 import type { AlertsSettings, ExamItem, MajorExam } from '../types';
+import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import type { ExamPayload } from './examService';
 import { saveExamsToServer } from './examService';
 import { threeWayMergeExam } from '../utils/examMerge';
@@ -13,6 +14,10 @@ export interface PendingExamSync {
     majors: MajorExam[];
     activeMajorId: string;
     alerts: AlertsSettings | null;
+    scheduleMode?: ScheduleMode;
+    weeklyPlans?: WeeklyPlan[];
+    activeWeeklyPlanId?: string | null;
+    weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   };
   /** 编辑发生前最后一个已知云端完整快照，用于恢复网络后的三方合并。 */
   baseSnapshot: ExamPayload | null;
@@ -70,18 +75,26 @@ export async function flushPendingExamSync(force = false): Promise<FlushResult> 
 
   const merged = threeWayMergeExam(pending.baseSnapshot ?? first.remote, { ...pending.payload, updatedAt: pending.baseSnapshot?.updatedAt ?? 0 }, first.remote);
   if (merged.conflictCount) void recordSyncConflict(merged.conflictCount, pending.payload, first.remote);
+  // 周测字段暂无逐项三方合并，恢复联网后以本机最新周测数据覆盖（与 pushWeeklyToServer 离线分支一致）。
+  const mergedPayload: PendingExamSync['payload'] = {
+    ...merged.payload,
+    scheduleMode: pending.payload.scheduleMode ?? first.remote.scheduleMode,
+    weeklyPlans: pending.payload.weeklyPlans ?? first.remote.weeklyPlans,
+    activeWeeklyPlanId: pending.payload.activeWeeklyPlanId !== undefined ? pending.payload.activeWeeklyPlanId : first.remote.activeWeeklyPlanId,
+    weeklyConflictPolicy: pending.payload.weeklyConflictPolicy ?? first.remote.weeklyConflictPolicy,
+  };
   const mergedPending: PendingExamSync = {
-    payload: merged.payload,
+    payload: mergedPayload,
     baseSnapshot: first.remote,
     savedAt: Date.now(),
   };
   queuePendingExamSync(mergedPending);
-  const retry = await saveExamsToServer({ ...merged.payload, baseUpdatedAt: first.remote.updatedAt });
+  const retry = await saveExamsToServer({ ...mergedPayload, baseUpdatedAt: first.remote.updatedAt });
   if (typeof retry !== 'number') {
     if (retry === 'unauthorized') return { kind: 'unauthorized' };
     markPendingFailure(mergedPending, '合并后上传失败');
     return { kind: 'error' };
   }
   clearPendingExamSync(mergedPending.savedAt);
-  return { kind: 'saved', payload: merged.payload, updatedAt: retry };
+  return { kind: 'saved', payload: mergedPayload, updatedAt: retry };
 }

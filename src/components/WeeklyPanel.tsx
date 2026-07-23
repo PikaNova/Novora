@@ -4,6 +4,7 @@ import type {
   ScheduleMode,
   WeeklyPlan,
   WeeklyExamItem,
+  WeeklyExamOverride,
   WeeklyConflictPolicy,
   IsoWeekday,
 } from '../types/exam';
@@ -11,6 +12,7 @@ import { ALL_CONFLICT_SCOPES } from '../types/exam';
 import {
   createEmptyWeeklyPlan,
   genWeeklyItemId,
+  genWeeklyOverrideId,
   resolveWeeklyOccurrences,
 } from '../utils/weeklySchedule';
 import { resolveMajorWeeklyConflicts } from '../utils/scheduleConflict';
@@ -25,6 +27,12 @@ const SCOPE_LABEL: Record<WeeklyConflictPolicy['scope'], string> = {
 
 type ItemEdit = Omit<WeeklyExamItem, 'id' | 'order'> & { id?: string };
 type PlanModal = { mode: 'add' | 'settings'; name: string; activeFrom: string; activeUntil: string; forever: boolean; repeatEveryWeeks: number } | null;
+type PreviewOcc = {
+  date: string; weekday: IsoWeekday; name: string; startTime: string; endTime: string;
+  suppressed: boolean; forced: boolean; weeklyItemId: string; message?: string;
+  conflict?: { majorName: string; majorStartTime: string; majorEndTime: string; scope: string };
+};
+function fmtDT(iso?: string) { return iso ? iso.slice(0, 16).replace('T', ' ') : '—'; }
 
 function makeItemId() { return genWeeklyItemId(); }
 function padHM(v: string) { const [h = '0', m = '0'] = v.split(':'); return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`; }
@@ -65,9 +73,14 @@ export default function WeeklyPanel({
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
+  const [exceptionsOpen, setExceptionsOpen] = useState(false);
+  const [newExcludeDate, setNewExcludeDate] = useState('');
+  const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<{ occ: PreviewOcc; name: string; date: string; startTime: string; endTime: string } | null>(null);
+  const [rescheduleError, setRescheduleError] = useState('');
 
-  const preview = useMemo(() => {
-    if (!activePlan) return [] as Array<{ date: string; weekday: IsoWeekday; name: string; startTime: string; endTime: string; suppressed: boolean; message?: string }>;
+  const preview = useMemo((): PreviewOcc[] => {
+    if (!activePlan) return [];
     const occ = resolveWeeklyOccurrences(activePlan, Date.now(), { daysBack: 0, daysForward: 13 });
     if (scheduleMode === 'automatic' && majorItems.length) {
       const { suppressedWeekly, conflicts } = resolveMajorWeeklyConflicts(
@@ -75,14 +88,19 @@ export default function WeeklyPanel({
         occ,
       );
       const suppressedIds = new Set(suppressedWeekly.map(o => o.occurrenceId));
-      const msgById = new Map(conflicts.map(c => [c.weeklyOccurrenceId, c.message]));
-      return occ.map(o => ({
-        date: o.date, weekday: WEEKDAY_ORDER.find(() => true)!, name: o.name,
-        startTime: o.startTime.slice(11, 16), endTime: o.endTime.slice(11, 16),
-        suppressed: suppressedIds.has(o.occurrenceId), message: msgById.get(o.occurrenceId),
-      }));
+      const conflictById = new Map(conflicts.map(c => [c.weeklyOccurrenceId, c]));
+      return occ.map(o => {
+        const c = conflictById.get(o.occurrenceId);
+        return {
+          date: o.date, weekday: WEEKDAY_ORDER.find(() => true)!, name: o.name,
+          startTime: o.startTime.slice(11, 16), endTime: o.endTime.slice(11, 16),
+          suppressed: suppressedIds.has(o.occurrenceId), forced: o.forced, weeklyItemId: o.weeklyItemId,
+          message: c?.message,
+          conflict: c ? { majorName: c.majorName, majorStartTime: c.majorStartTime, majorEndTime: c.majorEndTime, scope: c.type } : undefined,
+        };
+      });
     }
-    return occ.map(o => ({ date: o.date, weekday: WEEKDAY_ORDER.find(() => true)!, name: o.name, startTime: o.startTime.slice(11, 16), endTime: o.endTime.slice(11, 16), suppressed: false }));
+    return occ.map(o => ({ date: o.date, weekday: WEEKDAY_ORDER.find(() => true)!, name: o.name, startTime: o.startTime.slice(11, 16), endTime: o.endTime.slice(11, 16), suppressed: false, forced: o.forced, weeklyItemId: o.weeklyItemId }));
   }, [activePlan, scheduleMode, majorItems, majorName, weeklyConflictPolicy]);
 
   if (!activePlan) {
@@ -166,6 +184,62 @@ export default function WeeklyPanel({
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
     onSavePlans(plans, activePlan.id, true);
     setDeleteTarget(null);
+  }
+
+  function upsertOverride(next: WeeklyExamOverride) {
+    const exists = activePlan.overrides.some(o => o.id === next.id);
+    const overrides = exists ? activePlan.overrides.map(o => o.id === next.id ? next : o) : [...activePlan.overrides, next];
+    const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, overrides } : p);
+    onSavePlans(plans, activePlan.id, true);
+  }
+
+  function removeOverride(id: string) {
+    const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, overrides: p.overrides.filter(o => o.id !== id) } : p);
+    onSavePlans(plans, activePlan.id, true);
+  }
+
+  function addExcludedDate() {
+    if (!DATE_RE.test(newExcludeDate) || activePlan.excludedDates.includes(newExcludeDate)) return;
+    const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludedDates: [...p.excludedDates, newExcludeDate].sort() } : p);
+    onSavePlans(plans, activePlan.id, true);
+    setNewExcludeDate('');
+  }
+
+  function removeExcludedDate(date: string) {
+    const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludedDates: p.excludedDates.filter(d => d !== date) } : p);
+    onSavePlans(plans, activePlan.id, true);
+  }
+
+  function cancelOccurrence(o: PreviewOcc) {
+    if (!window.confirm(`确定取消「${o.name}」${o.date} 这一次吗？此操作仅影响这一次，不影响周期规则。`)) return;
+    upsertOverride({ id: genWeeklyOverrideId(o.weeklyItemId, o.date), sourceItemId: o.weeklyItemId, date: o.date, action: 'cancel', reason: '管理员单次取消' });
+  }
+
+  function openReschedule(o: PreviewOcc) {
+    setRescheduleTarget({ occ: o, name: o.name, date: o.date, startTime: o.startTime, endTime: o.endTime });
+    setRescheduleError('');
+  }
+
+  function commitReschedule() {
+    if (!rescheduleTarget) return;
+    const { occ, name, date, startTime, endTime } = rescheduleTarget;
+    if (!name.trim()) { setRescheduleError('请输入名称'); return; }
+    if (!DATE_RE.test(date)) { setRescheduleError('请填写正确日期'); return; }
+    if (!HM_RE.test(startTime) || !HM_RE.test(endTime)) { setRescheduleError('请输入正确的时间（HH:mm）'); return; }
+    upsertOverride({ id: genWeeklyOverrideId(occ.weeklyItemId, occ.date), sourceItemId: occ.weeklyItemId, date: occ.date, action: 'replace', name: name.trim(), startTime: padHM(startTime), endTime: padHM(endTime), reason: '管理员临时调课' });
+    setRescheduleTarget(null);
+  }
+
+  function keepSuppressed() { setConflictTarget(null); }
+
+  function forceRunOccurrence() {
+    if (!conflictTarget) return;
+    upsertOverride({ id: genWeeklyOverrideId(conflictTarget.weeklyItemId, conflictTarget.date), sourceItemId: conflictTarget.weeklyItemId, date: conflictTarget.date, action: 'replace', forceRunDuringMajorExam: true, reason: '管理员确认仍然进行' });
+    setConflictTarget(null);
+  }
+
+  function unforceOccurrence(o: PreviewOcc) {
+    removeOverride(genWeeklyOverrideId(o.weeklyItemId, o.date));
   }
 
   function toggleItemEnabled(item: WeeklyExamItem) {
@@ -264,6 +338,12 @@ export default function WeeklyPanel({
           <button className="admin-btn" style={{ width: '100%' }} onClick={() => setPolicyOpen(true)}>冲突处理设置</button>
         </div>
 
+        <div className="admin-form-card">
+          <h2 className="admin-form-card__title">例外日期</h2>
+          <p className="admin-major-card__hint" style={{ margin: '0 0 10px' }}>整日排除 {activePlan.excludedDates.length} 天 · 单次调整 {activePlan.overrides.length} 条</p>
+          <button className="admin-btn" style={{ width: '100%' }} onClick={() => setExceptionsOpen(true)}>例外日期管理</button>
+        </div>
+
         <div className="admin-tips">
           <p className="admin-tips__title">💡 使用说明</p>
           <ul>
@@ -324,9 +404,15 @@ export default function WeeklyPanel({
               <li className={`admin-item${o.suppressed ? ' admin-item--disabled' : ''}`} key={`${o.date}-${i}`}>
                 <div className="admin-item__order"><span className="admin-item__order-num">{o.date.slice(5)}</span></div>
                 <div className="admin-item__info">
-                  <div className="admin-item__name-row"><span className="admin-item__name">{o.name}</span>{o.suppressed && <span className="admin-item__status" style={{ color: '#e6a23c', background: 'rgba(230,162,60,.12)' }}>已暂停</span>}</div>
+                  <div className="admin-item__name-row"><span className="admin-item__name">{o.name}</span>{o.suppressed && <span className="admin-item__status" style={{ color: '#e6a23c', background: 'rgba(230,162,60,.12)' }}>已暂停</span>}{o.forced && <span className="admin-item__status" style={{ color: '#67c23a', background: 'rgba(103,194,58,.12)' }}>强制进行</span>}</div>
                   <div className="admin-item__times"><span>{o.date}</span><span className="admin-item__times-sep">·</span><span>{o.startTime}–{o.endTime}</span></div>
                   {o.message && <div className="admin-item__times" style={{ opacity: .7 }}>{o.message}</div>}
+                </div>
+                <div className="admin-item__actions">
+                  {o.suppressed && <button className="admin-item-btn" onClick={() => setConflictTarget(o)}>处理冲突</button>}
+                  {o.forced && <button className="admin-item-btn" onClick={() => unforceOccurrence(o)}>取消强制</button>}
+                  <button className="admin-item-btn" onClick={() => openReschedule(o)}>临时调课</button>
+                  <button className="admin-item-btn admin-item-btn--delete" onClick={() => cancelOccurrence(o)}>取消本次</button>
                 </div>
               </li>
             ))}
@@ -400,6 +486,74 @@ export default function WeeklyPanel({
                 </>
               )}
               <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={() => setPolicyOpen(false)}>完成</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+      {exceptionsOpen && (
+        <div className="admin-modal-overlay" onClick={() => setExceptionsOpen(false)}>
+          <div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}>
+            <h2 className="admin-modal__title">例外日期管理</h2>
+            <p className="admin-modal__body">整日排除的日期当天完全不生成周测；下方“单次调整”是“取消本次 / 临时调课 / 本周仍然进行”产生的记录，可在此撤销。</p>
+            <div className="admin-form">
+              <label className="admin-label">添加整日排除<input className="admin-input" type="date" value={newExcludeDate} onChange={e => setNewExcludeDate(e.target.value)} /></label>
+              <button className="admin-btn admin-btn--primary" onClick={addExcludedDate}>添加排除日</button>
+            </div>
+            {activePlan.excludedDates.length > 0 ? (
+              <ul className="admin-list" style={{ listStyle: 'none', padding: 0, margin: '10px 0' }}>
+                {activePlan.excludedDates.map(date => (
+                  <li className="admin-item" key={date}>
+                    <div className="admin-item__info"><span className="admin-item__name">{date}</span></div>
+                    <div className="admin-item__actions"><button className="admin-item-btn admin-item-btn--delete" onClick={() => removeExcludedDate(date)}>移除</button></div>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="admin-collapsed-hint">暂无整日排除</p>}
+            <h2 className="admin-modal__title" style={{ marginTop: 18 }}>单次调整记录</h2>
+            {activePlan.overrides.length > 0 ? (
+              <ul className="admin-list" style={{ listStyle: 'none', padding: 0, margin: '10px 0' }}>
+                {activePlan.overrides.map(ov => (
+                  <li className="admin-item" key={ov.id}>
+                    <div className="admin-item__info">
+                      <span className="admin-item__name">{ov.date} · {ov.action === 'cancel' ? '取消本次' : ov.forceRunDuringMajorExam ? '强制仍然进行' : '临时调课'}{ov.name ? `（${ov.name}）` : ''}</span>
+                      {ov.reason && <div className="admin-item__times" style={{ opacity: .7 }}>{ov.reason}</div>}
+                    </div>
+                    <div className="admin-item__actions"><button className="admin-item-btn admin-item-btn--delete" onClick={() => removeOverride(ov.id)}>撤销</button></div>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="admin-collapsed-hint">暂无单次调整</p>}
+            <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={() => setExceptionsOpen(false)}>完成</button></div>
+          </div>
+        </div>
+      )}
+      {conflictTarget && (
+        <div className="admin-modal-overlay" onClick={() => setConflictTarget(null)}>
+          <div className="admin-modal" onClick={e => e.stopPropagation()}>
+            <h2 className="admin-modal__title">处理冲突</h2>
+            <p className="admin-modal__body">「{conflictTarget.name}」与大型考试「{conflictTarget.conflict?.majorName ?? majorName}」冲突，已按策略暂停本次（{conflictTarget.date}）。</p>
+            <p className="admin-major-card__hint">大型考试：{conflictTarget.conflict ? `${fmtDT(conflictTarget.conflict.majorStartTime)} – ${fmtDT(conflictTarget.conflict.majorEndTime)}` : '—'}</p>
+            <p className="admin-major-card__hint">本次周测：{conflictTarget.date} {conflictTarget.startTime}–{conflictTarget.endTime}</p>
+            <p className="admin-major-card__hint">暂停范围：{SCOPE_LABEL[weeklyConflictPolicy.scope]}</p>
+            <div className="admin-modal__actions">
+              <button className="admin-btn admin-btn--primary" onClick={forceRunOccurrence}>本周仍然进行</button>
+              <button className="admin-btn" onClick={keepSuppressed}>保持暂停</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {rescheduleTarget && (
+        <div className="admin-modal-overlay" onClick={() => setRescheduleTarget(null)}>
+          <div className="admin-modal" onClick={e => e.stopPropagation()}>
+            <h2 className="admin-modal__title">临时调课（仅此一次）</h2>
+            {rescheduleError && <div className="admin-error">{rescheduleError}</div>}
+            <div className="admin-form">
+              <label className="admin-label">名称<input className="admin-input" value={rescheduleTarget.name} onChange={e => setRescheduleTarget(p => p && { ...p, name: e.target.value })} /></label>
+              <label className="admin-label">日期<input className="admin-input" type="date" value={rescheduleTarget.date} onChange={e => setRescheduleTarget(p => p && { ...p, date: e.target.value })} /></label>
+              <label className="admin-label">开始时间<input className="admin-input" type="time" value={rescheduleTarget.startTime} onChange={e => setRescheduleTarget(p => p && { ...p, startTime: e.target.value })} /></label>
+              <label className="admin-label">结束时间<input className="admin-input" type="time" value={rescheduleTarget.endTime} onChange={e => setRescheduleTarget(p => p && { ...p, endTime: e.target.value })} /></label>
+              <p className="admin-major-card__hint">仅调整这一次实例，不影响周期规则本身。</p>
+              <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={commitReschedule}>确认并保存</button><button className="admin-btn admin-btn--ghost" onClick={() => { setRescheduleTarget(null); setRescheduleError(''); }}>取消</button></div>
             </div>
           </div>
         </div>

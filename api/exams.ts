@@ -113,7 +113,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (req.headers['if-none-match'] === getCache.etag) { res.status(304).end(); return; }
         res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.setHeader('Content-Type', 'application/json'); res.status(200).send(getCache.body); return;
       }
-      // 快路径：直接查询（一次往返）；仅当表/列��失时才迁移后重试。
+      // 快路径：直接查询（一次往返）；仅当表/列缺失时才迁移后重试。
       const selectRow = async (): Promise<ExamRow[]> => (
         await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, weekly_conflict_policy, updated_at FROM exam_data WHERE id = 1`
       ) as unknown as ExamRow[];

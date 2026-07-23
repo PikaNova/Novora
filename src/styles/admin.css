@@ -185,7 +185,7 @@
 .admin-announce__body { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); }
 .admin-announce__meta { margin-top: 10px; font-size: 12px; color: rgba(255,255,255,.5); }
 
-/* Markdown 正文（���告弹窗内，深色底） */
+/* Markdown 正文（公告弹窗内，深色底） */
 .admin-announce .md-body { font-size: 13.5px; line-height: 1.75; color: #d5dbe2; word-break: break-word; }
 .admin-announce .md-body .md-h { color: #f2f5f8; font-weight: 700; line-height: 1.35; margin: 16px 0 8px; }
 .admin-announce .md-body .md-h1 { font-size: 19px; border-bottom: 1px solid rgba(255,255,255,.1); padding-bottom: 6px; }

@@ -149,7 +149,7 @@ export default function AdminPage() {
   const activeMajor = majors.find(m => m.id === activeMajorId) ?? majors[0];
   const items = activeMajor?.items ?? [];
 
-  // 构造待推送的完整载荷（items/title 镜像激活大型考试�����
+  // 构造待推送的完整载荷（items/title 镜像激活大型考试）
   const buildPayload = (ms: MajorExam[], activeId: string) => {
     const active = ms.find(m => m.id === activeId) ?? ms[0];
     return { items: active?.items ?? [], title: active?.name ?? '', majors: ms, activeMajorId: activeId, alerts: alertsRef.current };
@@ -248,7 +248,14 @@ export default function AdminPage() {
 
   // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
   const pushWeeklyToServer = useCallback(async (weekly: { scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; weeklyConflictPolicy: WeeklyConflictPolicy }) => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) { pendingRef.current = true; setSync('offline'); return; }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      pendingRef.current = true; setSync('offline');
+      // 持久化到本地 outbox，确保离线时的周测编辑在应用重启后仍能在恢复联网时推送。
+      const queued = getPendingExamSync();
+      const basePayload = queued?.payload ?? buildPayload(stateRef.current.majors, stateRef.current.activeMajorId);
+      queuePendingExamSync({ payload: { ...basePayload, ...weekly }, baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(), savedAt: Date.now() });
+      return;
+    }
     setSync('saving');
     const ms = stateRef.current.majors; const activeId = stateRef.current.activeMajorId;
     const base = buildPayload(ms, activeId);
@@ -331,16 +338,18 @@ export default function AdminPage() {
         pendingRef.current = false;
         setSync('saved');
       } else if (localAt > (remote?.updatedAt ?? 0)) {
-        // 本地更新（之前离线编辑）：回连后回推
+        // 本地更新（之前离线编辑）：回连后回推（大型考试 + 周测，此前周测字段遗漏，现已补齐）
         pendingRef.current = true;
-        void pushToServer(getAppSettings().exam.majors, getAppSettings().exam.activeMajorId);
+        const localExam = getAppSettings().exam;
+        void pushToServer(localExam.majors, localExam.activeMajorId);
+        void pushWeeklyToServer({ scheduleMode: localExam.scheduleMode, weeklyPlans: localExam.weeklyPlans, activeWeeklyPlanId: localExam.activeWeeklyPlanId, weeklyConflictPolicy: localExam.weeklyConflictPolicy });
       } else {
         setSync(remote ? 'saved' : 'offline');
       }
     };
     void boot();
     return () => { cancelled = true; if (saveTimer.current) clearTimeout(saveTimer.current); if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current); };
-  }, [navigate, pushToServer]);
+  }, [navigate, pushToServer, pushWeeklyToServer]);
 
   // 网络状态：回线时自动回推未同步变更
   useEffect(() => {
@@ -414,7 +423,7 @@ export default function AdminPage() {
   const updateStateCfg = (state: AlertState, patch: Partial<AlertsSettings['states'][AlertState]>) =>
     commitAlerts({ ...alertsRef.current, states: { ...alertsRef.current.states, [state]: { ...alertsRef.current.states[state], ...patch } } });
   const addCustomReminder = () => {
-    const rmd: CustomReminder = { id: genReminderId(), name: '新提醒', enabled: true, anchor: 'beforeStart', offsetMin: 30, tone: '15min', label: '提醒', title: '距开考��有一段时间', subtext: '请提前做好准备' };
+    const rmd: CustomReminder = { id: genReminderId(), name: '新提醒', enabled: true, anchor: 'beforeStart', offsetMin: 30, tone: '15min', label: '提醒', title: '距开考还有一段时间', subtext: '请提前做好准备' };
     commitAlerts({ ...alertsRef.current, custom: [...alertsRef.current.custom, rmd] });
   };
   const updateCustomReminder = (id: string, patch: Partial<CustomReminder>) =>
