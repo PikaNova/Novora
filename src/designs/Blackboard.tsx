@@ -2,11 +2,11 @@ import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
-import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize } from 'lucide-react';
 import './Blackboard.css';
 
 /** 方案 03 · 校园黑板 — 黑板绿 + 暖白，中央圆形进度环。 */
-export default function Blackboard({ vm, onDismissNotification, onBack, onAdmin, onOpenAnnouncements, onSwitchDesign, isFullscreen, onToggleFullscreen }: DesignProps) {
+export default function Blackboard({ vm, onDismissNotification, onBack, quickMenu, onOpenAnnouncements, onSwitchDesign, isFullscreen, onToggleFullscreen }: DesignProps) {
   const {
     masterTitle, phase, clock, dateText, currentName, startHM, endHM,
     progressPct, elapsedText, remainingText, countdownText,
@@ -34,7 +34,7 @@ export default function Blackboard({ vm, onDismissNotification, onBack, onAdmin,
             <button className="bb__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告"><Megaphone /></button>
             <button className="bb__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计"><LayoutGrid /></button>
             <button className="bb__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button>
-            <button className="bb__ghost" onClick={onAdmin} aria-label="管理"><Settings /></button>
+            {quickMenu}
           </div>
         </header>
 

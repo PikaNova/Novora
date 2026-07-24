@@ -184,6 +184,22 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     await writeAudit(actor, 'user.password.reset', 'user', String(id));
     return res.json({ ok: true });
   }
+  if (action === 'delete') {
+    if (!hasPermission(actor, 'user.delete')) return res.status(403).json({ ok: false, error: '无权删除用户' });
+    const id = Number(body.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: '用户信息不完整' });
+    if (id === actor.id) return res.status(400).json({ ok: false, error: '不能删除当前登录账号' });
+    if (!await canManageTarget(actor, id)) return res.status(403).json({ ok: false, error: '不能删除超出当前账号管理范围的用户' });
+    const target = await sql`SELECT username, role_id, status FROM app_users WHERE id=${id}` as unknown as Array<{ username: string; role_id: string; status: string }>;
+    if (!target[0]) return res.status(404).json({ ok: false, error: '用户不存在' });
+    if (target[0].role_id === 'super_admin' && target[0].status === 'active') {
+      const count = await sql`SELECT COUNT(*)::int AS count FROM app_users WHERE role_id='super_admin' AND status='active'` as unknown as Array<{ count: number }>;
+      if (Number(count[0]?.count) <= 1) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
+    }
+    await writeAudit(actor, 'user.delete', 'user', String(id), { username: target[0].username, roleId: target[0].role_id });
+    await sql`DELETE FROM app_users WHERE id=${id}`;
+    return res.json({ ok: true, users: await listUsers(actor) });
+  }
   return res.status(400).json({ ok: false, error: '未知用户操作' });
 }
 

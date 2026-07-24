@@ -1,1 +1,87 @@
-.exam-quick{position:fixed;right:18px;top:18px;z-index:70;font-family:system-ui,sans-serif}.exam-quick>button{width:44px;height:44px;border:1px solid rgba(255,255,255,.22);border-radius:12px;background:#101827d9;color:#fff;font-size:24px;cursor:pointer}.exam-quick__menu{position:absolute;right:0;top:50px;min-width:144px;padding:6px;border:1px solid rgba(255,255,255,.16);border-radius:10px;background:#101827f7;box-shadow:0 12px 30px #0008}.exam-quick__menu button{width:100%;min-height:40px;border:0;border-radius:7px;background:transparent;color:#e9f0fa;text-align:left;padding:8px 10px;cursor:pointer}.exam-quick__menu button:hover{background:#ffffff14}@media(max-width:720px){.exam-quick{right:12px;top:auto;bottom:max(76px,calc(env(safe-area-inset-bottom) + 58px))}}
+.exam-quick {
+  position: relative;
+  z-index: 70;
+  width: var(--exam-quick-size, 38px);
+  height: var(--exam-quick-size, 38px);
+  flex: 0 0 var(--exam-quick-size, 38px);
+  color: inherit;
+  font-family: system-ui, sans-serif;
+}
+
+.exam-quick > button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.exam-quick > button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.exam-quick__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 80;
+  min-width: 178px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 8px;
+  background: rgba(16, 24, 39, .97);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .54);
+}
+
+.exam-quick .exam-quick__menu > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #e9f0fa;
+  text-align: left;
+  cursor: pointer;
+}
+
+.exam-quick .exam-quick__menu > button svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+
+.exam-quick .exam-quick__menu > button:hover {
+  background: rgba(255, 255, 255, .08);
+}
+
+.ld-ice .exam-quick__menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+@media (max-width: 720px) {
+  .exam-quick {
+    width: var(--exam-quick-mobile-size, 32px);
+    height: var(--exam-quick-mobile-size, 32px);
+    flex-basis: var(--exam-quick-mobile-size, 32px);
+  }
+
+  .exam-quick > button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .exam-quick__menu {
+    max-width: calc(100vw - 24px);
+  }
+}

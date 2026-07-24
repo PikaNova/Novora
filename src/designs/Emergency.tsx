@@ -2,11 +2,11 @@ import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
-import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize } from 'lucide-react';
 import './Emergency.css';
 
 /** 方案 04 · 高对比应急 — 高亮 LED、远距离极速辨识，顶部状态条。 */
-export default function Emergency({ vm, onDismissNotification, onBack, onAdmin, onOpenAnnouncements, onSwitchDesign, isFullscreen, onToggleFullscreen }: DesignProps) {
+export default function Emergency({ vm, onDismissNotification, onBack, quickMenu, onOpenAnnouncements, onSwitchDesign, isFullscreen, onToggleFullscreen }: DesignProps) {
   const {
     masterTitle, phase, clock, dateText, currentName, startHM, endHM,
     progressPct, elapsedText, remainingText, countdownText,
@@ -48,7 +48,7 @@ export default function Emergency({ vm, onDismissNotification, onBack, onAdmin, 
             <button className="em__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告"><Megaphone /></button>
             <button className="em__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计"><LayoutGrid /></button>
             <button className="em__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button>
-            <button className="em__ghost" onClick={onAdmin} aria-label="管理"><Settings /></button>
+            {quickMenu}
           </div>
         </header>
 

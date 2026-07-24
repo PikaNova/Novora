@@ -310,12 +310,11 @@ export default function ExamPage() {
   return (
     <div className="exam-root">
       <TemporaryExamLauncher formalItems={getResolvedSchedule(nowTick).activeItems} externalOpen={temporaryOpen} onExternalHandled={() => setTemporaryOpen(false)} />
-      <ExamQuickMenu onTemporary={() => setTemporaryOpen(true)} onDesign={() => setSwitcherOpen(true)} onHome={() => navigate('/')} onAdmin={() => navigate('/admin')} />
       <Suspense fallback={<div className="exam-design-loading">正在载入展示设计…</div>}><Design
         vm={vm}
         onDismissNotification={dismiss}
         onBack={() => navigate('/')}
-        onAdmin={() => navigate('/admin')}
+        quickMenu={<ExamQuickMenu onTemporary={() => setTemporaryOpen(true)} onLocal={() => navigate('/local-settings')} onAdmin={() => navigate('/admin')} />}
         onOpenAnnouncements={openAnnouncements}
         onSwitchDesign={() => setSwitcherOpen(true)}
         isFullscreen={isFullscreen}

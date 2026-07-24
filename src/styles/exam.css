@@ -91,4 +91,4 @@
 .exam-mobile-notice__actions{display:flex;align-items:center;gap:8px;flex:none}
 .exam-mobile-notice button{border:0;border-radius:8px;background:#4f8cff;color:#fff;font-weight:700;font-size:12.5px;padding:7px 12px;cursor:pointer}
 .exam-mobile-notice__close{background:#ffffff1f!important;width:32px;padding:7px 0!important;font-size:16px!important;line-height:1}
-.cd__ghost svg,.cf__ghost svg,.bb__ghost svg,.em__ghost svg,.ed__ghost svg,.ld-actions button svg,.nd-actions button svg{width:18px;height:18px;stroke-width:2;pointer-events:none}
+.cd__ghost,.cf__ghost,.bb__ghost,.em__ghost,.ed__ghost,.ld-actions button,.nd-actions button{display:inline-grid!important;place-items:center;padding:0!important;line-height:1}.cd__ghost svg,.cf__ghost svg,.bb__ghost svg,.em__ghost svg,.ed__ghost svg,.ld-actions button svg,.nd-actions button svg{display:block;width:18px;height:18px;stroke-width:2;pointer-events:none}

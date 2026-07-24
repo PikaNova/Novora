@@ -2,13 +2,13 @@ import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
-import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize } from 'lucide-react';
 import './CleanFocus.css';
 
 const SEGMENTS = 20;
 
 /** 方案 02 · 清爽聚焦 — 白底、考试蓝、低压力，适合明亮教室与投影。 */
-export default function CleanFocus({ vm, onDismissNotification, onBack, onAdmin, onOpenAnnouncements, onSwitchDesign, isFullscreen, onToggleFullscreen }: DesignProps) {
+export default function CleanFocus({ vm, onDismissNotification, onBack, quickMenu, onOpenAnnouncements, onSwitchDesign, isFullscreen, onToggleFullscreen }: DesignProps) {
   const {
     masterTitle, phase, clock, dateText, currentName, startHM, endHM,
     progressPct, elapsedText, remainingText, countdownText,
@@ -39,7 +39,7 @@ export default function CleanFocus({ vm, onDismissNotification, onBack, onAdmin,
             <button className="cf__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告"><Megaphone /></button>
             <button className="cf__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计"><LayoutGrid /></button>
             <button className="cf__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button>
-            <button className="cf__ghost" onClick={onAdmin} aria-label="管理"><Settings /></button>
+            {quickMenu}
           </div>
         </header>
 

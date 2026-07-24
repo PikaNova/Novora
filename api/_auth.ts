@@ -15,7 +15,7 @@ export const ALL_PERMISSIONS = [
   'device.read', 'device.bind', 'device.revoke',
   'schedule.mode_edit', 'schedule.conflict_edit', 'schedule.term_edit', 'schedule.ab_week_edit', 'schedule.holiday_edit',
   'alerts.read', 'alerts.edit', 'settings.read', 'settings.edit', 'initialization.run', 'demo_data.delete',
-  'user.read', 'user.create', 'user.edit', 'user.disable', 'user.reset_password', 'role.manage', 'audit.read', 'deployment.trigger',
+  'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password', 'role.manage', 'audit.read', 'deployment.trigger',
 ] as const;
 
 export type Permission = typeof ALL_PERMISSIONS[number] | '*';
@@ -59,7 +59,7 @@ export function authSql() {
 
 const BUILTIN_ROLES: Array<{ id: string; name: string; description: string; permissions: Permission[] }> = [
   { id: 'super_admin', name: '超级管理员', description: '拥有全校数据与全部系统权限，可管理用户、角色、部署及所有业务设置。', permissions: ['*'] },
-  { id: 'grade_admin', name: '年级管理员', description: '管理授权年级的考试、周测、班级、设备和下级用户，并查看该年级完整运行总览。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read', 'user.read', 'user.create', 'user.edit', 'user.disable', 'user.reset_password'] },
+  { id: 'grade_admin', name: '年级管理员', description: '管理授权年级的考试、周测、班级、设备和下级用户，并查看该年级完整运行总览。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read', 'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password'] },
   { id: 'class_admin', name: '班级管理员', description: '管理授权班级的周测、排班和绑定设备，不显示项目运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
   { id: 'viewer', name: '只读用户', description: '仅按授权范围预览和导出考试、周测与排班，不进入运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.export', 'school.read'] },
 ];

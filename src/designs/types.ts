@@ -33,7 +33,7 @@ export interface DesignProps {
   vm: ExamViewModel;
   onDismissNotification: () => void;
   onBack: () => void;
-  onAdmin: () => void;
+  quickMenu: React.ReactNode;
   /** 打开作者端统一发布的 Markdown 公告。 */
   onOpenAnnouncements: () => void;
   /** 打开展示设计切换窗（入口位于各设计顶栏，避免悬浮按钮遮挡元素）。 */

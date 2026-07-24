@@ -328,7 +328,7 @@ export default function SettingsPage() {
         {!canEditSettings && <div className="set-note set-note--warn">当前账号对系统设置只有查看权限。如需修改登录密码，请前往“用户与权限”。</div>}
         <section className="set-card">
           <div className="set-card__head"><h2 className="set-card__title">学校信息</h2></div>
-          <p className="set-card__lead">学校名称会显示在班级排班预览和 A4 PDF 页眉中。</p>
+          <p className="set-card__lead">学校名称会显示在班级考试安排预览和 A4 PDF 页眉中。</p>
           <div className="set-row"><label className="set-label">省份 / 地区</label><select className="set-input" disabled={!canEditSchool} value={province} onChange={event => setProvince(event.target.value)}><option value="">请选择省份或地区</option>{CHINA_PROVINCES.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
           <div className="set-row"><label className="set-label">学校名称</label><input className="set-input" maxLength={80} disabled={!canEditSchool} value={schoolName} onChange={event => setSchoolName(event.target.value)} placeholder="请输入学校名称" /></div>
           <div className="set-note">完整校名：<strong>{schoolFullName(province, schoolName) || '尚未填写'}</strong></div>

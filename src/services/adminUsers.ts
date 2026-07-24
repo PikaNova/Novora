@@ -66,6 +66,11 @@ export async function resetManagedUserPassword(id: number, password: string): Pr
   await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'reset-password', id, password }) });
 }
 
+export async function deleteManagedUser(id: number): Promise<ManagedUser[]> {
+  const data = await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'delete', id }) });
+  return data.users || [];
+}
+
 export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
   await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-password', currentPassword, newPassword }) });
 }

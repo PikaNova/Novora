@@ -42,3 +42,4 @@
 
 /* v1.23.0 手机端安全区（仅色卡仪表盘，已适配） */
 @media (max-width:620px){ .ld-palette{ padding-top:max(env(safe-area-inset-top),18px); } }
+.ld-ice .ld-head{justify-content:center}.ld-ice .ld-head>div:first-child{position:absolute;left:8%;right:8%;display:flex;justify-content:center}.ld-ice .ld-brand{max-width:100%;text-align:center}.ld-ice .ld-head>div:last-child{position:fixed;left:calc(28% + 18px);right:calc(28% + 18px);bottom:18px;display:flex;justify-content:space-between;pointer-events:none}.ld-ice .ld-head>div:last-child>*{pointer-events:auto}.ld-ice .ld-actions{margin-left:auto}@media(max-width:760px){.ld-ice .ld-head>div:last-child{left:calc(18% + 8px);right:calc(18% + 8px);bottom:10px}.ld-ice .ld-head>div:first-child{left:2%;right:2%}}
