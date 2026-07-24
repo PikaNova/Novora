@@ -15,6 +15,7 @@ public class Plugin : PluginBase
     {
         services.AddSingleton<PluginSettingsStore>();
         services.AddSingleton<ExamBoardClient>();
+        services.AddSingleton<ExternalUriLauncher>();
         services.AddSingleton<ExamReminderProvider>();
         services.AddSettingsPage<ExamReminderSettingsPage>();
         services.AddNotificationProvider<ExamReminderProvider>();

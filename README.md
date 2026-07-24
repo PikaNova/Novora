@@ -1,4 +1,4 @@
-# 考试看板 V2.3
+# 考试看板 V2.3.1
 
 面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 导出。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
@@ -10,7 +10,8 @@
 - 未绑定班级时，“查看考试大屏”和直接访问 `/exam` 都会回到首页年级、班级选择，不再误进后台登录，也不会先渲染错误的大屏内容。
 - 首次云端同步完成前不再把空的本地缓存判定为“系统未初始化”；网络失败时提供重新同步，不会引导用户覆盖已有云端配置。
 - 初始化使用独立登录文案与 `initialize` 流程，验证成功后直接打开初始化向导。
-- ClassIsland 联动 API 升级为向后兼容的 v2，增加能力探测、考试来源与学校信息；配套插件源码位于 `integrations/ClassIsland.ExamReminder`，使用官方稳定 PluginSdk 2.0。
+- ClassIsland 联动 API 升级为向后兼容的 v2，增加能力探测、考试来源与学校信息；配套插件源码位于 `integrations/ClassIsland.ExamReminder`。
+- ClassIsland 插件保留现有 `net8.0-windows` 与 PluginSdk，增加 Linux 浏览器启动兼容：优先使用系统默认方式，失败后回退 `xdg-open`、`gio open`。
 
 ## V2.2 功能
 
@@ -130,7 +131,7 @@ ClassIsland API v2 继续复用 `/api/exams`。`GET /api/exams?action=plugin-api
 dotnet build integrations/ClassIsland.ExamReminder/ClassIsland.ExamReminder.csproj -c Release
 ```
 
-插件使用 `ClassIsland.PluginSdk 2.0.0.*` 和 `apiVersion: 2`，同时可读取旧服务端未声明版本的响应。
+插件使用 `ClassIsland.PluginSdk 1.7.106.2-dev-v2`、`net8.0-windows` 和 `apiVersion: 2`。Linux 版 ClassIsland 沿用兼容加载方式，浏览器启动失败时会回退到 Linux 桌面命令；旧服务端未声明版本的响应仍可读取。
 
 ## JSON 导入
 

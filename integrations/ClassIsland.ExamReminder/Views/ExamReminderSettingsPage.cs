@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -24,6 +23,7 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
     private readonly ExamBoardClient _client;
     private readonly ExamReminderProvider _provider;
     private readonly ExamSyncService _syncService;
+    private readonly ExternalUriLauncher _uriLauncher;
     private readonly TextBox _urlBox;
     private readonly TextBlock _statusText;
     private readonly TextBlock _classText;
@@ -39,12 +39,14 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
         PluginSettingsStore store,
         ExamBoardClient client,
         ExamReminderProvider provider,
-        ExamSyncService syncService)
+        ExamSyncService syncService,
+        ExternalUriLauncher uriLauncher)
     {
         _store = store;
         _client = client;
         _provider = provider;
         _syncService = syncService;
+        _uriLauncher = uriLauncher;
 
         _urlBox = new TextBox
         {
@@ -202,15 +204,14 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
             return;
         }
 
-        try
+        if (_uriLauncher.TryOpen(result.Value, out var launchError))
         {
-            Process.Start(new ProcessStartInfo(result.Value.AbsoluteUri) { UseShellExecute = true });
             _store.Update(value => value.LastStatus = "请在浏览器中确认班级绑定");
             _syncService.RequestImmediateSync();
         }
-        catch
+        else
         {
-            _store.Update(value => value.LastStatus = "无法打开浏览器，请使用“打开考试看板”检查系统默认浏览器");
+            _store.Update(value => value.LastStatus = $"无法打开浏览器：{launchError}");
         }
     }
 
@@ -233,16 +234,11 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
             _store.Update(value => value.LastStatus = "请先填写考试看板网址");
             return;
         }
-        try
+        if (!_uriLauncher.TryOpen(
+                ExamBoardUrls.Board(settings.BaseUrl, settings.PluginInstanceId),
+                out var launchError))
         {
-            Process.Start(new ProcessStartInfo(ExamBoardUrls.Board(settings.BaseUrl, settings.PluginInstanceId).AbsoluteUri)
-            {
-                UseShellExecute = true,
-            });
-        }
-        catch
-        {
-            _store.Update(value => value.LastStatus = "无法打开系统默认浏览器");
+            _store.Update(value => value.LastStatus = $"无法打开系统默认浏览器：{launchError}");
         }
     }
 

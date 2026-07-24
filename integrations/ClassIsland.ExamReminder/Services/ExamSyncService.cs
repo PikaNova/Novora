@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using ClassIsland.ExamReminder.Models;
 using Microsoft.Extensions.Hosting;
 
@@ -10,17 +9,21 @@ public sealed class ExamSyncService : BackgroundService
     private readonly PluginSettingsStore _store;
     private readonly ExamBoardClient _client;
     private readonly ExamReminderProvider _provider;
+    private readonly ExternalUriLauncher _uriLauncher;
     private ExamBoardBootstrapResponse? _snapshot;
     private DateTimeOffset _nextSyncAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextBrowserOpenAttemptAt = DateTimeOffset.MinValue;
 
     public ExamSyncService(
         PluginSettingsStore store,
         ExamBoardClient client,
-        ExamReminderProvider provider)
+        ExamReminderProvider provider,
+        ExternalUriLauncher uriLauncher)
     {
         _store = store;
         _client = client;
         _provider = provider;
+        _uriLauncher = uriLauncher;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -134,9 +137,21 @@ public sealed class ExamSyncService : BackgroundService
             if (remaining <= TimeSpan.FromMinutes(settings.BrowserLeadMinutes) && settings.AutoOpenBoard)
             {
                 var key = ActionKey(exam, "open");
-                if (!_store.HasCompletedAction(key) && (_snapshot.ViewerOnline || OpenBoard(settings)))
+                if (!_store.HasCompletedAction(key) && _snapshot.ViewerOnline)
                 {
                     _store.MarkCompletedAction(key);
+                }
+                else if (!_store.HasCompletedAction(key) && now >= _nextBrowserOpenAttemptAt)
+                {
+                    if (OpenBoard(settings, out var error))
+                    {
+                        _store.MarkCompletedAction(key);
+                    }
+                    else
+                    {
+                        _nextBrowserOpenAttemptAt = now.AddMinutes(1);
+                        _store.Update(value => value.LastStatus = $"无法自动打开考试看板：{error}");
+                    }
                 }
             }
             if (remaining <= TimeSpan.FromMinutes(15) && remaining > TimeSpan.FromMinutes(5))
@@ -167,21 +182,8 @@ public sealed class ExamSyncService : BackgroundService
         _store.MarkCompletedAction(key);
     }
 
-    private static bool OpenBoard(PluginSettings settings)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(ExamBoardUrls.Board(settings.BaseUrl, settings.PluginInstanceId).AbsoluteUri)
-            {
-                UseShellExecute = true,
-            });
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    private bool OpenBoard(PluginSettings settings, out string error) =>
+        _uriLauncher.TryOpen(ExamBoardUrls.Board(settings.BaseUrl, settings.PluginInstanceId), out error);
 
     private static string ActionKey(ExamBoardExam exam, string action) =>
         $"{exam.Id}|{exam.StartAt.UtcTicks}|{action}";

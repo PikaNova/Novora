@@ -2,7 +2,9 @@
 
 ClassIsland 2.x 插件，用于连接学校部署的考试看板、同步当前设备绑定班级的考试，并通过 ClassIsland 提醒 V2 API 显示开考提醒。
 
-当前插件版本使用官方稳定 `ClassIsland.PluginSdk 2.0.0.*`，支持考试看板 ClassIsland API v2，并兼容未返回版本字段的 API v1 服务端。
+当前插件版本保留 `ClassIsland.PluginSdk 1.7.106.2-dev-v2` 和 `net8.0-windows` 目标，支持考试看板 ClassIsland API v2，并兼容未返回版本字段的 API v1 服务端。
+
+Linux 兼容沿用 ClassIsland 插件的现有加载方式。浏览器启动统一先使用 `UseShellExecute=true`，失败后在 Linux 依次回退到 `xdg-open` 和 `gio open`；网址通过参数列表传递，不拼接 shell 命令。
 
 ## 当前功能
 
@@ -33,4 +35,4 @@ ClassIsland 2.x 插件，用于连接学校部署的考试看板、同步当前�
 dotnet publish -p:CreateCipx=true
 ```
 
-项目中的 `icon.png` 当前是模板占位图标，发布前需要替换为正式应用图标。
+仓库中的集成源码未包含发布图标，制作正式插件包时需要补充应用图标。
