@@ -1,5 +1,6 @@
 import type { ExamItem, MajorExam, AlertsSettings } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
+import type { SchoolClass, SchoolGrade } from '../types/school';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -10,9 +11,11 @@ export interface ExamPayload {
   scheduleMode?: ScheduleMode;
   weeklyPlans?: WeeklyPlan[];
   activeWeeklyPlanId?: string | null;
-  activeWeeklyPlanIdByClass?: Record<string, string | null>;
+  activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+  grades?: SchoolGrade[];
+  classes?: SchoolClass[];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
-  boundClassTag?: string | null;
+  binding?: { gradeId: string; classId: string; revoked: boolean } | null;
   updatedAt: number;
 }
 
@@ -36,15 +39,15 @@ function toPayload(data: any): ExamPayload {
     activeWeeklyPlanId: typeof data?.activeWeeklyPlanId === 'string'
       ? data.activeWeeklyPlanId
       : (data?.activeWeeklyPlanId === null ? null : undefined),
-    activeWeeklyPlanIdByClass: data?.activeWeeklyPlanIdByClass && typeof data.activeWeeklyPlanIdByClass === 'object'
-      ? data.activeWeeklyPlanIdByClass as Record<string, string | null>
+    activeWeeklyPlanIdByClassId: data?.activeWeeklyPlanIdByClassId && typeof data.activeWeeklyPlanIdByClassId === 'object'
+      ? data.activeWeeklyPlanIdByClassId as Record<string, string | null>
       : undefined,
+    grades: Array.isArray(data?.grades) ? data.grades : undefined,
+    classes: Array.isArray(data?.classes) ? data.classes : undefined,
     weeklyConflictPolicy: data?.weeklyConflictPolicy && typeof data.weeklyConflictPolicy === 'object'
       ? (data.weeklyConflictPolicy as WeeklyConflictPolicy)
       : undefined,
-    boundClassTag: typeof data?.boundClassTag === 'string'
-      ? data.boundClassTag
-      : (data?.boundClassTag === null ? null : undefined),
+    binding: data?.binding && typeof data.binding === 'object' ? data.binding : null,
     updatedAt: Number(data?.updatedAt ?? 0),
   };
 }
@@ -111,7 +114,9 @@ export interface SaveExamsInput {
   scheduleMode?: ScheduleMode;
   weeklyPlans?: WeeklyPlan[];
   activeWeeklyPlanId?: string | null;
-  activeWeeklyPlanIdByClass?: Record<string, string | null>;
+  activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+  grades?: SchoolGrade[];
+  classes?: SchoolClass[];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
 }
 
@@ -138,7 +143,9 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     if (input.scheduleMode !== undefined) requestBody.scheduleMode = input.scheduleMode;
     if (input.weeklyPlans !== undefined) requestBody.weeklyPlans = input.weeklyPlans;
     if (input.activeWeeklyPlanId !== undefined) requestBody.activeWeeklyPlanId = input.activeWeeklyPlanId;
-    if (input.activeWeeklyPlanIdByClass !== undefined) requestBody.activeWeeklyPlanIdByClass = input.activeWeeklyPlanIdByClass;
+    if (input.activeWeeklyPlanIdByClassId !== undefined) requestBody.activeWeeklyPlanIdByClassId = input.activeWeeklyPlanIdByClassId;
+    if (input.grades !== undefined) requestBody.grades = input.grades;
+    if (input.classes !== undefined) requestBody.classes = input.classes;
     if (input.weeklyConflictPolicy !== undefined) requestBody.weeklyConflictPolicy = input.weeklyConflictPolicy;
     const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) });
     if (res.status === 401) { logoutAdmin(); return 'unauthorized'; }
@@ -159,7 +166,9 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       scheduleMode: input.scheduleMode,
       weeklyPlans: input.weeklyPlans,
       activeWeeklyPlanId: input.activeWeeklyPlanId,
-      activeWeeklyPlanIdByClass: input.activeWeeklyPlanIdByClass,
+      activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId,
+      grades: input.grades,
+      classes: input.classes,
       weeklyConflictPolicy: input.weeklyConflictPolicy,
       updatedAt,
     });

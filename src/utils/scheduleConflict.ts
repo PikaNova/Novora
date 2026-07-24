@@ -169,10 +169,11 @@ export interface ResolveScheduleInput {
   scheduleMode: ScheduleMode;
   activeMajorId: string | null;
   activeWeeklyPlanId: string | null;
-  majors: Array<{ id: string; name: string; items: ExamItem[]; targetClasses?: string[] }>;
+  majors: Array<{ id: string; name: string; items: ExamItem[]; targetGradeIds?: string[]; targetClassIds?: string[] }>;
   weeklyPlans: Array<Parameters<typeof resolveWeeklyOccurrences>[0]>;
-  activeWeeklyPlanIdByClass?: Record<string, string | null>;
-  selectedClassTag?: string;
+  activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+  selectedGradeId?: string;
+  selectedClassId?: string;
   weeklyConflictPolicy?: WeeklyConflictPolicy;
 }
 
@@ -185,16 +186,19 @@ export function resolveEffectiveSchedule(
   now: number,
   options?: ResolveWeeklyOptions,
 ): ResolvedSchedule {
-  const selectedClassTag = (data.selectedClassTag || '').trim();
+  const selectedGradeId = (data.selectedGradeId || '').trim();
+  const selectedClassId = (data.selectedClassId || '').trim();
   const activeMajor = data.majors.find(m => m.id === data.activeMajorId) ?? null;
-  const majorApplies = !activeMajor?.targetClasses?.length || (!!selectedClassTag && activeMajor.targetClasses.includes(selectedClassTag));
+  const gradeApplies = !activeMajor?.targetGradeIds?.length || (!!selectedGradeId && activeMajor.targetGradeIds.includes(selectedGradeId));
+  const classApplies = !activeMajor?.targetClassIds?.length || (!!selectedClassId && activeMajor.targetClassIds.includes(selectedClassId));
+  const majorApplies = gradeApplies && classApplies;
   const majorItems = activeMajor && majorApplies ? sortExamItemsByTime(activeMajor.items.filter(i => i.enabled)) : [];
 
-  const classPlanId = selectedClassTag
-    ? data.activeWeeklyPlanIdByClass?.[selectedClassTag]
+  const classPlanId = selectedClassId
+    ? data.activeWeeklyPlanIdByClassId?.[selectedClassId]
     : data.activeWeeklyPlanId;
-  const activePlan = data.weeklyPlans.find(p => p && p.id === classPlanId && (p.classTag || '') === selectedClassTag)
-    ?? data.weeklyPlans.find(p => p && (p.classTag || '') === selectedClassTag)
+  const activePlan = data.weeklyPlans.find(p => p && p.id === classPlanId && p.classId === selectedClassId)
+    ?? data.weeklyPlans.find(p => p && p.classId === selectedClassId)
     ?? data.weeklyPlans.find(p => p && p.id === classPlanId)
     ?? null;
   const weeklyOccurrences = resolveWeeklyOccurrences(activePlan, now, options);

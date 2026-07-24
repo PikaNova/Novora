@@ -19,8 +19,10 @@ export interface MajorExam {
   name: string;
   items: ExamItem[];
   order: number;
-  /** 适用班级标签；为空表示所有班级。 */
-  targetClasses?: string[];
+  /** 适用年级；为空表示所有年级。 */
+  targetGradeIds?: string[];
+  /** 适用班级；为空表示所选年级下全部班级。 */
+  targetClassIds?: string[];
 }
 
 /** 六种内置提醒状态（与设计思路文档一一对应）。 */

@@ -93,8 +93,8 @@ export interface WeeklyPlan {
   excludedDates: string[];
   overrides: WeeklyExamOverride[];
   order: number;
-  /** 班级/分组标签；为空表示通用计划。 */
-  classTag?: string;
+  gradeId: string;
+  classId: string;
 }
 
 /** 顶层考试看板数据（schemaVersion 2）。 */
@@ -106,9 +106,9 @@ export interface ExamBoardData {
   majors: MajorExam[];
   weeklyPlans: WeeklyPlan[];
   /** 每个班级当前生效的周测计划。未分组仍回退 activeWeeklyPlanId。 */
-  activeWeeklyPlanIdByClass?: Record<string, string | null>;
-  /** 当前设备选择的班级，仅保存在本机，不改变云端公共考试数据。 */
-  selectedClassTag?: string;
+  activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+  selectedGradeId?: string;
+  selectedClassId?: string;
   /** v1.24.0：全局冲突策略（后续版本可下放到单个大型考试）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
   updatedAt: number;

@@ -14,8 +14,8 @@ import { applyTypographySettings } from '../utils/typographySettings';
 import { applyMotionSettings } from '../utils/motionSettings';
 import { getDesignId, setDesignId } from '../utils/designPref';
 import { DESIGNS } from '../designs/registry';
-import { saveBoundClassTag } from '../services/classBinding';
-import { collectClassTags } from '../utils/classSettings';
+import { saveDeviceBinding } from '../services/classBinding';
+import { sortedClasses, sortedGrades } from '../utils/classSettings';
 import '../styles/settings.css';
 
 const FONT_OPTIONS: Array<{ value: TypographyFontId; label: string }> = [
@@ -36,11 +36,10 @@ export default function PreferencesPage() {
   const [designId, setDesign] = useState(getDesignId());
   const [motionMode, setMotionMode] = useState<MotionMode>(initial.general.motionMode);
   const [typography, setTypography] = useState<TypographySettings>(initial.general.typography);
-  const [selectedClassTag, setSelectedClassTag] = useState(initial.exam.selectedClassTag);
-  const classTags = useMemo(
-    () => collectClassTags(initial.exam.weeklyPlans, initial.exam.majors, initial.exam.activeWeeklyPlanIdByClass),
-    [],
-  );
+  const grades = useMemo(() => sortedGrades(initial.exam.grades), []);
+  const [selectedGradeId, setSelectedGradeId] = useState(initial.exam.selectedGradeId || grades[0]?.id || '');
+  const [selectedClassId, setSelectedClassId] = useState(initial.exam.selectedClassId);
+  const classes = useMemo(() => sortedClasses(initial.exam.classes, selectedGradeId), [initial.exam.classes, selectedGradeId]);
 
   const patchTypography = (key: keyof TypographySettings, value: TypographyFontId) => {
     const next = { ...typography, [key]: value };
@@ -59,10 +58,14 @@ export default function PreferencesPage() {
     applyMotionSettings(mode);
   };
   const patchDesign = (id: string) => { setDesign(id); setDesignId(id); };
-  const patchClass = (tag: string) => {
-    setSelectedClassTag(tag);
-    updateExamSettings({ selectedClassTag: tag });
-    void saveBoundClassTag(tag);
+  const patchGrade = (gradeId: string) => {
+    setSelectedGradeId(gradeId); setSelectedClassId('');
+    updateExamSettings({ selectedGradeId: gradeId, selectedClassId: '' });
+  };
+  const patchClass = (classId: string) => {
+    setSelectedClassId(classId);
+    updateExamSettings({ selectedGradeId, selectedClassId: classId });
+    if (selectedGradeId && classId) void saveDeviceBinding(selectedGradeId, classId);
   };
 
   return <div className="set-page">
@@ -87,8 +90,9 @@ export default function PreferencesPage() {
       <section className="set-card">
         <div className="set-card__head"><h2 className="set-card__title">当前班级</h2></div>
         <p className="set-card__lead">只影响这台设备显示的周测与适用班级考试，不会修改其他设备。</p>
-        <div className="set-row"><label className="set-label">班级 / 分组</label><select className="set-input" value={selectedClassTag} onChange={e => patchClass(e.target.value)}><option value="">通用 / 未分组</option>{classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select></div>
-        {classTags.length === 0 && <p className="set-note">管理员尚未在班级管理中添加班级。</p>}
+        <div className="set-row"><label className="set-label">年级</label><select className="set-input" value={selectedGradeId} onChange={e => patchGrade(e.target.value)}><option value="">请选择年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+        <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={selectedClassId} onChange={e => patchClass(e.target.value)} disabled={!selectedGradeId}><option value="">请选择班级</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+        {grades.length === 0 && <p className="set-note">管理员尚未在“年级与班级”中添加数据。</p>}
       </section>
     </main>
   </div>;

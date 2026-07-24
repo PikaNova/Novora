@@ -19,7 +19,7 @@ import AnnouncementList from '../components/AnnouncementList';
 import readmeRaw from '../../README.md?raw';
 import { changeAdminPassword, getCloudSnapshot, hasValidLocalToken, isLoginRequired, saveExamsToServer } from '../services/examService';
 import type { WeeklyPlan, WeeklyWeekMode } from '../types/exam';
-import { collectClassTags } from '../utils/classSettings';
+import { sortedClasses, sortedGrades } from '../utils/classSettings';
 import { OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
 import { getConsent, isEnabled, setEnabled, getInstanceId, reportNow } from '../services/telemetry';
 import { checkForUpdate, getRedeployConfigured, triggerRedeploy } from '../services/update';
@@ -92,8 +92,9 @@ export default function SettingsPage() {
   const [passwordBusy, setPasswordBusy] = useState(false);
   const initialExam = useMemo(() => getAppSettings().exam, []);
   const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(initialExam.weeklyPlans);
-  const [calendarClass, setCalendarClass] = useState(initialExam.selectedClassTag);
-  const [calendarPlanId, setCalendarPlanId] = useState(() => initialExam.activeWeeklyPlanIdByClass[initialExam.selectedClassTag] ?? initialExam.activeWeeklyPlanId ?? '');
+  const [calendarGradeId, setCalendarGradeId] = useState(initialExam.selectedGradeId || initialExam.grades[0]?.id || '');
+  const [calendarClassId, setCalendarClassId] = useState(initialExam.selectedClassId);
+  const [calendarPlanId, setCalendarPlanId] = useState(() => initialExam.activeWeeklyPlanIdByClassId[initialExam.selectedClassId] ?? initialExam.activeWeeklyPlanId ?? '');
   const [calendarSave, setCalendarSave] = useState('');
   const toggleTele = (v: boolean) => { setEnabled(v); setTeleOn(v); };
   const reportTele = async () => {
@@ -200,14 +201,15 @@ export default function SettingsPage() {
     window.location.reload();
   };
 
-  const classTags = useMemo(() => collectClassTags(weeklyPlans, initialExam.majors, initialExam.activeWeeklyPlanIdByClass), [weeklyPlans, initialExam]);
-  const classPlans = weeklyPlans.filter(plan => (plan.classTag || '') === calendarClass);
+  const grades = useMemo(() => sortedGrades(initialExam.grades), [initialExam]);
+  const classes = useMemo(() => sortedClasses(initialExam.classes, calendarGradeId), [initialExam, calendarGradeId]);
+  const classPlans = weeklyPlans.filter(plan => plan.classId === calendarClassId);
   const calendarPlan = classPlans.find(plan => plan.id === calendarPlanId) ?? classPlans[0] ?? null;
 
-  const selectCalendarClass = (tag: string) => {
-    setCalendarClass(tag);
+  const selectCalendarClass = (classId: string) => {
+    setCalendarClassId(classId);
     const exam = getAppSettings().exam;
-    setCalendarPlanId(exam.activeWeeklyPlanIdByClass[tag] ?? weeklyPlans.find(plan => (plan.classTag || '') === tag)?.id ?? '');
+    setCalendarPlanId(exam.activeWeeklyPlanIdByClassId[classId] ?? weeklyPlans.find(plan => plan.classId === classId)?.id ?? '');
   };
 
   const saveCalendarPlan = async (updates: Partial<WeeklyPlan>) => {
@@ -217,7 +219,7 @@ export default function SettingsPage() {
     updateExamSettings({ weeklyPlans: nextPlans, updatedAt: Date.now() });
     setCalendarSave('正在保存到云端…');
     const exam = getAppSettings().exam;
-    const input = { items: exam.items, title: exam.title, majors: exam.majors, activeMajorId: exam.activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: nextPlans, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClass: exam.activeWeeklyPlanIdByClass, weeklyConflictPolicy: exam.weeklyConflictPolicy };
+    const input = { items: exam.items, title: exam.title, majors: exam.majors, activeMajorId: exam.activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: nextPlans, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId: exam.activeWeeklyPlanIdByClassId, grades: exam.grades, classes: exam.classes, weeklyConflictPolicy: exam.weeklyConflictPolicy };
     let persistedPlans = nextPlans;
     let result = await saveExamsToServer({ ...input, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
     if (result && typeof result === 'object' && result.kind === 'conflict' && result.remote) {
@@ -235,7 +237,9 @@ export default function SettingsPage() {
         scheduleMode: remote.scheduleMode ?? input.scheduleMode,
         weeklyPlans: mergedPlans,
         activeWeeklyPlanId: remote.activeWeeklyPlanId ?? input.activeWeeklyPlanId,
-        activeWeeklyPlanIdByClass: remote.activeWeeklyPlanIdByClass ?? input.activeWeeklyPlanIdByClass,
+        activeWeeklyPlanIdByClassId: remote.activeWeeklyPlanIdByClassId ?? input.activeWeeklyPlanIdByClassId,
+        grades: remote.grades ?? input.grades,
+        classes: remote.classes ?? input.classes,
         weeklyConflictPolicy: remote.weeklyConflictPolicy ?? input.weeklyConflictPolicy,
         baseUpdatedAt: remote.updatedAt,
       });
@@ -265,7 +269,8 @@ export default function SettingsPage() {
           <div className="set-card__head"><h2 className="set-card__title">周测日历</h2></div>
           <p className="set-card__lead">配置学期周次和法定节假日。学期开始日期所在周按 A 周计算，下一周自动切换为 B 周。</p>
           <div className="set-fieldset">
-            <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={calendarClass} onChange={event => selectCalendarClass(event.target.value)}><option value="">通用 / 未分组</option>{classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select></div>
+            <div className="set-row"><label className="set-label">年级</label><select className="set-input" value={calendarGradeId} onChange={event => { setCalendarGradeId(event.target.value); setCalendarClassId(''); }}><option value="">请选择年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+            <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={calendarClassId} onChange={event => selectCalendarClass(event.target.value)}><option value="">请选择班级</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
             {classPlans.length > 1 && <div className="set-row"><label className="set-label">周测计划</label><select className="set-input" value={calendarPlan?.id ?? ''} onChange={event => setCalendarPlanId(event.target.value)}>{classPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></div>}
             {calendarPlan ? <>
               <div className="set-row"><label className="set-label">学期开始日期</label><input className="set-input" type="date" value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>

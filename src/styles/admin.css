@@ -279,6 +279,7 @@
 .device-status__row { padding:9px 12px; border-top:1px solid rgba(255,255,255,.065); background:rgba(255,255,255,.018); }
 .device-status__row:first-child { border-top:0; }
 .device-status__row:hover { background:rgba(255,255,255,.04); }
+.device-status__row.is-revoked { opacity:.6; }
 .device-status__row>div { min-width:0; }
 .device-status__row span { display:block; margin-bottom:4px; color:rgba(255,255,255,.42); font-size:.67rem; }
 .device-status__row code,.device-status__row strong,.device-status__row time { display:block; overflow:hidden; color:#edf3f7; font-size:.8rem; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
@@ -302,6 +303,8 @@
 .class-management__row strong,.class-management__row span { display:block; }
 .class-management__row strong { font-size:.88rem; }
 .class-management__row span { margin-top:4px; color:rgba(255,255,255,.48); font-size:.7rem; }
+.admin-major-targets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; max-height:240px; margin-top:8px; overflow:auto; }
+.admin-major-targets label { display:flex; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid rgba(255,255,255,.09); border-radius:6px; background:rgba(255,255,255,.025); font-size:.8rem; }
 .admin-btn:disabled { opacity:.4; cursor:not-allowed; }
 @media(max-width:700px){
   .admin-tabbar__tabs { width:100%; overflow-x:auto; padding-bottom:2px; }
@@ -327,6 +330,7 @@
   .class-management__add .admin-btn { min-height:44px; }
   .class-management__row { align-items:flex-start; }
   .class-management__row .admin-btn { min-height:40px; }
+  .admin-major-targets { grid-template-columns:1fr; }
 }
 
 @media(max-width:600px){

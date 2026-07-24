@@ -15,10 +15,11 @@ import AnnouncementList from '../components/AnnouncementList';
 import WeeklyPanel from '../components/WeeklyPanel';
 import DeviceStatusPanel from '../components/DeviceStatusPanel';
 import ClassManagementPanel from '../components/ClassManagementPanel';
-import { collectClassTags } from '../utils/classSettings';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
-import { saveBoundClassTag } from '../services/classBinding';
+import { saveDeviceBinding } from '../services/classBinding';
 import type { AdminTab, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
+import type { SchoolClass, SchoolGrade } from '../types/school';
+import { genClassId, genGradeId } from '../types/school';
 import '../styles/admin.css';
 
 function fmtAnnTime(ms: number) {
@@ -58,7 +59,7 @@ const SYNC_META: Record<SyncState, { label: string; cls: string }> = {
 };
 
 type EditItem = Omit<ExamItem, 'id' | 'order'> & { id?: string };
-type MajorModal = { mode: 'add' | 'rename'; name: string; targetClasses: string } | null;
+type MajorModal = { mode: 'add' | 'rename'; name: string; targetGradeIds: string[] } | null;
 
 // 内置提醒状态的展示顺序与触发时机说明
 const ALERT_STATE_ORDER: AlertState[] = ['15min', '5min', 'start', 'end15', 'ended', 'next'];
@@ -92,12 +93,15 @@ export default function AdminPage() {
 
   const [majors, setMajors] = useState<MajorExam[]>(initial.majors);
   const [activeMajorId, setActiveMajorId] = useState<string>(initial.activeMajorId);
-  const [adminTab, setAdminTab] = useState<AdminTab>('major');
+  const [adminTab, setAdminTab] = useState<AdminTab>(initial.grades.length === 0 || initial.classes.length === 0 ? 'classes' : 'major');
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initial.scheduleMode);
   const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(initial.weeklyPlans);
   const [activeWeeklyPlanId, setActiveWeeklyPlanId] = useState<string | null>(initial.activeWeeklyPlanId);
-  const [activeWeeklyPlanIdByClass, setActiveWeeklyPlanIdByClass] = useState<Record<string, string | null>>(initial.activeWeeklyPlanIdByClass);
-  const [selectedClassTag, setSelectedClassTag] = useState(initial.selectedClassTag);
+  const [activeWeeklyPlanIdByClassId, setActiveWeeklyPlanIdByClassId] = useState<Record<string, string | null>>(initial.activeWeeklyPlanIdByClassId);
+  const [grades, setGrades] = useState<SchoolGrade[]>(initial.grades);
+  const [classes, setClasses] = useState<SchoolClass[]>(initial.classes);
+  const [selectedGradeId, setSelectedGradeId] = useState(initial.selectedGradeId);
+  const [selectedClassId, setSelectedClassId] = useState(initial.selectedClassId);
   const [weeklyConflictPolicy, setWeeklyConflictPolicy] = useState<WeeklyConflictPolicy>(initial.weeklyConflictPolicy);
   // 有本地令牌时初始即就绪，立即渲染后台（本地缓存数据），鉴权与拉取在后台并行进行。
   const [ready, setReady] = useState<boolean>(() => hasValidLocalToken());
@@ -131,8 +135,8 @@ export default function AdminPage() {
   const stateRef = useRef({ majors, activeMajorId });
   stateRef.current = { majors, activeMajorId };
   const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const weeklyStateRef = useRef({ scheduleMode, weeklyPlans, activeWeeklyPlanId, activeWeeklyPlanIdByClass, weeklyConflictPolicy });
-  weeklyStateRef.current = { scheduleMode, weeklyPlans, activeWeeklyPlanId, activeWeeklyPlanIdByClass, weeklyConflictPolicy };
+  const weeklyStateRef = useRef({ scheduleMode, weeklyPlans, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, grades, classes, weeklyConflictPolicy });
+  weeklyStateRef.current = { scheduleMode, weeklyPlans, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, grades, classes, weeklyConflictPolicy };
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
 
@@ -156,19 +160,22 @@ export default function AdminPage() {
 
   const activeMajor = majors.find(m => m.id === activeMajorId) ?? majors[0];
   const items = activeMajor?.items ?? [];
-  const classTags = collectClassTags(weeklyPlans, majors, activeWeeklyPlanIdByClass);
-  const activeMajorApplies = !activeMajor?.targetClasses?.length || (!!selectedClassTag && activeMajor.targetClasses.includes(selectedClassTag));
+  const activeMajorApplies = !activeMajor?.targetGradeIds?.length || (!!selectedGradeId && activeMajor.targetGradeIds.includes(selectedGradeId));
 
-  const changeSelectedClass = (tag: string) => {
-    setSelectedClassTag(tag);
-    updateExamSettings({ selectedClassTag: tag });
-    void saveBoundClassTag(tag);
+  const changeSelectedGrade = (gradeId: string) => {
+    setSelectedGradeId(gradeId); setSelectedClassId('');
+    updateExamSettings({ selectedGradeId: gradeId, selectedClassId: '' });
+  };
+  const changeSelectedClass = (classId: string) => {
+    setSelectedClassId(classId);
+    updateExamSettings({ selectedGradeId, selectedClassId: classId });
+    if (selectedGradeId && classId) void saveDeviceBinding(selectedGradeId, classId);
   };
 
   // 构造待推送的完整载荷（items/title 镜像激活大型考试）
   const buildPayload = (ms: MajorExam[], activeId: string) => {
     const active = ms.find(m => m.id === activeId) ?? ms[0];
-    return { items: active?.items ?? [], title: active?.name ?? '', majors: ms, activeMajorId: activeId, alerts: alertsRef.current };
+    return { items: active?.items ?? [], title: active?.name ?? '', majors: ms, activeMajorId: activeId, alerts: alertsRef.current, grades: weeklyStateRef.current.grades, classes: weeklyStateRef.current.classes };
   };
 
   // 将变更推送到服务器（已先行写入本地）
@@ -271,7 +278,7 @@ export default function AdminPage() {
   }, [commit]);
 
   // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
-  const pushWeeklyToServer = useCallback(async (weekly: { scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; activeWeeklyPlanIdByClass: Record<string, string | null>; weeklyConflictPolicy: WeeklyConflictPolicy }) => {
+  const pushWeeklyToServer = useCallback(async (weekly: { scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; activeWeeklyPlanIdByClassId: Record<string, string | null>; grades: SchoolGrade[]; classes: SchoolClass[]; weeklyConflictPolicy: WeeklyConflictPolicy }) => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       pendingRef.current = true; setSync('offline');
       // 持久化到本地 outbox，确保离线时的周测编辑在应用重启后仍能在恢复联网时推送。
@@ -292,9 +299,9 @@ export default function AdminPage() {
         const merged = threeWayMergeExam(baseline, { ...base, ...weekly, updatedAt: baseUpdatedAt }, result.remote);
         const retry = await saveExamsToServer({ ...merged.payload, baseUpdatedAt: result.remote.updatedAt });
         if (typeof retry === 'number') {
-          const mergedWeekly = { scheduleMode: merged.payload.scheduleMode ?? weekly.scheduleMode, weeklyPlans: merged.payload.weeklyPlans ?? weekly.weeklyPlans, activeWeeklyPlanId: merged.payload.activeWeeklyPlanId ?? null, activeWeeklyPlanIdByClass: merged.payload.activeWeeklyPlanIdByClass ?? {}, weeklyConflictPolicy: merged.payload.weeklyConflictPolicy ?? weekly.weeklyConflictPolicy };
+          const mergedWeekly = { scheduleMode: merged.payload.scheduleMode ?? weekly.scheduleMode, weeklyPlans: merged.payload.weeklyPlans ?? weekly.weeklyPlans, activeWeeklyPlanId: merged.payload.activeWeeklyPlanId ?? null, activeWeeklyPlanIdByClassId: merged.payload.activeWeeklyPlanIdByClassId ?? {}, grades: merged.payload.grades ?? weekly.grades, classes: merged.payload.classes ?? weekly.classes, weeklyConflictPolicy: merged.payload.weeklyConflictPolicy ?? weekly.weeklyConflictPolicy };
           if (merged.payload.majors.length) { setMajors(merged.payload.majors); setActiveMajorId(merged.payload.activeMajorId || merged.payload.majors[0].id); }
-          setScheduleMode(mergedWeekly.scheduleMode); setWeeklyPlans(mergedWeekly.weeklyPlans); setActiveWeeklyPlanId(mergedWeekly.activeWeeklyPlanId); setActiveWeeklyPlanIdByClass(mergedWeekly.activeWeeklyPlanIdByClass); setWeeklyConflictPolicy(mergedWeekly.weeklyConflictPolicy);
+          setScheduleMode(mergedWeekly.scheduleMode); setWeeklyPlans(mergedWeekly.weeklyPlans); setActiveWeeklyPlanId(mergedWeekly.activeWeeklyPlanId); setActiveWeeklyPlanIdByClassId(mergedWeekly.activeWeeklyPlanIdByClassId); setGrades(mergedWeekly.grades); setClasses(mergedWeekly.classes); setWeeklyConflictPolicy(mergedWeekly.weeklyConflictPolicy);
           weeklyStateRef.current = mergedWeekly;
           updateExamSettings({ ...merged.payload, ...mergedWeekly, updatedAt: retry });
           pendingRef.current = false; setSync('saved'); return;
@@ -310,9 +317,9 @@ export default function AdminPage() {
     setSync('saved');
   }, [navigate]);
 
-  const commitWeekly = useCallback((weekly: Partial<{ scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; activeWeeklyPlanIdByClass: Record<string, string | null>; weeklyConflictPolicy: WeeklyConflictPolicy }>, immediate = false) => {
+  const commitWeekly = useCallback((weekly: Partial<{ scheduleMode: ScheduleMode; weeklyPlans: WeeklyPlan[]; activeWeeklyPlanId: string | null; activeWeeklyPlanIdByClassId: Record<string, string | null>; grades: SchoolGrade[]; classes: SchoolClass[]; weeklyConflictPolicy: WeeklyConflictPolicy }>, immediate = false) => {
     const next = { ...weeklyStateRef.current, ...weekly };
-    setScheduleMode(next.scheduleMode); setWeeklyPlans(next.weeklyPlans); setActiveWeeklyPlanId(next.activeWeeklyPlanId); setActiveWeeklyPlanIdByClass(next.activeWeeklyPlanIdByClass); setWeeklyConflictPolicy(next.weeklyConflictPolicy);
+    setScheduleMode(next.scheduleMode); setWeeklyPlans(next.weeklyPlans); setActiveWeeklyPlanId(next.activeWeeklyPlanId); setActiveWeeklyPlanIdByClassId(next.activeWeeklyPlanIdByClassId); setGrades(next.grades); setClasses(next.classes); setWeeklyConflictPolicy(next.weeklyConflictPolicy);
     weeklyStateRef.current = next;
     updateExamSettings({ ...next, updatedAt: Date.now() });
     pendingRef.current = true;
@@ -323,18 +330,30 @@ export default function AdminPage() {
   }, [pushWeeklyToServer]);
 
   const handleScheduleModeChange = (mode: ScheduleMode) => commitWeekly({ scheduleMode: mode }, true);
-  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, classTag: string, immediate = false) => {
-    const nextByClass = { ...weeklyStateRef.current.activeWeeklyPlanIdByClass, [classTag]: activeId };
-    commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: classTag ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClass: nextByClass }, immediate);
+  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate = false) => {
+    const nextByClass = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [classId]: activeId };
+    commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: classId ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClassId: nextByClass }, immediate);
   };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
-  const addClassTag = (tag: string) => commitWeekly({ activeWeeklyPlanIdByClass: { ...weeklyStateRef.current.activeWeeklyPlanIdByClass, [tag]: null } }, true);
-  const removeClassTag = (tag: string) => {
-    if (!window.confirm(`确定删除班级「${tag}」？`)) return;
-    const next = { ...weeklyStateRef.current.activeWeeklyPlanIdByClass };
-    delete next[tag];
-    if (selectedClassTag === tag) changeSelectedClass('');
-    commitWeekly({ activeWeeklyPlanIdByClass: next }, true);
+  const addGrade = (name: string) => { const item = { id: genGradeId(), name, order: grades.length, enabled: true }; commitWeekly({ grades: [...grades, item] }, true); if (!selectedGradeId) changeSelectedGrade(item.id); };
+  const addClass = (gradeId: string, name: string) => { const item = { id: genClassId(), gradeId, name, order: classes.filter(value => value.gradeId === gradeId).length, enabled: true }; commitWeekly({ classes: [...classes, item], activeWeeklyPlanIdByClassId: { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [item.id]: null } }, true); };
+  const removeClass = (classId: string) => {
+    const nextMap = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId }; delete nextMap[classId];
+    const nextPlans = weeklyPlans.filter(plan => plan.classId !== classId);
+    const nextMajors = majors.map(major => ({ ...major, targetClassIds: major.targetClassIds?.filter(id => id !== classId) }));
+    if (selectedClassId === classId) changeSelectedClass('');
+    setMajors(nextMajors); stateRef.current = { majors: nextMajors, activeMajorId };
+    updateExamSettings({ majors: nextMajors });
+    commitWeekly({ classes: classes.filter(item => item.id !== classId), weeklyPlans: nextPlans, activeWeeklyPlanIdByClassId: nextMap }, true);
+  };
+  const removeGrade = (gradeId: string) => {
+    const classIds = new Set(classes.filter(item => item.gradeId === gradeId).map(item => item.id));
+    const nextMap = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId }; classIds.forEach(id => delete nextMap[id]);
+    const nextMajors = majors.map(major => ({ ...major, targetGradeIds: major.targetGradeIds?.filter(id => id !== gradeId), targetClassIds: major.targetClassIds?.filter(id => !classIds.has(id)) }));
+    if (selectedGradeId === gradeId) changeSelectedGrade('');
+    setMajors(nextMajors); stateRef.current = { majors: nextMajors, activeMajorId };
+    updateExamSettings({ majors: nextMajors });
+    commitWeekly({ grades: grades.filter(item => item.id !== gradeId), classes: classes.filter(item => item.gradeId !== gradeId), weeklyPlans: weeklyPlans.filter(plan => !classIds.has(plan.classId)), activeWeeklyPlanIdByClassId: nextMap }, true);
   };
 
   // 开机：鉴权 + 拉取服务器数据
@@ -368,13 +387,15 @@ export default function AdminPage() {
         if (remote.scheduleMode !== undefined) remoteUpdates.scheduleMode = remote.scheduleMode;
         if (remote.weeklyPlans !== undefined) remoteUpdates.weeklyPlans = remote.weeklyPlans;
         if (remote.activeWeeklyPlanId !== undefined) remoteUpdates.activeWeeklyPlanId = remote.activeWeeklyPlanId;
-        if (remote.activeWeeklyPlanIdByClass !== undefined) remoteUpdates.activeWeeklyPlanIdByClass = remote.activeWeeklyPlanIdByClass;
+        if (remote.activeWeeklyPlanIdByClassId !== undefined) remoteUpdates.activeWeeklyPlanIdByClassId = remote.activeWeeklyPlanIdByClassId;
+        if (remote.grades !== undefined) remoteUpdates.grades = remote.grades;
+        if (remote.classes !== undefined) remoteUpdates.classes = remote.classes;
         if (remote.weeklyConflictPolicy !== undefined) remoteUpdates.weeklyConflictPolicy = remote.weeklyConflictPolicy;
         updateExamSettings(remoteUpdates as any);
         if (remote.alerts) { updateAlertsSettings(remote.alerts); setAlerts(getAppSettings().alerts); }
         const merged = getAppSettings().exam;
         setMajors(merged.majors); setActiveMajorId(merged.activeMajorId);
-        setScheduleMode(merged.scheduleMode); setWeeklyPlans(merged.weeklyPlans); setActiveWeeklyPlanId(merged.activeWeeklyPlanId); setActiveWeeklyPlanIdByClass(merged.activeWeeklyPlanIdByClass); setSelectedClassTag(merged.selectedClassTag); setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
+        setScheduleMode(merged.scheduleMode); setWeeklyPlans(merged.weeklyPlans); setActiveWeeklyPlanId(merged.activeWeeklyPlanId); setActiveWeeklyPlanIdByClassId(merged.activeWeeklyPlanIdByClassId); setGrades(merged.grades); setClasses(merged.classes); setSelectedGradeId(merged.selectedGradeId); setSelectedClassId(merged.selectedClassId); setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
         pendingRef.current = false;
         setSync('saved');
       } else if (localAt > (remote?.updatedAt ?? 0)) {
@@ -382,7 +403,7 @@ export default function AdminPage() {
         pendingRef.current = true;
         const localExam = getAppSettings().exam;
         void pushToServer(localExam.majors, localExam.activeMajorId);
-        void pushWeeklyToServer({ scheduleMode: localExam.scheduleMode, weeklyPlans: localExam.weeklyPlans, activeWeeklyPlanId: localExam.activeWeeklyPlanId, activeWeeklyPlanIdByClass: localExam.activeWeeklyPlanIdByClass, weeklyConflictPolicy: localExam.weeklyConflictPolicy });
+        void pushWeeklyToServer({ scheduleMode: localExam.scheduleMode, weeklyPlans: localExam.weeklyPlans, activeWeeklyPlanId: localExam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId: localExam.activeWeeklyPlanIdByClassId, grades: localExam.grades, classes: localExam.classes, weeklyConflictPolicy: localExam.weeklyConflictPolicy });
       } else {
         setSync(remote ? 'saved' : 'offline');
       }
@@ -412,14 +433,13 @@ export default function AdminPage() {
   const commitMajorModal = () => {
     if (!majorModal) return;
     const name = majorModal.name.trim();
-    const targetClasses = majorModal.targetClasses.split(/[，,]/).map(v => v.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
     if (!name) { setMajorError('请输入大型考试名称'); return; }
     if (majorModal.mode === 'add') {
-      const nm: MajorExam = { id: genMajorId(), name, items: [], order: majors.length, targetClasses };
+      const nm: MajorExam = { id: genMajorId(), name, items: [], order: majors.length, targetGradeIds: majorModal.targetGradeIds };
       const ms = [...majors, nm];
       commit(ms, nm.id, true);
     } else {
-      const ms = majors.map(m => m.id === activeMajorId ? { ...m, name, targetClasses } : m);
+      const ms = majors.map(m => m.id === activeMajorId ? { ...m, name, targetGradeIds: majorModal.targetGradeIds } : m);
       commit(ms, activeMajorId, true);
     }
     setMajorModal(null); setMajorError('');
@@ -525,8 +545,8 @@ export default function AdminPage() {
       <div className="admin-tabbar__tabs">
         <button className={`admin-tab${adminTab === 'major' ? ' is-active' : ''}`} onClick={() => setAdminTab('major')}>🏫 大型考试</button>
         <button className={`admin-tab${adminTab === 'weekly' ? ' is-active' : ''}`} onClick={() => setAdminTab('weekly')}>📅 周测{weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>
-        <button className={`admin-tab${adminTab === 'classes' ? ' is-active' : ''}`} onClick={() => setAdminTab('classes')}>班级管理</button>
-        <button className={`admin-tab${adminTab === 'devices' ? ' is-active' : ''}`} onClick={() => setAdminTab('devices')}>设备情况</button>
+        <button className={`admin-tab${adminTab === 'classes' ? ' is-active' : ''}`} onClick={() => setAdminTab('classes')}>年级与班级</button>
+        <button className={`admin-tab${adminTab === 'devices' ? ' is-active' : ''}`} onClick={() => setAdminTab('devices')}>设备管理</button>
       </div>
       {adminTab !== 'devices' && adminTab !== 'classes' && <>
       <label className="admin-tabbar__mode">运行模式
@@ -536,10 +556,14 @@ export default function AdminPage() {
           <option value="automatic">自动（大型考试优先，自动避让周测）</option>
         </select>
       </label>
-      <label className="admin-tabbar__mode">当前班级
-        <select className="admin-input" value={selectedClassTag} onChange={e => changeSelectedClass(e.target.value)}>
-          <option value="">通用 / 未分组</option>
-          {classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+      <label className="admin-tabbar__mode">年级
+        <select className="admin-input" value={selectedGradeId} onChange={e => changeSelectedGrade(e.target.value)}>
+          <option value="">请选择年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      <label className="admin-tabbar__mode">班级
+        <select className="admin-input" value={selectedClassId} onChange={e => changeSelectedClass(e.target.value)} disabled={!selectedGradeId}>
+          <option value="">请选择班级</option>{classes.filter(item => item.gradeId === selectedGradeId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
       </label>
       </>}
@@ -549,8 +573,11 @@ export default function AdminPage() {
         <WeeklyPanel
           weeklyPlans={weeklyPlans}
           activeWeeklyPlanId={activeWeeklyPlanId}
-          activeWeeklyPlanIdByClass={activeWeeklyPlanIdByClass}
-          selectedClassTag={selectedClassTag}
+          activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+          selectedGradeId={selectedGradeId}
+          selectedClassId={selectedClassId}
+          selectedClassName={classes.find(item => item.id === selectedClassId)?.name ?? '当前班级'}
+          classOptions={classes.map(item => ({ id: item.id, gradeId: item.gradeId, label: `${grades.find(grade => grade.id === item.gradeId)?.name ?? '未知年级'} · ${item.name}` }))}
           scheduleMode={scheduleMode}
           weeklyConflictPolicy={weeklyConflictPolicy}
           majorItems={activeMajorApplies ? items : []}
@@ -559,7 +586,7 @@ export default function AdminPage() {
           onConflictPolicyChange={handleConflictPolicyChange}
         />
       ) : adminTab === 'classes' ? (
-        <ClassManagementPanel classTags={classTags} weeklyPlans={weeklyPlans} majors={majors} onAdd={addClassTag} onRemove={removeClassTag} />
+        <ClassManagementPanel grades={grades} classes={classes} weeklyPlans={weeklyPlans} majors={majors} onAddGrade={addGrade} onRemoveGrade={removeGrade} onAddClass={addClass} onRemoveClass={removeClass} />
       ) : adminTab === 'devices' ? (
         <DeviceStatusPanel />
       ) : (
@@ -581,8 +608,8 @@ export default function AdminPage() {
             </label>
           )}
           <div className="admin-major-card__btns">
-            <button className="admin-btn admin-btn--primary" onClick={() => { setMajorModal({ mode: 'add', name: '', targetClasses: selectedClassTag }); setMajorError(''); }}>+ 新建</button>
-            <button className="admin-btn" onClick={() => { setMajorModal({ mode: 'rename', name: activeMajor.name, targetClasses: (activeMajor.targetClasses || []).join('，') }); setMajorError(''); }}>设置</button>
+            <button className="admin-btn admin-btn--primary" onClick={() => { setMajorModal({ mode: 'add', name: '', targetGradeIds: selectedGradeId ? [selectedGradeId] : [] }); setMajorError(''); }}>+ 新建</button>
+            <button className="admin-btn" onClick={() => { setMajorModal({ mode: 'rename', name: activeMajor.name, targetGradeIds: activeMajor.targetGradeIds || [] }); setMajorError(''); }}>设置</button>
             <button className="admin-btn admin-btn--danger" onClick={() => setDeleteMajorOpen(true)} disabled={majors.length <= 1}>删除</button>
           </div>
           <p className="admin-major-card__hint">切换后大屏与本页均展示该大型考试的分考试。</p>
@@ -616,7 +643,7 @@ export default function AdminPage() {
       </>
       )}
     </div>
-    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用班级（可选）<input className="admin-input" value={majorModal.targetClasses} onChange={e => setMajorModal(p => p && { ...p, targetClasses: e.target.value })} placeholder="留空=全部班级；多个班级用逗号分隔" /></label><p className="admin-major-card__hint">只在当前设备所选班级命中时参与大屏和周测冲突判断。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
+    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><div className="admin-label">适用年级（不选表示全部）<div className="admin-major-targets">{grades.map(grade => <label key={grade.id}><input type="checkbox" checked={majorModal.targetGradeIds.includes(grade.id)} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.checked ? [...p.targetGradeIds, grade.id] : p.targetGradeIds.filter(id => id !== grade.id) }))} />{grade.name}</label>)}</div></div><p className="admin-major-card__hint">大型考试按年级区分，只在当前设备所选年级命中时显示。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
     {deleteMajorOpen && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteMajorOpen(false))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
     {deleteTarget && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteTarget(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">确认删除</h2><p className="admin-modal__body">确定删除「{deleteTarget.name}」？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={() => remove(deleteTarget)}>删除</button><button className="admin-btn" onClick={() => setDeleteTarget(null)}>取消</button></div></div></div>}
     {alertsOpen && <div className="admin-modal-overlay" {...backdropProps(() => setAlertsOpen(false))}>

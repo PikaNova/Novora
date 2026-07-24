@@ -1,5 +1,6 @@
 import type { AlertsSettings, ExamItem, MajorExam } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
+import type { SchoolClass, SchoolGrade } from '../types/school';
 
 export interface MergeableExamPayload {
   items: ExamItem[];
@@ -10,7 +11,9 @@ export interface MergeableExamPayload {
   scheduleMode?: ScheduleMode;
   weeklyPlans?: WeeklyPlan[];
   activeWeeklyPlanId?: string | null;
-  activeWeeklyPlanIdByClass?: Record<string, string | null>;
+  activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+  grades?: SchoolGrade[];
+  classes?: SchoolClass[];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   updatedAt: number;
 }
@@ -107,7 +110,9 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
   const alerts = mergeValue(base.alerts, local.alerts, remote.alerts, ctx) as AlertsSettings | null;
   const weeklyPlans = mergeValue(base.weeklyPlans ?? [], local.weeklyPlans ?? [], remote.weeklyPlans ?? [], ctx) as WeeklyPlan[];
   const activeWeeklyPlanId = mergeValue(base.activeWeeklyPlanId ?? null, local.activeWeeklyPlanId ?? null, remote.activeWeeklyPlanId ?? null, ctx) as string | null;
-  const activeWeeklyPlanIdByClass = mergeValue(base.activeWeeklyPlanIdByClass ?? {}, local.activeWeeklyPlanIdByClass ?? {}, remote.activeWeeklyPlanIdByClass ?? {}, ctx) as Record<string, string | null>;
+  const activeWeeklyPlanIdByClassId = mergeValue(base.activeWeeklyPlanIdByClassId ?? {}, local.activeWeeklyPlanIdByClassId ?? {}, remote.activeWeeklyPlanIdByClassId ?? {}, ctx) as Record<string, string | null>;
+  const grades = mergeValue(base.grades ?? [], local.grades ?? [], remote.grades ?? [], ctx) as SchoolGrade[];
+  const classes = mergeValue(base.classes ?? [], local.classes ?? [], remote.classes ?? [], ctx) as SchoolClass[];
   const scheduleMode = mergeValue(base.scheduleMode ?? 'major-only', local.scheduleMode ?? 'major-only', remote.scheduleMode ?? 'major-only', ctx) as ScheduleMode;
   const weeklyConflictPolicy = mergeValue(base.weeklyConflictPolicy ?? null, local.weeklyConflictPolicy ?? null, remote.weeklyConflictPolicy ?? null, ctx) as WeeklyConflictPolicy | null;
 
@@ -121,7 +126,9 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
       alerts,
       weeklyPlans,
       activeWeeklyPlanId,
-      activeWeeklyPlanIdByClass,
+      activeWeeklyPlanIdByClassId,
+      grades,
+      classes,
       scheduleMode,
       weeklyConflictPolicy,
       updatedAt: remote.updatedAt,

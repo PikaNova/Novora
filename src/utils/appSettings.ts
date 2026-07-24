@@ -5,6 +5,7 @@ import { normalizeWeeklyPlan } from './weeklySchedule';
 import { logger } from './logger';
 import { normalizeExamItems } from './examSchedule';
 import { mirrorAppSettings } from '../services/offlineStore';
+import type { SchoolClass, SchoolGrade } from '../types/school';
 
 export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
 
@@ -39,10 +40,11 @@ export interface ExamSettings {
   weeklyPlans: WeeklyPlan[];
   /** 当前参与调度的周测计划 id（v1.24.0 仅单个计划参与）。 */
   activeWeeklyPlanId: string | null;
-  /** 多班级模式下每个班级当前参与调度的计划。 */
-  activeWeeklyPlanIdByClass: Record<string, string | null>;
-  /** 当前设备/浏览器选择的班级标签；空值表示通用计划。 */
-  selectedClassTag: string;
+  activeWeeklyPlanIdByClassId: Record<string, string | null>;
+  grades: SchoolGrade[];
+  classes: SchoolClass[];
+  selectedGradeId: string;
+  selectedClassId: string;
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
   alertEnabled: boolean;
@@ -170,8 +172,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     scheduleMode: 'major-only',
     weeklyPlans: [],
     activeWeeklyPlanId: null,
-    activeWeeklyPlanIdByClass: {},
-    selectedClassTag: '',
+    activeWeeklyPlanIdByClassId: {},
+    grades: [],
+    classes: [],
+    selectedGradeId: '',
+    selectedClassId: '',
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
     alertEnabled: true,
     announcementPermanentlyHidden: false,
@@ -213,9 +218,8 @@ export function normalizeExam(raw: unknown): ExamSettings {
       name: m.name || `考试${i + 1}`,
       items: normalizeExamItems(Array.isArray(m.items) ? m.items : []),
       order: typeof m.order === 'number' ? m.order : i,
-      targetClasses: Array.isArray(m.targetClasses)
-        ? m.targetClasses.map(String).map(v => v.trim()).filter(Boolean).filter((v, j, a) => a.indexOf(v) === j)
-        : [],
+      targetGradeIds: Array.isArray(m.targetGradeIds) ? m.targetGradeIds.map(String).filter(Boolean) : [],
+      targetClassIds: Array.isArray(m.targetClassIds) ? m.targetClassIds.map(String).filter(Boolean) : [],
     }))
     .sort((a, b) => a.order - b.order)
     .map((m, i) => ({ ...m, order: i }));
@@ -236,21 +240,16 @@ export function normalizeExam(raw: unknown): ExamSettings {
   let activeWeeklyPlanId: string | null = src.activeWeeklyPlanId ?? null;
   if (activeWeeklyPlanId && !weeklyPlans.some(p => p.id === activeWeeklyPlanId)) activeWeeklyPlanId = null;
   if (!activeWeeklyPlanId && weeklyPlans.length) activeWeeklyPlanId = weeklyPlans[0].id;
-  const activeWeeklyPlanIdByClass: Record<string, string | null> = {};
-  const rawByClass = src.activeWeeklyPlanIdByClass && typeof src.activeWeeklyPlanIdByClass === 'object'
-    ? src.activeWeeklyPlanIdByClass as Record<string, unknown> : {};
-  for (const [tag, id] of Object.entries(rawByClass)) {
-    const value = typeof id === 'string' && weeklyPlans.some(p => p.id === id && (p.classTag || '') === tag) ? id : null;
-    activeWeeklyPlanIdByClass[tag] = value;
+  const grades = (Array.isArray(src.grades) ? src.grades : []).filter(Boolean).map((grade, index) => ({ id: String(grade.id), name: String(grade.name), order: Number.isFinite(grade.order) ? grade.order : index, enabled: grade.enabled !== false }));
+  const classes = (Array.isArray(src.classes) ? src.classes : []).filter(Boolean).map((item, index) => ({ id: String(item.id), gradeId: String(item.gradeId), name: String(item.name), order: Number.isFinite(item.order) ? item.order : index, enabled: item.enabled !== false })).filter(item => grades.some(grade => grade.id === item.gradeId));
+  const rawByClass = src.activeWeeklyPlanIdByClassId && typeof src.activeWeeklyPlanIdByClassId === 'object' ? src.activeWeeklyPlanIdByClassId : {};
+  const activeWeeklyPlanIdByClassId: Record<string, string | null> = {};
+  for (const item of classes) {
+    const value = rawByClass[item.id];
+    activeWeeklyPlanIdByClassId[item.id] = typeof value === 'string' && weeklyPlans.some(plan => plan.id === value && plan.classId === item.id) ? value : (weeklyPlans.find(plan => plan.classId === item.id)?.id ?? null);
   }
-  for (const plan of weeklyPlans) {
-    const tag = plan.classTag || '';
-    if (!(tag in activeWeeklyPlanIdByClass)) {
-      const fallback = tag === (src.selectedClassTag || '') ? activeWeeklyPlanId : null;
-      activeWeeklyPlanIdByClass[tag] = fallback || (weeklyPlans.find(p => (p.classTag || '') === tag)?.id ?? null);
-    }
-  }
-  const selectedClassTag = typeof src.selectedClassTag === 'string' ? src.selectedClassTag.trim() : '';
+  const selectedGradeId = grades.some(grade => grade.id === src.selectedGradeId) ? String(src.selectedGradeId) : '';
+  const selectedClassId = classes.some(item => item.id === src.selectedClassId && item.gradeId === selectedGradeId) ? String(src.selectedClassId) : '';
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 
   return {
@@ -260,8 +259,11 @@ export function normalizeExam(raw: unknown): ExamSettings {
     scheduleMode,
     weeklyPlans,
     activeWeeklyPlanId,
-    activeWeeklyPlanIdByClass,
-    selectedClassTag,
+    activeWeeklyPlanIdByClassId,
+    grades,
+    classes,
+    selectedGradeId,
+    selectedClassId,
     weeklyConflictPolicy,
     // items/title 始终镜像激活大型考试，保证展示端无需改动。
     title: active.name,

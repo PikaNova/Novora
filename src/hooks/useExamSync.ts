@@ -4,12 +4,13 @@ import { APP_SETTINGS_CHANGED_EVENT, APP_SETTINGS_KEY, getAppSettings, updateExa
 import { fetchExamsFromServer } from '../services/examService';
 import { flushPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import { getResolvedExamItems } from '../utils/appSchedule';
+import type { DeviceBinding } from '../services/classBinding';
 
 interface Options {
   onUpdate?: (data: { items: ExamItem[]; title: string; alerts: AlertsSettings }) => void;
   intervalMs?: number;
   bootstrapInstanceId?: string;
-  onBootstrapBinding?: (classTag: string | null) => void;
+  onBootstrapBinding?: (binding: DeviceBinding | null) => void;
 }
 
 export type ExamDataSyncState = 'local' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error' | 'auth-required';
@@ -39,7 +40,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     setSyncState(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (pending ? 'pending' : 'local'));
   }, []);
 
-  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; activeWeeklyPlanIdByClass?: any; weeklyConflictPolicy?: any }) => {
+  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; activeWeeklyPlanIdByClassId?: any; grades?: any; classes?: any; weeklyConflictPolicy?: any }) => {
     const updates: Record<string, unknown> = {
       items: payload.items,
       title: payload.title,
@@ -51,7 +52,9 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     if (payload.scheduleMode !== undefined) updates.scheduleMode = payload.scheduleMode;
     if (payload.weeklyPlans !== undefined) updates.weeklyPlans = payload.weeklyPlans;
     if (payload.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = payload.activeWeeklyPlanId;
-    if (payload.activeWeeklyPlanIdByClass !== undefined) updates.activeWeeklyPlanIdByClass = payload.activeWeeklyPlanIdByClass;
+    if (payload.activeWeeklyPlanIdByClassId !== undefined) updates.activeWeeklyPlanIdByClassId = payload.activeWeeklyPlanIdByClassId;
+    if (payload.grades !== undefined) updates.grades = payload.grades;
+    if (payload.classes !== undefined) updates.classes = payload.classes;
     if (payload.weeklyConflictPolicy !== undefined) updates.weeklyConflictPolicy = payload.weeklyConflictPolicy;
     updateExamSettings(updates as any);
     if (payload.alerts) updateAlertsSettings(payload.alerts);
@@ -84,7 +87,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
       const bootstrapId = bootstrapResolved.current ? undefined : bootstrapInstanceIdRef.current;
       const remote = await fetchExamsFromServer(bootstrapId);
       if (bootstrapId && remote) {
-        onBootstrapBindingRef.current?.(remote.boundClassTag ?? null);
+        onBootstrapBindingRef.current?.(remote.binding ?? null);
         bootstrapResolved.current = true;
       }
       if (!remote) { setSyncState('error'); return; }

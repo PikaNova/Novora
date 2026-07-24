@@ -1,5 +1,6 @@
 import type { AlertsSettings, ExamItem, MajorExam } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
+import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamPayload } from './examService';
 import { saveExamsToServer } from './examService';
 import { threeWayMergeExam } from '../utils/examMerge';
@@ -17,7 +18,9 @@ export interface PendingExamSync {
     scheduleMode?: ScheduleMode;
     weeklyPlans?: WeeklyPlan[];
     activeWeeklyPlanId?: string | null;
-    activeWeeklyPlanIdByClass?: Record<string, string | null>;
+    activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+    grades?: SchoolGrade[];
+    classes?: SchoolClass[];
     weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   };
   /** 编辑发生前最后一个已知云端完整快照，用于恢复网络后的三方合并。 */
@@ -82,7 +85,9 @@ export async function flushPendingExamSync(force = false): Promise<FlushResult> 
     scheduleMode: pending.payload.scheduleMode ?? first.remote.scheduleMode,
     weeklyPlans: pending.payload.weeklyPlans ?? first.remote.weeklyPlans,
     activeWeeklyPlanId: pending.payload.activeWeeklyPlanId !== undefined ? pending.payload.activeWeeklyPlanId : first.remote.activeWeeklyPlanId,
-    activeWeeklyPlanIdByClass: pending.payload.activeWeeklyPlanIdByClass ?? first.remote.activeWeeklyPlanIdByClass,
+    activeWeeklyPlanIdByClassId: pending.payload.activeWeeklyPlanIdByClassId ?? first.remote.activeWeeklyPlanIdByClassId,
+    grades: pending.payload.grades ?? first.remote.grades,
+    classes: pending.payload.classes ?? first.remote.classes,
     weeklyConflictPolicy: pending.payload.weeklyConflictPolicy ?? first.remote.weeklyConflictPolicy,
   };
   const mergedPending: PendingExamSync = {

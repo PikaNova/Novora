@@ -192,7 +192,8 @@ export function createEmptyWeeklyPlan(now: number, name = '周测计划'): Weekl
     excludedDates: [],
     overrides: [],
     order: 0,
-    classTag: '',
+    gradeId: '',
+    classId: '',
   };
 }
 
@@ -220,7 +221,8 @@ export function normalizeWeeklyPlan(raw: unknown, index = 0): WeeklyPlan {
     excludedDates: (Array.isArray(src.excludedDates) ? src.excludedDates : []).filter(d => DATE_RE.test(d)),
     overrides: (Array.isArray(src.overrides) ? src.overrides : []).filter(Boolean) as WeeklyExamOverride[],
     order: typeof src.order === 'number' ? src.order : index,
-    classTag: typeof src.classTag === 'string' ? src.classTag.trim() : '',
+    gradeId: typeof src.gradeId === 'string' ? src.gradeId : '',
+    classId: typeof src.classId === 'string' ? src.classId : '',
   };
 }
 

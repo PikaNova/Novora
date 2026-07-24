@@ -1,108 +1,53 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchClassBindings } from '../services/classBinding';
-import type { ClassBindingInfo } from '../services/classBinding';
+import { fetchDeviceBindings, revokeDevice, type DeviceBindingInfo } from '../services/classBinding';
+import { getAppSettings } from '../utils/appSettings';
+import { classDisplayName } from '../utils/classSettings';
 
-function formatInstanceId(value: string): string {
-  if (value.length <= 18) return value;
-  return `${value.slice(0, 10)}...${value.slice(-6)}`;
-}
-
-function formatUpdatedAt(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '未知';
-  return new Date(value).toLocaleString('zh-CN', { hour12: false });
-}
-
-function formatRelativeTime(value: number): string {
-  const delta = Date.now() - value;
-  if (!Number.isFinite(delta) || delta < 0) return '刚刚';
-  const minutes = Math.floor(delta / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  const days = Math.floor(hours / 24);
-  return days < 30 ? `${days} 天前` : formatUpdatedAt(value).slice(0, 10);
-}
+const ONLINE_MS = 90_000;
+const formatTime = (value: number) => value > 0 ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '从未上线';
+const statusLabel = (item: DeviceBindingInfo) => item.status === 'exam-running' ? '考试进行中' : item.status === 'waiting' ? '等待考试' : '空闲';
 
 export default function DeviceStatusPanel() {
-  const [bindings, setBindings] = useState<ClassBindingInfo[]>([]);
+  const [bindings, setBindings] = useState<DeviceBindingInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('*');
   const [classFilter, setClassFilter] = useState('*');
-  const [copiedId, setCopiedId] = useState('');
-  const [truncated, setTruncated] = useState(false);
-  const [sort, setSort] = useState<'recent' | 'class'>('recent');
+  const [now, setNow] = useState(Date.now());
+  const { grades, classes } = getAppSettings().exam;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await fetchClassBindings();
-      setBindings(result.bindings);
-      setTruncated(result.truncated);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '设备情况加载失败');
-    } finally {
-      setLoading(false);
-    }
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    try { const result = await fetchDeviceBindings(); setBindings(result.bindings); setError(''); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '设备管理加载失败'); }
+    finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); const timer = window.setInterval(() => { setNow(Date.now()); void load(true); }, 10_000); return () => clearInterval(timer); }, [load]);
+  const visibleClasses = classes.filter(item => gradeFilter === '*' || item.gradeId === gradeFilter);
+  const filtered = useMemo(() => bindings.filter(item => {
+    const name = classDisplayName(grades, classes, item.classId);
+    const text = query.trim().toLowerCase();
+    return (gradeFilter === '*' || item.gradeId === gradeFilter) && (classFilter === '*' || item.classId === classFilter) && (!text || `${item.instanceId} ${name} ${item.currentExam} ${item.currentSubject}`.toLowerCase().includes(text));
+  }), [bindings, classes, classFilter, gradeFilter, grades, query]);
+  const onlineCount = bindings.filter(item => !item.revoked && now - item.lastSeenAt <= ONLINE_MS).length;
 
-  const classTags = useMemo(() => Array.from(new Set(bindings.map(item => item.classTag).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [bindings]);
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLocaleLowerCase();
-    return bindings.filter(item => {
-      const matchesClass = classFilter === '*' || (classFilter === '' ? item.classTag === '' : item.classTag === classFilter);
-      const matchesQuery = !keyword || item.instanceId.toLocaleLowerCase().includes(keyword) || item.classTag.toLocaleLowerCase().includes(keyword);
-      return matchesClass && matchesQuery;
-    }).sort((a, b) => sort === 'class' ? (a.classTag || '通用').localeCompare(b.classTag || '通用', 'zh-CN') || b.updatedAt - a.updatedAt : b.updatedAt - a.updatedAt);
-  }, [bindings, classFilter, query, sort]);
-  const generalCount = bindings.filter(item => item.classTag === '').length;
-  const recentCount = bindings.filter(item => Date.now() - item.updatedAt <= 24 * 60 * 60 * 1000).length;
-
-  const copyInstanceId = async (instanceId: string) => {
-    try {
-      await navigator.clipboard.writeText(instanceId);
-      setCopiedId(instanceId);
-      window.setTimeout(() => setCopiedId(current => current === instanceId ? '' : current), 1600);
-    } catch {
-      setError('无法复制实例 ID，请检查浏览器剪贴板权限');
-    }
+  const remove = async (item: DeviceBindingInfo) => {
+    if (!window.confirm(`删除设备 ${item.instanceId}？客户端将在下一次心跳时提示重新绑定。`)) return;
+    try { await revokeDevice(item.instanceId); await load(true); } catch (cause) { setError(cause instanceof Error ? cause.message : '删除设备失败'); }
   };
 
   return <main className="device-status">
-    <div className="device-status__heading">
-      <div><h2>设备情况</h2><p>查看已连接设备实例及其班级绑定，数据按最近更新时间排序。</p></div>
-      <button className="admin-btn" onClick={() => void load()} disabled={loading} title="刷新设备情况">↻ {loading ? '刷新中' : '刷新'}</button>
-    </div>
-    <div className="device-status__stats" aria-label="设备绑定统计">
-      <div><span>已绑定实例</span><strong>{bindings.length}</strong></div>
-      <div><span>班级数</span><strong>{classTags.length}</strong></div>
-      <div><span>通用 / 未分组</span><strong>{generalCount}</strong></div>
-      <div><span>24 小时内更新</span><strong>{recentCount}</strong></div>
-    </div>
-    <div className="device-status__toolbar">
-      <label><span>搜索</span><input className="admin-input" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="实例 ID 或班级" /></label>
-      <label><span>班级</span><select className="admin-input" value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="*">全部班级</option><option value="">通用 / 未分组</option>{classTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select></label>
-      <label><span>排序</span><select className="admin-input" value={sort} onChange={event => setSort(event.target.value as 'recent' | 'class')}><option value="recent">最近更新</option><option value="class">按班级</option></select></label>
-      <span className="device-status__result">显示 {filtered.length} / {bindings.length}</span>
-    </div>
-    {error && <div className="admin-error device-status__error">{error}<button className="admin-btn admin-btn--ghost" onClick={() => void load()}>重试</button></div>}
-    {truncated && <p className="device-status__notice">当前仅显示最近更新的 500 个实例。</p>}
-    {!loading && !error && filtered.length === 0 && <div className="admin-empty"><p>{bindings.length ? '没有符合筛选条件的设备' : '暂无设备绑定记录'}</p></div>}
-    {loading && <div className="device-status__loading">正在读取设备绑定…</div>}
-    {filtered.length > 0 && <div className="device-status__table" role="table">
-      <div className="device-status__table-head" role="row"><span>实例 ID</span><span>班级</span><span>绑定更新时间</span><span>操作</span></div>
-      <div className="device-status__list" role="rowgroup">
-      {filtered.map(item => <div className="device-status__row" role="row" key={item.instanceId}>
-        <div className="device-status__instance"><span>实例 ID</span><code title={item.instanceId}>{formatInstanceId(item.instanceId)}</code></div>
-        <div className="device-status__class"><span>班级</span><strong>{item.classTag || '通用 / 未分组'}</strong></div>
-        <div className="device-status__updated"><span>绑定更新时间</span><time dateTime={new Date(item.updatedAt).toISOString()}><b>{formatRelativeTime(item.updatedAt)}</b><small>{formatUpdatedAt(item.updatedAt)}</small></time></div>
-        <button className="admin-btn admin-btn--ghost" onClick={() => void copyInstanceId(item.instanceId)} title="复制完整实例 ID">{copiedId === item.instanceId ? '已复制' : '复制'}</button>
-      </div>)}
-      </div>
-    </div>}
+    <div className="device-status__heading"><div><h2>设备管理</h2><p>查看客户端在线状态、当前考试和班级绑定；删除后客户端会要求重新绑定。</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
+    <div className="device-status__stats"><div><span>设备总数</span><strong>{bindings.length}</strong></div><div><span>当前在线</span><strong>{onlineCount}</strong></div><div><span>考试进行中</span><strong>{bindings.filter(item => item.status === 'exam-running').length}</strong></div><div><span>已撤销</span><strong>{bindings.filter(item => item.revoked).length}</strong></div></div>
+    <div className="device-status__toolbar"><label><span>搜索</span><input className="admin-input" value={query} onChange={event => setQuery(event.target.value)} placeholder="设备、班级或考试" /></label><label><span>年级</span><select className="admin-input" value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setClassFilter('*'); }}><option value="*">全部年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>班级</span><select className="admin-input" value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="*">全部班级</option>{visibleClasses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+    {error && <div className="admin-error">{error}</div>}
+    {loading && <div className="device-status__loading">正在读取设备状态…</div>}
+    {!loading && filtered.length === 0 && <div className="admin-empty"><p>暂无符合条件的设备</p></div>}
+    {filtered.length > 0 && <div className="device-status__table"><div className="device-status__table-head"><span>设备与班级</span><span>实时状态</span><span>最近在线</span><span>操作</span></div><div className="device-status__list">{filtered.map(item => {
+      const online = !item.revoked && now - item.lastSeenAt <= ONLINE_MS;
+      return <div className={`device-status__row${item.revoked ? ' is-revoked' : ''}`} key={item.instanceId}><div className="device-status__instance"><span>{classDisplayName(grades, classes, item.classId)}</span><code title={item.instanceId}>{item.instanceId}</code></div><div className="device-status__class"><strong>{item.revoked ? '已删除，等待重新绑定' : `${online ? '在线' : '离线'} · ${statusLabel(item)}`}</strong><span>{item.currentSubject ? `${item.currentExam} · ${item.currentSubject}` : `页面 ${item.page || '未知'} · v${item.clientVersion || '未知'}`}</span></div><div className="device-status__updated"><time>{formatTime(item.lastSeenAt)}</time></div><button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={item.revoked}>{item.revoked ? '已删除' : '删除'}</button></div>;
+    })}</div></div>}
   </main>;
 }

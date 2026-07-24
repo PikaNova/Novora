@@ -36,7 +36,7 @@ const SCOPE_LABEL: Record<WeeklyConflictPolicy['scope'], string> = {
 };
 
 type ItemEdit = Omit<WeeklyExamItem, 'id' | 'order'> & { id?: string };
-type PlanModal = { mode: 'add' | 'settings'; name: string; classTag: string; activeFrom: string; activeUntil: string; anchorDate: string; forever: boolean; repeatEveryWeeks: number; weekMode: WeeklyWeekMode; excludeOfficialHolidays: boolean } | null;
+type PlanModal = { mode: 'add' | 'settings'; name: string; activeFrom: string; activeUntil: string; anchorDate: string; forever: boolean; repeatEveryWeeks: number; weekMode: WeeklyWeekMode; excludeOfficialHolidays: boolean } | null;
 type PreviewOcc = {
   date: string; weekday: IsoWeekday; name: string; startTime: string; endTime: string;
   suppressed: boolean; forced: boolean; weeklyItemId: string; message?: string;
@@ -46,27 +46,34 @@ function fmtDT(iso?: string) { return iso ? iso.slice(0, 16).replace('T', ' ') :
 
 function makeItemId() { return genWeeklyItemId(); }
 function padHM(v: string) { const [h = '0', m = '0'] = v.split(':'); return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`; }
+function sortWeeklyItems(list: WeeklyExamItem[]): WeeklyExamItem[] { return [...list].sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime) || a.name.localeCompare(b.name, 'zh-CN')).map((item, order) => ({ ...item, order })); }
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WEEK_TYPE_LABEL: Record<WeeklyWeekType, string> = { all: '每周', a: 'A 周', b: 'B 周' };
 export interface WeeklyPanelProps {
   weeklyPlans: WeeklyPlan[];
   activeWeeklyPlanId: string | null;
-  activeWeeklyPlanIdByClass: Record<string, string | null>;
-  selectedClassTag: string;
+  activeWeeklyPlanIdByClassId: Record<string, string | null>;
+  selectedGradeId: string;
+  selectedClassId: string;
+  selectedClassName: string;
+  classOptions: Array<{ id: string; gradeId: string; label: string }>;
   scheduleMode: ScheduleMode;
   weeklyConflictPolicy: WeeklyConflictPolicy;
   majorItems: ExamItem[];
   majorName: string;
-  onSavePlans: (plans: WeeklyPlan[], activeId: string | null, classTag: string, immediate?: boolean) => void;
+  onSavePlans: (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate?: boolean) => void;
   onConflictPolicyChange: (policy: WeeklyConflictPolicy, immediate?: boolean) => void;
 }
 
 export default function WeeklyPanel({
   weeklyPlans,
   activeWeeklyPlanId,
-  activeWeeklyPlanIdByClass,
-  selectedClassTag,
+  activeWeeklyPlanIdByClassId,
+  selectedGradeId,
+  selectedClassId,
+  selectedClassName,
+  classOptions,
   scheduleMode,
   weeklyConflictPolicy,
   majorItems,
@@ -75,8 +82,8 @@ export default function WeeklyPanel({
   onConflictPolicyChange,
 }: WeeklyPanelProps) {
   const backdropProps = useBackdropDismiss();
-  const scopedPlans = weeklyPlans.filter(p => (p.classTag || '') === selectedClassTag);
-  const classActiveId = selectedClassTag ? activeWeeklyPlanIdByClass[selectedClassTag] : activeWeeklyPlanId;
+  const scopedPlans = weeklyPlans.filter(p => p.classId === selectedClassId);
+  const classActiveId = selectedClassId ? activeWeeklyPlanIdByClassId[selectedClassId] : activeWeeklyPlanId;
   const activePlan = scopedPlans.find(p => p.id === classActiveId) ?? scopedPlans[0] ?? null;
   const items = activePlan?.items ?? [];
 
@@ -95,6 +102,7 @@ export default function WeeklyPanel({
   const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{ occ: PreviewOcc; name: string; date: string; startTime: string; endTime: string } | null>(null);
   const [rescheduleError, setRescheduleError] = useState('');
+  const [copyModal, setCopyModal] = useState<{ sourcePlanId: string; targetClassIds: string[] } | null>(null);
   const [lastDeleted, setLastDeleted] = useState<
     | { kind: 'plan'; plan: WeeklyPlan; index: number }
     | { kind: 'item'; item: WeeklyExamItem; index: number; planId: string }
@@ -153,7 +161,7 @@ export default function WeeklyPanel({
           <div className="admin-empty">
             <div className="admin-empty__icon">📅</div>
             <p>还没有周测计划</p>
-            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: selectedClassTag ? `${selectedClassTag}周测计划` : '周测计划', classTag: selectedClassTag, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建周测计划</button>
+            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} disabled={!selectedClassId} onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: `${selectedClassName}周测计划`, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建周测计划</button>
           </div>
         </main>
         {planModal && renderPlanModal()}
@@ -170,11 +178,11 @@ export default function WeeklyPanel({
     if (!planModal.forever && planModal.activeUntil && planModal.activeUntil < planModal.activeFrom) { setPlanError('结束日期不得早于生效日期'); return; }
     const repeat = Math.min(8, Math.max(1, Math.round(planModal.repeatEveryWeeks) || 1));
     if (planModal.mode === 'add') {
-      const plan = { ...createEmptyWeeklyPlan(Date.now(), name), classTag: planModal.classTag.trim(), activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays, order: weeklyPlans.length };
-      onSavePlans([...weeklyPlans, plan], plan.id, plan.classTag || '', true);
+      const plan = { ...createEmptyWeeklyPlan(Date.now(), name), gradeId: selectedGradeId, classId: selectedClassId, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays, order: weeklyPlans.length };
+      onSavePlans([...weeklyPlans, plan], plan.id, plan.classId, true);
     } else {
-      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, name, classTag: planModal.classTag.trim(), activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays } : p);
-      onSavePlans(plans, activePlan.id, planModal.classTag.trim(), true);
+      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, name, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays } : p);
+      onSavePlans(plans, activePlan.id, selectedClassId, true);
     }
     setPlanModal(null); setPlanError('');
   }
@@ -182,20 +190,20 @@ export default function WeeklyPanel({
   function removePlan() {
     const index = weeklyPlans.findIndex(p => p.id === activePlan.id);
     const rest = weeklyPlans.filter(p => p.id !== activePlan.id).map((p, i) => ({ ...p, order: i }));
-    const nextId = rest.find(p => (p.classTag || '') === selectedClassTag)?.id ?? null;
+    const nextId = rest.find(p => p.classId === selectedClassId)?.id ?? null;
     setLastDeleted({ kind: 'plan', plan: activePlan, index });
-    onSavePlans(rest, nextId, selectedClassTag, true);
+    onSavePlans(rest, nextId, selectedClassId, true);
     setDeletePlanOpen(false);
   }
 
   function togglePlanEnabled() {
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, enabled: !p.enabled } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
   function switchPlan(id: string) {
     if (id === activePlan.id) return;
-    onSavePlans(weeklyPlans, id, selectedClassTag, true);
+    onSavePlans(weeklyPlans, id, selectedClassId, true);
   }
 
   function commitItemModal() {
@@ -211,8 +219,9 @@ export default function WeeklyPanel({
     } else {
       nextItems = [...items, { id: makeItemId(), order: items.length ? Math.max(...items.map(x => x.order)) + 1 : 0, name, weekday: editing.weekday, startTime: start, endTime: end, endNextDay: editing.endNextDay, enabled: editing.enabled, location: editing.location, note: editing.note, weekType: editing.weekType ?? 'all' }];
     }
+    nextItems = sortWeeklyItems(nextItems);
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
     setEditing(null); setEditError('');
   }
 
@@ -220,7 +229,7 @@ export default function WeeklyPanel({
     const index = items.findIndex(x => x.id === item.id);
     const nextItems = items.filter(x => x.id !== item.id);
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
     setLastDeleted({ kind: 'item', item, index, planId: activePlan.id });
     setDeleteTarget(null);
   }
@@ -229,24 +238,24 @@ export default function WeeklyPanel({
     const exists = activePlan.overrides.some(o => o.id === next.id);
     const overrides = exists ? activePlan.overrides.map(o => o.id === next.id ? next : o) : [...activePlan.overrides, next];
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, overrides } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
   function removeOverride(id: string) {
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, overrides: p.overrides.filter(o => o.id !== id) } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
   function addExcludedDate() {
     if (!DATE_RE.test(newExcludeDate) || activePlan.excludedDates.includes(newExcludeDate)) return;
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludedDates: [...p.excludedDates, newExcludeDate].sort() } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
     setNewExcludeDate('');
   }
 
   function removeExcludedDate(date: string) {
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludedDates: p.excludedDates.filter(d => d !== date) } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
   function cancelOccurrence(o: PreviewOcc) {
@@ -261,7 +270,7 @@ export default function WeeklyPanel({
     if (lastDeleted.kind === 'plan') {
       const plans = [...weeklyPlans];
       plans.splice(Math.max(0, lastDeleted.index), 0, lastDeleted.plan);
-      onSavePlans(plans.map((p, i) => ({ ...p, order: i })), lastDeleted.plan.id, lastDeleted.plan.classTag || '', true);
+      onSavePlans(plans.map((p, i) => ({ ...p, order: i })), lastDeleted.plan.id, lastDeleted.plan.classId, true);
     } else if (lastDeleted.kind === 'item') {
       const plans = weeklyPlans.map(plan => {
         if (plan.id !== lastDeleted.planId) return plan;
@@ -269,7 +278,7 @@ export default function WeeklyPanel({
         nextItems.splice(Math.max(0, lastDeleted.index), 0, lastDeleted.item);
         return { ...plan, items: nextItems.map((item, index) => ({ ...item, order: index })) };
       });
-      onSavePlans(plans, lastDeleted.planId, selectedClassTag, true);
+      onSavePlans(plans, lastDeleted.planId, selectedClassId, true);
     } else {
       removeOverride(lastDeleted.overrideId);
     }
@@ -306,7 +315,7 @@ export default function WeeklyPanel({
   function toggleItemEnabled(item: WeeklyExamItem) {
     const nextItems = items.map(x => x.id === item.id ? { ...x, enabled: !x.enabled } : x);
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
-    onSavePlans(plans, activePlan.id, selectedClassTag, true);
+    onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
   function importJson() {
@@ -321,14 +330,15 @@ export default function WeeklyPanel({
           ...imported,
           id: newPlanId,
           name: `${imported.name}（导入）`,
-          classTag: selectedClassTag,
+          gradeId: selectedGradeId,
+          classId: selectedClassId,
           order: weeklyPlans.length,
           items: imported.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })),
           overrides: imported.overrides
             .filter(item => idMap.has(item.sourceItemId))
             .map(item => ({ ...item, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date), sourceItemId: idMap.get(item.sourceItemId)! })),
         };
-        onSavePlans([...weeklyPlans, importedPlan], importedPlan.id, selectedClassTag, true);
+        onSavePlans([...weeklyPlans, importedPlan], importedPlan.id, selectedClassId, true);
         setImportText(''); setImportOpen(false);
         return;
       }
@@ -348,8 +358,8 @@ export default function WeeklyPanel({
            weekType: (['all', 'a', 'b'] as WeeklyWeekType[]).includes(row.weekType as WeeklyWeekType) ? row.weekType as WeeklyWeekType : 'all',
         };
       });
-      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: nextItems } : p);
-      onSavePlans(plans, activePlan.id, selectedClassTag, true);
+      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: sortWeeklyItems(nextItems) } : p);
+      onSavePlans(plans, activePlan.id, selectedClassId, true);
       setImportText(''); setImportOpen(false);
     } catch (error) { setImportError(error instanceof Error ? error.message : 'JSON 格式错误'); }
   }
@@ -361,20 +371,17 @@ export default function WeeklyPanel({
     document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
   }
 
-  function copyPlan() {
-    const idMap = new Map(activePlan.items.map(item => [item.id, makeItemId()]));
-    const copy: WeeklyPlan = {
-      ...activePlan,
-      id: genWeeklyPlanId(),
-      name: `${activePlan.name}（副本）`,
-      enabled: false,
-      order: weeklyPlans.length,
-      items: activePlan.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })),
-      overrides: activePlan.overrides
-        .filter(item => idMap.has(item.sourceItemId))
-        .map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })),
-    };
-    onSavePlans([...weeklyPlans, copy], copy.id, copy.classTag || '', true);
+  function commitCopyPlan() {
+    if (!copyModal?.targetClassIds.length) return;
+    const source = weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId);
+    if (!source) return;
+    const copies = copyModal.targetClassIds.map((classId, offset) => {
+      const target = classOptions.find(item => item.id === classId)!;
+      const idMap = new Map(source.items.map(item => [item.id, makeItemId()]));
+      return { ...source, id: genWeeklyPlanId(), gradeId: target.gradeId, classId, name: `${source.name}（复制）`, enabled: true, order: weeklyPlans.length + offset, items: source.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })), overrides: source.overrides.filter(item => idMap.has(item.sourceItemId)).map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })) };
+    });
+    onSavePlans([...weeklyPlans, ...copies], activePlan.id, selectedClassId, true);
+    setCopyModal(null);
   }
 
   const grouped = WEEKDAY_ORDER.map(wd => ({ wd, list: items.filter(i => i.weekday === wd).sort((a, b) => a.order - b.order) }));
@@ -388,7 +395,6 @@ export default function WeeklyPanel({
           {planError && <div className="admin-error">{planError}</div>}
           <div className="admin-form">
             <label className="admin-label">计划名称<input className="admin-input" autoFocus value={planModal.name} onChange={e => setPlanModal(p => p && { ...p, name: e.target.value })} placeholder="如：高三周测 / 晚自习周测" /></label>
-            <label className="admin-label">所属班级<input className="admin-input" value={planModal.classTag} onChange={e => setPlanModal(p => p && { ...p, classTag: e.target.value })} placeholder="留空表示通用 / 未分组" /></label>
             <label className="admin-label">生效日期<input className="admin-input" type="date" value={planModal.activeFrom} onChange={e => setPlanModal(p => p && { ...p, activeFrom: e.target.value })} /></label>
             <label className="admin-label">学期开始日期（A 周锚点）<input className="admin-input" type="date" value={planModal.anchorDate} onChange={e => setPlanModal(p => p && { ...p, anchorDate: e.target.value })} /></label>
             <label className="admin-label">周次模式<select className="admin-input" value={planModal.weekMode} onChange={e => setPlanModal(p => p && { ...p, weekMode: e.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></label>
@@ -409,7 +415,7 @@ export default function WeeklyPanel({
     <>
       <aside className="admin-sidebar">
         <div className="admin-major-card">
-          <div className="admin-major-card__head"><label className="admin-label" style={{ opacity: .9 }}>{selectedClassTag || '通用'} · 周测计划</label><span className="admin-major-card__count">共 {scopedPlans.length} 个</span></div>
+          <div className="admin-major-card__head"><label className="admin-label" style={{ opacity: .9 }}>{selectedClassName} · 周测计划</label><span className="admin-major-card__count">共 {scopedPlans.length} 个</span></div>
           <div className="admin-major-card__active">
             <span className="admin-major-card__active-name" title={activePlan.name}>{activePlan.name}{!activePlan.enabled ? '（已停用）' : ''}</span>
             <span className="admin-major-card__active-meta">{items.length} 条周测 · {items.filter(i => i.enabled).length} 条启用 · {activePlan.weekMode === 'ab' ? 'A/B 周' : activePlan.repeatEveryWeeks === 1 ? '每周' : `每 ${activePlan.repeatEveryWeeks} 周`}</span>
@@ -423,13 +429,13 @@ export default function WeeklyPanel({
             </label>
           )}
           <div className="admin-major-card__btns">
-            <button className="admin-btn admin-btn--primary" onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: selectedClassTag ? `${selectedClassTag}周测计划` : '周测计划', classTag: selectedClassTag, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建</button>
-            <button className="admin-btn" onClick={() => { setPlanModal({ mode: 'settings', name: activePlan.name, classTag: activePlan.classTag || '', activeFrom: activePlan.activeFrom, activeUntil: activePlan.activeUntil ?? '', anchorDate: activePlan.anchorDate, forever: !activePlan.activeUntil, repeatEveryWeeks: activePlan.repeatEveryWeeks, weekMode: activePlan.weekMode ?? 'single', excludeOfficialHolidays: activePlan.excludeOfficialHolidays === true }); setPlanError(''); }}>计划设置</button>
+            <button className="admin-btn admin-btn--primary" onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: `${selectedClassName}周测计划`, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建</button>
+            <button className="admin-btn" onClick={() => { setPlanModal({ mode: 'settings', name: activePlan.name, activeFrom: activePlan.activeFrom, activeUntil: activePlan.activeUntil ?? '', anchorDate: activePlan.anchorDate, forever: !activePlan.activeUntil, repeatEveryWeeks: activePlan.repeatEveryWeeks, weekMode: activePlan.weekMode ?? 'single', excludeOfficialHolidays: activePlan.excludeOfficialHolidays === true }); setPlanError(''); }}>计划设置</button>
             <button className="admin-btn admin-btn--danger" onClick={() => setDeletePlanOpen(true)}>删除</button>
           </div>
           <div className="admin-major-card__btns">
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
-            <button className="admin-btn" style={{ flex: 1 }} onClick={copyPlan}>复制计划</button>
+            <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [] })}>批量应用</button>
           </div>
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
@@ -595,7 +601,7 @@ export default function WeeklyPanel({
           <div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}>
             <h2 className="admin-modal__title">例外日期管理</h2>
             <p className="admin-modal__body">整日排除的日期当天完全不生成周测；下方“单次调整”是“取消本次 / 临时调课 / 本周仍然进行”产生的记录，可在此撤销。</p>
-            <label className="admin-toggle-label"><input type="checkbox" checked={activePlan.excludeOfficialHolidays === true} onChange={e => onSavePlans(weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludeOfficialHolidays: e.target.checked } : p), activePlan.id, selectedClassTag, true)} />自动排除 2026 年法定节假日</label>
+            <label className="admin-toggle-label"><input type="checkbox" checked={activePlan.excludeOfficialHolidays === true} onChange={e => onSavePlans(weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludeOfficialHolidays: e.target.checked } : p), activePlan.id, selectedClassId, true)} />自动排除 2026 年法定节假日</label>
             {activePlan.excludeOfficialHolidays && <p className="admin-major-card__hint weekly-holiday-summary">{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
             <div className="admin-form">
               <label className="admin-label">添加整日排除<input className="admin-input" type="date" value={newExcludeDate} onChange={e => setNewExcludeDate(e.target.value)} /></label>
@@ -626,6 +632,17 @@ export default function WeeklyPanel({
               </ul>
             ) : <p className="admin-collapsed-hint">暂无单次调整</p>}
             <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={() => setExceptionsOpen(false)}>完成</button></div>
+          </div>
+        </div>
+      )}
+      {copyModal && (
+        <div className="admin-modal-overlay" {...backdropProps(() => setCopyModal(null))}>
+          <div className="admin-modal" onClick={event => event.stopPropagation()}>
+            <h2 className="admin-modal__title">批量应用周测计划</h2>
+            <label className="admin-label">源计划<select className="admin-input" value={copyModal.sourcePlanId} onChange={event => setCopyModal(current => current && { ...current, sourcePlanId: event.target.value })}>{weeklyPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label>
+            <div className="admin-label">应用到班级<div className="admin-major-targets">{classOptions.filter(item => item.id !== weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId)?.classId).map(item => <label key={item.id}><input type="checkbox" checked={copyModal.targetClassIds.includes(item.id)} onChange={event => setCopyModal(current => current && ({ ...current, targetClassIds: event.target.checked ? [...current.targetClassIds, item.id] : current.targetClassIds.filter(id => id !== item.id) }))} />{item.label}</label>)}</div></div>
+            <p className="admin-major-card__hint">每个目标班级会创建一份已启用的独立计划，之后可分别编辑。</p>
+            <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitCopyPlan} disabled={!copyModal.targetClassIds.length}>应用到 {copyModal.targetClassIds.length} 个班级</button><button className="admin-btn" onClick={() => setCopyModal(null)}>取消</button></div>
           </div>
         </div>
       )}
