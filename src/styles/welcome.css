@@ -33,6 +33,7 @@
 
 /* 弱提示：仅无考试且浏览器可安装 PWA 时展示，不抢占首页主操作。 */
 .welcome-pwa{display:flex;align-items:center;gap:9px;color:rgba(240,240,240,.42);font-size:.73rem;letter-spacing:.01em}.welcome-pwa button{border:1px solid rgba(255,255,255,.16);border-radius:7px;background:transparent;color:rgba(240,240,240,.68);padding:4px 9px;font:inherit;cursor:pointer}.welcome-pwa button:hover{border-color:rgba(126,200,255,.5);color:#bfe3ff}.welcome-pwa .welcome-pwa__dismiss{border-color:transparent;color:rgba(240,240,240,.32);padding-left:2px;padding-right:2px}.welcome-idle-hint b{font-family:var(--font-region-numeric);font-variant-numeric:tabular-nums;color:rgba(200,225,255,.75)}
+.welcome-setup-notice{width:min(760px,100%);display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 16px;border:1px solid rgba(115,200,255,.3);border-radius:8px;background:rgba(35,105,145,.14);text-align:left}.welcome-setup-notice div{display:flex;flex-direction:column;gap:4px;min-width:0}.welcome-setup-notice strong{font-size:.92rem}.welcome-setup-notice span{color:rgba(240,245,250,.62);font-size:.78rem;line-height:1.5}.welcome-setup-notice button{flex:0 0 auto;min-height:38px;padding:0 14px;border:1px solid rgba(115,200,255,.42);border-radius:7px;background:rgba(115,200,255,.14);color:#eaf7ff;font:inherit;font-weight:700;cursor:pointer}
 
 @media(max-width:560px){.welcome-page{justify-content:flex-start;padding:calc(env(safe-area-inset-top) + 42px) 16px max(24px,env(safe-area-inset-bottom));gap:18px}.welcome-exam-banner{padding:18px}.welcome-exam-banner__time{display:none}.welcome-grid,.welcome-grid--has-exam{grid-template-columns:1fr}.welcome-grid--has-exam .welcome-card--featured{grid-column:auto}.welcome-card--featured{padding:20px}.welcome-idle-hint{margin-top:2px}}
 /* v1.20 responsive status treatment: all states use a fixed, non-shifting banner. */
@@ -62,3 +63,4 @@
 .welcome-class-loading span{width:16px;height:16px;border:2px solid rgba(115,200,255,.25);border-top-color:#73c8ff;border-radius:50%;animation:welcomeClassSpin .75s linear infinite}
 @keyframes welcomeClassSpin{to{transform:rotate(360deg)}}
 @media(max-width:420px){.welcome-class-dialog{padding:20px 16px}.welcome-class-options{grid-template-columns:1fr}.welcome-class-options .is-general{grid-column:auto}}
+@media(max-width:560px){.welcome-setup-notice{align-items:stretch;flex-direction:column;gap:10px}.welcome-setup-notice button{width:100%}}

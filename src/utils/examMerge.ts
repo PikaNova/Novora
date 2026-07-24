@@ -1,6 +1,7 @@
 import type { AlertsSettings, ExamItem, MajorExam } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
+import type { ExamSettings } from './appSettings';
 
 export interface MergeableExamPayload {
   items: ExamItem[];
@@ -14,6 +15,7 @@ export interface MergeableExamPayload {
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   grades?: SchoolGrade[];
   classes?: SchoolClass[];
+  initialization?: ExamSettings['initialization'];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   updatedAt: number;
 }
@@ -113,6 +115,7 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
   const activeWeeklyPlanIdByClassId = mergeValue(base.activeWeeklyPlanIdByClassId ?? {}, local.activeWeeklyPlanIdByClassId ?? {}, remote.activeWeeklyPlanIdByClassId ?? {}, ctx) as Record<string, string | null>;
   const grades = mergeValue(base.grades ?? [], local.grades ?? [], remote.grades ?? [], ctx) as SchoolGrade[];
   const classes = mergeValue(base.classes ?? [], local.classes ?? [], remote.classes ?? [], ctx) as SchoolClass[];
+  const initialization = mergeValue(base.initialization ?? { completedAt: 0, wizardVersion: 1, demoDataImported: false }, local.initialization ?? { completedAt: 0, wizardVersion: 1, demoDataImported: false }, remote.initialization ?? { completedAt: 0, wizardVersion: 1, demoDataImported: false }, ctx) as ExamSettings['initialization'];
   const scheduleMode = mergeValue(base.scheduleMode ?? 'major-only', local.scheduleMode ?? 'major-only', remote.scheduleMode ?? 'major-only', ctx) as ScheduleMode;
   const weeklyConflictPolicy = mergeValue(base.weeklyConflictPolicy ?? null, local.weeklyConflictPolicy ?? null, remote.weeklyConflictPolicy ?? null, ctx) as WeeklyConflictPolicy | null;
 
@@ -129,6 +132,7 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
       activeWeeklyPlanIdByClassId,
       grades,
       classes,
+      initialization,
       scheduleMode,
       weeklyConflictPolicy,
       updatedAt: remote.updatedAt,

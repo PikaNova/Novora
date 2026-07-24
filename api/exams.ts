@@ -52,6 +52,7 @@ function ensureTableOnce(): Promise<void> {
           weekly_conflict_policy JSONB,
           grades JSONB NOT NULL DEFAULT '[]',
           classes JSONB NOT NULL DEFAULT '[]',
+          initialization JSONB NOT NULL DEFAULT '{}',
           updated_at BIGINT NOT NULL DEFAULT 0,
           CHECK (id = 1)
         )
@@ -68,6 +69,7 @@ function ensureTableOnce(): Promise<void> {
         sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_conflict_policy JSONB`,
         sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS grades JSONB NOT NULL DEFAULT '[]'`,
         sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS classes JSONB NOT NULL DEFAULT '[]'`,
+        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS initialization JSONB NOT NULL DEFAULT '{}'`,
         sql`
         CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
@@ -110,6 +112,7 @@ type ExamRow = {
   weekly_conflict_policy?: unknown;
   grades?: unknown;
   classes?: unknown;
+  initialization?: unknown;
   updated_at?: number | string | null;
   bound_grade_id?: string | null;
   bound_class_id?: string | null;
@@ -131,6 +134,7 @@ function examPayload(row: ExamRow) {
     activeWeeklyPlanIdByClassId: row.active_weekly_plan_by_class ?? {},
     grades: row.grades ?? [],
     classes: row.classes ?? [],
+    initialization: row.initialization ?? {},
     weeklyConflictPolicy: row.weekly_conflict_policy ?? null,
     updatedAt: Number(row.updated_at ?? 0),
   };
@@ -172,7 +176,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const selectBootstrap = async (): Promise<ExamRow[]> => (
         await sql`
           SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode,
-                 active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, updated_at,
+                 active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at,
                  (SELECT grade_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_grade_id,
                  (SELECT class_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_class_id,
                  (SELECT revoked FROM device_instances WHERE instance_id = ${instanceId}) AS binding_revoked
@@ -269,7 +273,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       // 快路径：直接查询（一次往返）；仅当表/列缺失时才迁移后重试。
       const selectRow = async (): Promise<ExamRow[]> => (
-        await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, updated_at FROM exam_data WHERE id = 1`
+        await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id = 1`
       ) as unknown as ExamRow[];
       let rows: ExamRow[];
       try {
@@ -294,7 +298,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const token = extractBearer(req.headers.authorization);
         if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; }
       }
-      const { items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, weeklyConflictPolicy, grades, classes, baseUpdatedAt } = req.body ?? {};
+      const { items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, weeklyConflictPolicy, grades, classes, initialization, baseUpdatedAt } = req.body ?? {};
       if (!Array.isArray(items)) { res.status(400).json({ ok: false, error: 'items must be an array' }); return; }
       const expectedVersion = Number(baseUpdatedAt ?? 0);
       const updatedAt = Date.now();
@@ -313,6 +317,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               active_weekly_plan_by_class = COALESCE(${activeWeeklyPlanIdByClassId && typeof activeWeeklyPlanIdByClassId === 'object' ? JSON.stringify(activeWeeklyPlanIdByClassId) : null}::jsonb, active_weekly_plan_by_class),
               grades = COALESCE(${Array.isArray(grades) ? JSON.stringify(grades) : null}::jsonb, grades),
               classes = COALESCE(${Array.isArray(classes) ? JSON.stringify(classes) : null}::jsonb, classes),
+              initialization = COALESCE(${initialization && typeof initialization === 'object' ? JSON.stringify(initialization) : null}::jsonb, initialization),
               weekly_conflict_policy = COALESCE(${weeklyConflictPolicy && typeof weeklyConflictPolicy === 'object' ? JSON.stringify(weeklyConflictPolicy) : null}::jsonb, weekly_conflict_policy),
               updated_at = ${updatedAt}
           -- 显式 BIGINT：毫秒级 baseUpdatedAt 不能在与字面量 0 比较时被 PostgreSQL 推断为 INTEGER。
@@ -336,7 +341,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
       if (!updatedRows?.length) {
-        const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
+        const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
         const row = rows[0] ?? {};
         const { ok: _ok, ...remote } = examPayload(row);
         res.status(409).json({ ok: false, error: 'Conflict', remote });

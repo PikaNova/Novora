@@ -26,6 +26,7 @@ import {
 import { resolveMajorWeeklyConflicts } from '../utils/scheduleConflict';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { getOfficialHolidayName, OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
+import HelpTip from './HelpTip';
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
 const WEEKDAY_ORDER: IsoWeekday[] = [1, 2, 3, 4, 5, 6, 7];
@@ -435,7 +436,7 @@ export default function WeeklyPanel({
           </div>
           <div className="admin-major-card__btns">
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
-            <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [] })}>批量应用</button>
+            <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [] })}>批量应用</button><HelpTip title="批量应用">复制后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip>
           </div>
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
@@ -582,7 +583,7 @@ export default function WeeklyPanel({
             <h2 className="admin-modal__title">大型考试冲突处理</h2>
             <div className="admin-form">
               <label className="admin-toggle-label"><input type="checkbox" checked={weeklyConflictPolicy.enabled} onChange={e => onConflictPolicyChange({ ...weeklyConflictPolicy, enabled: e.target.checked }, true)} />启用冲突自动处理（仅自动模式下生效）</label>
-              <label className="admin-label">暂停范围<select className="admin-input" value={weeklyConflictPolicy.scope} onChange={e => onConflictPolicyChange({ ...weeklyConflictPolicy, scope: e.target.value as WeeklyConflictPolicy['scope'] }, true)}>
+              <label className="admin-label">暂停范围 <HelpTip title="冲突暂停范围">“时间重叠”最精细；“当天”会暂停大型考试日期内的全部周测；“整个考期”会暂停从第一科开始到最后一科结束期间的周测。</HelpTip><select className="admin-input" value={weeklyConflictPolicy.scope} onChange={e => onConflictPolicyChange({ ...weeklyConflictPolicy, scope: e.target.value as WeeklyConflictPolicy['scope'] }, true)}>
                 {ALL_CONFLICT_SCOPES.map(s => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
               </select></label>
               {weeklyConflictPolicy.scope === 'time-overlap' && (
@@ -601,7 +602,7 @@ export default function WeeklyPanel({
           <div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}>
             <h2 className="admin-modal__title">例外日期管理</h2>
             <p className="admin-modal__body">整日排除的日期当天完全不生成周测；下方“单次调整”是“取消本次 / 临时调课 / 本周仍然进行”产生的记录，可在此撤销。</p>
-            <label className="admin-toggle-label"><input type="checkbox" checked={activePlan.excludeOfficialHolidays === true} onChange={e => onSavePlans(weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludeOfficialHolidays: e.target.checked } : p), activePlan.id, selectedClassId, true)} />自动排除 2026 年法定节假日</label>
+            <label className="admin-toggle-label"><input type="checkbox" checked={activePlan.excludeOfficialHolidays === true} onChange={e => onSavePlans(weeklyPlans.map(p => p.id === activePlan.id ? { ...p, excludeOfficialHolidays: e.target.checked } : p), activePlan.id, selectedClassId, true)} />自动排除 2026 年法定节假日 <HelpTip title="法定节假日">启用后，日历预览和实际大屏都会跳过内置节假日。后续年度可通过更新节假日数据表扩展，无需修改计划。</HelpTip></label>
             {activePlan.excludeOfficialHolidays && <p className="admin-major-card__hint weekly-holiday-summary">{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
             <div className="admin-form">
               <label className="admin-label">添加整日排除<input className="admin-input" type="date" value={newExcludeDate} onChange={e => setNewExcludeDate(e.target.value)} /></label>

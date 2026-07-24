@@ -45,6 +45,11 @@ export interface ExamSettings {
   classes: SchoolClass[];
   selectedGradeId: string;
   selectedClassId: string;
+  initialization: {
+    completedAt: number;
+    wizardVersion: number;
+    demoDataImported: boolean;
+  };
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
   alertEnabled: boolean;
@@ -177,6 +182,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     classes: [],
     selectedGradeId: '',
     selectedClassId: '',
+    initialization: { completedAt: 0, wizardVersion: 1, demoDataImported: false },
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
     alertEnabled: true,
     announcementPermanentlyHidden: false,
@@ -250,6 +256,12 @@ export function normalizeExam(raw: unknown): ExamSettings {
   }
   const selectedGradeId = grades.some(grade => grade.id === src.selectedGradeId) ? String(src.selectedGradeId) : '';
   const selectedClassId = classes.some(item => item.id === src.selectedClassId && item.gradeId === selectedGradeId) ? String(src.selectedClassId) : '';
+  const rawInitialization = (src.initialization && typeof src.initialization === 'object' ? src.initialization : {}) as Partial<ExamSettings['initialization']>;
+  const initialization = {
+    completedAt: Number(rawInitialization.completedAt ?? 0),
+    wizardVersion: Math.max(1, Number(rawInitialization.wizardVersion ?? 1)),
+    demoDataImported: rawInitialization.demoDataImported === true,
+  };
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 
   return {
@@ -264,6 +276,7 @@ export function normalizeExam(raw: unknown): ExamSettings {
     classes,
     selectedGradeId,
     selectedClassId,
+    initialization,
     weeklyConflictPolicy,
     // items/title 始终镜像激活大型考试，保证展示端无需改动。
     title: active.name,

@@ -1,6 +1,7 @@
 import type { ExamItem, MajorExam, AlertsSettings } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
+import type { ExamSettings } from '../utils/appSettings';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -14,6 +15,7 @@ export interface ExamPayload {
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   grades?: SchoolGrade[];
   classes?: SchoolClass[];
+  initialization?: ExamSettings['initialization'];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   binding?: { gradeId: string; classId: string; revoked: boolean } | null;
   updatedAt: number;
@@ -44,6 +46,7 @@ function toPayload(data: any): ExamPayload {
       : undefined,
     grades: Array.isArray(data?.grades) ? data.grades : undefined,
     classes: Array.isArray(data?.classes) ? data.classes : undefined,
+    initialization: data?.initialization && typeof data.initialization === 'object' ? data.initialization : undefined,
     weeklyConflictPolicy: data?.weeklyConflictPolicy && typeof data.weeklyConflictPolicy === 'object'
       ? (data.weeklyConflictPolicy as WeeklyConflictPolicy)
       : undefined,
@@ -117,6 +120,7 @@ export interface SaveExamsInput {
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   grades?: SchoolGrade[];
   classes?: SchoolClass[];
+  initialization?: ExamSettings['initialization'];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
 }
 
@@ -146,6 +150,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     if (input.activeWeeklyPlanIdByClassId !== undefined) requestBody.activeWeeklyPlanIdByClassId = input.activeWeeklyPlanIdByClassId;
     if (input.grades !== undefined) requestBody.grades = input.grades;
     if (input.classes !== undefined) requestBody.classes = input.classes;
+    if (input.initialization !== undefined) requestBody.initialization = input.initialization;
     if (input.weeklyConflictPolicy !== undefined) requestBody.weeklyConflictPolicy = input.weeklyConflictPolicy;
     const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) });
     if (res.status === 401) { logoutAdmin(); return 'unauthorized'; }
@@ -169,6 +174,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId,
       grades: input.grades,
       classes: input.classes,
+      initialization: input.initialization,
       weeklyConflictPolicy: input.weeklyConflictPolicy,
       updatedAt,
     });

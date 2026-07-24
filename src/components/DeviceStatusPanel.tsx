@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import HelpTip from './HelpTip';
 import { fetchDeviceBindings, revokeDevice, type DeviceBindingInfo } from '../services/classBinding';
 import { getAppSettings } from '../utils/appSettings';
 import { classDisplayName } from '../utils/classSettings';
@@ -39,7 +40,7 @@ export default function DeviceStatusPanel() {
   };
 
   return <main className="device-status">
-    <div className="device-status__heading"><div><h2>设备管理</h2><p>查看客户端在线状态、当前考试和班级绑定；删除后客户端会要求重新绑定。</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
+    <div className="device-status__heading"><div><h2>设备管理 <HelpTip title="设备状态与删除">在线状态由客户端心跳判断，短暂断网可能显示离线。删除设备会撤销它的绑定，客户端下次心跳时会被要求重新选择年级与班级。</HelpTip></h2><p>查看客户端在线状态、当前考试和班级绑定；删除后客户端会要求重新绑定。</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
     <div className="device-status__stats"><div><span>设备总数</span><strong>{bindings.length}</strong></div><div><span>当前在线</span><strong>{onlineCount}</strong></div><div><span>考试进行中</span><strong>{bindings.filter(item => item.status === 'exam-running').length}</strong></div><div><span>已撤销</span><strong>{bindings.filter(item => item.revoked).length}</strong></div></div>
     <div className="device-status__toolbar"><label><span>搜索</span><input className="admin-input" value={query} onChange={event => setQuery(event.target.value)} placeholder="设备、班级或考试" /></label><label><span>年级</span><select className="admin-input" value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setClassFilter('*'); }}><option value="*">全部年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>班级</span><select className="admin-input" value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="*">全部班级</option>{visibleClasses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
     {error && <div className="admin-error">{error}</div>}

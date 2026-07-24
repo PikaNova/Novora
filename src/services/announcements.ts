@@ -8,6 +8,10 @@ export type Announcement = {
   pinned: boolean;
   created_at: number;
   updated_at: number;
+  type?: 'announcement' | 'document';
+  url?: string;
+  buttonLabel?: string;
+  summary?: string;
 };
 
 let cache: { at: number; data: Announcement[] } | null = null;

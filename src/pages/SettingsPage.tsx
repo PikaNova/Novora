@@ -16,6 +16,7 @@ import { getDesignId, setDesignId } from '../utils/designPref';
 import { DESIGNS } from '../designs/registry';
 import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
+import HelpTip from '../components/HelpTip';
 import readmeRaw from '../../README.md?raw';
 import { changeAdminPassword, getCloudSnapshot, hasValidLocalToken, isLoginRequired, saveExamsToServer } from '../services/examService';
 import type { WeeklyPlan, WeeklyWeekMode } from '../types/exam';
@@ -273,7 +274,7 @@ export default function SettingsPage() {
             <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={calendarClassId} onChange={event => selectCalendarClass(event.target.value)}><option value="">请选择班级</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
             {classPlans.length > 1 && <div className="set-row"><label className="set-label">周测计划</label><select className="set-input" value={calendarPlan?.id ?? ''} onChange={event => setCalendarPlanId(event.target.value)}>{classPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></div>}
             {calendarPlan ? <>
-              <div className="set-row"><label className="set-label">学期开始日期</label><input className="set-input" type="date" value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
+              <div className="set-row"><label className="set-label">学期开始日期 <HelpTip title="A/B 周基准">该日期所在周固定为 A 周，后续自然周按 A、B 交替推算。修改日期会立即反映到日历预览。</HelpTip></label><input className="set-input" type="date" value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
               <div className="set-row"><label className="set-label">周次模式</label><select className="set-input" value={calendarPlan.weekMode ?? 'single'} onChange={event => void saveCalendarPlan({ weekMode: event.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></div>
               <div className="set-row"><label className="set-label">法定节假日自动排除</label><Switch checked={calendarPlan.excludeOfficialHolidays === true} onChange={value => void saveCalendarPlan({ excludeOfficialHolidays: value })} /></div>
               {calendarPlan.excludeOfficialHolidays && <p className="set-note set-holiday-list">已启用：{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
@@ -285,7 +286,7 @@ export default function SettingsPage() {
         {/* ―― 时间同步 ―― */}
         <section className="set-card">
           <div className="set-card__head">
-            <h2 className="set-card__title">🕐 时间同步（校时）</h2>
+            <h2 className="set-card__title">🕐 时间同步（校时） <HelpTip title="校时方式">时间接口精度最高且适合大屏；HTTP Date 无需专用接口但精度较低；浏览器不能直接使用 NTP。</HelpTip></h2>
             <Switch checked={ts.enabled} onChange={v => patchTs({ enabled: v }, true)} />
           </div>
           <p className="set-card__lead">开启后大屏时钟、倒计时与全屏提醒均基于校准后的网络时间触发；关闭后回退使用本机时钟。</p>
