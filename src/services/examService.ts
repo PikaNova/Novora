@@ -25,6 +25,7 @@ const API_URL = '/api/exams';
 const LOGIN_URL = '/api/login';
 const TOKEN_KEY = 'admin_auth_token';
 const TOKEN_EXPIRES_KEY = 'admin_auth_token_expires';
+const ADMIN_USER_KEY = 'admin_user_context';
 const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
@@ -191,12 +192,56 @@ export async function isLoginRequired(): Promise<boolean> {
   } catch { return false; }
 }
 
-export async function loginAdmin(password: string): Promise<boolean> {
+export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
+export type AdminUserContext = {
+  id: number;
+  username: string;
+  displayName: string;
+  roleId: string;
+  roleName: string;
+  permissions: string[];
+  scopes: AdminScope[];
+  mustChangePassword: boolean;
+};
+
+export function getAdminUser(): AdminUserContext | null {
+  try {
+    const user = JSON.parse(localStorage.getItem(ADMIN_USER_KEY) || 'null');
+    return user && typeof user === 'object' && Array.isArray(user.permissions) ? user as AdminUserContext : null;
+  } catch { return null; }
+}
+
+export function adminCan(permission: string, user = getAdminUser()): boolean {
+  return !!user && (user.permissions.includes('*') || user.permissions.includes(permission));
+}
+
+export function adminCanGrade(gradeId: string, user = getAdminUser()): boolean {
+  return !!user && (user.permissions.includes('*') || user.scopes.some(scope => scope.type === 'all' || scope.gradeId === gradeId));
+}
+
+export function adminCanClass(gradeId: string, classId: string, user = getAdminUser()): boolean {
+  return !!user && (user.permissions.includes('*') || user.scopes.some(scope => scope.type === 'all' || scope.type === 'grade' && scope.gradeId === gradeId || scope.type === 'class' && scope.classId === classId));
+}
+
+export async function refreshAdminUser(): Promise<AdminUserContext | null> {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return null;
+    const res = await fetch(`${LOGIN_URL}?action=me`, { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' } });
+    if (!res.ok) { if (res.status === 401) logoutAdmin(); return null; }
+    const data = await res.json();
+    if (!data?.user) return null;
+    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
+    return data.user as AdminUserContext;
+  } catch { return getAdminUser(); }
+}
+
+export async function loginAdmin(username: string, password: string): Promise<boolean> {
   try {
     const res = await fetch(LOGIN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) return false;
@@ -204,6 +249,7 @@ export async function loginAdmin(password: string): Promise<boolean> {
       localStorage.setItem(TOKEN_KEY, data.token);
       localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
     }
+    if (data.user) localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
     return true;
   } catch { return false; }
 }
@@ -230,4 +276,5 @@ export async function changeAdminPassword(currentPassword: string, newPassword: 
 export function logoutAdmin(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(TOKEN_EXPIRES_KEY);
+  localStorage.removeItem(ADMIN_USER_KEY);
 }

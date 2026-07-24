@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
-import { isPasswordRequired, verifyToken, extractBearer } from './_auth.js';
+import { canAccessClass, canAccessGrade, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
 
 // 性能：缓存 neon 客户端（同一 warm 实例复用）。
 let _sql: ReturnType<typeof neon> | null = null;
@@ -140,6 +140,106 @@ function examPayload(row: ExamRow) {
   };
 }
 
+const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+const allScope = (actor: AdminActor) => actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all');
+
+function changedRecords(before: any[], after: any[]): any[] {
+  const left = new Map((Array.isArray(before) ? before : []).map(item => [String(item?.id ?? ''), item]));
+  const right = new Map((Array.isArray(after) ? after : []).map(item => [String(item?.id ?? ''), item]));
+  const ids = new Set([...left.keys(), ...right.keys()]);
+  return [...ids].filter(id => !sameJson(left.get(id), right.get(id))).flatMap(id => [left.get(id), right.get(id)].filter(Boolean));
+}
+
+function recordDiff(before: any[], after: any[]) {
+  const left = new Map((Array.isArray(before) ? before : []).map(item => [String(item?.id ?? ''), item]));
+  const right = new Map((Array.isArray(after) ? after : []).map(item => [String(item?.id ?? ''), item]));
+  return {
+    added: [...right.entries()].filter(([id]) => !left.has(id)).map(([, item]) => item),
+    removed: [...left.entries()].filter(([id]) => !right.has(id)).map(([, item]) => item),
+    updated: [...right.entries()].filter(([id, item]) => left.has(id) && !sameJson(left.get(id), item)).map(([, item]) => item),
+  };
+}
+
+function validateMutation(actor: AdminActor, current: ReturnType<typeof examPayload>, body: Record<string, any>): { ok: true; actions: string[] } | { ok: false; error: string; permission?: Permission } {
+  const actions: string[] = [];
+  const need = (permission: Permission, label: string) => {
+    if (!hasPermission(actor, permission)) return { ok: false as const, error: `当前账号无权修改${label}`, permission };
+    actions.push(permission); return null;
+  };
+  const nextMajors = Array.isArray(body.majors) ? body.majors : current.majors;
+  const nextGrades = Array.isArray(body.grades) ? body.grades : current.grades;
+  const nextClasses = Array.isArray(body.classes) ? body.classes : current.classes;
+
+  const majorDiff = recordDiff(current.majors, nextMajors);
+  const itemDiff = recordDiff(current.items, body.items);
+  const majorChanged = majorDiff.added.length > 0 || majorDiff.removed.length > 0 || majorDiff.updated.length > 0
+    || itemDiff.added.length > 0 || itemDiff.removed.length > 0 || itemDiff.updated.length > 0
+    || current.title !== String(body.title ?? '')
+    || current.activeMajorId !== String(body.activeMajorId ?? '');
+  if (majorChanged) {
+    if (majorDiff.added.length) { const denied = need('major.create', '新建大型考试'); if (denied) return denied; }
+    if (majorDiff.removed.length || itemDiff.removed.length) { const denied = need('major.delete', '删除考试'); if (denied) return denied; }
+    if (majorDiff.updated.length || itemDiff.added.length || itemDiff.updated.length || current.title !== String(body.title ?? '') || current.activeMajorId !== String(body.activeMajorId ?? '')) { const denied = need('major.edit', '大型考试'); if (denied) return denied; }
+    const classes = new Map((nextClasses as any[]).map(item => [String(item?.id ?? ''), item]));
+    for (const major of changedRecords(current.majors, nextMajors)) {
+      const gradeIds = Array.isArray(major?.targetGradeIds) ? major.targetGradeIds.map(String) : [];
+      const classIds = Array.isArray(major?.targetClassIds) ? major.targetClassIds.map(String) : [];
+      if (!gradeIds.length && !classIds.length && !allScope(actor)) return { ok: false, error: '仅全校范围管理员可以修改全校大型考试' };
+      if (gradeIds.some((id: string) => !canAccessGrade(actor, id))) return { ok: false, error: '大型考试包含当前账号无权管理的年级' };
+      if (classIds.some((id: string) => { const item: any = classes.get(id); return !item || !canAccessClass(actor, String(item.gradeId ?? ''), id); })) return { ok: false, error: '大型考试包含当前账号无权管理的班级' };
+    }
+  }
+
+  if (body.weeklyPlans !== undefined && !sameJson(current.weeklyPlans, body.weeklyPlans)) {
+    const diff = recordDiff(current.weeklyPlans ?? [], body.weeklyPlans ?? []);
+    if (diff.added.length) { const denied = need('weekly.create', '新建周测计划'); if (denied) return denied; }
+    if (diff.added.length > 1) { const denied = need('weekly.copy', '批量应用周测计划'); if (denied) return denied; }
+    if (diff.removed.length) { const denied = need('weekly.delete', '删除周测计划'); if (denied) return denied; }
+    if (diff.updated.length) { const denied = need('weekly.edit', '周测计划'); if (denied) return denied; }
+    for (const plan of changedRecords(current.weeklyPlans ?? [], body.weeklyPlans ?? [])) {
+      if (!canAccessClass(actor, String(plan?.gradeId ?? ''), String(plan?.classId ?? ''))) return { ok: false, error: '周测计划超出当前账号的班级管理范围' };
+    }
+  }
+  if ((body.activeWeeklyPlanId !== undefined && !sameJson(current.activeWeeklyPlanId, body.activeWeeklyPlanId))
+      || (body.activeWeeklyPlanIdByClassId !== undefined && !sameJson(current.activeWeeklyPlanIdByClassId, body.activeWeeklyPlanIdByClassId))) {
+    const denied = need('weekly.edit', '周测生效计划'); if (denied) return denied;
+    const before = current.activeWeeklyPlanIdByClassId ?? {};
+    const after = body.activeWeeklyPlanIdByClassId ?? before;
+    const classMap = new Map((nextClasses as any[]).map(item => [String(item?.id ?? ''), item]));
+    const changedClassIds = new Set([...Object.keys(before), ...Object.keys(after)].filter(id => before[id] !== after[id]));
+    for (const classId of changedClassIds) {
+      const schoolClass: any = classMap.get(classId);
+      if (!schoolClass || !canAccessClass(actor, String(schoolClass.gradeId ?? ''), classId)) return { ok: false, error: '生效周测计划超出当前账号的班级管理范围' };
+    }
+  }
+  if (body.grades !== undefined && !sameJson(current.grades, body.grades)) {
+    const denied = need('school.grade_manage', '年级结构'); if (denied) return denied;
+    if (!allScope(actor)) return { ok: false, error: '只有全校范围管理员可以增删年级' };
+  }
+  if (body.classes !== undefined && !sameJson(current.classes, body.classes)) {
+    const denied = need('school.class_manage', '班级结构'); if (denied) return denied;
+    for (const schoolClass of changedRecords(current.classes ?? [], body.classes ?? [])) {
+      if (!canAccessGrade(actor, String(schoolClass?.gradeId ?? ''))) return { ok: false, error: '班级变更超出当前账号的年级管理范围' };
+    }
+  }
+  if (body.scheduleMode !== undefined && current.scheduleMode !== body.scheduleMode) {
+    const denied = need('schedule.mode_edit', '全校运行模式'); if (denied) return denied;
+    if (!allScope(actor)) return { ok: false, error: '只有全校范围管理员可以修改运行模式' };
+  }
+  if (body.weeklyConflictPolicy !== undefined && !sameJson(current.weeklyConflictPolicy, body.weeklyConflictPolicy)) {
+    const denied = need('schedule.conflict_edit', '大型考试冲突策略'); if (denied) return denied;
+    if (!allScope(actor)) return { ok: false, error: '只有全校范围管理员可以修改冲突策略' };
+  }
+  if (body.alerts !== undefined && !sameJson(current.alerts, body.alerts)) {
+    const denied = need('alerts.edit', '全屏提醒'); if (denied) return denied;
+  }
+  if (body.initialization !== undefined && !sameJson(current.initialization, body.initialization)) {
+    const denied = need('initialization.run', '初始化设置'); if (denied) return denied;
+    if (!allScope(actor)) return { ok: false, error: '只有超级管理员可以执行初始化' };
+  }
+  return { ok: true, actions: [...new Set(actions)] };
+}
+
 // 判断是否因“表/列尚未创建”报错，仅在首次遇到时才跑迁移并重试。
 function missingRelation(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -195,16 +295,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'device-bindings') {
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      let deviceActor: AdminActor | null = null;
       if (await isPasswordRequired()) {
-        const token = extractBearer(req.headers.authorization);
-        if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; }
+        deviceActor = await requireActor(req, res, 'device.read');
+        if (!deviceActor) return;
       }
       const selectBindings = async () => (
-        await sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 501`
+        await sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 2001`
       ) as unknown as Array<Record<string, any>>;
       let rows: Awaited<ReturnType<typeof selectBindings>>;
       try { rows = await selectBindings(); }
       catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); rows = await selectBindings(); }
+      if (deviceActor) rows = rows.filter(row => canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
       const truncated = rows.length > 500;
       res.status(200).json({
         ok: true,
@@ -257,10 +359,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     if (action === 'device-revoke' && req.method === 'POST') {
-      if (await isPasswordRequired()) { const token = extractBearer(req.headers.authorization); if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; } }
       const instanceId = String(req.body?.instanceId ?? '').trim().slice(0, 128);
       await ensureTableOnce();
+      let deviceActor: AdminActor | null = null;
+      if (await isPasswordRequired()) {
+        deviceActor = await requireActor(req, res, 'device.revoke'); if (!deviceActor) return;
+        const bindings = await sql`SELECT grade_id, class_id FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ grade_id: string; class_id: string }>;
+        if (bindings[0] && !canAccessClass(deviceActor, bindings[0].grade_id, bindings[0].class_id)) { res.status(403).json({ ok: false, error: '设备超出当前账号的管理范围' }); return; }
+      }
       await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
+      await writeAudit(deviceActor, 'device.revoke', 'device', instanceId);
       res.status(200).json({ ok: true }); return;
     }
 
@@ -294,12 +402,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
+      let actor: AdminActor | null = null;
       if (await isPasswordRequired()) {
-        const token = extractBearer(req.headers.authorization);
-        if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; }
+        actor = await requireActor(req, res);
+        if (!actor) return;
       }
       const { items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, weeklyConflictPolicy, grades, classes, initialization, baseUpdatedAt } = req.body ?? {};
       if (!Array.isArray(items)) { res.status(400).json({ ok: false, error: 'items must be an array' }); return; }
+      if (actor) {
+        let currentRows: ExamRow[];
+        try {
+          currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
+        } catch (error) {
+          if (!missingRelation(error)) throw error;
+          await ensureTableOnce();
+          currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
+        }
+        const permission = validateMutation(actor, examPayload(currentRows[0] ?? {}), req.body ?? {});
+        if (!permission.ok) { res.status(403).json(permission); return; }
+      }
       const expectedVersion = Number(baseUpdatedAt ?? 0);
       const updatedAt = Date.now();
       const runUpdate = async (): Promise<UpdatedRow[]> => (
@@ -348,6 +469,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return;
       }
       getCache = null;
+      if (actor) await writeAudit(actor, 'exam-data.update', 'exam_data', '1', { updatedAt });
       res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.status(200).json({ ok: true, updatedAt });
       return;
     }

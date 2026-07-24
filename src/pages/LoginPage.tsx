@@ -1,12 +1,13 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { hasValidLocalToken, isLoginRequired, loginAdmin } from '../services/examService';
+import { getAdminUser, hasValidLocalToken, isLoginRequired, loginAdmin } from '../services/examService';
 import Watermark from '../components/Watermark';
 import '../styles/login.css';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -20,11 +21,12 @@ export default function LoginPage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!password) { setError('请输入管理员密码'); return; }
+    if (!username.trim() || !password) { setError('请输入用户名和密码'); return; }
     setLoading(true); setError('');
-    const ok = await loginAdmin(password);
+    const ok = await loginAdmin(username.trim(), password);
     setLoading(false);
-    if (!ok) { setError('密码不正确，请重新输入'); return; }
+    if (!ok) { setError('用户名或密码不正确，请重新输入'); return; }
+    if (getAdminUser()?.mustChangePassword) { navigate('/settings?password=1', { replace: true }); return; }
     navigate(next, { replace: true });
   };
 
@@ -36,12 +38,19 @@ export default function LoginPage() {
         <div className="login-card__mark">⌁</div>
         <p className="login-card__eyebrow">EXAM BOARD</p>
         <h1 className="login-card__title">考试管理</h1>
-        <p className="login-card__subtitle">请输入管理员密码以继续</p>
+        <p className="login-card__subtitle">使用管理员账号登录以继续</p>
         <form className="login-form" onSubmit={submit}>
+          <label className="login-form__label" htmlFor="admin-username">用户名</label>
+          <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>
+            <span aria-hidden="true">@</span>
+            <input id="admin-username" type="text" autoComplete="username" autoFocus
+              value={username} onChange={e => { setUsername(e.target.value); setError(''); }}
+              placeholder="默认：admin" />
+          </div>
           <label className="login-form__label" htmlFor="admin-password">管理员密码</label>
           <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>
             <span aria-hidden="true">⌘</span>
-            <input id="admin-password" type="password" autoComplete="current-password" autoFocus
+            <input id="admin-password" type="password" autoComplete="current-password"
               value={password} onChange={e => { setPassword(e.target.value); setError(''); }}
               placeholder="输入密码" />
           </div>

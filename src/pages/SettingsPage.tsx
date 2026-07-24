@@ -18,7 +18,7 @@ import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
 import HelpTip from '../components/HelpTip';
 import readmeRaw from '../../README.md?raw';
-import { changeAdminPassword, getCloudSnapshot, hasValidLocalToken, isLoginRequired, saveExamsToServer } from '../services/examService';
+import { adminCan, changeAdminPassword, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, refreshAdminUser, saveExamsToServer, type AdminUserContext } from '../services/examService';
 import type { WeeklyPlan, WeeklyWeekMode } from '../types/exam';
 import { sortedClasses, sortedGrades } from '../utils/classSettings';
 import { OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
@@ -47,10 +47,10 @@ const NUMERIC_FONT_OPTIONS: Array<{ value: TypographyFontId; label: string }> = 
   { value: 'wenkai', label: '霞鹜文楷' },
 ];
 
-function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Switch({ checked, onChange, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <label className="set-switch">
-      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />
       <span />
     </label>
   );
@@ -61,12 +61,17 @@ export default function SettingsPage() {
   // 已有本地令牌时立即展示页面，跳过鉴权网络往返（数据库在新加坡、服务器在美国，
   // 跨洲往返会造成数秒白屏）；无令牌时才等待是否需要登录的判断。
   const [authed, setAuthed] = useState(() => hasValidLocalToken());
+  const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() => getAdminUser());
   useEffect(() => {
-    if (hasValidLocalToken()) return;
-    isLoginRequired().then(required => {
-      if (!required) setAuthed(true);
-      else navigate('/login?next=/settings', { replace: true });
-    });
+    if (hasValidLocalToken()) {
+      refreshAdminUser().then(user => {
+        if (!user) { navigate('/login?next=/settings', { replace: true }); return; }
+        if (!adminCan('settings.read', user) && !user.mustChangePassword) { navigate('/admin', { replace: true }); return; }
+        setAdminUser(user); setAuthed(true);
+      });
+      return;
+    }
+    isLoginRequired().then(required => { if (!required) setAuthed(true); else navigate('/login?next=/settings', { replace: true }); });
   }, [navigate]);
   const [ts, setTs] = useState<TimeSyncSettings>(() => getAppSettings().general.timeSync);
   const [errMode, setErrMode] = useState<ErrMode>(() => getAppSettings().study.alerts.errorCenterMode);
@@ -97,6 +102,10 @@ export default function SettingsPage() {
   const [calendarClassId, setCalendarClassId] = useState(initialExam.selectedClassId);
   const [calendarPlanId, setCalendarPlanId] = useState(() => initialExam.activeWeeklyPlanIdByClassId[initialExam.selectedClassId] ?? initialExam.activeWeeklyPlanId ?? '');
   const [calendarSave, setCalendarSave] = useState('');
+  const canEditSettings = adminUser ? adminCan('settings.edit', adminUser) : !hasValidLocalToken();
+  const canEditWeekly = adminUser ? adminCan('weekly.edit', adminUser) : !hasValidLocalToken();
+  const canReadAlerts = adminUser ? adminCan('alerts.read', adminUser) : !hasValidLocalToken();
+  const canEditAlerts = adminUser ? adminCan('alerts.edit', adminUser) : !hasValidLocalToken();
   const toggleTele = (v: boolean) => { setEnabled(v); setTeleOn(v); };
   const reportTele = async () => {
     setTeleMsg('上报中…');
@@ -214,7 +223,7 @@ export default function SettingsPage() {
   };
 
   const saveCalendarPlan = async (updates: Partial<WeeklyPlan>) => {
-    if (!calendarPlan) return;
+    if (!calendarPlan || !canEditWeekly) return;
     const nextPlans = weeklyPlans.map(plan => plan.id === calendarPlan.id ? { ...plan, ...updates } : plan);
     setWeeklyPlans(nextPlans);
     updateExamSettings({ weeklyPlans: nextPlans, updatedAt: Date.now() });
@@ -266,6 +275,8 @@ export default function SettingsPage() {
       </header>
 
       <div className="set-body">
+        {adminUser?.mustChangePassword && <div className="set-note set-note--warn">首次登录或密码已被重置，请先在“管理员安全”中修改初始密码，之后才能使用管理功能。</div>}
+        {!canEditSettings && <div className="set-note set-note--warn">当前账号对系统设置只有查看权限；修改自己的密码仍然可用。</div>}
         <section className="set-card">
           <div className="set-card__head"><h2 className="set-card__title">周测日历</h2></div>
           <p className="set-card__lead">配置学期周次和法定节假日。学期开始日期所在周按 A 周计算，下一周自动切换为 B 周。</p>
@@ -274,9 +285,9 @@ export default function SettingsPage() {
             <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={calendarClassId} onChange={event => selectCalendarClass(event.target.value)}><option value="">请选择班级</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
             {classPlans.length > 1 && <div className="set-row"><label className="set-label">周测计划</label><select className="set-input" value={calendarPlan?.id ?? ''} onChange={event => setCalendarPlanId(event.target.value)}>{classPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></div>}
             {calendarPlan ? <>
-              <div className="set-row"><label className="set-label">学期开始日期 <HelpTip title="A/B 周基准">该日期所在周固定为 A 周，后续自然周按 A、B 交替推算。修改日期会立即反映到日历预览。</HelpTip></label><input className="set-input" type="date" value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
-              <div className="set-row"><label className="set-label">周次模式</label><select className="set-input" value={calendarPlan.weekMode ?? 'single'} onChange={event => void saveCalendarPlan({ weekMode: event.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></div>
-              <div className="set-row"><label className="set-label">法定节假日自动排除</label><Switch checked={calendarPlan.excludeOfficialHolidays === true} onChange={value => void saveCalendarPlan({ excludeOfficialHolidays: value })} /></div>
+              <div className="set-row"><label className="set-label">学期开始日期 <HelpTip title="A/B 周基准">该日期所在周固定为 A 周，后续自然周按 A、B 交替推算。修改日期会立即反映到日历预览。</HelpTip></label><input className="set-input" type="date" disabled={!canEditWeekly} value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
+              <div className="set-row"><label className="set-label">周次模式</label><select className="set-input" disabled={!canEditWeekly} value={calendarPlan.weekMode ?? 'single'} onChange={event => void saveCalendarPlan({ weekMode: event.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></div>
+              <div className="set-row"><label className="set-label">法定节假日自动排除</label><Switch checked={calendarPlan.excludeOfficialHolidays === true} disabled={!canEditWeekly} onChange={value => void saveCalendarPlan({ excludeOfficialHolidays: value })} /></div>
               {calendarPlan.excludeOfficialHolidays && <p className="set-note set-holiday-list">已启用：{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
               {calendarSave && <p className="set-note" aria-live="polite">{calendarSave}</p>}
             </> : <div className="set-note set-note--warn">当前班级还没有周测计划，请先到管理后台的“周测”页创建计划。</div>}
@@ -287,14 +298,14 @@ export default function SettingsPage() {
         <section className="set-card">
           <div className="set-card__head">
             <h2 className="set-card__title">🕐 时间同步（校时） <HelpTip title="校时方式">时间接口精度最高且适合大屏；HTTP Date 无需专用接口但精度较低；浏览器不能直接使用 NTP。</HelpTip></h2>
-            <Switch checked={ts.enabled} onChange={v => patchTs({ enabled: v }, true)} />
+            <Switch checked={ts.enabled} disabled={!canEditSettings} onChange={v => patchTs({ enabled: v }, true)} />
           </div>
           <p className="set-card__lead">开启后大屏时钟、倒计时与全屏提醒均基于校准后的网络时间触发；关闭后回退使用本机时钟。</p>
 
           <div className={`set-fieldset${ts.enabled ? '' : ' is-dim'}`}>
             <div className="set-row">
               <label className="set-label">校时方式</label>
-              <select className="set-input" value={ts.provider} onChange={e => patchTs({ provider: e.target.value as TimeSyncSettings['provider'] }, true)}>
+              <select className="set-input" disabled={!canEditSettings} value={ts.provider} onChange={e => patchTs({ provider: e.target.value as TimeSyncSettings['provider'] }, true)}>
                 <option value="timeApi">时间接口 (timeApi · 推荐)</option>
                 <option value="httpDate">HTTP 响应头 (Date)</option>
                 <option value="ntp">NTP（仅服务端）</option>
@@ -304,13 +315,13 @@ export default function SettingsPage() {
             {ts.provider === 'timeApi' && (
               <div className="set-row">
                 <label className="set-label">时间接口 URL</label>
-                <input className="set-input" value={ts.timeApiUrl} placeholder="/api/time" onChange={e => patchTs({ timeApiUrl: e.target.value })} />
+                <input className="set-input" disabled={!canEditSettings} value={ts.timeApiUrl} placeholder="/api/time" onChange={e => patchTs({ timeApiUrl: e.target.value })} />
               </div>
             )}
             {ts.provider === 'httpDate' && (
               <div className="set-row">
                 <label className="set-label">探测 URL</label>
-                <input className="set-input" value={ts.httpDateUrl} placeholder="/" onChange={e => patchTs({ httpDateUrl: e.target.value })} />
+                <input className="set-input" disabled={!canEditSettings} value={ts.httpDateUrl} placeholder="/" onChange={e => patchTs({ httpDateUrl: e.target.value })} />
               </div>
             )}
             {ts.provider === 'ntp' && (
@@ -319,12 +330,12 @@ export default function SettingsPage() {
 
             <div className="set-row">
               <label className="set-label">自动定时校时</label>
-              <Switch checked={ts.autoSyncEnabled} onChange={v => patchTs({ autoSyncEnabled: v }, true)} />
+              <Switch checked={ts.autoSyncEnabled} disabled={!canEditSettings} onChange={v => patchTs({ autoSyncEnabled: v }, true)} />
             </div>
             <div className="set-row">
               <label className="set-label">校时间隔（秒）</label>
               <input
-                className="set-input set-input--sm" type="number" min={10} step={10} inputMode="numeric"
+                className="set-input set-input--sm" type="number" min={10} step={10} inputMode="numeric" disabled={!canEditSettings}
                 value={ts.autoSyncIntervalSec}
                 onChange={e => patchTs({ autoSyncIntervalSec: Math.max(10, Number(e.target.value) || 10) }, true)}
               />
@@ -332,7 +343,7 @@ export default function SettingsPage() {
             <div className="set-row">
               <label className="set-label">手动微调（毫秒）</label>
               <input
-                className="set-input set-input--sm" type="number" step={100}
+                className="set-input set-input--sm" type="number" step={100} disabled={!canEditSettings}
                 value={ts.manualOffsetMs}
                 onChange={e => patchTs({ manualOffsetMs: Number(e.target.value) || 0 })}
               />
@@ -361,14 +372,14 @@ export default function SettingsPage() {
           <div className="set-card__head"><h2 className="set-card__title">🎨 显示</h2></div>
           <div className="set-row">
             <label className="set-label">默认大屏设计风格</label>
-            <select className="set-input" value={designId} onChange={e => patchDesign(e.target.value)}>
+            <select className="set-input" disabled={!canEditSettings} value={designId} onChange={e => patchDesign(e.target.value)}>
               {DESIGNS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
           <p className="set-note">也可在大屏右上角“切换风格”里实时预览切换；此处设置作为本机默认。</p>
           <div className="set-row">
             <label className="set-label">动效模式</label>
-            <select className="set-input" value={motionMode} onChange={e => patchMotion(e.target.value as MotionMode)}>
+            <select className="set-input" disabled={!canEditSettings} value={motionMode} onChange={e => patchMotion(e.target.value as MotionMode)}>
               <option value="auto">自动（跟随系统“减少动态效果”偏好）</option>
               <option value="best-effects">最佳效果（开满动效）</option>
               <option value="best-performance">最佳性能（关闭动画 / 过渡 / 毛玻璃）</option>
@@ -379,13 +390,13 @@ export default function SettingsPage() {
 
         {/* ―― 字体分区 ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">🔤 字体分区</h2><button className="set-btn set-btn--ghost" onClick={resetTypography}>恢复设计默认</button></div>
+          <div className="set-card__head"><h2 className="set-card__title">🔤 字体分区</h2><button className="set-btn set-btn--ghost" disabled={!canEditSettings} onClick={resetTypography}>恢复设计默认</button></div>
           <p className="set-card__lead">所有选择均为已随应用打包的本地字体。设置立即作用于当前大屏，并保存到本机；时钟默认使用 JetBrains Mono 等宽数字（子集已随应用打包）。</p>
           <div className="set-font-grid">
-            <label className="set-font-field"><span>① 导航与标签</span><select className="set-input" value={typography.navigation} onChange={e => patchTypography('navigation', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>页眉、状态、标签与说明</small><i className="set-font-preview set-font-preview--nav">导航 · 在线 · 已校时</i></label>
-            <label className="set-font-field"><span>② 展示标题</span><select className="set-input" value={typography.display} onChange={e => patchTypography('display', e.target.value as TypographyFontId)}><option value="design">按当前设计默认</option>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>科目主标题与核心强调</small><i className="set-font-preview set-font-preview--display">语文考试</i></label>
-            <label className="set-font-field"><span>③ 动态内容</span><select className="set-input" value={typography.content} onChange={e => patchTypography('content', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>下一科、卡片内容与动态中文</small><i className="set-font-preview set-font-preview--content">下一科：数学 · 14:30</i></label>
-            <label className="set-font-field"><span>④ 时钟与数字</span><select className="set-input" value={typography.numeric} onChange={e => patchTypography('numeric', e.target.value as TypographyFontId)}>{NUMERIC_FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>时钟、倒计时、百分比和进度数字</small><i className="set-font-preview set-font-preview--numeric">09:30:00</i></label>
+            <label className="set-font-field"><span>① 导航与标签</span><select className="set-input" disabled={!canEditSettings} value={typography.navigation} onChange={e => patchTypography('navigation', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>页眉、状态、标签与说明</small><i className="set-font-preview set-font-preview--nav">导航 · 在线 · 已校时</i></label>
+            <label className="set-font-field"><span>② 展示标题</span><select className="set-input" disabled={!canEditSettings} value={typography.display} onChange={e => patchTypography('display', e.target.value as TypographyFontId)}><option value="design">按当前设计默认</option>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>科目主标题与核心强调</small><i className="set-font-preview set-font-preview--display">语文考试</i></label>
+            <label className="set-font-field"><span>③ 动态内容</span><select className="set-input" disabled={!canEditSettings} value={typography.content} onChange={e => patchTypography('content', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>下一科、卡片内容与动态中文</small><i className="set-font-preview set-font-preview--content">下一科：数学 · 14:30</i></label>
+            <label className="set-font-field"><span>④ 时钟与数字</span><select className="set-input" disabled={!canEditSettings} value={typography.numeric} onChange={e => patchTypography('numeric', e.target.value as TypographyFontId)}>{NUMERIC_FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>时钟、倒计时、百分比和进度数字</small><i className="set-font-preview set-font-preview--numeric">09:30:00</i></label>
           </div>
           <p className="set-note">默认方案不再使用霞鹜文楷；如需自定义，可仅在本页手动选择它。</p>
         </section>
@@ -395,11 +406,11 @@ export default function SettingsPage() {
           <div className="set-card__head"><h2 className="set-card__title">🔔 提醒与高级</h2></div>
           <div className="set-row">
             <label className="set-label">全屏提醒管理</label>
-            <button className="set-btn" onClick={() => navigate('/admin?alerts=1')}>前往提醒管理 →</button>
+            {canReadAlerts ? <button className="set-btn" onClick={() => navigate('/admin?alerts=1')}>前往提醒管理 →</button> : <span className="set-note">无查看权限</span>}
           </div>
           <div className="set-row">
             <label className="set-label">静默模式</label>
-            <select className="set-input" value={silentMode} onChange={e => { const v = e.target.value as 'all' | 'keyOnly' | 'pauseUntilExamEnd'; setSilentMode(v); updateAlertsSettings({ silentMode: v }); }}>
+            <select className="set-input" disabled={!canEditAlerts} value={silentMode} onChange={e => { const v = e.target.value as 'all' | 'keyOnly' | 'pauseUntilExamEnd'; setSilentMode(v); updateAlertsSettings({ silentMode: v }); }}>
               <option value="all">全部提醒</option>
               <option value="keyOnly">仅关键提醒（5分钟 / 开考 / 结束 / 下一科）</option>
               <option value="pauseUntilExamEnd">本场进行中暂停提醒</option>
@@ -407,7 +418,7 @@ export default function SettingsPage() {
           </div>
           <div className="set-row">
             <label className="set-label">错误中心模式</label>
-            <select className="set-input" value={errMode} onChange={e => patchErr(e.target.value as ErrMode)}>
+            <select className="set-input" disabled={!canEditSettings} value={errMode} onChange={e => patchErr(e.target.value as ErrMode)}>
               <option value="off">关闭</option>
               <option value="memory">仅内存（本会话）</option>
               <option value="persist">持久化（本地保存）</option>
@@ -415,7 +426,7 @@ export default function SettingsPage() {
           </div>
           <div className="set-row">
             <label className="set-label">重置本地设置</label>
-            <button className="set-btn set-btn--danger" onClick={resetLocal}>清除本地缓存并恢复默认</button>
+            <button className="set-btn set-btn--danger" disabled={!canEditSettings} onClick={resetLocal}>清除本地缓存并恢复默认</button>
           </div>
         </section>
 
@@ -436,7 +447,7 @@ export default function SettingsPage() {
         <section className="set-card">
           <div className="set-card__head">
             <h2 className="set-card__title">🛰️ 使用遥测</h2>
-            <Switch checked={teleOn} onChange={toggleTele} />
+            <Switch checked={teleOn} disabled={!canEditSettings} onChange={toggleTele} />
           </div>
           <p className="set-card__lead">作者端上报匿名部署/运行数据（版本、主机、时区、地区、匿名 IP 哈希）；不含考试内容与个人信息。</p>
           <ul className="set-status__list">
@@ -444,7 +455,7 @@ export default function SettingsPage() {
             <li><span>实例 ID</span><b>{instId.slice(0, 8)}…</b></li>
             <li><span>当前版本</span><b>v{APP_VERSION}</b></li>
           </ul>
-          <button className="set-btn set-btn--primary" disabled={!teleOn} onClick={reportTele}>立即上报一次</button>
+          <button className="set-btn set-btn--primary" disabled={!teleOn || !canEditSettings} onClick={reportTele}>立即上报一次</button>
           {teleMsg ? <p className="set-note">{teleMsg}</p> : null}
         </section>
 
@@ -470,7 +481,7 @@ export default function SettingsPage() {
           {upd.status === 'error' && <p className="set-note set-note--warn">检查失败：{upd.error}</p>}
           <div className="set-about__actions" style={{ marginTop: 12 }}>
             <button className="set-btn set-btn--primary" disabled={upd.status === 'checking'} onClick={doCheck}>{upd.status === 'checking' ? '检查中…' : '检查更新'}</button>
-            {redeployOk ? <button className="set-btn" disabled={redeploy.status === 'running'} onClick={doRedeploy}>{redeploy.status === 'running' ? '部署中…' : '一键拉取并重新部署'}</button> : null}
+            {redeployOk && adminCan('deployment.trigger', adminUser) ? <button className="set-btn" disabled={redeploy.status === 'running'} onClick={doRedeploy}>{redeploy.status === 'running' ? '部署中…' : '一键拉取并重新部署'}</button> : null}
           </div>
           {!redeployOk && <p className="set-note">如需「一键重新部署」，请在 Vercel 项目环境变量中配置 <code>VERCEL_DEPLOY_HOOK_URL</code>（Project Settings → Git → Deploy Hooks 生成）。</p>}
           {redeploy.status !== 'idle' && redeploy.msg ? <p className={`set-note${redeploy.status === 'error' ? ' set-note--warn' : ''}`}>{redeploy.msg}</p> : null}

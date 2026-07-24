@@ -68,14 +68,14 @@ function authHeaders(): Record<string, string> {
 
 export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingInfo[]; truncated: boolean }> {
   const response = await fetch(`${API_URL}?action=device-bindings`, { cache: 'no-store', headers: authHeaders() });
-  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效，请重新进入管理后台' : '设备管理加载失败');
+  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效，请重新进入管理后台' : response.status === 403 ? '当前账号无权查看设备' : '设备管理加载失败');
   const data = await response.json();
   return { bindings: Array.isArray(data.bindings) ? data.bindings : [], truncated: data.truncated === true };
 }
 
 export async function revokeDevice(instanceId: string): Promise<void> {
   const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId }) });
-  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : '删除设备失败');
+  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : '删除设备失败');
 }
 
 export async function sendDeviceHeartbeat(input: Omit<DeviceBindingInfo, 'instanceId' | 'gradeId' | 'classId' | 'revoked' | 'lastSeenAt' | 'updatedAt'>): Promise<boolean> {

@@ -8,7 +8,7 @@ const ONLINE_MS = 90_000;
 const formatTime = (value: number) => value > 0 ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '从未上线';
 const statusLabel = (item: DeviceBindingInfo) => item.status === 'exam-running' ? '考试进行中' : item.status === 'waiting' ? '等待考试' : '空闲';
 
-export default function DeviceStatusPanel() {
+export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: boolean }) {
   const [bindings, setBindings] = useState<DeviceBindingInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,7 +40,7 @@ export default function DeviceStatusPanel() {
   };
 
   return <main className="device-status">
-    <div className="device-status__heading"><div><h2>设备管理 <HelpTip title="设备状态与删除">在线状态由客户端心跳判断，短暂断网可能显示离线。删除设备会撤销它的绑定，客户端下次心跳时会被要求重新选择年级与班级。</HelpTip></h2><p>查看客户端在线状态、当前考试和班级绑定；删除后客户端会要求重新绑定。</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
+    <div className="device-status__heading"><div><h2>设备管理 <HelpTip title="设备状态与删除">在线状态由客户端心跳判断，短暂断网可能显示离线。删除设备会撤销它的绑定，客户端下次心跳时会被要求重新选择年级与班级。</HelpTip></h2><p>查看客户端在线状态、当前考试和班级绑定；{canRevoke ? '删除后客户端会要求重新绑定。' : '当前账号为只读权限。'}</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
     <div className="device-status__stats"><div><span>设备总数</span><strong>{bindings.length}</strong></div><div><span>当前在线</span><strong>{onlineCount}</strong></div><div><span>考试进行中</span><strong>{bindings.filter(item => item.status === 'exam-running').length}</strong></div><div><span>已撤销</span><strong>{bindings.filter(item => item.revoked).length}</strong></div></div>
     <div className="device-status__toolbar"><label><span>搜索</span><input className="admin-input" value={query} onChange={event => setQuery(event.target.value)} placeholder="设备、班级或考试" /></label><label><span>年级</span><select className="admin-input" value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setClassFilter('*'); }}><option value="*">全部年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>班级</span><select className="admin-input" value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="*">全部班级</option>{visibleClasses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
     {error && <div className="admin-error">{error}</div>}
@@ -48,7 +48,7 @@ export default function DeviceStatusPanel() {
     {!loading && filtered.length === 0 && <div className="admin-empty"><p>暂无符合条件的设备</p></div>}
     {filtered.length > 0 && <div className="device-status__table"><div className="device-status__table-head"><span>设备与班级</span><span>实时状态</span><span>最近在线</span><span>操作</span></div><div className="device-status__list">{filtered.map(item => {
       const online = !item.revoked && now - item.lastSeenAt <= ONLINE_MS;
-      return <div className={`device-status__row${item.revoked ? ' is-revoked' : ''}`} key={item.instanceId}><div className="device-status__instance"><span>{classDisplayName(grades, classes, item.classId)}</span><code title={item.instanceId}>{item.instanceId}</code></div><div className="device-status__class"><strong>{item.revoked ? '已删除，等待重新绑定' : `${online ? '在线' : '离线'} · ${statusLabel(item)}`}</strong><span>{item.currentSubject ? `${item.currentExam} · ${item.currentSubject}` : `页面 ${item.page || '未知'} · v${item.clientVersion || '未知'}`}</span></div><div className="device-status__updated"><time>{formatTime(item.lastSeenAt)}</time></div><button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={item.revoked}>{item.revoked ? '已删除' : '删除'}</button></div>;
+      return <div className={`device-status__row${item.revoked ? ' is-revoked' : ''}`} key={item.instanceId}><div className="device-status__instance"><span>{classDisplayName(grades, classes, item.classId)}</span><code title={item.instanceId}>{item.instanceId}</code></div><div className="device-status__class"><strong>{item.revoked ? '已删除，等待重新绑定' : `${online ? '在线' : '离线'} · ${statusLabel(item)}`}</strong><span>{item.currentSubject ? `${item.currentExam} · ${item.currentSubject}` : `页面 ${item.page || '未知'} · v${item.clientVersion || '未知'}`}</span></div><div className="device-status__updated"><time>{formatTime(item.lastSeenAt)}</time></div>{canRevoke ? <button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={item.revoked}>{item.revoked ? '已删除' : '删除'}</button> : <span className="device-status__readonly">只读</span>}</div>;
     })}</div></div>}
   </main>;
 }

@@ -11,7 +11,7 @@ import type { ExamItem, MajorExam } from './index';
 export type ScheduleMode = 'major-only' | 'weekly-only' | 'automatic';
 
 /** 后台当前编辑的模块（仅影响编辑界面，不决定大屏显示）。 */
-export type AdminTab = 'major' | 'weekly' | 'classes' | 'devices';
+export type AdminTab = 'major' | 'weekly' | 'classes' | 'devices' | 'users';
 
 /** 大型考试与周测的冲突作用范围。 */
 export type WeeklyConflictScope =

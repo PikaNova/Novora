@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { isPasswordRequired, verifyToken, extractBearer } from './_auth.js';
+import { isPasswordRequired, requireActor, writeAudit } from './_auth.js';
 
 /**
  * 一键重新部署：触发 Vercel Deploy Hook，从 GitHub 拉取最新代码并重新构建。
@@ -24,10 +24,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'POST') {
-    // 鉴权：若设了管理密码，则需有效 token
+    let actor = null;
     if (await isPasswordRequired()) {
-      const token = extractBearer(req.headers.authorization);
-      if (!await verifyToken(token)) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return; }
+      actor = await requireActor(req, res, 'deployment.trigger');
+      if (!actor) return;
     }
     if (!hookUrl) {
       res.status(501).json({ ok: false, code: 'NO_HOOK', error: '尚未配置 VERCEL_DEPLOY_HOOK_URL 环境变量' });
@@ -42,6 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.status(502).json({ ok: false, error: `Deploy Hook 返回 ${hookRes.status}`, job });
         return;
       }
+      await writeAudit(actor, 'deployment.trigger', 'deployment');
       res.status(200).json({ ok: true, job });
     } catch (error: unknown) {
       res.status(502).json({ ok: false, error: error instanceof Error ? error.message : '触发部署失败' });
