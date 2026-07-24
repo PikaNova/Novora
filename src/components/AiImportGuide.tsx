@@ -13,5 +13,5 @@ export default function AiImportGuide({ kind, context }: Props) {
     try { await navigator.clipboard.writeText(prompt); notify('success', '提示词已复制，可粘贴到任意支持图片的 AI 软件。'); }
     catch { notify('error', '复制失败，请手动选择提示词文本。'); }
   };
-  return <section className="ai-import-guide"><button type="button" className="admin-btn" onClick={() => setOpen(value => !value)}><Sparkles size={15} />{open ? '收起 AI 提示词' : '生成识图提示词'}</button>{open && <div><p>本项目不会连接 AI。复制提示词，在任意 AI 软件中上传排表照片，再将返回的 JSON 粘贴到下方。</p><textarea className="admin-textarea" rows={8} readOnly value={prompt} /><button type="button" className="admin-btn admin-btn--primary" onClick={() => void copy()}><Clipboard size={15} />复制提示词</button></div>}</section>;
+  return <section className="ai-import-guide"><button type="button" className="admin-btn" onClick={() => setOpen(value => !value)}><Sparkles size={15} />{open ? '收起 AI 提示词' : '生成识图提示词'}</button>{open && <div><p>本项目不会连接 AI。复制提示词，在任意 AI 软件中上传考试安排表照片，再将返回的 JSON 粘贴到下方。</p><textarea className="admin-textarea" rows={8} readOnly value={prompt} /><button type="button" className="admin-btn admin-btn--primary" onClick={() => void copy()}><Clipboard size={15} />复制提示词</button></div>}</section>;
 }

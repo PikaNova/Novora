@@ -1,6 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { canAccessClass, canAccessGrade, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
+import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
+import { parseZonedTime } from '../src/utils/timeSource.js';
 
 // 性能：缓存 neon 客户端（同一 warm 实例复用）。
 let _sql: ReturnType<typeof neon> | null = null;
@@ -88,9 +91,25 @@ function ensureTableOnce(): Promise<void> {
           updated_at BIGINT NOT NULL
         )
       `,
+        sql`
+        CREATE TABLE IF NOT EXISTS classisland_plugin_instances (
+          plugin_instance_id TEXT PRIMARY KEY,
+          client_secret_hash TEXT NOT NULL,
+          pair_token_hash TEXT,
+          pair_expires_at BIGINT,
+          grade_id TEXT NOT NULL DEFAULT '',
+          class_id TEXT NOT NULL DEFAULT '',
+          viewer_instance_id TEXT NOT NULL DEFAULT '',
+          paired BOOLEAN NOT NULL DEFAULT FALSE,
+          viewer_last_seen_at BIGINT NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `,
         ensureUpdatedAtBigIntOnce(),
       ]);
       await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`;
+      await sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`;
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
         VALUES (1, '[]', '', 0)
@@ -121,6 +140,18 @@ type ExamRow = {
   binding_revoked?: boolean | null;
 };
 type UpdatedRow = { updated_at: number | string };
+
+type PluginInstanceRow = {
+  plugin_instance_id: string;
+  client_secret_hash: string;
+  pair_token_hash?: string | null;
+  pair_expires_at?: number | string | null;
+  grade_id?: string | null;
+  class_id?: string | null;
+  viewer_instance_id?: string | null;
+  paired?: boolean | null;
+  viewer_last_seen_at?: number | string | null;
+};
 
 function examPayload(row: ExamRow) {
   return {
@@ -256,6 +287,57 @@ function updatedAtIntegerOverflow(err: unknown): boolean {
   return code === '22003' && /out of range for type integer/i.test(msg);
 }
 
+const PLUGIN_PAIR_TTL_MS = 5 * 60 * 1000;
+const PLUGIN_VIEWER_ONLINE_MS = 90 * 1000;
+const PLUGIN_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;
+const PLUGIN_SECRET_RE = /^[a-f0-9]{32,256}$/i;
+const PLUGIN_TOKEN_RE = /^[a-f0-9]{32,256}$/i;
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function equalHash(left: string, right: string): boolean {
+  const a = Buffer.from(left, 'hex');
+  const b = Buffer.from(right, 'hex');
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+}
+
+function pluginCredentials(body: Record<string, unknown>): { instanceId: string; secret: string } | null {
+  const instanceId = String(body.pluginInstanceId ?? '').trim();
+  const secret = String(body.clientSecret ?? '').trim();
+  return PLUGIN_ID_RE.test(instanceId) && PLUGIN_SECRET_RE.test(secret) ? { instanceId, secret } : null;
+}
+
+function classLabel(payload: ReturnType<typeof examPayload>, gradeId: string, classId: string): string {
+  const grades = Array.isArray(payload.grades) ? payload.grades as Array<Record<string, unknown>> : [];
+  const classes = Array.isArray(payload.classes) ? payload.classes as Array<Record<string, unknown>> : [];
+  const grade = grades.find(item => String(item.id ?? '') === gradeId);
+  const schoolClass = classes.find(item => String(item.id ?? '') === classId);
+  return [grade?.name, schoolClass?.name].filter(Boolean).map(String).join(' ');
+}
+
+function resolvePluginExams(payload: ReturnType<typeof examPayload>, gradeId: string, classId: string) {
+  const now = Date.now();
+  const schedule = resolveEffectiveSchedule({
+    scheduleMode: payload.scheduleMode as any,
+    activeMajorId: payload.activeMajorId || null,
+    activeWeeklyPlanId: payload.activeWeeklyPlanId || null,
+    activeWeeklyPlanIdByClassId: payload.activeWeeklyPlanIdByClassId as Record<string, string | null>,
+    selectedGradeId: gradeId,
+    selectedClassId: classId,
+    majors: payload.majors as any[],
+    weeklyPlans: payload.weeklyPlans as any[],
+    weeklyConflictPolicy: payload.weeklyConflictPolicy as any,
+  }, now, { daysBack: 1, daysForward: 30 });
+  return schedule.activeItems.flatMap(item => {
+    const start = parseZonedTime(item.startTime);
+    const end = parseZonedTime(item.endTime);
+    if (!item.enabled || !Number.isFinite(start) || !Number.isFinite(end) || end <= now - 2 * 60 * 1000) return [];
+    return [{ id: item.id, name: item.name, startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() }];
+  });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const startedAt = Date.now();
   // Short edge cache reduces repeated US→Singapore database reads while keeping updates prompt.
@@ -270,6 +352,106 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sql = database();
 
     const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
+    if (action === 'plugin-pair-start') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const credentials = pluginCredentials(req.body ?? {});
+      const pairToken = String(req.body?.pairToken ?? '').trim();
+      if (!credentials || !PLUGIN_TOKEN_RE.test(pairToken)) { res.status(400).json({ ok: false, error: 'Invalid plugin credentials' }); return; }
+      await ensureTableOnce();
+      const existing = await sql`SELECT client_secret_hash FROM classisland_plugin_instances WHERE plugin_instance_id=${credentials.instanceId}` as unknown as PluginInstanceRow[];
+      const secretHash = sha256(credentials.secret);
+      if (existing[0] && !equalHash(existing[0].client_secret_hash, secretHash)) { res.status(401).json({ ok: false, error: 'Plugin credentials rejected' }); return; }
+      const now = Date.now();
+      await sql`
+        INSERT INTO classisland_plugin_instances
+          (plugin_instance_id, client_secret_hash, pair_token_hash, pair_expires_at, paired, created_at, updated_at)
+        VALUES (${credentials.instanceId}, ${secretHash}, ${sha256(pairToken)}, ${now + PLUGIN_PAIR_TTL_MS}, FALSE, ${now}, ${now})
+        ON CONFLICT (plugin_instance_id) DO UPDATE SET
+          pair_token_hash=EXCLUDED.pair_token_hash, pair_expires_at=EXCLUDED.pair_expires_at,
+          paired=FALSE, updated_at=EXCLUDED.updated_at
+      `;
+      res.status(200).json({ ok: true, pairExpiresAt: now + PLUGIN_PAIR_TTL_MS }); return;
+    }
+    if (action === 'plugin-pair-info') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const pairToken = String(req.query?.token ?? '').trim();
+      if (!PLUGIN_TOKEN_RE.test(pairToken)) { res.status(400).json({ ok: false, error: 'Invalid pairing token' }); return; }
+      await ensureTableOnce();
+      const rows = await sql`SELECT plugin_instance_id, pair_expires_at, paired FROM classisland_plugin_instances WHERE pair_token_hash=${sha256(pairToken)}` as unknown as PluginInstanceRow[];
+      const plugin = rows[0];
+      if (!plugin || Number(plugin.pair_expires_at ?? 0) < Date.now()) { res.status(410).json({ ok: false, error: 'Pairing request expired' }); return; }
+      const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
+      const payload = examPayload(examRows[0] ?? {});
+      const grades = (Array.isArray(payload.grades) ? payload.grades : []).filter((item: any) => item?.enabled !== false);
+      const classes = (Array.isArray(payload.classes) ? payload.classes : []).filter((item: any) => item?.enabled !== false);
+      res.status(200).json({ ok: true, pluginInstanceId: plugin.plugin_instance_id, expiresAt: Number(plugin.pair_expires_at), grades, classes }); return;
+    }
+    if (action === 'plugin-pair-confirm') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const pairToken = String(req.body?.pairToken ?? '').trim();
+      const gradeId = String(req.body?.gradeId ?? '').trim().slice(0, 128);
+      const classId = String(req.body?.classId ?? '').trim().slice(0, 128);
+      const viewerInstanceId = String(req.body?.viewerInstanceId ?? '').trim().slice(0, 128);
+      if (!PLUGIN_TOKEN_RE.test(pairToken) || !gradeId || !classId) { res.status(400).json({ ok: false, error: 'Incomplete pairing data' }); return; }
+      await ensureTableOnce();
+      const rows = await sql`SELECT plugin_instance_id, pair_expires_at FROM classisland_plugin_instances WHERE pair_token_hash=${sha256(pairToken)}` as unknown as PluginInstanceRow[];
+      const plugin = rows[0];
+      if (!plugin || Number(plugin.pair_expires_at ?? 0) < Date.now()) { res.status(410).json({ ok: false, error: 'Pairing request expired' }); return; }
+      const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
+      const payload = examPayload(examRows[0] ?? {});
+      const gradeValid = (payload.grades as any[]).some(item => item?.id === gradeId && item?.enabled !== false);
+      const classValid = (payload.classes as any[]).some(item => item?.id === classId && item?.gradeId === gradeId && item?.enabled !== false);
+      if (!gradeValid || !classValid) { res.status(400).json({ ok: false, error: 'Invalid class binding' }); return; }
+      await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, viewer_instance_id=${viewerInstanceId}, paired=TRUE, pair_token_hash=NULL, pair_expires_at=NULL, updated_at=${Date.now()} WHERE plugin_instance_id=${plugin.plugin_instance_id}`;
+      res.status(200).json({ ok: true, binding: { gradeId, classId, classTag: classLabel(payload, gradeId, classId) } }); return;
+    }
+    if (action === 'plugin-pair-status' || action === 'plugin-bootstrap') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const credentials = pluginCredentials(req.body ?? {});
+      if (!credentials) { res.status(400).json({ ok: false, error: 'Invalid plugin credentials' }); return; }
+      await ensureTableOnce();
+      const rows = await sql`SELECT * FROM classisland_plugin_instances WHERE plugin_instance_id=${credentials.instanceId}` as unknown as PluginInstanceRow[];
+      const plugin = rows[0];
+      if (!plugin || !equalHash(plugin.client_secret_hash, sha256(credentials.secret))) { res.status(401).json({ ok: false, error: 'Plugin credentials rejected' }); return; }
+      if (action === 'plugin-pair-status') {
+        const paired = plugin.paired === true && !!plugin.class_id;
+        let classTag = '';
+        if (paired) {
+          const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
+          classTag = classLabel(examPayload(examRows[0] ?? {}), String(plugin.grade_id ?? ''), String(plugin.class_id ?? ''));
+        }
+        res.status(200).json({ ok: true, paired, classTag, pairExpiresAt: Number(plugin.pair_expires_at ?? 0) || null }); return;
+      }
+      if (plugin.paired !== true || !plugin.class_id) { res.status(409).json({ ok: false, error: 'Plugin is not paired' }); return; }
+      const examRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
+      const payload = examPayload(examRows[0] ?? {});
+      const gradeId = String(plugin.grade_id ?? '');
+      const classId = String(plugin.class_id ?? '');
+      await sql`UPDATE classisland_plugin_instances SET updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
+      res.status(200).json({
+        ok: true,
+        schemaVersion: 1,
+        serverTime: new Date().toISOString(),
+        binding: { gradeId, classId, classTag: classLabel(payload, gradeId, classId) },
+        viewerOnline: Date.now() - Number(plugin.viewer_last_seen_at ?? 0) <= PLUGIN_VIEWER_ONLINE_MS,
+        exams: resolvePluginExams(payload, gradeId, classId),
+        updatedAt: payload.updatedAt,
+      }); return;
+    }
+    if (action === 'plugin-viewer-heartbeat') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const instanceId = String(req.body?.pluginInstanceId ?? '').trim();
+      const viewerInstanceId = String(req.body?.viewerInstanceId ?? '').trim().slice(0, 128);
+      if (!PLUGIN_ID_RE.test(instanceId)) { res.status(400).json({ ok: false, error: 'Invalid plugin instance' }); return; }
+      await ensureTableOnce();
+      await sql`UPDATE classisland_plugin_instances SET viewer_last_seen_at=${Date.now()}, viewer_instance_id=CASE WHEN ${viewerInstanceId}='' THEN viewer_instance_id ELSE ${viewerInstanceId} END WHERE plugin_instance_id=${instanceId} AND paired=TRUE`;
+      res.status(200).json({ ok: true }); return;
+    }
     if (action === 'bootstrap') {
       res.setHeader('Cache-Control', 'private, no-store');
       if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
@@ -302,17 +484,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         deviceActor = await requireActor(req, res, 'device.read');
         if (!deviceActor) return;
       }
-      const selectBindings = async () => (
-        await sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 2001`
-      ) as unknown as Array<Record<string, any>>;
-      let rows: Awaited<ReturnType<typeof selectBindings>>;
-      try { rows = await selectBindings(); }
-      catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); rows = await selectBindings(); }
+      await ensureTableOnce();
+      const [deviceRows, pluginRows] = await Promise.all([
+        sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<Array<Record<string, any>>>,
+        sql`SELECT plugin_instance_id, grade_id, class_id, viewer_instance_id, paired, viewer_last_seen_at, updated_at FROM classisland_plugin_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<Array<Record<string, any>>>,
+      ]);
+      let rows = deviceRows;
+      let visiblePluginRows = pluginRows;
       if (deviceActor) rows = rows.filter(row => canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
-      const truncated = rows.length > 500;
+      if (deviceActor) visiblePluginRows = visiblePluginRows.filter(row => canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
+      const truncated = rows.length > 500 || visiblePluginRows.length > 500;
       res.status(200).json({
         ok: true,
         bindings: rows.slice(0, 500).map(row => ({ instanceId: row.instance_id, gradeId: row.grade_id, classId: row.class_id, revoked: row.revoked === true, page: row.page, clientVersion: row.client_version, status: row.status, currentExam: row.current_exam, currentSubject: row.current_subject, examStart: row.exam_start, examEnd: row.exam_end, lastSeenAt: Number(row.last_seen_at), updatedAt: Number(row.updated_at) })),
+        plugins: visiblePluginRows.slice(0, 500).map(row => ({ pluginInstanceId: row.plugin_instance_id, viewerInstanceId: row.viewer_instance_id ?? '', gradeId: row.grade_id ?? '', classId: row.class_id ?? '', paired: row.paired === true, pluginLastSeenAt: Number(row.updated_at), viewerLastSeenAt: Number(row.viewer_last_seen_at) })),
         truncated,
       });
       return;
@@ -380,15 +565,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (action === 'device-revoke' && req.method === 'POST') {
       const instanceId = String(req.body?.instanceId ?? '').trim().slice(0, 128);
+      const pluginInstanceIds = Array.isArray(req.body?.pluginInstanceIds) ? req.body.pluginInstanceIds.map((value: unknown) => String(value).trim().slice(0, 128)).filter(Boolean).slice(0, 20) : [];
+      if (!instanceId && !pluginInstanceIds.length) { res.status(400).json({ ok: false, error: 'Device instance is required' }); return; }
       await ensureTableOnce();
       let deviceActor: AdminActor | null = null;
       if (await isPasswordRequired()) {
         deviceActor = await requireActor(req, res, 'device.revoke'); if (!deviceActor) return;
-        const bindings = await sql`SELECT grade_id, class_id FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ grade_id: string; class_id: string }>;
+        const bindings = instanceId ? await sql`SELECT grade_id, class_id FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ grade_id: string; class_id: string }> : [];
         if (bindings[0] && !canAccessClass(deviceActor, bindings[0].grade_id, bindings[0].class_id)) { res.status(403).json({ ok: false, error: '设备超出当前账号的管理范围' }); return; }
+        if (pluginInstanceIds.length) {
+          const plugins = await sql`SELECT grade_id, class_id FROM classisland_plugin_instances WHERE plugin_instance_id=ANY(${pluginInstanceIds})` as unknown as Array<{ grade_id: string; class_id: string }>;
+          if (plugins.some(item => !canAccessClass(deviceActor!, item.grade_id, item.class_id))) { res.status(403).json({ ok: false, error: '插件实例超出当前账号的管理范围' }); return; }
+        }
       }
-      await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
-      await writeAudit(deviceActor, 'device.revoke', 'device', instanceId);
+      if (instanceId) await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
+      if (pluginInstanceIds.length && instanceId) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE plugin_instance_id=ANY(${pluginInstanceIds}) OR viewer_instance_id=${instanceId}`;
+      } else if (pluginInstanceIds.length) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE plugin_instance_id=ANY(${pluginInstanceIds})`;
+      } else if (instanceId) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE viewer_instance_id=${instanceId}`;
+      }
+      await writeAudit(deviceActor, 'device.revoke', 'device', instanceId || pluginInstanceIds.join(','));
       res.status(200).json({ ok: true }); return;
     }
     if (action === 'reset-data' && req.method === 'POST') {
@@ -422,7 +620,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         schedule_mode=CASE WHEN ${resetSettings} THEN 'major-only' ELSE schedule_mode END,
         weekly_conflict_policy=CASE WHEN ${resetSettings} THEN NULL ELSE weekly_conflict_policy END,
         updated_at=${at} WHERE id=1`;
-      if (resetDevices) await sql`DELETE FROM device_instances`;
+      if (resetDevices) await Promise.all([
+        sql`DELETE FROM device_instances`,
+        sql`DELETE FROM classisland_plugin_instances`,
+      ]);
       getCache = null;
       await writeAudit(resetActor, 'database.reset', 'exam_data', '1', { categories });
       res.status(200).json({ ok: true, updatedAt: at }); return;

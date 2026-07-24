@@ -27,19 +27,19 @@
 }
 
 .exam-quick__menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 80;
-  min-width: 178px;
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, .16);
   border-radius: 8px;
   background: rgba(16, 24, 39, .97);
   box-shadow: 0 12px 30px rgba(0, 0, 0, .54);
+  color: #e9f0fa;
+  font-family: system-ui, sans-serif;
 }
 
-.exam-quick .exam-quick__menu > button {
+.exam-quick__menu > button {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -54,19 +54,14 @@
   cursor: pointer;
 }
 
-.exam-quick .exam-quick__menu > button svg {
+.exam-quick__menu > button svg {
   width: 17px;
   height: 17px;
   flex: none;
 }
 
-.exam-quick .exam-quick__menu > button:hover {
+.exam-quick__menu > button:hover {
   background: rgba(255, 255, 255, .08);
-}
-
-.ld-ice .exam-quick__menu {
-  top: auto;
-  bottom: calc(100% + 6px);
 }
 
 @media (max-width: 720px) {

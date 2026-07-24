@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { MajorExam } from '../types';
 import type { WeeklyPlan } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
@@ -24,12 +24,13 @@ export default function ClassManagementPanel({ grades, classes, weeklyPlans, maj
   const [className, setClassName] = useState('');
   const [bulkCount, setBulkCount] = useState('10');
   const [pendingGradeName, setPendingGradeName] = useState('');
+  const bulkCountRef = useRef<HTMLInputElement>(null);
   const selectedGrade = orderedGrades.find(item => item.id === selectedGradeId) ?? orderedGrades[0];
   const gradeId = selectedGrade?.id ?? '';
   const gradeClasses = sortedClasses(classes, gradeId);
 
   const addGrade = () => { const name = gradeName.trim(); if (!name) return; setPendingGradeName(name); onAddGrade(name); setGradeName(''); };
-  useEffect(() => { if (!pendingGradeName) return; const created=[...orderedGrades].reverse().find(item=>item.name===pendingGradeName); if(created){setSelectedGradeId(created.id);setPendingGradeName('');} }, [orderedGrades, pendingGradeName]);
+  useEffect(() => { if (!pendingGradeName) return; const created=[...orderedGrades].reverse().find(item=>item.name===pendingGradeName); if(created){setSelectedGradeId(created.id);setPendingGradeName('');window.setTimeout(()=>{bulkCountRef.current?.focus();bulkCountRef.current?.select();},0);} }, [orderedGrades, pendingGradeName]);
   const addClass = () => { const name = className.trim(); if (!name || !gradeId) return; onAddClass(gradeId, name); setClassName(''); };
   const createClasses = () => { const count=Math.max(1,Math.min(99,Number(bulkCount)||10)); const existing=new Set(gradeClasses.map(item=>item.name)); onAddClasses(gradeId,Array.from({length:count},(_,index)=>`${index+1}班`).filter(name=>!existing.has(name))); };
   const removeGrade = (id: string, name: string) => {
@@ -50,7 +51,7 @@ export default function ClassManagementPanel({ grades, classes, weeklyPlans, maj
     {!readOnly && <div className="class-management__add"><input className="admin-input" value={gradeName} onChange={event => setGradeName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addGrade(); }} placeholder="如：高三" /><button className="admin-btn admin-btn--primary" onClick={addGrade}>添加年级</button></div>}
     {orderedGrades.length === 0 ? <div className="admin-empty"><p>首次使用请先添加年级。</p></div> : <>
       <div className="device-status__toolbar"><label><span>当前年级</span><select className="admin-input" value={gradeId} onChange={event => setSelectedGradeId(event.target.value)}>{orderedGrades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{!readOnly && <button className="admin-btn admin-btn--danger" onClick={() => removeGrade(gradeId, selectedGrade.name)}>删除年级</button>}</div>
-      {!readOnly && <><div className="admin-info-banner">新建年级后可快速生成连续班级，也可以逐个添加。</div><div className="class-management__add"><input className="admin-input" type="number" min="1" max="99" value={bulkCount} onChange={event=>setBulkCount(event.target.value)} aria-label="快速创建班级数量"/><button className="admin-btn admin-btn--primary" onClick={createClasses}>生成 1班至{Math.max(1,Number(bulkCount)||10)}班</button></div><div className="class-management__add"><input className="admin-input" value={className} onChange={event => setClassName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addClass(); }} placeholder="如：1班" /><button className="admin-btn" onClick={addClass}>单独添加班级</button></div></>}
+      {!readOnly && <><div className="admin-info-banner">{pendingGradeName ? `已新建 ${pendingGradeName}，请继续设置班级数量。` : '新建年级后会自动进入快速创建班级步骤，也可以逐个添加。'}</div><div className="class-management__add"><input ref={bulkCountRef} className="admin-input" type="number" min="1" max="99" value={bulkCount} onChange={event=>setBulkCount(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')createClasses();}} aria-label="快速创建班级数量"/><button className="admin-btn admin-btn--primary" onClick={createClasses}>生成 1班至{Math.max(1,Number(bulkCount)||10)}班</button></div><div className="class-management__add"><input className="admin-input" value={className} onChange={event => setClassName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addClass(); }} placeholder="如：1班" /><button className="admin-btn" onClick={addClass}>单独添加班级</button></div></>}
       {gradeClasses.length === 0 ? <div className="admin-empty"><p>当前年级还没有班级。</p></div> : <div className="class-management__list">{gradeClasses.map(item => <article className="class-management__row" key={item.id}><div><strong>{item.name}</strong><span>{weeklyPlans.filter(plan => plan.classId === item.id).length} 个周测计划</span></div>{!readOnly && <button className="admin-btn admin-btn--danger" onClick={() => removeClass(item.id, item.name)}>删除</button>}</article>)}</div>}
     </>}
   </main>;

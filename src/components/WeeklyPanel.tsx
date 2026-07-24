@@ -69,6 +69,7 @@ export interface WeeklyPanelProps {
   majorName: string;
   onSavePlans: (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate?: boolean) => void;
   onConflictPolicyChange: (policy: WeeklyConflictPolicy, immediate?: boolean) => void;
+  onSelectScope?: (gradeId: string, classId: string) => void;
 }
 
 export default function WeeklyPanel({
@@ -85,6 +86,7 @@ export default function WeeklyPanel({
   majorName,
   onSavePlans,
   onConflictPolicyChange,
+  onSelectScope,
 }: WeeklyPanelProps) {
   const backdropProps = useBackdropDismiss();
   const scopedPlans = weeklyPlans.filter(p => p.classId === selectedClassId);
@@ -162,6 +164,16 @@ export default function WeeklyPanel({
     return allDays.filter(day => day.weekday <= 5 || (day.weekday === 6 ? showSaturday : showSunday));
   }, [preview, activePlan]);
 
+  if (!selectedGradeId || !selectedClassId) {
+    return (
+      <>
+        <aside className="admin-sidebar"><div className="admin-tips"><p className="admin-tips__title"><CalendarDays size={16} />周测</p><ul><li>周测计划始终归属于一个具体班级。</li><li>点击右侧按钮后，在新建界面依次选择年级和班级。</li></ul></div></aside>
+        <main className="admin-main"><div className="admin-empty"><div className="admin-empty__icon"><CalendarDays /></div><p>请先选择年级与班级</p><span className="admin-major-card__hint">也可以直接新建计划，并在新建界面选择适用班级。</span><button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={openNewPlan}>选择班级并新建周测计划</button></div></main>
+        {planModal && renderPlanModal()}
+      </>
+    );
+  }
+
   if (!activePlan) {
     return (
       <>
@@ -199,6 +211,7 @@ export default function WeeklyPanel({
     if (planModal.mode === 'add') {
       const plan = { ...createEmptyWeeklyPlan(Date.now(), name), gradeId: planModal.gradeId, classId: planModal.classId, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays, order: weeklyPlans.length };
       onSavePlans([...weeklyPlans, plan], plan.id, plan.classId, true);
+      onSelectScope?.(plan.gradeId, plan.classId);
     } else {
       const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, name, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays } : p);
       onSavePlans(plans, activePlan.id, selectedClassId, true);
@@ -463,6 +476,7 @@ export default function WeeklyPanel({
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
             <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [], name: activePlan.name.replace(/（复制）$/u, '') })}>批量应用</button><HelpTip title="批量应用">应用后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip>
           </div>
+          <button className="admin-btn admin-btn--primary" style={{ width: '100%', marginTop: 8 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: classOptions.filter(item => item.gradeId === activePlan.gradeId && item.id !== activePlan.classId).map(item => item.id), name: activePlan.name.replace(/（复制）$/u, '') })}>同步至同年级其他班级</button>
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
 

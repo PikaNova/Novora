@@ -12,7 +12,8 @@
   display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px 15px;
   border-bottom: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.025);
 }
-.eann-window__title { margin: 0; font-size: 18px; line-height: 1.35; font-family: var(--font-region-display); }
+.eann-window__title { display:inline-flex; align-items:center; gap:8px; margin:0; font-size:18px; line-height:1.35; font-family:var(--font-region-display); }
+.eann-window__title svg { width:20px; height:20px; flex:0 0 20px; display:block; }
 .eann-window__lead { margin: 6px 0 0; color: #8b95a1; font-size: 12.5px; line-height: 1.55; }
 .eann-window__close {
   width: 34px; height: 34px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.14); border-radius: 9px;

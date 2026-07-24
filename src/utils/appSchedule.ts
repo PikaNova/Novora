@@ -13,6 +13,11 @@ import { resolveTemporaryItem } from '../services/temporaryExam';
  */
 export function getResolvedSchedule(now: number = nowMs()): ResolvedSchedule {
   const exam = getAppSettings().exam;
+  const selectedClass = exam.classes.find(item => item.id === exam.selectedClassId && item.gradeId === exam.selectedGradeId && item.enabled !== false);
+  const selectedGrade = exam.grades.find(item => item.id === exam.selectedGradeId && item.enabled !== false);
+  if (!selectedGrade || !selectedClass) {
+    return { activeItems: [], suppressedWeeklyItems: [], conflicts: [] };
+  }
   return resolveEffectiveSchedule(
     {
       scheduleMode: exam.scheduleMode,

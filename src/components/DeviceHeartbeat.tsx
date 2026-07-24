@@ -1,20 +1,22 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { sendDeviceHeartbeat } from '../services/classBinding';
+import { getClassBindingInstanceId, sendDeviceHeartbeat } from '../services/classBinding';
 import { APP_VERSION } from '../services/telemetry';
 import { getAppSettings } from '../utils/appSettings';
 import { getResolvedExamItems } from '../utils/appSchedule';
 import { nowMs, parseZonedTime } from '../utils/timeSource';
 import { endTemporaryExam, extendTemporaryExam, getTemporaryExam, setTemporaryExamPaused } from '../services/temporaryExam';
 import { notify } from '../services/notify';
+import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
 
 export default function DeviceHeartbeat() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     let acknowledgedCommandId = '';
     const send = () => {
+      void sendPluginViewerHeartbeat(pluginInstanceFromSearch(search), getClassBindingInstanceId());
       const now = nowMs();
       const items = getResolvedExamItems(now);
       const current = items.find(item => item.enabled && parseZonedTime(item.startTime) <= now && parseZonedTime(item.endTime) > now);
@@ -51,7 +53,7 @@ export default function DeviceHeartbeat() {
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('exam-board:settings-changed', send);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('exam-board:settings-changed', send); };
-  }, [navigate, pathname]);
+  }, [navigate, pathname, search]);
 
   return null;
 }

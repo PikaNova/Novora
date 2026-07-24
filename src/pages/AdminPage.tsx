@@ -717,6 +717,7 @@ export default function AdminPage() {
           majorName={orderedScopedMajors.map(major => major.name).join('、')}
           onSavePlans={handleSaveWeeklyPlans}
           onConflictPolicyChange={handleConflictPolicyChange}
+          onSelectScope={(gradeId, classId) => { setSelectedGradeId(gradeId); setSelectedClassId(classId); }}
         /></fieldset>
       ) : adminTab === 'classes' ? (
         <ClassManagementPanel grades={grades} classes={classes} weeklyPlans={weeklyPlans} majors={majors} onAddGrade={addGrade} onRemoveGrade={removeGrade} onAddClass={addClass} onAddClasses={addClasses} onRemoveClass={removeClass} readOnly={!can('school.class_manage') && !can('school.grade_manage')} />

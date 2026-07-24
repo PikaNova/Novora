@@ -24,6 +24,16 @@ export interface DeviceBindingInfo extends DeviceBinding {
   updatedAt: number;
 }
 
+export interface PluginBindingInfo {
+  pluginInstanceId: string;
+  viewerInstanceId: string;
+  gradeId: string;
+  classId: string;
+  paired: boolean;
+  pluginLastSeenAt: number;
+  viewerLastSeenAt: number;
+}
+
 export interface DeviceCommand { id: string; action: 'pause' | 'resume' | 'extend' | 'end'; minutes?: number; createdAt: number }
 
 export function hasConfirmedClassChoice(): boolean {
@@ -68,15 +78,15 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingInfo[]; truncated: boolean }> {
+export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingInfo[]; plugins: PluginBindingInfo[]; truncated: boolean }> {
   const response = await fetch(`${API_URL}?action=device-bindings`, { cache: 'no-store', headers: authHeaders() });
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效，请重新进入管理后台' : response.status === 403 ? '当前账号无权查看设备' : '设备管理加载失败');
   const data = await response.json();
-  return { bindings: Array.isArray(data.bindings) ? data.bindings : [], truncated: data.truncated === true };
+  return { bindings: Array.isArray(data.bindings) ? data.bindings : [], plugins: Array.isArray(data.plugins) ? data.plugins : [], truncated: data.truncated === true };
 }
 
-export async function revokeDevice(instanceId: string): Promise<void> {
-  const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId }) });
+export async function revokeDevice(instanceId: string, pluginInstanceIds: string[] = []): Promise<void> {
+  const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) });
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : '删除设备失败');
 }
 
