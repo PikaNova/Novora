@@ -1,4 +1,5 @@
 import type { ExamDataSyncState } from '../hooks/useExamSync';
+import { LoaderCircle, RefreshCw } from 'lucide-react';
 
 interface Props {
   state: ExamDataSyncState;
@@ -30,7 +31,7 @@ export default function ExamSyncAction({ state, lastSyncAt, hasPendingSync, onRe
   return (
     <div className={`exam-sync-action is-${state}${hasPendingSync ? ' has-pending' : ''}`}>
       <button type="button" className="exam-sync-action__button" onClick={onRefresh} disabled={busy} aria-label="重新载入考试数据">
-        <span aria-hidden="true">{busy ? '◌' : '↻'}</span>{labelFor(state, hasPendingSync)}
+        {busy ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}{labelFor(state, hasPendingSync)}
       </button>
       <span className="exam-sync-action__status">{statusFor(state, lastSyncAt, hasPendingSync)}</span>
     </div>

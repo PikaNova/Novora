@@ -2,6 +2,7 @@ import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
 import './CleanFocus.css';
 
 const SEGMENTS = 20;
@@ -30,15 +31,15 @@ export default function CleanFocus({ vm, onDismissNotification, onBack, onAdmin,
       <div className="cf__panel">
         <header className="cf__top">
           <div className="cf__top-left">
-            <button className="cf__ghost" onClick={onBack} aria-label="返回">←</button>
+            <button className="cf__ghost" onClick={onBack} aria-label="返回"><ArrowLeft /></button>
             <span className="cf__master">{masterTitle || '考试看板'}</span>
           </div>
           <div className="cf__top-right">
             <span className={`cf__sync is-${sync.tone}`}>{sync.text}</span>
-            <button className="cf__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告">📢</button>
-            <button className="cf__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计">▣</button>
-            <button className="cf__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? '✕' : '⛶'}</button>
-            <button className="cf__ghost" onClick={onAdmin} aria-label="管理">⚙</button>
+            <button className="cf__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告"><Megaphone /></button>
+            <button className="cf__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计"><LayoutGrid /></button>
+            <button className="cf__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button>
+            <button className="cf__ghost" onClick={onAdmin} aria-label="管理"><Settings /></button>
           </div>
         </header>
 

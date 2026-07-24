@@ -8,6 +8,9 @@ export interface ExamItem {
   endTime: string;
   enabled: boolean;
   order: number;
+  kind?: 'major' | 'weekly' | 'temporary';
+  majorExamId?: string;
+  majorName?: string;
 }
 
 /**

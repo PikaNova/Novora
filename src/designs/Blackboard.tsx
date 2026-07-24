@@ -2,6 +2,7 @@ import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
 import './Blackboard.css';
 
 /** 方案 03 · 校园黑板 — 黑板绿 + 暖白，中央圆形进度环。 */
@@ -23,17 +24,17 @@ export default function Blackboard({ vm, onDismissNotification, onBack, onAdmin,
     <div className={`bb bb--${phase}`}>
       <div className="bb__frame">
         <header className="bb__top">
-          <button className="bb__ghost" onClick={onBack} aria-label="返回">←</button>
+          <button className="bb__ghost" onClick={onBack} aria-label="返回"><ArrowLeft /></button>
           <div className="bb__title-col">
             <span className="bb__master">{masterTitle || '考试看板'}</span>
             {phase !== 'empty' && <span className="bb__subject">{currentName ?? ''}</span>}
           </div>
           <div className="bb__top-right">
             <span className={`bb__sync is-${sync.tone}`}>{sync.text}</span>
-            <button className="bb__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告">📢</button>
-            <button className="bb__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计">▣</button>
-            <button className="bb__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? '✕' : '⛶'}</button>
-            <button className="bb__ghost" onClick={onAdmin} aria-label="管理">⚙</button>
+            <button className="bb__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告"><Megaphone /></button>
+            <button className="bb__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计"><LayoutGrid /></button>
+            <button className="bb__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button>
+            <button className="bb__ghost" onClick={onAdmin} aria-label="管理"><Settings /></button>
           </div>
         </header>
 

@@ -24,6 +24,8 @@ export interface DeviceBindingInfo extends DeviceBinding {
   updatedAt: number;
 }
 
+export interface DeviceCommand { id: string; action: 'pause' | 'resume' | 'extend' | 'end'; minutes?: number; createdAt: number }
+
 export function hasConfirmedClassChoice(): boolean {
   try { return localStorage.getItem(CLASS_CHOICE_KEY) === 'true'; } catch { return false; }
 }
@@ -78,16 +80,22 @@ export async function revokeDevice(instanceId: string): Promise<void> {
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : '删除设备失败');
 }
 
-export async function sendDeviceHeartbeat(input: Omit<DeviceBindingInfo, 'instanceId' | 'gradeId' | 'classId' | 'revoked' | 'lastSeenAt' | 'updatedAt'>): Promise<boolean> {
+export async function sendDeviceCommand(instanceId: string, commandAction: DeviceCommand['action'], minutes?: number): Promise<void> {
+  const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) });
+  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权管理此设备' : '临时考试指令发送失败');
+}
+
+export async function sendDeviceHeartbeat(input: Omit<DeviceBindingInfo, 'instanceId' | 'gradeId' | 'classId' | 'revoked' | 'lastSeenAt' | 'updatedAt'> & { acknowledgedCommandId?: string }): Promise<{ revoked: boolean; command: DeviceCommand | null }> {
   try {
     const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-heartbeat', instanceId: getInstanceId(), ...input }) });
-    if (!response.ok) return false;
+    if (!response.ok) return { revoked: false, command: null };
     const data = await response.json();
     if (data.revoked === true) {
       cacheDeviceBinding({ gradeId: '', classId: '', revoked: true });
       window.dispatchEvent(new CustomEvent('exam-board:device-revoked'));
-      return true;
+      return { revoked: true, command: null };
     }
-    return false;
-  } catch { return false; }
+    const command = data.command && typeof data.command.id === 'string' ? data.command as DeviceCommand : null;
+    return { revoked: false, command };
+  } catch { return { revoked: false, command: null }; }
 }

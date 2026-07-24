@@ -139,25 +139,26 @@ function buildOccurrence(
   ov: WeeklyExamOverride | undefined,
 ): WeeklyOccurrence {
   const replace = ov?.action === 'replace' ? ov : undefined;
+  const actualDateKey = replace?.targetDate && DATE_RE.test(replace.targetDate) ? replace.targetDate : dateKey;
   const name = replace?.name ?? item.name;
   const startHM = replace?.startTime ?? item.startTime;
   const endHM = replace?.endTime ?? item.endTime;
   const endNextDay = replace?.endNextDay ?? item.endNextDay ?? false;
   const forced = !!replace?.forceRunDuringMajorExam;
-  const endDateKey = endNextDay ? addDaysToDateKey(dateKey, 1) : dateKey;
+  const endDateKey = endNextDay ? addDaysToDateKey(actualDateKey, 1) : actualDateKey;
   const occurrenceId = `${item.id}@${dateKey}`;
   return {
     id: occurrenceId,
     occurrenceId,
     name,
-    startTime: toLocalIso(dateKey, startHM),
+    startTime: toLocalIso(actualDateKey, startHM),
     endTime: toLocalIso(endDateKey, endHM),
     enabled: true,
     order: item.order,
     kind: 'weekly',
     weeklyPlanId: planId,
     weeklyItemId: item.id,
-    date: dateKey,
+    date: actualDateKey,
     forced,
   };
 }

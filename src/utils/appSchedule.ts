@@ -3,6 +3,7 @@ import type { ResolvedSchedule } from '../types/exam';
 import { getAppSettings } from './appSettings';
 import { nowMs } from './timeSource';
 import { resolveEffectiveSchedule } from './scheduleConflict';
+import { resolveTemporaryItem } from '../services/temporaryExam';
 
 /**
  * 展示端统一入口：把当前 AppSettings.exam 映射为 resolveEffectiveSchedule 的输入，
@@ -30,5 +31,14 @@ export function getResolvedSchedule(now: number = nowMs()): ResolvedSchedule {
 
 /** 最终参与展示 / 提醒 的标准考试时间线（已含生效周测，按时间排序）。 */
 export function getResolvedExamItems(now: number = nowMs()): ExamItem[] {
-  return getResolvedSchedule(now).activeItems;
+  const formal = getResolvedSchedule(now).activeItems;
+  const temporary = resolveTemporaryItem(formal, now);
+  if (!temporary) return formal;
+  const priority = (temporary as ExamItem & { kind?: string }).kind === 'temporary' && getTemporaryExamPriority();
+  const visibleFormal = priority ? formal.filter(item => new Date(item.endTime).getTime() <= new Date(temporary.startTime).getTime() || new Date(item.startTime).getTime() >= new Date(temporary.endTime).getTime()) : formal;
+  return [temporary, ...visibleFormal];
+}
+
+function getTemporaryExamPriority() {
+  try { return JSON.parse(localStorage.getItem('exam_board_temporary_exam_v2') || 'null')?.priorityOverFormal === true; } catch { return false; }
 }

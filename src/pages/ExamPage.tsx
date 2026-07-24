@@ -23,6 +23,11 @@ import type { Announcement } from '../services/announcements';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
+import TemporaryExamLauncher from '../components/TemporaryExamLauncher';
+import ExamQuickMenu from '../components/ExamQuickMenu';
+import { TEMPORARY_EXAM_EVENT } from '../services/temporaryExam';
+import { getResolvedSchedule } from '../utils/appSchedule';
+import { LogOut, Maximize } from 'lucide-react';
 
 interface RawState {
   currentExam: ExamItem | null;
@@ -120,6 +125,7 @@ export default function ExamPage() {
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [temporaryOpen, setTemporaryOpen] = useState(false);
   const examLiveRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -127,10 +133,16 @@ export default function ExamPage() {
   const { refresh: refreshExamData, syncState: examDataSyncState, lastSyncAt: examDataLastSyncAt, hasPendingSync } = useExamSync({
     intervalMs: 30000,
     onUpdate: ({ items: newItems, title: newTitle, alerts: newAlerts }) => {
-      setItems(newItems); if (newTitle) setTitle(newTitle);
+      setItems(getResolvedExamItems()); if (newTitle) setTitle(newTitle);
       if (newAlerts) setAlerts(newAlerts);
     },
   });
+  useEffect(() => {
+    const refresh = () => setItems(getResolvedExamItems());
+    window.addEventListener(TEMPORARY_EXAM_EVENT, refresh);
+    const interval = window.setInterval(refresh, 2000);
+    return () => { window.removeEventListener(TEMPORARY_EXAM_EVENT, refresh); window.clearInterval(interval); };
+  }, []);
 
   // 新实例首次进入自动展示公告；运行期间每分钟检查一次，作者端更新后自动再次展示。
   useEffect(() => {
@@ -186,9 +198,8 @@ export default function ExamPage() {
   // 确保两者在同一时刻跳变，消除偶发的 1 秒时差。
   const nowTick = Math.floor(now / 1000) * 1000;
   const raw = useMemo(() => computeRawState(items, nowTick), [items, nowTick]);
-  const displayMasterTitle = raw.currentExam && (raw.currentExam as { kind?: string }).kind === 'weekly'
-    ? '周测'
-    : title || '考试看板';
+  const currentKind = raw.currentExam && (raw.currentExam as { kind?: string }).kind;
+  const displayMasterTitle = currentKind === 'weekly' ? '周测' : currentKind === 'temporary' ? `${raw.currentExam?.name} - 临时考试` : raw.currentExam?.majorName || title || '考试看板';
   examLiveRef.current = raw.phase === 'live';
   useEffect(() => {
     if (raw.phase === 'live') return;
@@ -298,6 +309,8 @@ export default function ExamPage() {
 
   return (
     <div className="exam-root">
+      <TemporaryExamLauncher formalItems={getResolvedSchedule(nowTick).activeItems} externalOpen={temporaryOpen} onExternalHandled={() => setTemporaryOpen(false)} />
+      <ExamQuickMenu onTemporary={() => setTemporaryOpen(true)} onDesign={() => setSwitcherOpen(true)} onHome={() => navigate('/')} onAdmin={() => navigate('/admin')} />
       <Suspense fallback={<div className="exam-design-loading">正在载入展示设计…</div>}><Design
         vm={vm}
         onDismissNotification={dismiss}
@@ -321,7 +334,7 @@ export default function ExamPage() {
         loading={announcementsLoading}
         onClose={() => setAnnouncementsOpen(false)}
       />
-      {/* 设计切换窗：由各设计顶栏“▣ 切换设计”按钮触发，避免悬浮按钮遮挡大屏元素 */}
+      {/* 设计切换窗由各设计顶栏按钮触发，避免悬浮按钮遮挡大屏元素。 */}
       <DesignSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} currentId={designId} onSelect={chooseDesign} />
       {/* 全屏提醒浮层：风格跟随当前展示设计自动切换 */}
       <ExamAlertOverlay
@@ -339,7 +352,7 @@ export default function ExamPage() {
             type="button"
             className="exam-ended-exit__btn"
             onClick={() => { void exitFullscreen(); }}
-          >✕ 退出全屏</button>
+          ><LogOut aria-hidden="true" />退出全屏</button>
         </div>
       )}
       {isMobile && !isMobileReadyDesign(designId) && !mobileNoticeDismissed && (
@@ -354,7 +367,7 @@ export default function ExamPage() {
       {fsPromptOpen && !isFullscreen && (
         <div className="exam-fs-prompt" role="dialog" aria-label="进入全屏展示" onClick={confirmFullscreen}>
           <div className="exam-fs-prompt__card" onClick={e => e.stopPropagation()}>
-            <div className="exam-fs-prompt__icon" aria-hidden="true">⛶</div>
+            <div className="exam-fs-prompt__icon" aria-hidden="true"><Maximize /></div>
             <p className="exam-fs-prompt__title">轻触进入全屏展示</p>
             <p className="exam-fs-prompt__hint">大屏已静置 1 分钟，建议全屏投放以获得最佳布局</p>
             <div className="exam-fs-prompt__actions">

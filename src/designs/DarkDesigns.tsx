@@ -2,12 +2,13 @@ import React from 'react';
 import type { DesignProps, ExamViewModel } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
 import './DarkDesigns.css';
 
 type Variant = 'quartz' | 'cinema';
 const title=(v:ExamViewModel)=>v.phase==='empty'?'暂未配置考试安排':v.phase==='before'?(v.currentName?`距 ${v.currentName} 开考`:'下一科待定'):v.phase==='ended'?(v.currentName?`${v.currentName} 已结束`:'今日考试已全部结束'):(v.currentName??'考试进行中');
 const pct=(v:ExamViewModel)=>v.phase==='ended'?100:v.phase==='live'?Math.max(0,Math.min(100,v.progressPct)):0;
-function Controls(p:Pick<DesignProps,'onBack'|'onOpenAnnouncements'|'onSwitchDesign'|'onAdmin'|'isFullscreen'|'onToggleFullscreen'>){return <div className="nd-actions"><button onClick={p.onBack} aria-label="返回">←</button><button onClick={p.onOpenAnnouncements} aria-label="公告">📢</button><button onClick={p.onSwitchDesign} aria-label="切换设计">▣</button><button onClick={p.onToggleFullscreen} aria-label={p.isFullscreen ? '退出全屏' : '进入全屏'} title={p.isFullscreen ? '退出全屏' : '进入全屏'}>{p.isFullscreen ? '✕' : '⛶'}</button><button onClick={p.onAdmin} aria-label="管理">⚙</button></div>}
+function Controls(p:Pick<DesignProps,'onBack'|'onOpenAnnouncements'|'onSwitchDesign'|'onAdmin'|'isFullscreen'|'onToggleFullscreen'>){return <div className="nd-actions"><button onClick={p.onBack} aria-label="返回"><ArrowLeft /></button><button onClick={p.onOpenAnnouncements} aria-label="公告"><Megaphone /></button><button onClick={p.onSwitchDesign} aria-label="切换设计"><LayoutGrid /></button><button onClick={p.onToggleFullscreen} aria-label={p.isFullscreen ? '退出全屏' : '进入全屏'} title={p.isFullscreen ? '退出全屏' : '进入全屏'}>{p.isFullscreen ? <Minimize /> : <Maximize />}</button><button onClick={p.onAdmin} aria-label="管理"><Settings /></button></div>}
 function DarkDesign({variant,...p}:DesignProps&{variant:Variant}){const {vm,onDismissNotification}=p;const sync=getSyncStatus(vm.online,vm.timeSynced);const progress=pct(vm);const remaining=vm.phase==='live'?vm.remainingText:vm.countdownText;return <div className={`nd nd-${variant}`}>
 <header className="nd-head"><div className="nd-brand">{variant==='quartz'?'EXAM MODE / 01':'EXAM ALERT SYSTEM'}</div><div className="nd-head-right"><span className={`nd-sync is-${sync.tone}`}>{sync.text}</span><Controls {...p}/></div></header>
 {vm.notification&&<div className="nd-notice"><span>{vm.notification.icon}</span><span>{vm.notification.message}</span><button onClick={onDismissNotification} aria-label="关闭">×</button></div>}

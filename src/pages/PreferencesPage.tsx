@@ -1,99 +1,35 @@
 import React, { useMemo, useState } from 'react';
+import { CalendarDays, Download, LogIn } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import {
-  DEFAULT_TYPOGRAPHY,
-  getAppSettings,
-  updateAppSettings,
-  updateExamSettings,
-  updateMotionMode,
-  type MotionMode,
-  type TypographyFontId,
-  type TypographySettings,
-} from '../utils/appSettings';
-import { applyTypographySettings } from '../utils/typographySettings';
-import { applyMotionSettings } from '../utils/motionSettings';
-import { getDesignId, setDesignId } from '../utils/designPref';
-import { DESIGNS } from '../designs/registry';
-import { saveDeviceBinding } from '../services/classBinding';
-import { sortedClasses, sortedGrades } from '../utils/classSettings';
+import SchedulePrintPreview, { type PrintScheduleEntry } from '../components/SchedulePrintPreview';
+import { useExamSync } from '../hooks/useExamSync';
+import { getAdminUser, hasValidLocalToken } from '../services/examService';
+import { getAppSettings } from '../utils/appSettings';
+import { classDisplayName } from '../utils/classSettings';
+import { addDaysToDateKey, getShanghaiDateKey, resolveWeeklyOccurrences } from '../utils/weeklySchedule';
 import '../styles/settings.css';
-
-const FONT_OPTIONS: Array<{ value: TypographyFontId; label: string }> = [
-  { value: 'alibaba', label: '阿里巴巴普惠体 3' },
-  { value: 'sourceHan', label: '思源黑体' },
-  { value: 'smiley', label: '得意黑 / Smiley Sans' },
-  { value: 'wenkai', label: '霞鹜文楷' },
-  { value: 'general', label: 'General Sans' },
-];
-const NUMERIC_OPTIONS: Array<{ value: TypographyFontId; label: string }> = [
-  { value: 'jbmono', label: 'JetBrains Mono（默认 · 等宽）' },
-  ...FONT_OPTIONS,
-];
 
 export default function PreferencesPage() {
   const navigate = useNavigate();
-  const initial = getAppSettings();
-  const [designId, setDesign] = useState(getDesignId());
-  const [motionMode, setMotionMode] = useState<MotionMode>(initial.general.motionMode);
-  const [typography, setTypography] = useState<TypographySettings>(initial.general.typography);
-  const grades = useMemo(() => sortedGrades(initial.exam.grades), []);
-  const [selectedGradeId, setSelectedGradeId] = useState(initial.exam.selectedGradeId || grades[0]?.id || '');
-  const [selectedClassId, setSelectedClassId] = useState(initial.exam.selectedClassId);
-  const classes = useMemo(() => sortedClasses(initial.exam.classes, selectedGradeId), [initial.exam.classes, selectedGradeId]);
+  const [, setRefresh] = useState(0);
+  useExamSync({ onUpdate: () => setRefresh(value => value + 1) });
+  const exam = getAppSettings().exam;
+  const user = getAdminUser();
+  const [printOpen, setPrintOpen] = useState(false);
+  const grade = exam.grades.find(item => item.id === exam.selectedGradeId);
+  const schoolClass = exam.classes.find(item => item.id === exam.selectedClassId);
+  const activePlanId = exam.activeWeeklyPlanIdByClassId[exam.selectedClassId] ?? exam.activeWeeklyPlanId;
+  const plan = exam.weeklyPlans.find(item => item.id === activePlanId && item.classId === exam.selectedClassId) ?? exam.weeklyPlans.find(item => item.classId === exam.selectedClassId);
+  const entries = useMemo<PrintScheduleEntry[]>(() => plan ? resolveWeeklyOccurrences(plan, Date.now(), { daysBack: 0, daysForward: 27 }).map(item => ({ date: item.date, name: item.name, startTime: item.startTime.slice(11, 16), endTime: item.endTime.slice(11, 16), note: item.forced ? '冲突时保留' : '' })) : [], [plan]);
+  const today = getShanghaiDateKey(Date.now());
+  const days = Array.from({ length: 14 }, (_, index) => addDaysToDateKey(today, index));
 
-  const patchTypography = (key: keyof TypographySettings, value: TypographyFontId) => {
-    const next = { ...typography, [key]: value };
-    setTypography(next);
-    updateAppSettings(current => ({ general: { ...current.general, typography: next } }));
-    applyTypographySettings(next);
-  };
-  const resetTypography = () => {
-    setTypography(DEFAULT_TYPOGRAPHY);
-    updateAppSettings(current => ({ general: { ...current.general, typography: DEFAULT_TYPOGRAPHY } }));
-    applyTypographySettings(DEFAULT_TYPOGRAPHY);
-  };
-  const patchMotion = (mode: MotionMode) => {
-    setMotionMode(mode);
-    updateMotionMode(mode);
-    applyMotionSettings(mode);
-  };
-  const patchDesign = (id: string) => { setDesign(id); setDesignId(id); };
-  const patchGrade = (gradeId: string) => {
-    setSelectedGradeId(gradeId); setSelectedClassId('');
-    updateExamSettings({ selectedGradeId: gradeId, selectedClassId: '' });
-  };
-  const patchClass = (classId: string) => {
-    setSelectedClassId(classId);
-    updateExamSettings({ selectedGradeId, selectedClassId: classId });
-    if (selectedGradeId && classId) void saveDeviceBinding(selectedGradeId, classId);
-  };
-
-  return <div className="set-page">
-    <header className="set-header"><div className="set-header__left"><button className="set-back" onClick={() => navigate('/')}>← 返回</button><h1 className="set-title">偏好设置</h1></div><span className="set-version">无需管理员密码</span></header>
+  return <div className="set-page client-readonly">
+    <header className="set-header"><div className="set-header__left"><button className="set-back" onClick={() => navigate('/')}>返回首页</button><div><h1 className="set-title">排班预览</h1><small>设备只读模式</small></div></div><button className="set-btn set-btn--primary" onClick={() => navigate(hasValidLocalToken() ? '/admin' : '/login?next=/admin')}><LogIn />{user ? `${user.displayName} · 进入后台` : '登录账户'}</button></header>
     <main className="set-body">
-      <section className="set-card">
-        <div className="set-card__head"><h2 className="set-card__title">显示</h2></div>
-        <div className="set-row"><label className="set-label">默认大屏设计</label><select className="set-input" value={designId} onChange={e => patchDesign(e.target.value)}>{DESIGNS.map(design => <option key={design.id} value={design.id}>{design.name}</option>)}</select></div>
-        <div className="set-row"><label className="set-label">动效模式</label><select className="set-input" value={motionMode} onChange={e => patchMotion(e.target.value as MotionMode)}><option value="auto">自动</option><option value="best-effects">最佳效果</option><option value="best-performance">最佳性能</option></select></div>
-      </section>
-
-      <section className="set-card">
-        <div className="set-card__head"><h2 className="set-card__title">字体分区</h2><button className="set-btn set-btn--ghost" onClick={resetTypography}>恢复默认</button></div>
-        <div className="set-font-grid">
-          <label className="set-font-field"><span>导航与标签</span><select className="set-input" value={typography.navigation} onChange={e => patchTypography('navigation', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><i className="set-font-preview set-font-preview--nav">导航 · 在线 · 已校时</i></label>
-          <label className="set-font-field"><span>展示标题</span><select className="set-input" value={typography.display} onChange={e => patchTypography('display', e.target.value as TypographyFontId)}><option value="design">按当前设计默认</option>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><i className="set-font-preview set-font-preview--display">语文考试</i></label>
-          <label className="set-font-field"><span>动态内容</span><select className="set-input" value={typography.content} onChange={e => patchTypography('content', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><i className="set-font-preview set-font-preview--content">下一科：数学</i></label>
-          <label className="set-font-field"><span>时钟与数字</span><select className="set-input" value={typography.numeric} onChange={e => patchTypography('numeric', e.target.value as TypographyFontId)}>{NUMERIC_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><i className="set-font-preview set-font-preview--numeric">09:30:00</i></label>
-        </div>
-      </section>
-
-      <section className="set-card">
-        <div className="set-card__head"><h2 className="set-card__title">当前班级</h2></div>
-        <p className="set-card__lead">只影响这台设备显示的周测与适用班级考试，不会修改其他设备。</p>
-        <div className="set-row"><label className="set-label">年级</label><select className="set-input" value={selectedGradeId} onChange={e => patchGrade(e.target.value)}><option value="">请选择年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-        <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={selectedClassId} onChange={e => patchClass(e.target.value)} disabled={!selectedGradeId}><option value="">请选择班级</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-        {grades.length === 0 && <p className="set-note">管理员尚未在“年级与班级”中添加数据。</p>}
-      </section>
+      <section className="set-card client-readonly__summary"><div><span>{exam.initialization.schoolFullName || exam.initialization.schoolName || '考试看板'}</span><h2>{schoolClass ? classDisplayName(exam.grades, exam.classes, schoolClass.id) : '当前设备尚未绑定班级'}</h2><p>{plan ? plan.name : '绑定班级并由管理员创建周测计划后，可在此预览和导出。'}</p></div>{plan && <button className="set-btn set-btn--primary" onClick={() => setPrintOpen(true)}><Download />A4 预览与导出</button>}</section>
+      <section className="set-card"><div className="set-card__head"><h2 className="set-card__title"><CalendarDays />本周与未来计划</h2></div><div className="client-calendar">{days.map(date => { const dateEntries = entries.filter(item => item.date === date); return <article className={dateEntries.length ? 'has-events' : ''} key={date}><header><strong>{date.slice(5)}</strong><span>{new Date(`${date}T00:00:00`).toLocaleDateString('zh-CN', { weekday: 'short' })}</span></header>{dateEntries.length ? dateEntries.map(item => <div key={`${item.name}-${item.startTime}`}><b>{item.name}</b><span>{item.startTime}–{item.endTime}</span></div>) : <small>无安排</small>}</article>; })}</div></section>
     </main>
+    {printOpen && <SchedulePrintPreview entries={entries} gradeName={grade?.name || '未选择年级'} className={schoolClass?.name || '未选择班级'} onClose={() => setPrintOpen(false)} />}
   </div>;
 }

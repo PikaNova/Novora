@@ -1,4 +1,5 @@
 .welcome-page{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:max(36px,env(safe-area-inset-top)) 24px max(30px,env(safe-area-inset-bottom));background:radial-gradient(circle at 50% 0%,#172842 0,#0d1119 42%,#090b0f 100%);color:#f0f5fa;font-family:var(--font-region-content);overflow-y:auto;}
+.welcome-header,.welcome-exam-banner,.welcome-setup-notice,.welcome-grid,.welcome-idle-hint{flex:none}
 .welcome-header{text-align:center;}.welcome-header:before{content:"EXAM BOARD · LOCAL FIRST";display:block;margin-bottom:8px;color:#73c8ff;font-size:.68rem;font-weight:700;letter-spacing:.18em;}
 .welcome-title{font-family:var(--font-region-display);font-size:clamp(2.25rem,7vw,4.3rem);font-weight:750;letter-spacing:.04em;margin:0 0 8px;}
 .welcome-subtitle{font-size:1rem;opacity:0.5;margin:0;}

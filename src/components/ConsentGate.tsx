@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getConsent, setConsent, reportOnStart } from '../services/telemetry';
+import { BarChart3 } from 'lucide-react';
 import '../styles/consent.css';
 
 export default function ConsentGate({ children }: { children: React.ReactNode }) {
@@ -24,7 +25,7 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
   return (
     <div className="consent-mask">
       <div className="consent-card">
-        <div className="consent-logo">📊</div>
+        <div className="consent-logo"><BarChart3 aria-hidden="true" /></div>
         {state === 'unset' ? (
           <>
             <h1 className="consent-title">使用前须知</h1>

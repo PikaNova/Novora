@@ -2,11 +2,12 @@ import React from 'react';
 import type { DesignProps, ExamViewModel } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
 import FitText from '../components/FitText';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
 import './LightDesigns.css';
 
 type Variant = 'sunrise' | 'palette' | 'orbit' | 'peach' | 'poster' | 'ice';
 
-const Controls = ({ onBack, onOpenAnnouncements, onSwitchDesign, onAdmin, isFullscreen, onToggleFullscreen }: Pick<DesignProps, 'onBack'|'onOpenAnnouncements'|'onSwitchDesign'|'onAdmin'|'isFullscreen'|'onToggleFullscreen'>) => <div className="ld-actions"><button onClick={onBack} aria-label="返回">←</button><button onClick={onOpenAnnouncements} aria-label="公告">📢</button><button onClick={onSwitchDesign} aria-label="切换设计">▣</button><button onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? '✕' : '⛶'}</button><button onClick={onAdmin} aria-label="管理">⚙</button></div>;
+const Controls = ({ onBack, onOpenAnnouncements, onSwitchDesign, onAdmin, isFullscreen, onToggleFullscreen }: Pick<DesignProps, 'onBack'|'onOpenAnnouncements'|'onSwitchDesign'|'onAdmin'|'isFullscreen'|'onToggleFullscreen'>) => <div className="ld-actions"><button onClick={onBack} aria-label="返回"><ArrowLeft /></button><button onClick={onOpenAnnouncements} aria-label="公告"><Megaphone /></button><button onClick={onSwitchDesign} aria-label="切换设计"><LayoutGrid /></button><button onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button><button onClick={onAdmin} aria-label="管理"><Settings /></button></div>;
 function title(vm: ExamViewModel) { return vm.phase === 'empty' ? '暂未配置考试安排' : vm.phase === 'before' ? (vm.currentName ? `距 ${vm.currentName} 开考` : '下一科待定') : vm.phase === 'ended' ? (vm.currentName ? `${vm.currentName} 已结束` : '今日考试已全部结束') : (vm.currentName ?? '考试进行中'); }
 function pct(vm: ExamViewModel) { return vm.phase === 'ended' ? 100 : vm.phase === 'live' ? Math.max(0, Math.min(100, vm.progressPct)) : 0; }
 function next(vm: ExamViewModel) { return vm.nextName ? `${vm.nextName}${vm.nextStartHM ? ` · ${vm.nextStartHM}` : ''}` : '暂无下一科'; }

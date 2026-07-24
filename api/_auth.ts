@@ -59,11 +59,9 @@ export function authSql() {
 
 const BUILTIN_ROLES: Array<{ id: string; name: string; description: string; permissions: Permission[] }> = [
   { id: 'super_admin', name: '超级管理员', description: '拥有全校数据与全部系统权限，可管理用户、角色、部署及所有业务设置。', permissions: ['*'] },
-  { id: 'academic_admin', name: '教务管理员', description: '负责全校考试、周测、校历、设备和系统设置，不可管理用户、角色与审计日志。', permissions: ALL_PERMISSIONS.filter(item => !item.startsWith('user.') && item !== 'role.manage' && item !== 'audit.read') as Permission[] },
-  { id: 'grade_admin', name: '年级管理员', description: '在授权年级内维护大型考试、周测、班级和设备，可查看提醒但不能修改系统级设置。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
-  { id: 'class_admin', name: '班级管理员', description: '在授权班级内维护周测计划、查看大型考试并绑定设备，不可修改年级结构。', permissions: ['overview.read', 'major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'alerts.read'] },
-  { id: 'device_admin', name: '设备管理员', description: '查看年级班级结构，负责客户端绑定、状态检查和失效设备清理。', permissions: ['overview.read', 'school.read', 'device.read', 'device.bind', 'device.revoke'] },
-  { id: 'viewer', name: '只读用户', description: '仅查看考试、周测、学校结构、设备、提醒与系统设置，不能修改任何数据。', permissions: ['overview.read', 'major.read', 'weekly.read', 'school.read', 'device.read', 'alerts.read', 'settings.read'] },
+  { id: 'grade_admin', name: '年级管理员', description: '管理授权年级的考试、周测、班级、设备和下级用户，并查看该年级完整运行总览。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read', 'user.read', 'user.create', 'user.edit', 'user.disable', 'user.reset_password'] },
+  { id: 'class_admin', name: '班级管理员', description: '管理授权班级的周测、排班和绑定设备，不显示项目运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
+  { id: 'viewer', name: '只读用户', description: '仅按授权范围预览和导出考试、周测与排班，不进入运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.export', 'school.read'] },
 ];
 
 export async function ensureAuthTables(): Promise<void> {
@@ -129,6 +127,10 @@ export async function ensureAuthTables(): Promise<void> {
     await Promise.all(BUILTIN_ROLES.map(role => sql`INSERT INTO app_roles (id, name, description, permissions, built_in, created_at, updated_at)
       VALUES (${role.id}, ${role.name}, ${role.description}, ${JSON.stringify(role.permissions)}::jsonb, TRUE, ${now}, ${now})
       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, permissions=EXCLUDED.permissions, built_in=TRUE, updated_at=EXCLUDED.updated_at`));
+    // v1.32：精简旧内置角色。教务管理员降为全范围年级管理员，设备管理员迁移为只读用户。
+    await sql`UPDATE app_users SET role_id='grade_admin', token_version=token_version+1, updated_at=${now} WHERE role_id='academic_admin'`;
+    await sql`UPDATE app_users SET role_id='viewer', token_version=token_version+1, updated_at=${now} WHERE role_id='device_admin'`;
+    await sql`DELETE FROM app_roles WHERE id IN ('academic_admin','device_admin') AND NOT EXISTS (SELECT 1 FROM app_users WHERE app_users.role_id=app_roles.id)`;
     // 已经完成过旧版密码初始化的数据库可直接生成默认超级管理员，无需再次输入或重置数据。
     const [legacyRows, userCountRows] = await Promise.all([
       sql`SELECT password_hash, password_salt FROM app_auth WHERE id=1`,
@@ -301,6 +303,20 @@ export async function changeOwnPassword(actorId: number, currentPassword: string
   const { hash, salt } = await makePasswordHash(nextPassword);
   await authSql()`UPDATE app_users SET password_hash=${hash}, password_salt=${salt}, must_change_password=FALSE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
   return { ok: true };
+}
+
+export async function changeOwnUsername(actorId: number, currentPassword: string, nextUsername: string): Promise<{ ok: boolean; error?: string; oldUsername?: string }> {
+  const username = nextUsername.trim();
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(username)) return { ok: false, error: '用户名需为 3-40 位字母、数字、点、横线或下划线' };
+  const row = await userById(actorId);
+  if (!row || !await matches(currentPassword, row.password_hash, row.password_salt)) return { ok: false, error: '当前密码不正确' };
+  try {
+    await authSql()`UPDATE app_users SET username=${username}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
+    return { ok: true, oldUsername: row.username };
+  } catch (error) {
+    if (/unique/i.test(error instanceof Error ? error.message : String(error))) return { ok: false, error: '用户名已存在' };
+    throw error;
+  }
 }
 
 export async function writeAudit(actor: AdminActor | null, action: string, resourceType: string, resourceId = '', detail: unknown = null, gradeId = '', classId = ''): Promise<void> {

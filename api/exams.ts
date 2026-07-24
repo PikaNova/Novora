@@ -83,12 +83,14 @@ function ensureTableOnce(): Promise<void> {
           current_subject TEXT NOT NULL DEFAULT '',
           exam_start TEXT NOT NULL DEFAULT '',
           exam_end TEXT NOT NULL DEFAULT '',
+          temporary_command JSONB,
           last_seen_at BIGINT NOT NULL DEFAULT 0,
           updated_at BIGINT NOT NULL
         )
       `,
         ensureUpdatedAtBigIntOnce(),
       ]);
+      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`;
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
         VALUES (1, '[]', '', 0)
@@ -349,14 +351,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const now = Date.now();
       const value = (key: string, max = 160) => String(req.body?.[key] ?? '').trim().slice(0, max);
       const run = async () => {
+        const acknowledgedCommandId = value('acknowledgedCommandId', 128);
+        if (acknowledgedCommandId) await sql`UPDATE device_instances SET temporary_command=NULL WHERE instance_id=${instanceId} AND temporary_command->>'id'=${acknowledgedCommandId}`;
         await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
           VALUES (${instanceId}, ${value('page')}, ${value('clientVersion', 40)}, ${value('status', 40)}, ${value('currentExam')}, ${value('currentSubject')}, ${value('examStart', 40)}, ${value('examEnd', 40)}, ${now}, ${now})
           ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at`;
-        const rows = await sql`SELECT revoked FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ revoked: boolean }>;
-        res.status(200).json({ ok: true, revoked: rows[0]?.revoked === true });
+        const rows = await sql`SELECT revoked, temporary_command FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ revoked: boolean; temporary_command?: unknown }>;
+        res.status(200).json({ ok: true, revoked: rows[0]?.revoked === true, command: rows[0]?.temporary_command ?? null });
       };
       try { await run(); } catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); await run(); }
       return;
+    }
+    if (action === 'device-command' && req.method === 'POST') {
+      const instanceId = String(req.body?.instanceId ?? '').trim().slice(0, 128);
+      const commandAction = String(req.body?.commandAction ?? '');
+      if (!instanceId || !['pause', 'resume', 'extend', 'end'].includes(commandAction)) { res.status(400).json({ ok: false, error: 'Invalid device command' }); return; }
+      await ensureTableOnce();
+      let deviceActor: AdminActor | null = null;
+      if (await isPasswordRequired()) {
+        deviceActor = await requireActor(req, res, 'device.revoke'); if (!deviceActor) return;
+        const bindings = await sql`SELECT grade_id, class_id FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ grade_id: string; class_id: string }>;
+        if (bindings[0] && !canAccessClass(deviceActor, bindings[0].grade_id, bindings[0].class_id)) { res.status(403).json({ ok: false, error: '设备超出当前账号的管理范围' }); return; }
+      }
+      const command = { id: `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, action: commandAction, minutes: commandAction === 'extend' ? Math.min(120, Math.max(1, Number(req.body?.minutes) || 5)) : undefined, createdAt: Date.now() };
+      await sql`UPDATE device_instances SET temporary_command=${JSON.stringify(command)}::jsonb, updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
+      await writeAudit(deviceActor, `device.temporary.${commandAction}`, 'device', instanceId);
+      res.status(200).json({ ok: true, command }); return;
     }
     if (action === 'device-revoke' && req.method === 'POST') {
       const instanceId = String(req.body?.instanceId ?? '').trim().slice(0, 128);
@@ -370,6 +390,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
       await writeAudit(deviceActor, 'device.revoke', 'device', instanceId);
       res.status(200).json({ ok: true }); return;
+    }
+    if (action === 'reset-data' && req.method === 'POST') {
+      let resetActor: AdminActor | null = null;
+      if (await isPasswordRequired()) {
+        resetActor = await requireActor(req, res, 'initialization.run'); if (!resetActor) return;
+        if (!allScope(resetActor)) { res.status(403).json({ ok: false, error: '只有超级管理员可以重置数据库' }); return; }
+      }
+      await ensureTableOnce();
+      const categories = Array.isArray(req.body?.categories) ? req.body.categories.map(String) : [];
+      const resetAll = categories.includes('all');
+      const resetMajor = resetAll || categories.includes('major');
+      const resetWeekly = resetAll || categories.includes('weekly');
+      const resetSchool = resetAll || categories.includes('school');
+      const resetSettings = resetAll || categories.includes('settings');
+      const resetDevices = resetAll || categories.includes('devices') || resetSchool;
+      if (![resetMajor, resetWeekly, resetSchool, resetSettings, resetDevices].some(Boolean)) { res.status(400).json({ ok: false, error: '请选择需要重置的数据' }); return; }
+      const at = Date.now();
+      await sql`UPDATE exam_data SET
+        items=CASE WHEN ${resetMajor} THEN '[]'::jsonb ELSE items END,
+        title=CASE WHEN ${resetMajor} THEN '' ELSE title END,
+        majors=CASE WHEN ${resetMajor} THEN '[]'::jsonb ELSE majors END,
+        active_major_id=CASE WHEN ${resetMajor} THEN '' ELSE active_major_id END,
+        weekly_plans=CASE WHEN ${resetWeekly || resetSchool} THEN '[]'::jsonb ELSE weekly_plans END,
+        active_weekly_plan_id=CASE WHEN ${resetWeekly || resetSchool} THEN '' ELSE active_weekly_plan_id END,
+        active_weekly_plan_by_class=CASE WHEN ${resetWeekly || resetSchool} THEN '{}'::jsonb ELSE active_weekly_plan_by_class END,
+        grades=CASE WHEN ${resetSchool} THEN '[]'::jsonb ELSE grades END,
+        classes=CASE WHEN ${resetSchool} THEN '[]'::jsonb ELSE classes END,
+        initialization=CASE WHEN ${resetSchool} THEN '{}'::jsonb ELSE initialization END,
+        alerts=CASE WHEN ${resetSettings} THEN NULL ELSE alerts END,
+        schedule_mode=CASE WHEN ${resetSettings} THEN 'major-only' ELSE schedule_mode END,
+        weekly_conflict_policy=CASE WHEN ${resetSettings} THEN NULL ELSE weekly_conflict_policy END,
+        updated_at=${at} WHERE id=1`;
+      if (resetDevices) await sql`DELETE FROM device_instances`;
+      getCache = null;
+      await writeAudit(resetActor, 'database.reset', 'exam_data', '1', { categories });
+      res.status(200).json({ ok: true, updatedAt: at }); return;
     }
 
     if (req.method === 'GET') {

@@ -15,7 +15,7 @@ export interface InitializationResult {
   scheduleMode: ScheduleMode;
   selectedGradeId: string;
   selectedClassId: string;
-  initialization: { completedAt: number; wizardVersion: number; demoDataImported: boolean };
+  initialization: { completedAt: number; wizardVersion: number; demoDataImported: boolean; province: string; schoolName: string; schoolFullName: string };
 }
 
 const cleanNames = (value: string) => value.split(/[，,、\n]/).map(item => item.trim()).filter(Boolean);
@@ -27,6 +27,8 @@ export function buildInitializationData(options: {
   weekMode: WeeklyWeekMode;
   excludeOfficialHolidays: boolean;
   scheduleMode: ScheduleMode;
+  schoolName: string;
+  province: string;
 }): InitializationResult {
   const stamp = Date.now();
   const prefix = options.mode === 'demo' ? 'demo' : 'school';
@@ -79,6 +81,6 @@ export function buildInitializationData(options: {
     scheduleMode: options.scheduleMode,
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: Date.now(), wizardVersion: 1, demoDataImported: options.mode === 'demo' },
+    initialization: { completedAt: Date.now(), wizardVersion: 2, demoDataImported: options.mode === 'demo', province: options.province.trim(), schoolName: options.schoolName.trim(), schoolFullName: `${options.province.trim()}${options.schoolName.trim()}` },
   };
 }

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import type { Announcement } from '../services/announcements';
 import AnnouncementList from './AnnouncementList';
+import { Megaphone } from 'lucide-react';
 import '../styles/exam-announcement-overlay.css';
 
 type Props = {
@@ -39,7 +40,7 @@ export default function ExamAnnouncementOverlay({ open, announcements, loading, 
       <section className="eann-window" onClick={event => event.stopPropagation()}>
         <header className="eann-window__head">
           <div>
-            <h2 className="eann-window__title">📢 系统公告</h2>
+            <h2 className="eann-window__title"><Megaphone aria-hidden="true" />系统公告</h2>
             <p className="eann-window__lead">公告由作者端统一发布，内容以 Markdown 渲染。</p>
           </div>
           <button className="eann-window__close" onClick={onClose} aria-label="关闭公告">×</button>

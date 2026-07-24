@@ -117,6 +117,8 @@ async function send(event: string, extra: Record<string, unknown> = {}): Promise
       userAgent: navigator.userAgent,
       clientTs: Date.now(),
       weekly: getWeeklyUsageSnapshot(),
+      province: getAppSettings().exam.initialization.province || null,
+      schoolName: getAppSettings().exam.initialization.schoolFullName || getAppSettings().exam.initialization.schoolName || null,
       ...extra,
     };
     const r = await fetch('/api/telemetry', {

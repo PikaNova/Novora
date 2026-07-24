@@ -188,11 +188,17 @@ export function resolveEffectiveSchedule(
 ): ResolvedSchedule {
   const selectedGradeId = (data.selectedGradeId || '').trim();
   const selectedClassId = (data.selectedClassId || '').trim();
-  const activeMajor = data.majors.find(m => m.id === data.activeMajorId) ?? null;
-  const gradeApplies = !activeMajor?.targetGradeIds?.length || (!!selectedGradeId && activeMajor.targetGradeIds.includes(selectedGradeId));
-  const classApplies = !activeMajor?.targetClassIds?.length || (!!selectedClassId && activeMajor.targetClassIds.includes(selectedClassId));
-  const majorApplies = gradeApplies && classApplies;
-  const majorItems = activeMajor && majorApplies ? sortExamItemsByTime(activeMajor.items.filter(i => i.enabled)) : [];
+  const applicableMajors = data.majors.filter(major => {
+    const gradeApplies = !major.targetGradeIds?.length || (!!selectedGradeId && major.targetGradeIds.includes(selectedGradeId));
+    const classApplies = !major.targetClassIds?.length || (!!selectedClassId && major.targetClassIds.includes(selectedClassId));
+    return gradeApplies && classApplies;
+  });
+  const candidates = applicableMajors.flatMap(major => {
+    const priority = major.targetClassIds?.length ? 2 : major.targetGradeIds?.length ? 1 : 0;
+    return major.items.filter(item => item.enabled).map(item => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, scopePriority: priority }));
+  });
+  // 同时存在全校、年级和班级安排时，仅在实际时间重叠处使用更具体的安排。
+  const majorItems = sortExamItemsByTime(candidates.filter(item => !candidates.some(other => other.scopePriority > item.scopePriority && isTimeOverlap(parseZonedTime(item.startTime), parseZonedTime(item.endTime), parseZonedTime(other.startTime), parseZonedTime(other.endTime)))).map(({ scopePriority: _scopePriority, ...item }) => item));
 
   const classPlanId = selectedClassId
     ? data.activeWeeklyPlanIdByClassId?.[selectedClassId]
@@ -212,10 +218,10 @@ export function resolveEffectiveSchedule(
 
   // automatic
   const policy = data.weeklyConflictPolicy ?? DEFAULT_WEEKLY_CONFLICT_POLICY;
-  const majorBlocks: MajorScheduleBlock[] =
-    activeMajor && majorItems.length
-      ? [{ id: activeMajor.id, name: activeMajor.name, items: majorItems, policy }]
-      : [];
+  const visibleIds = new Set(majorItems.map(item => item.majorExamId));
+  const majorBlocks: MajorScheduleBlock[] = applicableMajors
+    .filter(major => visibleIds.has(major.id))
+    .map(major => ({ id: major.id, name: major.name, items: majorItems.filter(item => item.majorExamId === major.id), policy }));
 
   const { activeWeekly, suppressedWeekly, conflicts } = resolveMajorWeeklyConflicts(majorBlocks, weeklyOccurrences);
   return {

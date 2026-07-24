@@ -62,6 +62,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       clientTs: num(b.clientTs),
       perf: b.perf && typeof b.perf === 'object' && !Array.isArray(b.perf) ? b.perf : null,
       weekly: b.weekly && typeof b.weekly === 'object' && !Array.isArray(b.weekly) ? b.weekly : null,
+      schoolName: str(b.schoolName, 80),
+      province: str(b.province, 40),
     };
 
     const controller = new AbortController();

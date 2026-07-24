@@ -38,13 +38,18 @@ export type AuditLog = {
 
 const token = () => localStorage.getItem('admin_auth_token') || '';
 
+export class AdminApiError extends Error {
+  field?: string;
+  constructor(message: string, field?: string) { super(message); this.name = 'AdminApiError'; this.field = field; }
+}
+
 async function request(path: string, init: RequestInit = {}) {
   const response = await fetch(path, {
     ...init,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(init.headers || {}) },
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok || !data?.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+  if (!response.ok || !data?.ok) throw new AdminApiError(data?.error || `HTTP ${response.status}`, data?.field);
   return data;
 }
 
@@ -63,6 +68,10 @@ export async function resetManagedUserPassword(id: number, password: string): Pr
 
 export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
   await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-password', currentPassword, newPassword }) });
+}
+
+export async function changeOwnUsername(currentPassword: string, username: string): Promise<void> {
+  await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-username', currentPassword, username }) });
 }
 
 export async function saveManagedRole(input: { id?: string; name: string; description: string; permissions: string[] }): Promise<ManagedRole[]> {

@@ -28,6 +28,11 @@ import type { UpdateInfo } from '../services/update';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import '../styles/settings.css';
+import AccessDenied from '../components/AccessDenied';
+import { CHINA_PROVINCES, schoolFullName } from '../data/provinces';
+import { notify } from '../services/notify';
+import { AlertTriangle, ArrowLeft, ArrowRight, Bell, Clock3, DatabaseZap, Info, Megaphone, Palette, RadioTower, Rocket, Type } from 'lucide-react';
+import { addDaysToDateKey, createEmptyWeeklyPlan, getShanghaiDateKey } from '../utils/weeklySchedule';
 
 const APP_VERSION = __APP_VERSION__;
 type ErrMode = 'off' | 'memory' | 'persist';
@@ -62,12 +67,13 @@ export default function SettingsPage() {
   // 跨洲往返会造成数秒白屏）；无令牌时才等待是否需要登录的判断。
   const [authed, setAuthed] = useState(() => hasValidLocalToken());
   const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() => getAdminUser());
+  const [denied, setDenied] = useState(false);
   useEffect(() => {
     if (hasValidLocalToken()) {
       refreshAdminUser().then(user => {
         if (!user) { navigate('/login?next=/settings', { replace: true }); return; }
         if (user.mustChangePassword) { navigate('/admin?tab=users&password=1', { replace: true }); return; }
-        if (!adminCan('settings.read', user)) { navigate('/admin', { replace: true }); return; }
+        if (!adminCan('settings.read', user)) { setAdminUser(user); setAuthed(true); setDenied(true); return; }
         setAdminUser(user); setAuthed(true);
       });
       return;
@@ -98,15 +104,25 @@ export default function SettingsPage() {
   const [calendarClassId, setCalendarClassId] = useState(initialExam.selectedClassId);
   const [calendarPlanId, setCalendarPlanId] = useState(() => initialExam.activeWeeklyPlanIdByClassId[initialExam.selectedClassId] ?? initialExam.activeWeeklyPlanId ?? '');
   const [calendarSave, setCalendarSave] = useState('');
+  const [schoolName, setSchoolName] = useState(initialExam.initialization.schoolName);
+  const [province, setProvince] = useState(initialExam.initialization.province);
+  const [schoolSave, setSchoolSave] = useState('');
+  const [resetCategories, setResetCategories] = useState<string[]>([]);
+  const [resetPhrase, setResetPhrase] = useState('');
+  const [resettingCloud, setResettingCloud] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const canEditSettings = adminUser ? adminCan('settings.edit', adminUser) : !hasValidLocalToken();
   const canEditWeekly = adminUser ? adminCan('weekly.edit', adminUser) : !hasValidLocalToken();
   const canReadAlerts = adminUser ? adminCan('alerts.read', adminUser) : !hasValidLocalToken();
   const canEditAlerts = adminUser ? adminCan('alerts.edit', adminUser) : !hasValidLocalToken();
+  const canEditSchool = adminUser ? adminCan('initialization.run', adminUser) : !hasValidLocalToken();
+  const canResetDatabase = adminUser ? adminUser.permissions.includes('*') : !hasValidLocalToken();
   const toggleTele = (v: boolean) => { setEnabled(v); setTeleOn(v); };
   const reportTele = async () => {
     setTeleMsg('上报中…');
     const ok = await reportNow('manual');
     setTeleMsg(ok ? '已上报 ✓' : '上报失败或未启用');
+    notify(ok ? 'success' : 'error', ok ? '运行信息已上报作者端。' : '上报失败或遥测尚未启用。', '遥测上报');
   };
 
   useEffect(() => { getRedeployConfigured().then(setRedeployOk).catch(() => {}); }, []);
@@ -125,14 +141,15 @@ export default function SettingsPage() {
     setUpd({ status: 'checking' });
     const info = await checkForUpdate(APP_VERSION);
     setUpd(info.ok ? { status: 'done', info } : { status: 'error', error: info.error });
+    notify(info.ok ? 'success' : 'error', info.ok ? (info.hasUpdate ? `发现新版本 v${info.latest}。` : '当前已经是最新版本。') : (info.error || '版本检查失败'));
   };
 
   const doRedeploy = async () => {
     if (!window.confirm('确定触发 Vercel 重新部署？\n将从 GitHub 拉取最新代码并重新构建，约需 1–3 分钟，完成后刷新页面即为新版本。')) return;
     setRedeploy({ status: 'running', msg: '已触发，正在部署…' });
     const r = await triggerRedeploy();
-    if (r.ok) setRedeploy({ status: 'done', msg: '已触发部署 ✓ 请稍后在 Vercel 查看进度，构建完成后刷新页面。' });
-    else setRedeploy({ status: 'error', msg: r.code === 'NO_HOOK' ? '未配置部署钩子（VERCEL_DEPLOY_HOOK_URL）' : (r.error || '触发失败') });
+    if (r.ok) { setRedeploy({ status: 'done', msg: '已触发部署，请稍后在 Vercel 查看进度。' }); notify('success', 'Vercel 重新部署已触发。'); }
+    else { const message = r.code === 'NO_HOOK' ? '未配置部署钩子（VERCEL_DEPLOY_HOOK_URL）' : (r.error || '触发失败'); setRedeploy({ status: 'error', msg: message }); notify('error', message, '部署触发失败'); }
   };
 
   const readmeHtml = useMemo(() => renderMarkdown(readmeRaw), []);
@@ -172,7 +189,7 @@ export default function SettingsPage() {
   const resetTypography = () => {
     const next = { ...DEFAULT_TYPOGRAPHY };
     updateAppSettings(c => ({ general: { ...c.general, typography: next } }));
-    setTypography(next); applyTypographySettings(next);
+    setTypography(next); applyTypographySettings(next); notify('success', '字体分区已恢复为设计默认值。');
   };
 
   const openReadme = () => {
@@ -186,6 +203,46 @@ export default function SettingsPage() {
     if (!window.confirm('确定清除本机所有本地设置并恢复默认？\n（仅影响当前浏览器，不影响云端考试数据）')) return;
     try { localStorage.removeItem(APP_SETTINGS_KEY); localStorage.removeItem('exam_design_id'); } catch { /* ignore */ }
     window.location.reload();
+  };
+
+  const resetCloudData = async () => {
+    if (!canResetDatabase || resetPhrase !== '重置数据库' || !resetCategories.length) { notify('warning', '请选择重置范围并输入“重置数据库”。'); return; }
+    setResettingCloud(true);
+    try {
+      const token = localStorage.getItem('admin_auth_token') || '';
+      const response = await fetch('/api/exams', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'reset-data', categories: resetCategories }) });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || '数据库重置失败');
+      notify('success', '所选云端数据已重置，即将重新载入初始化状态。');
+      localStorage.removeItem(APP_SETTINGS_KEY);
+      localStorage.removeItem('exam_board_pending_exam_sync');
+      window.setTimeout(() => window.location.assign('/'), 900);
+    } catch (error) { notify('error', error instanceof Error ? error.message : '数据库重置失败'); setResettingCloud(false); }
+  };
+
+  const toggleResetCategory = (category: string, checked: boolean) => setResetCategories(current => checked ? [...new Set([...current.filter(item => item !== 'all'), category])] : current.filter(item => item !== category));
+
+  const updateDemoData = async (enable: boolean) => {
+    const exam = getAppSettings().exam;
+    if (!exam.grades[0] || !exam.classes[0]) { notify('warning', '请先完成学校、年级和班级初始化。'); return; }
+    setDemoBusy(true);
+    const tomorrow = addDaysToDateKey(getShanghaiDateKey(Date.now()), 1);
+    const demoMajor = { id: 'demo_v2_major', name: '演示大型考试', order: exam.majors.length, targetGradeIds: [exam.grades[0].id], items: [{ id: 'demo_v2_exam_1', name: '语文', startTime: `${tomorrow}T08:30:00`, endTime: `${tomorrow}T10:30:00`, enabled: true, order: 0 }, { id: 'demo_v2_exam_2', name: '数学', startTime: `${tomorrow}T14:00:00`, endTime: `${tomorrow}T16:00:00`, enabled: true, order: 1 }] };
+    const basePlan = createEmptyWeeklyPlan(Date.now(), '演示周测计划');
+    const demoPlan: WeeklyPlan = { ...basePlan, id: 'demo_v2_weekly', gradeId: exam.classes[0].gradeId, classId: exam.classes[0].id, order: exam.weeklyPlans.length, weekMode: 'ab', excludeOfficialHolidays: true, items: [{ id: 'demo_v2_weekly_1', name: '数学周测', weekday: 3, startTime: '19:00', endTime: '20:00', enabled: true, order: 0, weekType: 'a' }] };
+    const majors = enable ? [...exam.majors.filter(item => !item.id.startsWith('demo_v2_')), demoMajor] : exam.majors.filter(item => !item.id.startsWith('demo_v2_'));
+    const weeklyPlansNext = enable ? [...exam.weeklyPlans.filter(item => !item.id.startsWith('demo_v2_')), demoPlan] : exam.weeklyPlans.filter(item => !item.id.startsWith('demo_v2_'));
+    const activeMajorId = majors.some(item => item.id === exam.activeMajorId) ? exam.activeMajorId : majors[0]?.id || '';
+    const activeWeeklyPlanIdByClassId = { ...exam.activeWeeklyPlanIdByClassId, [demoPlan.classId]: enable ? demoPlan.id : (weeklyPlansNext.find(item => item.classId === demoPlan.classId)?.id ?? null) };
+    const initialization = { ...exam.initialization, demoDataImported: enable };
+    const input = { items: majors.find(item => item.id === activeMajorId)?.items || [], title: majors.find(item => item.id === activeMajorId)?.name || '', majors, activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: weeklyPlansNext, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId, grades: exam.grades, classes: exam.classes, weeklyConflictPolicy: exam.weeklyConflictPolicy, initialization };
+    try {
+      const result = await saveExamsToServer({ ...input, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
+      if (typeof result !== 'number') throw new Error('演示数据同步失败，请刷新后重试');
+      updateExamSettings({ ...input, updatedAt: result });
+      notify('success', enable ? '演示考试与周测数据已导入。' : '演示数据已移除。');
+    } catch (error) { notify('error', error instanceof Error ? error.message : '演示数据操作失败'); }
+    finally { setDemoBusy(false); }
   };
 
   const grades = useMemo(() => sortedGrades(initialExam.grades), [initialExam]);
@@ -232,11 +289,27 @@ export default function SettingsPage() {
       });
     }
     if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
-    if (typeof result === 'number') { setWeeklyPlans(persistedPlans); updateExamSettings({ weeklyPlans: persistedPlans, updatedAt: result }); setCalendarSave('已保存到云端'); }
-    else setCalendarSave('保存失败，请检查网络后重试');
+    if (typeof result === 'number') { setWeeklyPlans(persistedPlans); updateExamSettings({ weeklyPlans: persistedPlans, updatedAt: result }); setCalendarSave('已保存到云端'); notify('success', '周测日历设置已保存到云端。'); }
+    else { setCalendarSave('保存失败，请检查网络后重试'); notify('error', '周测日历保存失败，请检查网络后重试。'); }
+  };
+
+  const saveSchoolName = async () => {
+    const nextName = schoolName.trim();
+    if (!nextName || !canEditSchool) { setSchoolSave(nextName ? '当前账号无权修改学校信息' : '请填写学校名称'); return; }
+    const exam = getAppSettings().exam;
+    if (!province) { setSchoolSave('请选择省份或地区'); return; }
+    const initialization = { ...exam.initialization, province, schoolName: nextName, schoolFullName: schoolFullName(province, nextName), wizardVersion: Math.max(2, exam.initialization.wizardVersion) };
+    updateExamSettings({ initialization });
+    setSchoolSave('正在保存到云端…');
+    const result = await saveExamsToServer({ items: exam.items, title: exam.title, majors: exam.majors, activeMajorId: exam.activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: exam.weeklyPlans, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId: exam.activeWeeklyPlanIdByClassId, grades: exam.grades, classes: exam.classes, weeklyConflictPolicy: exam.weeklyConflictPolicy, initialization, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
+    if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
+    setSchoolSave(typeof result === 'number' ? '学校信息已保存' : '保存失败，请检查网络后重试');
+    notify(typeof result === 'number' ? 'success' : 'error', typeof result === 'number' ? '省份与完整校名已保存。' : '学校信息保存失败，请检查网络后重试。');
+    if (typeof result === 'number') void reportNow('school_name_updated');
   };
 
   if (!authed) return <div className="set-loading">正在验证管理权限…</div>;
+  if (denied) return <AccessDenied moduleName="系统设置" onBack={() => navigate('/admin')} />;
 
   const ready = isTimeSyncReady();
   const lastSyncLabel = ts.lastSyncAt > 0 ? formatDateTimeInZone(ts.lastSyncAt) : '尚未校时';
@@ -245,7 +318,7 @@ export default function SettingsPage() {
     <div className="set-page">
       <header className="set-header">
         <div className="set-header__left">
-          <button className="set-back" onClick={() => navigate('/admin')}>← 返回管理</button>
+          <button className="set-back" onClick={() => navigate('/admin')}><ArrowLeft aria-hidden="true" />返回管理</button>
           <h1 className="set-title">系统设置</h1>
         </div>
         <span className="set-version">v{APP_VERSION}</span>
@@ -253,6 +326,15 @@ export default function SettingsPage() {
 
       <div className="set-body">
         {!canEditSettings && <div className="set-note set-note--warn">当前账号对系统设置只有查看权限。如需修改登录密码，请前往“用户与权限”。</div>}
+        <section className="set-card">
+          <div className="set-card__head"><h2 className="set-card__title">学校信息</h2></div>
+          <p className="set-card__lead">学校名称会显示在班级排班预览和 A4 PDF 页眉中。</p>
+          <div className="set-row"><label className="set-label">省份 / 地区</label><select className="set-input" disabled={!canEditSchool} value={province} onChange={event => setProvince(event.target.value)}><option value="">请选择省份或地区</option>{CHINA_PROVINCES.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
+          <div className="set-row"><label className="set-label">学校名称</label><input className="set-input" maxLength={80} disabled={!canEditSchool} value={schoolName} onChange={event => setSchoolName(event.target.value)} placeholder="请输入学校名称" /></div>
+          <div className="set-note">完整校名：<strong>{schoolFullName(province, schoolName) || '尚未填写'}</strong></div>
+          <button className="set-btn set-btn--primary" disabled={!canEditSchool || !province || !schoolName.trim()} onClick={() => void saveSchoolName()}>保存学校信息</button>
+          {schoolSave && <p className="set-note" aria-live="polite">{schoolSave}</p>}
+        </section>
         <section className="set-card">
           <div className="set-card__head"><h2 className="set-card__title">周测日历</h2></div>
           <p className="set-card__lead">配置学期周次和法定节假日。学期开始日期所在周按 A 周计算，下一周自动切换为 B 周。</p>
@@ -273,7 +355,7 @@ export default function SettingsPage() {
         {/* ―― 时间同步 ―― */}
         <section className="set-card">
           <div className="set-card__head">
-            <h2 className="set-card__title">🕐 时间同步（校时） <HelpTip title="校时方式">时间接口精度最高且适合大屏；HTTP Date 无需专用接口但精度较低；浏览器不能直接使用 NTP。</HelpTip></h2>
+            <h2 className="set-card__title"><Clock3 size={20} />时间同步（校时） <HelpTip title="校时方式">时间接口精度最高且适合大屏；HTTP Date 无需专用接口但精度较低；浏览器不能直接使用 NTP。</HelpTip></h2>
             <Switch checked={ts.enabled} disabled={!canEditSettings} onChange={v => patchTs({ enabled: v }, true)} />
           </div>
           <p className="set-card__lead">开启后大屏时钟、倒计时与全屏提醒均基于校准后的网络时间触发；关闭后回退使用本机时钟。</p>
@@ -301,7 +383,7 @@ export default function SettingsPage() {
               </div>
             )}
             {ts.provider === 'ntp' && (
-              <div className="set-note set-note--warn">⚠️ 浏览器环境无法直连 NTP，请改用“时间接口”或“HTTP 响应头”方式；NTP 仅供服务端代理使用。</div>
+              <div className="set-note set-note--warn"><AlertTriangle size={15} /> 浏览器环境无法直连 NTP，请改用“时间接口”或“HTTP 响应头”方式；NTP 仅供服务端代理使用。</div>
             )}
 
             <div className="set-row">
@@ -345,7 +427,7 @@ export default function SettingsPage() {
 
         {/* ―― 显示 ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">🎨 显示</h2></div>
+          <div className="set-card__head"><h2 className="set-card__title"><Palette size={20} />显示</h2></div>
           <div className="set-row">
             <label className="set-label">默认大屏设计风格</label>
             <select className="set-input" disabled={!canEditSettings} value={designId} onChange={e => patchDesign(e.target.value)}>
@@ -366,7 +448,7 @@ export default function SettingsPage() {
 
         {/* ―― 字体分区 ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">🔤 字体分区</h2><button className="set-btn set-btn--ghost" disabled={!canEditSettings} onClick={resetTypography}>恢复设计默认</button></div>
+          <div className="set-card__head"><h2 className="set-card__title"><Type size={20} />字体分区</h2><button className="set-btn set-btn--ghost" disabled={!canEditSettings} onClick={resetTypography}>恢复设计默认</button></div>
           <p className="set-card__lead">所有选择均为已随应用打包的本地字体。设置立即作用于当前大屏，并保存到本机；时钟默认使用 JetBrains Mono 等宽数字（子集已随应用打包）。</p>
           <div className="set-font-grid">
             <label className="set-font-field"><span>① 导航与标签</span><select className="set-input" disabled={!canEditSettings} value={typography.navigation} onChange={e => patchTypography('navigation', e.target.value as TypographyFontId)}>{FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select><small>页眉、状态、标签与说明</small><i className="set-font-preview set-font-preview--nav">导航 · 在线 · 已校时</i></label>
@@ -379,10 +461,10 @@ export default function SettingsPage() {
 
         {/* ―― 提醒与高级 ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">🔔 提醒与高级</h2></div>
+          <div className="set-card__head"><h2 className="set-card__title"><Bell size={20} />提醒与高级</h2></div>
           <div className="set-row">
             <label className="set-label">全屏提醒管理</label>
-            {canReadAlerts ? <button className="set-btn" onClick={() => navigate('/admin?alerts=1')}>前往提醒管理 →</button> : <span className="set-note">无查看权限</span>}
+            {canReadAlerts ? <button className="set-btn" onClick={() => navigate('/admin?alerts=1')}>前往提醒管理<ArrowRight aria-hidden="true" /></button> : <span className="set-note">无查看权限</span>}
           </div>
           <div className="set-row">
             <label className="set-label">静默模式</label>
@@ -406,10 +488,22 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {canResetDatabase && <section className="set-card set-danger-zone">
+          <div className="set-card__head"><h2 className="set-card__title"><DatabaseZap size={20} /> 数据库重置</h2></div>
+          <p className="set-card__lead">仅重置选择的业务数据，不删除超级管理员和其他登录账号。重置学校结构时会同时清除周测与设备绑定。</p>
+          <div className="set-reset-grid">
+            {[['major','大型考试'],['weekly','周测计划'],['school','学校、年级与班级'],['devices','设备绑定与状态'],['settings','提醒与调度设置']].map(([id,label]) => <label key={id}><input type="checkbox" checked={resetCategories.includes(id)} onChange={event => toggleResetCategory(id, event.target.checked)} />{label}</label>)}
+          </div>
+          <label className="set-label">输入“重置数据库”确认<input className="set-input" value={resetPhrase} onChange={event => setResetPhrase(event.target.value)} /></label>
+          <button className="set-btn set-btn--danger" disabled={resettingCloud || resetPhrase !== '重置数据库' || !resetCategories.length} onClick={() => void resetCloudData()}>{resettingCloud ? '正在重置…' : '重置所选云端数据'}</button>
+        </section>}
+
+        {canResetDatabase && <details className="set-card set-dev-tools"><summary>开发与测试</summary><p className="set-card__lead">测试数据入口只在设置页向超级管理员显示。导入内容带有独立标识，可以单独移除。</p><div className="set-row"><label className="set-label">演示排班数据</label><div className="set-inline-actions"><button className="set-btn" disabled={demoBusy} onClick={() => void updateDemoData(true)}>导入测试数据</button><button className="set-btn set-btn--danger" disabled={demoBusy} onClick={() => void updateDemoData(false)}>移除测试数据</button></div></div></details>}
+
         {/* ―― 使用遥测 ―― */}
         <section className="set-card">
           <div className="set-card__head">
-            <h2 className="set-card__title">🛰️ 使用遥测</h2>
+            <h2 className="set-card__title"><RadioTower size={20} />使用遥测</h2>
             <Switch checked={teleOn} disabled={!canEditSettings} onChange={toggleTele} />
           </div>
           <p className="set-card__lead">作者端上报匿名部署/运行数据（版本、主机、时区、地区、匿名 IP 哈希）；不含考试内容与个人信息。</p>
@@ -424,7 +518,7 @@ export default function SettingsPage() {
 
         {/* ―― 版本与更新 ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">🚀 版本与更新</h2></div>
+          <div className="set-card__head"><h2 className="set-card__title"><Rocket size={20} />版本与更新</h2></div>
           <p className="set-card__lead">检查 GitHub 仓库最新发布版本；如已配置 Vercel 部署钩子，可一键拉取最新代码并重新部署。</p>
           <ul className="set-status__list">
             <li><span>当前版本</span><b>v{APP_VERSION}</b></li>
@@ -452,7 +546,7 @@ export default function SettingsPage() {
 
         {/* ―― 公告（作者端统一发布） ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">📢 公告</h2></div>
+          <div className="set-card__head"><h2 className="set-card__title"><Megaphone aria-hidden="true" />公告</h2></div>
           <p className="set-card__lead">由作者端统一发布，内容以 Markdown 渲染。</p>
           {annLoading ? (
             <p className="set-note">公告加载中…</p>
@@ -465,7 +559,7 @@ export default function SettingsPage() {
 
         {/* ―― 关于（置于页面最底部） ―― */}
         <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">ℹ️ 关于</h2></div>
+          <div className="set-card__head"><h2 className="set-card__title"><Info size={20} />关于</h2></div>
           <div className="set-about">
             <div className="set-about__meta">
               <div><b>考试看板 Exam Board</b> · v{APP_VERSION}</div>

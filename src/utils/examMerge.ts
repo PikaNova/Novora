@@ -115,7 +115,7 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
   const activeWeeklyPlanIdByClassId = mergeValue(base.activeWeeklyPlanIdByClassId ?? {}, local.activeWeeklyPlanIdByClassId ?? {}, remote.activeWeeklyPlanIdByClassId ?? {}, ctx) as Record<string, string | null>;
   const grades = mergeValue(base.grades ?? [], local.grades ?? [], remote.grades ?? [], ctx) as SchoolGrade[];
   const classes = mergeValue(base.classes ?? [], local.classes ?? [], remote.classes ?? [], ctx) as SchoolClass[];
-  const initialization = mergeValue(base.initialization ?? { completedAt: 0, wizardVersion: 1, demoDataImported: false }, local.initialization ?? { completedAt: 0, wizardVersion: 1, demoDataImported: false }, remote.initialization ?? { completedAt: 0, wizardVersion: 1, demoDataImported: false }, ctx) as ExamSettings['initialization'];
+  const initialization = mergeValue(base.initialization ?? { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' }, local.initialization ?? { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' }, remote.initialization ?? { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' }, ctx) as ExamSettings['initialization'];
   const scheduleMode = mergeValue(base.scheduleMode ?? 'major-only', local.scheduleMode ?? 'major-only', remote.scheduleMode ?? 'major-only', ctx) as ScheduleMode;
   const weeklyConflictPolicy = mergeValue(base.weeklyConflictPolicy ?? null, local.weeklyConflictPolicy ?? null, remote.weeklyConflictPolicy ?? null, ctx) as WeeklyConflictPolicy | null;
 

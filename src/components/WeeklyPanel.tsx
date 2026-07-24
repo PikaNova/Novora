@@ -27,6 +27,10 @@ import { resolveMajorWeeklyConflicts } from '../utils/scheduleConflict';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { getOfficialHolidayName, OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
 import HelpTip from './HelpTip';
+import SchedulePrintPreview from './SchedulePrintPreview';
+import { notify } from '../services/notify';
+import AiImportGuide from './AiImportGuide';
+import { CalendarDays, CircleHelp } from 'lucide-react';
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
 const WEEKDAY_ORDER: IsoWeekday[] = [1, 2, 3, 4, 5, 6, 7];
@@ -103,7 +107,8 @@ export default function WeeklyPanel({
   const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{ occ: PreviewOcc; name: string; date: string; startTime: string; endTime: string } | null>(null);
   const [rescheduleError, setRescheduleError] = useState('');
-  const [copyModal, setCopyModal] = useState<{ sourcePlanId: string; targetClassIds: string[] } | null>(null);
+  const [copyModal, setCopyModal] = useState<{ sourcePlanId: string; targetClassIds: string[]; name: string } | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const [lastDeleted, setLastDeleted] = useState<
     | { kind: 'plan'; plan: WeeklyPlan; index: number }
     | { kind: 'item'; item: WeeklyExamItem; index: number; planId: string }
@@ -150,7 +155,7 @@ export default function WeeklyPanel({
       <>
         <aside className="admin-sidebar">
           <div className="admin-tips">
-            <p className="admin-tips__title">📅 周测</p>
+            <p className="admin-tips__title"><CalendarDays size={16} />周测</p>
             <ul>
               <li>周测是每周固定重复的小测（如每周一/三/五晚自习测验）。</li>
               <li>先创建一个周测计划，再往里添加具体的周测项。</li>
@@ -160,9 +165,9 @@ export default function WeeklyPanel({
         </aside>
         <main className="admin-main">
           <div className="admin-empty">
-            <div className="admin-empty__icon">📅</div>
+            <div className="admin-empty__icon"><CalendarDays /></div>
             <p>还没有周测计划</p>
-            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} disabled={!selectedClassId} onClick={() => { const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: `${selectedClassName}周测计划`, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建周测计划</button>
+            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={() => { if (!selectedClassId) { notify('warning', '请先在顶部依次选择年级和班级。', '需要选择班级'); return; } const today = getShanghaiDateKey(Date.now()); setPlanModal({ mode: 'add', name: `${selectedClassName}周测计划`, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false }); setPlanError(''); }}>+ 新建周测计划</button>
           </div>
         </main>
         {planModal && renderPlanModal()}
@@ -297,7 +302,8 @@ export default function WeeklyPanel({
     if (!name.trim()) { setRescheduleError('请输入名称'); return; }
     if (!DATE_RE.test(date)) { setRescheduleError('请填写正确日期'); return; }
     if (!HM_RE.test(startTime) || !HM_RE.test(endTime)) { setRescheduleError('请输入正确的时间（HH:mm）'); return; }
-    upsertOverride({ id: genWeeklyOverrideId(occ.weeklyItemId, occ.date), sourceItemId: occ.weeklyItemId, date: occ.date, action: 'replace', name: name.trim(), startTime: padHM(startTime), endTime: padHM(endTime), reason: '管理员临时调课' });
+    upsertOverride({ id: genWeeklyOverrideId(occ.weeklyItemId, occ.date), sourceItemId: occ.weeklyItemId, date: occ.date, targetDate: date, action: 'replace', name: name.trim(), startTime: padHM(startTime), endTime: padHM(endTime), reason: '管理员临时调课' });
+    notify('success', date === occ.date ? '本次周测时间已调整。' : `本次周测已调至 ${date}。`);
     setRescheduleTarget(null);
   }
 
@@ -376,12 +382,14 @@ export default function WeeklyPanel({
     if (!copyModal?.targetClassIds.length) return;
     const source = weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId);
     if (!source) return;
+    const copyName = copyModal.name.trim() || source.name.replace(/（复制）$/u, '');
     const copies = copyModal.targetClassIds.map((classId, offset) => {
       const target = classOptions.find(item => item.id === classId)!;
       const idMap = new Map(source.items.map(item => [item.id, makeItemId()]));
-      return { ...source, id: genWeeklyPlanId(), gradeId: target.gradeId, classId, name: `${source.name}（复制）`, enabled: true, order: weeklyPlans.length + offset, items: source.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })), overrides: source.overrides.filter(item => idMap.has(item.sourceItemId)).map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })) };
+      return { ...source, id: genWeeklyPlanId(), gradeId: target.gradeId, classId, name: copyName, enabled: true, order: weeklyPlans.length + offset, items: source.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })), overrides: source.overrides.filter(item => idMap.has(item.sourceItemId)).map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })) };
     });
     onSavePlans([...weeklyPlans, ...copies], activePlan.id, selectedClassId, true);
+    notify('success', `计划已应用到 ${copies.length} 个班级。`);
     setCopyModal(null);
   }
 
@@ -436,7 +444,7 @@ export default function WeeklyPanel({
           </div>
           <div className="admin-major-card__btns">
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
-            <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [] })}>批量应用</button><HelpTip title="批量应用">复制后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip>
+            <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [], name: activePlan.name.replace(/（复制）$/u, '') })}>批量应用</button><HelpTip title="批量应用">应用后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip>
           </div>
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
@@ -454,7 +462,7 @@ export default function WeeklyPanel({
         </div>
 
         <div className="admin-tips">
-          <p className="admin-tips__title">💡 使用说明</p>
+          <p className="admin-tips__title"><CircleHelp size={16} />使用说明</p>
           <ul>
             <li>周测按星期固定重复，与具体日期无关</li>
             <li>运行模式为“自动”时，大型考试期间会按策略自动暂停周测</li>
@@ -476,7 +484,7 @@ export default function WeeklyPanel({
         {lastDeleted && <div className="admin-undo"><span>已删除「{lastDeleted.kind === 'plan' ? lastDeleted.plan.name : lastDeleted.kind === 'item' ? lastDeleted.item.name : lastDeleted.name}」</span><button className="admin-btn admin-btn--ghost" onClick={restoreLastDeleted}>撤销删除</button></div>}
 
         {items.length === 0 ? (
-          <div className="admin-empty"><div className="admin-empty__icon">📅</div><p>当前计划暂无周测，点击“添加周测”开始</p></div>
+          <div className="admin-empty"><div className="admin-empty__icon"><CalendarDays /></div><p>当前计划暂无周测，点击“添加周测”开始</p></div>
         ) : (
           <div className="weekly-groups">
             {grouped.filter(g => g.list.length > 0).map(g => (
@@ -506,6 +514,7 @@ export default function WeeklyPanel({
         <div className="admin-list-header" style={{ marginTop: 22 }}>
           <h2 className="admin-list-title">未来两周预览</h2>
           <span className="admin-list-count">{preview.length} 场</span>
+          <button className="admin-btn" onClick={() => setPrintOpen(true)}>A4 预览与导出</button>
         </div>
         <div className="weekly-calendar-scroll" tabIndex={0} aria-label="横向滚动查看未来两周">
           <div className="weekly-calendar" role="grid" aria-label="未来两周周测日历">
@@ -571,9 +580,10 @@ export default function WeeklyPanel({
           <div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}>
             <h2 className="admin-modal__title">导入周测 JSON</h2>
             <p className="admin-modal__body">旧版 items 数据会覆盖当前周测列表；新版整份计划备份会创建一个独立的新计划，并保留 A/B 周、例外和节假日设置。</p>
+            <AiImportGuide kind="weekly" context={`${classOptions.find(item => item.id === selectedClassId)?.label || selectedClassName}，计划“${activePlan.name}”`} />
             {importError && <div className="admin-error">{importError}</div>}
             <textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"items":[{"name":"周测","weekday":1,"startTime":"19:00","endTime":"20:00","enabled":true}]}' />
-            <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>导入并自动保存</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div>
+            <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>校验并导入</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div>
           </div>
         </div>
       )}
@@ -640,8 +650,9 @@ export default function WeeklyPanel({
         <div className="admin-modal-overlay" {...backdropProps(() => setCopyModal(null))}>
           <div className="admin-modal" onClick={event => event.stopPropagation()}>
             <h2 className="admin-modal__title">批量应用周测计划</h2>
-            <label className="admin-label">源计划<select className="admin-input" value={copyModal.sourcePlanId} onChange={event => setCopyModal(current => current && { ...current, sourcePlanId: event.target.value })}>{weeklyPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label>
-            <div className="admin-label">应用到班级<div className="admin-major-targets">{classOptions.filter(item => item.id !== weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId)?.classId).map(item => <label key={item.id}><input type="checkbox" checked={copyModal.targetClassIds.includes(item.id)} onChange={event => setCopyModal(current => current && ({ ...current, targetClassIds: event.target.checked ? [...current.targetClassIds, item.id] : current.targetClassIds.filter(id => id !== item.id) }))} />{item.label}</label>)}</div></div>
+            <label className="admin-label">源计划<select className="admin-input" value={copyModal.sourcePlanId} onChange={event => { const source = weeklyPlans.find(plan => plan.id === event.target.value); setCopyModal(current => current && { ...current, sourcePlanId: event.target.value, name: source?.name.replace(/（复制）$/u, '') || current.name }); }}>{[...weeklyPlans].sort((a, b) => { const ac = classOptions.find(item => item.id === a.classId)?.label || ''; const bc = classOptions.find(item => item.id === b.classId)?.label || ''; return ac.localeCompare(bc, 'zh-CN') || a.name.localeCompare(b.name, 'zh-CN'); }).map(plan => <option key={plan.id} value={plan.id}>{classOptions.find(item => item.id === plan.classId)?.label} · {plan.name}</option>)}</select></label>
+            <label className="admin-label">应用后的计划标题<input className="admin-input" value={copyModal.name} onChange={event => setCopyModal(current => current && { ...current, name: event.target.value })} placeholder="请输入计划标题" /></label>
+            <div className="admin-label">应用到班级<div className="admin-form-actions"><button className="admin-btn" type="button" onClick={() => { const source = weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId); const ids = classOptions.filter(item => item.gradeId === source?.gradeId && item.id !== source.classId).map(item => item.id); setCopyModal(current => current && { ...current, targetClassIds: ids }); }}>选择同年级全部班级</button><button className="admin-btn admin-btn--ghost" type="button" onClick={() => setCopyModal(current => current && { ...current, targetClassIds: [] })}>清空</button></div><div className="admin-major-targets">{[...classOptions].filter(item => item.id !== weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId)?.classId).sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')).map(item => <label key={item.id}><input type="checkbox" checked={copyModal.targetClassIds.includes(item.id)} onChange={event => setCopyModal(current => current && ({ ...current, targetClassIds: event.target.checked ? [...current.targetClassIds, item.id] : current.targetClassIds.filter(id => id !== item.id) }))} />{item.label}</label>)}</div></div>
             <p className="admin-major-card__hint">每个目标班级会创建一份已启用的独立计划，之后可分别编辑。</p>
             <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitCopyPlan} disabled={!copyModal.targetClassIds.length}>应用到 {copyModal.targetClassIds.length} 个班级</button><button className="admin-btn" onClick={() => setCopyModal(null)}>取消</button></div>
           </div>
@@ -669,7 +680,7 @@ export default function WeeklyPanel({
             {rescheduleError && <div className="admin-error">{rescheduleError}</div>}
             <div className="admin-form">
               <label className="admin-label">名称<input className="admin-input" value={rescheduleTarget.name} onChange={e => setRescheduleTarget(p => p && { ...p, name: e.target.value })} /></label>
-              <label className="admin-label">日期<input className="admin-input" type="date" value={rescheduleTarget.date} readOnly aria-readonly="true" /></label>
+              <label className="admin-label">调整至日期<input className="admin-input" type="date" value={rescheduleTarget.date} onChange={e => setRescheduleTarget(p => p && { ...p, date: e.target.value })} /></label>
               <label className="admin-label">开始时间<input className="admin-input" type="time" value={rescheduleTarget.startTime} onChange={e => setRescheduleTarget(p => p && { ...p, startTime: e.target.value })} /></label>
               <label className="admin-label">结束时间<input className="admin-input" type="time" value={rescheduleTarget.endTime} onChange={e => setRescheduleTarget(p => p && { ...p, endTime: e.target.value })} /></label>
               <p className="admin-major-card__hint">仅调整这一次实例，不影响周期规则本身。</p>
@@ -678,6 +689,7 @@ export default function WeeklyPanel({
           </div>
         </div>
       )}
+      {printOpen && <SchedulePrintPreview entries={preview} gradeName={classOptions.find(item => item.id === selectedClassId)?.label.split(' · ')[0] || '当前年级'} className={selectedClassName} onClose={() => setPrintOpen(false)} />}
     </>
   );
 }

@@ -49,6 +49,9 @@ export interface ExamSettings {
     completedAt: number;
     wizardVersion: number;
     demoDataImported: boolean;
+    province: string;
+    schoolName: string;
+    schoolFullName: string;
   };
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
@@ -182,7 +185,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     classes: [],
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: 0, wizardVersion: 1, demoDataImported: false },
+    initialization: { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' },
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
     alertEnabled: true,
     announcementPermanentlyHidden: false,
@@ -261,6 +264,9 @@ export function normalizeExam(raw: unknown): ExamSettings {
     completedAt: Number(rawInitialization.completedAt ?? 0),
     wizardVersion: Math.max(1, Number(rawInitialization.wizardVersion ?? 1)),
     demoDataImported: rawInitialization.demoDataImported === true,
+    province: String(rawInitialization.province ?? '').trim(),
+    schoolName: String(rawInitialization.schoolName ?? '').trim(),
+    schoolFullName: String(rawInitialization.schoolFullName ?? rawInitialization.schoolName ?? '').trim(),
   };
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 

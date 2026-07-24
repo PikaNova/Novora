@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import HelpTip from './HelpTip';
-import { fetchDeviceBindings, revokeDevice, type DeviceBindingInfo } from '../services/classBinding';
+import { fetchDeviceBindings, revokeDevice, sendDeviceCommand, type DeviceBindingInfo, type DeviceCommand } from '../services/classBinding';
 import { getAppSettings } from '../utils/appSettings';
 import { classDisplayName } from '../utils/classSettings';
+import { notify } from '../services/notify';
 
 const ONLINE_MS = 90_000;
 const formatTime = (value: number) => value > 0 ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '从未上线';
@@ -39,6 +40,13 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
     try { await revokeDevice(item.instanceId); await load(true); } catch (cause) { setError(cause instanceof Error ? cause.message : '删除设备失败'); }
   };
 
+  const command = async (item: DeviceBindingInfo, action: DeviceCommand['action']) => {
+    try {
+      await sendDeviceCommand(item.instanceId, action, action === 'extend' ? 5 : undefined);
+      notify('success', `已发送${action === 'pause' ? '暂停' : action === 'resume' ? '继续' : action === 'extend' ? '延长 5 分钟' : '结束'}指令。`);
+    } catch (cause) { notify('error', cause instanceof Error ? cause.message : '临时考试指令发送失败'); }
+  };
+
   return <main className="device-status">
     <div className="device-status__heading"><div><h2>设备管理 <HelpTip title="设备状态与删除">在线状态由客户端心跳判断，短暂断网可能显示离线。删除设备会撤销它的绑定，客户端下次心跳时会被要求重新选择年级与班级。</HelpTip></h2><p>查看客户端在线状态、当前考试和班级绑定；{canRevoke ? '删除后客户端会要求重新绑定。' : '当前账号为只读权限。'}</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
     <div className="device-status__stats"><div><span>设备总数</span><strong>{bindings.length}</strong></div><div><span>当前在线</span><strong>{onlineCount}</strong></div><div><span>考试进行中</span><strong>{bindings.filter(item => item.status === 'exam-running').length}</strong></div><div><span>已撤销</span><strong>{bindings.filter(item => item.revoked).length}</strong></div></div>
@@ -48,7 +56,8 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
     {!loading && filtered.length === 0 && <div className="admin-empty"><p>暂无符合条件的设备</p></div>}
     {filtered.length > 0 && <div className="device-status__table"><div className="device-status__table-head"><span>设备与班级</span><span>实时状态</span><span>最近在线</span><span>操作</span></div><div className="device-status__list">{filtered.map(item => {
       const online = !item.revoked && now - item.lastSeenAt <= ONLINE_MS;
-      return <div className={`device-status__row${item.revoked ? ' is-revoked' : ''}`} key={item.instanceId}><div className="device-status__instance"><span>{classDisplayName(grades, classes, item.classId)}</span><code title={item.instanceId}>{item.instanceId}</code></div><div className="device-status__class"><strong>{item.revoked ? '已删除，等待重新绑定' : `${online ? '在线' : '离线'} · ${statusLabel(item)}`}</strong><span>{item.currentSubject ? `${item.currentExam} · ${item.currentSubject}` : `页面 ${item.page || '未知'} · v${item.clientVersion || '未知'}`}</span></div><div className="device-status__updated"><time>{formatTime(item.lastSeenAt)}</time></div>{canRevoke ? <button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={item.revoked}>{item.revoked ? '已删除' : '删除'}</button> : <span className="device-status__readonly">只读</span>}</div>;
+      const temporary = item.currentExam.includes('临时考试') || item.status === 'temporary-paused';
+      return <div className={`device-status__row${item.revoked ? ' is-revoked' : ''}`} key={item.instanceId}><div className="device-status__instance"><span>{classDisplayName(grades, classes, item.classId)}</span><code title={item.instanceId}>{item.instanceId}</code></div><div className="device-status__class"><strong>{item.revoked ? '已删除，等待重新绑定' : `${online ? '在线' : '离线'} · ${statusLabel(item)}`}</strong><span>{item.currentSubject ? `${item.currentExam} · ${item.currentSubject}` : `页面 ${item.page || '未知'} · v${item.clientVersion || '未知'}`}</span>{temporary && canRevoke && <div className="device-status__commands"><button onClick={() => void command(item, item.status === 'temporary-paused' ? 'resume' : 'pause')}>{item.status === 'temporary-paused' ? '继续' : '暂停'}</button><button onClick={() => void command(item, 'extend')}>+5 分钟</button><button className="is-danger" onClick={() => void command(item, 'end')}>结束</button></div>}</div><div className="device-status__updated"><time>{formatTime(item.lastSeenAt)}</time></div>{canRevoke ? <button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={item.revoked}>{item.revoked ? '已删除' : '删除'}</button> : <span className="device-status__readonly">只读</span>}</div>;
     })}</div></div>}
   </main>;
 }

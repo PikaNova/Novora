@@ -11,7 +11,7 @@ import type { ExamItem, MajorExam } from './index';
 export type ScheduleMode = 'major-only' | 'weekly-only' | 'automatic';
 
 /** 后台当前编辑的模块（仅影响编辑界面，不决定大屏显示）。 */
-export type AdminTab = 'major' | 'weekly' | 'classes' | 'devices' | 'users';
+export type AdminTab = 'overview' | 'major' | 'weekly' | 'classes' | 'devices' | 'users';
 
 /** 大型考试与周测的冲突作用范围。 */
 export type WeeklyConflictScope =
@@ -60,6 +60,8 @@ export interface WeeklyExamOverride {
   sourceItemId: string;
   /** 'YYYY-MM-DD'（上海日历日）。 */
   date: string;
+  /** 临时调课后的实际日期；缺省时仍在原日期执行。 */
+  targetDate?: string;
   action: 'cancel' | 'replace';
   name?: string;
   startTime?: string;

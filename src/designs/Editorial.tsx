@@ -1,6 +1,7 @@
 import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
+import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize, Settings } from 'lucide-react';
 import './Editorial.css';
 
 /** 方案 05 · 编辑排版 — 三栏构图，朱红竖条 + 暖米白主区 + 深墨绿信息栏，秒数朱红。 */
@@ -29,14 +30,14 @@ export default function Editorial({ vm, onDismissNotification, onBack, onAdmin, 
       <div className="ed__main">
         <header className="ed__head">
           <div className="ed__head-left">
-            <button className="ed__ghost" onClick={onBack} aria-label="返回">←</button>
+            <button className="ed__ghost" onClick={onBack} aria-label="返回"><ArrowLeft /></button>
           </div>
           <span className="ed__gaokao" title={kickerBrand}>{kickerBrand}</span>
           <div className="ed__head-actions">
-            <button className="ed__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告">📢</button>
-            <button className="ed__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计">▣</button>
-            <button className="ed__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? '✕' : '⛶'}</button>
-            <button className="ed__ghost" onClick={onAdmin} aria-label="管理">⚙</button>
+            <button className="ed__ghost" onClick={onOpenAnnouncements} aria-label="查看公告" title="系统公告"><Megaphone /></button>
+            <button className="ed__ghost" onClick={onSwitchDesign} aria-label="切换设计" title="切换展示设计"><LayoutGrid /></button>
+            <button className="ed__ghost" onClick={onToggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '进入全屏'}>{isFullscreen ? <Minimize /> : <Maximize />}</button>
+            <button className="ed__ghost" onClick={onAdmin} aria-label="管理"><Settings /></button>
           </div>
         </header>
 
