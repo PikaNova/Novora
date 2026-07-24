@@ -84,6 +84,13 @@ const TONE_OPTIONS: Array<{ value: AlertState; label: string }> = [
   { value: 'next', label: '紫蓝·下一科' },
 ];
 const OPEN_ADMIN: AdminUserContext = { id: 0, username: 'local-admin', displayName: '本地管理员', roleId: 'super_admin', roleName: '超级管理员', permissions: ['*'], scopes: [{ type: 'all', gradeId: '', classId: '' }], mustChangePassword: false };
+const ADMIN_NAV: Array<{ id: AdminTab; label: string; mobileLabel: string; icon: string; permission: string }> = [
+  { id: 'major', label: '大型考试', mobileLabel: '考试', icon: '▣', permission: 'major.read' },
+  { id: 'weekly', label: '周测计划', mobileLabel: '周测', icon: '日', permission: 'weekly.read' },
+  { id: 'classes', label: '年级与班级', mobileLabel: '班级', icon: '班', permission: 'school.read' },
+  { id: 'devices', label: '设备管理', mobileLabel: '设备', icon: '屏', permission: 'device.read' },
+  { id: 'users', label: '用户与权限', mobileLabel: '用户', icon: '人', permission: 'user.read' },
+];
 const ANCHOR_OPTIONS: Array<{ value: CustomReminder['anchor']; label: string }> = [
   { value: 'beforeStart', label: '开考前' },
   { value: 'afterStart', label: '开考后' },
@@ -153,6 +160,8 @@ export default function AdminPage() {
   // 从设置页「前往提醒管理」直达：URL 带 ?alerts=1 时自动打开提醒管理弹窗
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const requestedTab = params.get('tab') as AdminTab | null;
+    if (requestedTab && ADMIN_NAV.some(item => item.id === requestedTab) && (requestedTab === 'users' || adminCan(ADMIN_NAV.find(item => item.id === requestedTab)?.permission ?? '', adminUser))) setAdminTab(requestedTab);
     if (params.get('alerts') === '1' && adminCan('alerts.read', adminUser)) setAlertsOpen(true);
     if (params.get('announce') === '1') setAnnounceOpen(true);
   }, [adminUser, location.search]);
@@ -167,6 +176,17 @@ export default function AdminPage() {
       .finally(() => { if (alive) setAnnLoading(false); });
     return () => { alive = false; };
   }, [announceOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.admin-more')) setMoreOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMoreOpen(false); };
+    document.addEventListener('pointerdown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => { document.removeEventListener('pointerdown', closeOnOutside); document.removeEventListener('keydown', closeOnEscape); };
+  }, [moreOpen]);
 
   const activeMajor = majors.find(m => m.id === activeMajorId) ?? majors[0];
   const items = activeMajor?.items ?? [];
@@ -424,7 +444,11 @@ export default function AdminPage() {
       const verifiedUser = await userP;
       if (cancelled) return;
       if (required && !verifiedUser) { navigate('/login?next=/admin', { replace: true }); return; }
-      if (verifiedUser?.mustChangePassword) { navigate('/settings?password=1', { replace: true }); return; }
+      if (verifiedUser?.mustChangePassword) {
+        setAdminUser(verifiedUser); setAdminTab('users'); setReady(true);
+        if (location.search !== '?tab=users&password=1') navigate('/admin?tab=users&password=1', { replace: true });
+        return;
+      }
       setAdminUser(verifiedUser ?? OPEN_ADMIN);
       setReady(true);
 
@@ -468,7 +492,7 @@ export default function AdminPage() {
     };
     void boot();
     return () => { cancelled = true; if (saveTimer.current) clearTimeout(saveTimer.current); if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current); };
-  }, [navigate, pushToServer, pushWeeklyToServer]);
+  }, [location.search, navigate, pushToServer, pushWeeklyToServer]);
 
   // 网络状态：回线时自动回推未同步变更
   useEffect(() => {
@@ -484,6 +508,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!adminUser) return;
+    if (adminUser.mustChangePassword) { if (adminTab !== 'users') setAdminTab('users'); return; }
     const permissionByTab: Record<AdminTab, string> = { major: 'major.read', weekly: 'weekly.read', classes: 'school.read', devices: 'device.read', users: 'user.read' };
     if (adminCan(permissionByTab[adminTab], adminUser)) return;
     const next = (Object.keys(permissionByTab) as AdminTab[]).find(tab => adminCan(permissionByTab[tab], adminUser));
@@ -596,29 +621,19 @@ export default function AdminPage() {
   return <div className="admin-page">
     <Watermark />
     <header className="admin-header">
-      <div className="admin-header__left"><button className="admin-back-btn" onClick={() => navigate('/')}>← 返回</button><h1 className="admin-header__title">考试管理</h1>{activeMajor && <span className="admin-header__major" title="当前大型考试"><span className="admin-header__major-dot" />{activeMajor.name}<span className="admin-header__major-count">{items.length} 科</span></span>}</div>
+      <div className="admin-header__left"><button className="admin-back-btn admin-back-btn--icon" onClick={() => navigate('/')} aria-label="返回首页" title="返回首页">←</button><div className="admin-header__identity"><h1 className="admin-header__title">考试管理</h1><span>{ADMIN_NAV.find(item => item.id === adminTab)?.label}</span></div>{activeMajor && adminTab === 'major' && <span className="admin-header__major" title="当前大型考试"><span className="admin-header__major-dot" />{activeMajor.name}<span className="admin-header__major-count">{items.length} 科</span></span>}</div>
       <div className="admin-header__right">
         <span className="admin-user-chip" title={`登录账号：${adminUser.username}`}><strong>{adminUser.displayName}</strong><small>{adminUser.roleName}</small></span>
         <span className={`admin-cloud ${syncMeta.cls}`} title={online ? '云服务在线' : '当前离线'}>
           <span className="admin-cloud__dot" />{syncMeta.label}
         </span>
-        {can('alerts.read') && <button className="admin-btn admin-btn--primary" onClick={() => setAlertsOpen(true)}>🔔 提醒管理{alerts.enabled ? '' : '（已停用）'}</button>}
-        <button className="admin-btn" onClick={() => setAnnounceOpen(true)}>📢 公告</button>
-        {can('initialization.run') && <button className="admin-btn" onClick={() => setWizardOpen(true)}>初始化向导</button>}
-        {initialization.demoDataImported && can('demo_data.delete') && <button className="admin-btn" onClick={removeDemoData}>清除演示数据</button>}
-        {adminTab === 'major' && (can('major.import') || can('major.export')) && <div className="admin-header__desktop-data">{can('major.import') && <button className="admin-btn" onClick={() => setImportOpen(true)}>导入大型考试 JSON</button>}{can('major.export') && <button className="admin-btn" onClick={exportJson}>导出大型考试 JSON</button>}</div>}
-        {adminTab === 'major' && (can('major.import') || can('major.export')) && <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 600px)').matches) { const width = Math.min(260, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: Math.min(rect.bottom + 8, window.innerHeight - 110), left: Math.min(Math.max(14, rect.left), window.innerWidth - width - 14), width }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen}>⋯ 更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle}>{can('major.import') && <button onClick={() => { setImportOpen(true); setMoreOpen(false); }}>导入大型考试 JSON</button>}{can('major.export') && <button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button>}</div>}</div>}
-        {can('settings.read') && <button className="admin-btn" onClick={() => navigate('/settings')}>🛠️ 设置</button>}
-        <button className="admin-btn admin-btn--ghost" onClick={() => { logoutAdmin(); navigate('/login?next=/admin', { replace: true }); }}>退出</button>
+        <div className="admin-header__quick-actions">{can('alerts.read') && <button className="admin-btn admin-btn--primary" onClick={() => setAlertsOpen(true)}>提醒{alerts.enabled ? '' : '（停用）'}</button>}{can('settings.read') && <button className="admin-btn" onClick={() => navigate('/settings')}>系统设置</button>}</div>
+        <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 700px)').matches) { const width = Math.min(280, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: rect.bottom + 8, left: window.innerWidth - width - 14, width, maxHeight: `calc(100dvh - ${rect.bottom + 24}px)` }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="menu">更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle} role="menu"><button onClick={() => { setAnnounceOpen(true); setMoreOpen(false); }}>查看公告</button>{can('alerts.read') && <button className="admin-more__mobile-only" onClick={() => { setAlertsOpen(true); setMoreOpen(false); }}>提醒管理{alerts.enabled ? '' : '（已停用）'}</button>}{can('settings.read') && <button className="admin-more__mobile-only" onClick={() => { navigate('/settings'); setMoreOpen(false); }}>系统设置</button>}{can('initialization.run') && <button onClick={() => { setWizardOpen(true); setMoreOpen(false); }}>初始化向导</button>}{initialization.demoDataImported && can('demo_data.delete') && <button onClick={() => { removeDemoData(); setMoreOpen(false); }}>清除演示数据</button>}{adminTab === 'major' && can('major.import') && <button onClick={() => { setImportOpen(true); setMoreOpen(false); }}>导入大型考试 JSON</button>}{adminTab === 'major' && can('major.export') && <button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button>}<button className="is-danger" onClick={() => { logoutAdmin(); navigate('/login?next=/admin', { replace: true }); }}>退出登录</button></div>}</div>
       </div>
     </header>
-    <div className="admin-tabbar">
+    <div className={`admin-tabbar${adminTab === 'major' || adminTab === 'weekly' ? ' has-context' : ''}`}>
       <div className="admin-tabbar__tabs">
-        {can('major.read') && <button className={`admin-tab${adminTab === 'major' ? ' is-active' : ''}`} onClick={() => setAdminTab('major')}>🏫 大型考试</button>}
-        {can('weekly.read') && <button className={`admin-tab${adminTab === 'weekly' ? ' is-active' : ''}`} onClick={() => setAdminTab('weekly')}>📅 周测{weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>}
-        {can('school.read') && <button className={`admin-tab${adminTab === 'classes' ? ' is-active' : ''}`} onClick={() => setAdminTab('classes')}>年级与班级</button>}
-        {can('device.read') && <button className={`admin-tab${adminTab === 'devices' ? ' is-active' : ''}`} onClick={() => setAdminTab('devices')}>设备管理</button>}
-        {can('user.read') && <button className={`admin-tab${adminTab === 'users' ? ' is-active' : ''}`} onClick={() => setAdminTab('users')}>用户与权限</button>}
+        {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={`admin-tab${adminTab === item.id ? ' is-active' : ''}`} onClick={() => setAdminTab(item.id)} aria-current={adminTab === item.id ? 'page' : undefined}><span>{item.icon}</span>{item.label}{item.id === 'weekly' && weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>)}
       </div>
       {adminTab !== 'devices' && adminTab !== 'classes' && adminTab !== 'users' && <>
       <label className="admin-tabbar__mode"><span>运行模式 <HelpTip title="运行模式">仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。</HelpTip></span>
@@ -662,7 +677,7 @@ export default function AdminPage() {
       ) : adminTab === 'devices' ? (
         <DeviceStatusPanel canRevoke={can('device.revoke')} />
       ) : adminTab === 'users' ? (
-        <UserManagementPanel grades={grades} classes={classes} />
+        <UserManagementPanel grades={grades} classes={classes} currentUser={adminUser} forcePasswordChange={adminUser.mustChangePassword || new URLSearchParams(location.search).get('password') === '1'} />
       ) : (
       <>
       <aside className="admin-sidebar">
@@ -717,6 +732,9 @@ export default function AdminPage() {
       </>
       )}
     </div>
+    <nav className="admin-mobile-nav" aria-label="管理功能">
+      {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => setAdminTab(item.id)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true">{item.icon}</span><small>{item.mobileLabel}</small></button>)}
+    </nav>
     {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><div className="admin-label">适用年级（不选表示全部） <HelpTip title="适用年级">勾选后，这场大型考试只会出现在已绑定到这些年级的设备上；不勾选表示全校通用。</HelpTip><div className="admin-major-targets">{grades.map(grade => <label key={grade.id}><input type="checkbox" checked={majorModal.targetGradeIds.includes(grade.id)} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.checked ? [...p.targetGradeIds, grade.id] : p.targetGradeIds.filter(id => id !== grade.id) }))} />{grade.name}</label>)}</div></div><p className="admin-major-card__hint">大型考试按年级区分，只在当前设备所选年级命中时显示。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
     {deleteMajorOpen && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteMajorOpen(false))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
     {deleteTarget && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteTarget(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">确认删除</h2><p className="admin-modal__body">确定删除「{deleteTarget.name}」？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={() => remove(deleteTarget)}>删除</button><button className="admin-btn" onClick={() => setDeleteTarget(null)}>取消</button></div></div></div>}

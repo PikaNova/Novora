@@ -57,13 +57,13 @@ export function authSql() {
   return sqlClient;
 }
 
-const BUILTIN_ROLES: Array<{ id: string; name: string; permissions: Permission[] }> = [
-  { id: 'super_admin', name: '超级管理员', permissions: ['*'] },
-  { id: 'academic_admin', name: '教务管理员', permissions: ALL_PERMISSIONS.filter(item => !item.startsWith('user.') && item !== 'role.manage' && item !== 'audit.read') as Permission[] },
-  { id: 'grade_admin', name: '年级管理员', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
-  { id: 'class_admin', name: '班级管理员', permissions: ['overview.read', 'major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'alerts.read'] },
-  { id: 'device_admin', name: '设备管理员', permissions: ['overview.read', 'school.read', 'device.read', 'device.bind', 'device.revoke'] },
-  { id: 'viewer', name: '只读用户', permissions: ['overview.read', 'major.read', 'weekly.read', 'school.read', 'device.read', 'alerts.read', 'settings.read'] },
+const BUILTIN_ROLES: Array<{ id: string; name: string; description: string; permissions: Permission[] }> = [
+  { id: 'super_admin', name: '超级管理员', description: '拥有全校数据与全部系统权限，可管理用户、角色、部署及所有业务设置。', permissions: ['*'] },
+  { id: 'academic_admin', name: '教务管理员', description: '负责全校考试、周测、校历、设备和系统设置，不可管理用户、角色与审计日志。', permissions: ALL_PERMISSIONS.filter(item => !item.startsWith('user.') && item !== 'role.manage' && item !== 'audit.read') as Permission[] },
+  { id: 'grade_admin', name: '年级管理员', description: '在授权年级内维护大型考试、周测、班级和设备，可查看提醒但不能修改系统级设置。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
+  { id: 'class_admin', name: '班级管理员', description: '在授权班级内维护周测计划、查看大型考试并绑定设备，不可修改年级结构。', permissions: ['overview.read', 'major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'alerts.read'] },
+  { id: 'device_admin', name: '设备管理员', description: '查看年级班级结构，负责客户端绑定、状态检查和失效设备清理。', permissions: ['overview.read', 'school.read', 'device.read', 'device.bind', 'device.revoke'] },
+  { id: 'viewer', name: '只读用户', description: '仅查看考试、周测、学校结构、设备、提醒与系统设置，不能修改任何数据。', permissions: ['overview.read', 'major.read', 'weekly.read', 'school.read', 'device.read', 'alerts.read', 'settings.read'] },
 ];
 
 export async function ensureAuthTables(): Promise<void> {
@@ -127,8 +127,8 @@ export async function ensureAuthTables(): Promise<void> {
     ]);
     const now = Date.now();
     await Promise.all(BUILTIN_ROLES.map(role => sql`INSERT INTO app_roles (id, name, description, permissions, built_in, created_at, updated_at)
-      VALUES (${role.id}, ${role.name}, '', ${JSON.stringify(role.permissions)}::jsonb, TRUE, ${now}, ${now})
-      ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, permissions=EXCLUDED.permissions, built_in=TRUE, updated_at=EXCLUDED.updated_at`));
+      VALUES (${role.id}, ${role.name}, ${role.description}, ${JSON.stringify(role.permissions)}::jsonb, TRUE, ${now}, ${now})
+      ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, permissions=EXCLUDED.permissions, built_in=TRUE, updated_at=EXCLUDED.updated_at`));
     // 已经完成过旧版密码初始化的数据库可直接生成默认超级管理员，无需再次输入或重置数据。
     const [legacyRows, userCountRows] = await Promise.all([
       sql`SELECT password_hash, password_salt FROM app_auth WHERE id=1`,

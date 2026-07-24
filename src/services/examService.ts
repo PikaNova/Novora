@@ -262,17 +262,6 @@ export function hasValidLocalToken(): boolean {
   return true;
 }
 
-export async function changeAdminPassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const token = localStorage.getItem(TOKEN_KEY); if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch('/api/admin-password', { method: 'POST', headers, body: JSON.stringify({ currentPassword, newPassword }) });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) return { ok: false, error: data?.error || '修改失败' };
-    logoutAdmin(); return { ok: true };
-  } catch { return { ok: false, error: '网络错误，请恢复联网后重试' }; }
-}
-
 export function logoutAdmin(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(TOKEN_EXPIRES_KEY);

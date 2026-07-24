@@ -26,7 +26,7 @@ export default function LoginPage() {
     const ok = await loginAdmin(username.trim(), password);
     setLoading(false);
     if (!ok) { setError('用户名或密码不正确，请重新输入'); return; }
-    if (getAdminUser()?.mustChangePassword) { navigate('/settings?password=1', { replace: true }); return; }
+    if (getAdminUser()?.mustChangePassword) { navigate('/admin?tab=users&password=1', { replace: true }); return; }
     navigate(next, { replace: true });
   };
 

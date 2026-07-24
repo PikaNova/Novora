@@ -5,6 +5,7 @@ import {
   authSql,
   canAccessClass,
   canAccessGrade,
+  changeOwnPassword,
   ensureAuthTables,
   hasPermission,
   makePasswordHash,
@@ -89,12 +90,18 @@ async function ensureNotLastSuperAdmin(userId: number, nextRoleId: string, nextS
 
 async function handleUsers(req: VercelRequest, res: VercelResponse, actor: AdminActor) {
   const sql = authSql();
+  const body = req.body ?? {};
+  const action = text(body.action, 40);
+  if (req.method === 'POST' && action === 'change-own-password') {
+    const result = await changeOwnPassword(actor.id, String(body.currentPassword ?? ''), String(body.newPassword ?? ''));
+    if (!result.ok) return res.status(400).json(result);
+    await writeAudit(actor, 'user.password.change', 'user', String(actor.id));
+    return res.json({ ok: true, message: 'Password changed. Please sign in again.' });
+  }
   if (req.method === 'GET') {
     if (!hasPermission(actor, 'user.read')) return res.status(403).json({ ok: false, error: 'Forbidden' });
     return res.json({ ok: true, users: await listUsers(), roles: await listRoles(), permissions: ALL_PERMISSIONS });
   }
-  const body = req.body ?? {};
-  const action = text(body.action, 40);
   if (action === 'create') {
     if (!hasPermission(actor, 'user.create')) return res.status(403).json({ ok: false, error: 'Forbidden' });
     const username = text(body.username, 40);
@@ -199,7 +206,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
   try {
     await ensureAuthTables();
-    const actor = await requireActor(req, res);
+    const ownPasswordChange = req.method === 'POST' && text(req.body?.resource, 30) === 'users' && text(req.body?.action, 40) === 'change-own-password';
+    const actor = await requireActor(req, res, undefined, ownPasswordChange);
     if (!actor) return;
     const resource = text(req.method === 'GET' ? req.query?.resource : req.body?.resource, 30) || 'users';
     if (resource === 'roles') return await handleRoles(req, res, actor);

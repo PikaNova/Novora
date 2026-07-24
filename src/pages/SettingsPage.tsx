@@ -18,7 +18,7 @@ import { renderMarkdown } from '../utils/renderMarkdown';
 import AnnouncementList from '../components/AnnouncementList';
 import HelpTip from '../components/HelpTip';
 import readmeRaw from '../../README.md?raw';
-import { adminCan, changeAdminPassword, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, refreshAdminUser, saveExamsToServer, type AdminUserContext } from '../services/examService';
+import { adminCan, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, refreshAdminUser, saveExamsToServer, type AdminUserContext } from '../services/examService';
 import type { WeeklyPlan, WeeklyWeekMode } from '../types/exam';
 import { sortedClasses, sortedGrades } from '../utils/classSettings';
 import { OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
@@ -66,7 +66,8 @@ export default function SettingsPage() {
     if (hasValidLocalToken()) {
       refreshAdminUser().then(user => {
         if (!user) { navigate('/login?next=/settings', { replace: true }); return; }
-        if (!adminCan('settings.read', user) && !user.mustChangePassword) { navigate('/admin', { replace: true }); return; }
+        if (user.mustChangePassword) { navigate('/admin?tab=users&password=1', { replace: true }); return; }
+        if (!adminCan('settings.read', user)) { navigate('/admin', { replace: true }); return; }
         setAdminUser(user); setAuthed(true);
       });
       return;
@@ -91,11 +92,6 @@ export default function SettingsPage() {
   const consent = getConsent();
   const [anns, setAnns] = useState<Announcement[]>([]);
   const [annLoading, setAnnLoading] = useState(true);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordMsg, setPasswordMsg] = useState('');
-  const [passwordBusy, setPasswordBusy] = useState(false);
   const initialExam = useMemo(() => getAppSettings().exam, []);
   const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(initialExam.weeklyPlans);
   const [calendarGradeId, setCalendarGradeId] = useState(initialExam.selectedGradeId || initialExam.grades[0]?.id || '');
@@ -179,30 +175,11 @@ export default function SettingsPage() {
     setTypography(next); applyTypographySettings(next);
   };
 
-  // 移动端：输入框聚焦时滚入可视区中央，避免软键盘顶起后被遮挡（桌面端不触发）。
-  const focusScroll = (e: React.FocusEvent<HTMLElement>) => {
-    if (typeof window === 'undefined' || !window.matchMedia('(max-width: 620px)').matches) return;
-    const el = e.currentTarget;
-    window.setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
-  };
-
   const openReadme = () => {
     const blob = new Blob([readmeRaw], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener,noreferrer');
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-  };
-
-  const submitPassword = async () => {
-    if (newPassword.length < 8) { setPasswordMsg('新密码至少需要 8 位'); return; }
-    if (newPassword !== confirmPassword) { setPasswordMsg('两次输入的新密码不一致'); return; }
-    setPasswordBusy(true); setPasswordMsg('正在保存…');
-    const result = await changeAdminPassword(currentPassword, newPassword);
-    setPasswordBusy(false);
-    if (!result.ok) { setPasswordMsg(result.error || '修改失败'); return; }
-    setPasswordMsg('密码已保存至数据库，请使用新密码重新登录。');
-    setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
-    window.setTimeout(() => navigate('/login?next=/settings', { replace: true }), 800);
   };
 
   const resetLocal = () => {
@@ -275,8 +252,7 @@ export default function SettingsPage() {
       </header>
 
       <div className="set-body">
-        {adminUser?.mustChangePassword && <div className="set-note set-note--warn">首次登录或密码已被重置，请先在“管理员安全”中修改初始密码，之后才能使用管理功能。</div>}
-        {!canEditSettings && <div className="set-note set-note--warn">当前账号对系统设置只有查看权限；修改自己的密码仍然可用。</div>}
+        {!canEditSettings && <div className="set-note set-note--warn">当前账号对系统设置只有查看权限。如需修改登录密码，请前往“用户与权限”。</div>}
         <section className="set-card">
           <div className="set-card__head"><h2 className="set-card__title">周测日历</h2></div>
           <p className="set-card__lead">配置学期周次和法定节假日。学期开始日期所在周按 A 周计算，下一周自动切换为 B 周。</p>
@@ -428,19 +404,6 @@ export default function SettingsPage() {
             <label className="set-label">重置本地设置</label>
             <button className="set-btn set-btn--danger" disabled={!canEditSettings} onClick={resetLocal}>清除本地缓存并恢复默认</button>
           </div>
-        </section>
-
-        {/* ―― 管理员安全 ―― */}
-        <section className="set-card">
-          <div className="set-card__head"><h2 className="set-card__title">🔐 管理员安全</h2></div>
-          <p className="set-card__lead">修改后的密码安全哈希保存在本客户端 Neon 数据库中，后续无需再到 Vercel 修改环境变量；修改会使其他设备的旧登录失效。</p>
-          <div className="set-password-grid">
-            <input className="set-input" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} onFocus={focusScroll} placeholder="当前密码" autoComplete="current-password" />
-            <input className="set-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} onFocus={focusScroll} placeholder="新密码（至少 8 位）" autoComplete="new-password" />
-            <input className="set-input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} onFocus={focusScroll} placeholder="确认新密码" autoComplete="new-password" />
-          </div>
-          <button className="set-btn set-btn--primary" disabled={passwordBusy} onClick={submitPassword}>{passwordBusy ? '保存中…' : '修改管理员密码'}</button>
-          {passwordMsg ? <p className="set-note">{passwordMsg}</p> : null}
         </section>
 
         {/* ―― 使用遥测 ―― */}

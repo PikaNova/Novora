@@ -133,8 +133,6 @@ select.set-input { cursor: pointer; }
 
 .set-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0d0d0d; color: #93a0ad; font-size: 14px; }
 
-.set-password-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}.set-password-grid .set-input{width:100%}@media(max-width:620px){.set-password-grid{grid-template-columns:1fr}}
-
 /* 字体分区：桌面端并列四个角色，手机端自动转为单列，避免选择框被压缩。 */
 .set-font-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}.set-font-field{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#111317}.set-font-field>span{font-size:13px;font-weight:700;color:#e9edf2}.set-font-field .set-input{width:100%;min-width:0}.set-font-field small{font-size:11.5px;line-height:1.45;color:#8b95a1}@media(max-width:620px){.set-font-grid{grid-template-columns:1fr;gap:10px}.set-font-field{padding:12px}.set-font-field .set-input{min-height:44px}}
 .set-btn--ghost{background:transparent;border-color:rgba(255,255,255,.16);color:#bdc7d2}.set-font-preview{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;padding:8px 9px;border-radius:7px;background:rgba(255,255,255,.045);color:#dce7f2;font-style:normal;font-size:13px}.set-font-preview--nav{font-family:var(--font-region-navigation)}.set-font-preview--display{font-family:var(--font-region-display);font-size:18px;font-weight:800}.set-font-preview--content{font-family:var(--font-region-content)}.set-font-preview--numeric{font-family:var(--font-region-numeric);font-size:18px;font-variant-numeric:tabular-nums}
