@@ -14,7 +14,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; next: string; confirm: string } | null>(null);
-  const next = new URLSearchParams(location.search).get('next') || '/admin';
+  const search = new URLSearchParams(location.search);
+  const next = search.get('next') || '/admin';
+  const initializing = search.get('mode') === 'initialize';
 
   useEffect(() => {
     isLoginRequired().then(required => {
@@ -39,7 +41,7 @@ export default function LoginPage() {
     if (passwordUpgrade.next.length < 8) { setError('新密码至少需要 8 位'); return; }
     if (passwordUpgrade.next !== passwordUpgrade.confirm) { setError('两次输入的新密码不一致'); return; }
     setLoading(true); setError('');
-    try { await changeOwnPassword(passwordUpgrade.current, passwordUpgrade.next); logoutAdmin(); navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true }); setPasswordUpgrade(null); setPassword(''); }
+    try { await changeOwnPassword(passwordUpgrade.current, passwordUpgrade.next); logoutAdmin(); navigate(`/login?${initializing ? 'mode=initialize&' : ''}next=${encodeURIComponent(next)}`, { replace: true }); setPasswordUpgrade(null); setPassword(''); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '密码修改失败'); }
     finally { setLoading(false); }
   };
@@ -51,31 +53,32 @@ export default function LoginPage() {
       <section className="login-card" aria-label="考试管理登录">
         <div className="login-card__mark">⌁</div>
         <p className="login-card__eyebrow">EXAM BOARD</p>
-        <h1 className="login-card__title">考试管理</h1>
-        <p className="login-card__subtitle">使用管理员账号登录以继续</p>
+        <h1 className="login-card__title">{initializing ? '系统初始化' : '考试管理'}</h1>
+        <p className="login-card__subtitle">{initializing ? '验证超级管理员后直接打开初始化向导' : '使用管理员账号登录以继续'}</p>
         {passwordUpgrade ? <form className="login-form" onSubmit={upgradePassword}>
           <p className="login-form__notice">当前密码不足 8 位或属于初始密码，请先设置新密码再进入后台。</p>
           <label className="login-form__label" htmlFor="new-password">新密码</label><div className={`login-form__field${error ? ' login-form__field--error' : ''}`}><span aria-hidden="true">●</span><input id="new-password" type="password" autoComplete="new-password" value={passwordUpgrade.next} onChange={event => { setPasswordUpgrade(value => value && ({ ...value, next: event.target.value })); setError(''); }} placeholder="至少 8 位" /></div>
           <label className="login-form__label" htmlFor="confirm-password">确认新密码</label><div className={`login-form__field${error ? ' login-form__field--error' : ''}`}><span aria-hidden="true">●</span><input id="confirm-password" type="password" autoComplete="new-password" value={passwordUpgrade.confirm} onChange={event => { setPasswordUpgrade(value => value && ({ ...value, confirm: event.target.value })); setError(''); }} placeholder="再次输入新密码" /></div>
           {error && <p className="login-form__error">{error}</p>}<button className="login-form__submit" disabled={loading} type="submit">{loading ? '正在保存…' : '保存新密码'}</button>
         </form> : <form className="login-form" onSubmit={submit}>
-          <label className="login-form__label" htmlFor="admin-username">用户名</label>
+          {initializing && <p className="login-form__notice">首次部署请使用用户名 admin 和 Vercel 中设置的 ADMIN_PASSWORD。首次验证会自动创建超级管理员。</p>}
+          <label className="login-form__label" htmlFor="admin-username">{initializing ? '超级管理员用户名' : '用户名'}</label>
           <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>
             <span aria-hidden="true">@</span>
             <input id="admin-username" type="text" autoComplete="username" autoFocus
               value={username} onChange={e => { setUsername(e.target.value); setError(''); }}
               placeholder="默认：admin" />
           </div>
-          <label className="login-form__label" htmlFor="admin-password">管理员密码</label>
+          <label className="login-form__label" htmlFor="admin-password">{initializing ? '部署管理员密码' : '管理员密码'}</label>
           <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>
             <span aria-hidden="true">⌘</span>
             <input id="admin-password" type="password" autoComplete="current-password"
               value={password} onChange={e => { setPassword(e.target.value); setError(''); }}
-              placeholder="输入密码" />
+              placeholder={initializing ? '输入 ADMIN_PASSWORD' : '输入密码'} />
           </div>
           {error && <p className="login-form__error">{error}</p>}
           <button className="login-form__submit" disabled={loading} type="submit">
-            {loading ? '正在验证…' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
+            {loading ? '正在验证…' : initializing ? '验证并开始初始化' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
           </button>
         </form>}
         <Link className="login-card__back" to="/"><ArrowLeft aria-hidden="true" />返回首页</Link>

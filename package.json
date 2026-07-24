@@ -1,12 +1,13 @@
 {
   "name": "exam-board",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "node ./node_modules/vite/bin/vite.js build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck:api": "tsc -p tsconfig.api.json && node -e \"import('./.api-check/api/exams.js')\""
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.5",

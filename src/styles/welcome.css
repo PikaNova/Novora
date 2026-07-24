@@ -52,7 +52,8 @@
 .welcome-lastopen { margin: 6px 0 0; font-size: 12px; letter-spacing: .02em; color: rgba(255,255,255,.55); }
 
 .welcome-class-overlay{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:20px;background:rgba(3,7,12,.78)}
-.welcome-class-dialog{width:min(440px,100%);max-height:min(640px,calc(100dvh - 40px));overflow:auto;padding:24px;border:1px solid rgba(126,200,255,.34);border-radius:8px;background:#121a25;box-shadow:0 24px 72px rgba(0,0,0,.48)}
+.welcome-class-dialog{position:relative;width:min(440px,100%);max-height:min(640px,calc(100dvh - 40px));overflow:auto;padding:24px;border:1px solid rgba(126,200,255,.34);border-radius:8px;background:#121a25;box-shadow:0 24px 72px rgba(0,0,0,.48)}
+.welcome-class-dialog__close{position:absolute;top:14px;right:14px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.05);color:#eaf7ff;cursor:pointer}.welcome-class-dialog__close svg{width:18px;height:18px}.welcome-class-dialog__close:hover{background:rgba(255,255,255,.1)}
 .welcome-class-dialog__eyebrow{display:block;margin-bottom:6px;color:#73c8ff;font-size:11px;font-weight:800}
 .welcome-class-dialog h2{margin:0;font-family:var(--font-region-display);font-size:24px}
 .welcome-class-dialog p{margin:10px 0 18px;color:rgba(240,245,250,.68);font-size:14px;line-height:1.65}
@@ -66,6 +67,7 @@
 .welcome-class-options .is-general{grid-column:1/-1;border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.05)}
 .welcome-class-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:46px;color:rgba(240,245,250,.72);font-size:14px}
 .welcome-class-loading span{width:16px;height:16px;border:2px solid rgba(115,200,255,.25);border-top-color:#73c8ff;border-radius:50%;animation:welcomeClassSpin .75s linear infinite}
+.welcome-class-empty{display:grid;gap:10px;padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.04)}.welcome-class-empty>strong{font-size:15px}.welcome-class-empty>span{color:rgba(240,245,250,.64);font-size:13px;line-height:1.6}.welcome-class-empty>div{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}.welcome-class-empty button{min-height:40px;padding:0 13px;border:1px solid rgba(115,200,255,.28);border-radius:7px;background:rgba(115,200,255,.08);color:#eaf7ff;font:inherit;font-weight:700;cursor:pointer}.welcome-class-empty button.is-primary{border-color:rgba(115,200,255,.55);background:rgba(73,169,232,.26)}
 @keyframes welcomeClassSpin{to{transform:rotate(360deg)}}
-@media(max-width:420px){.welcome-class-dialog{padding:20px 16px}.welcome-class-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.welcome-class-choices--classes{grid-template-columns:repeat(3,minmax(0,1fr))}.welcome-class-options .is-general{grid-column:auto}}
+@media(max-width:420px){.welcome-class-dialog{padding:20px 16px}.welcome-class-dialog__close{top:12px;right:12px}.welcome-class-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.welcome-class-choices--classes{grid-template-columns:repeat(3,minmax(0,1fr))}.welcome-class-options .is-general{grid-column:auto}.welcome-class-empty>div{flex-direction:column}.welcome-class-empty button{width:100%}}
 @media(max-width:560px){.welcome-setup-notice{align-items:stretch;flex-direction:column;gap:10px}.welcome-setup-notice button{width:100%}}

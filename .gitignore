@@ -1,4 +1,8 @@
 node_modules/
+.api-check/
+integrations/ClassIsland.ExamReminder/bin/
+integrations/ClassIsland.ExamReminder/obj/
+integrations/ClassIsland.ExamReminder/cipx/
 .npm-cache/
 .vercel/
 *.log

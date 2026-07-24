@@ -181,6 +181,7 @@ export default function AdminPage() {
     }
     if (params.get('alerts') === '1' && adminCan('alerts.read', adminUser)) setAlertsOpen(true);
     if (params.get('announce') === '1') setAnnounceOpen(true);
+    if (params.get('initialize') === '1' && adminCan('initialization.run', adminUser)) setWizardOpen(true);
   }, [adminUser, location.search]);
 
   // 打开公告弹窗时拉取最新公告

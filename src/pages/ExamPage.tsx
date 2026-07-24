@@ -1,5 +1,5 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import type { ExamItem, AlertsSettings } from '../types';
 import { getAppSettings } from '../utils/appSettings';
 import { getResolvedExamItems } from '../utils/appSchedule';
@@ -114,6 +114,13 @@ function computeUrgency(phase: ExamPhaseVM, remainingMs: number): Urgency {
 }
 
 export default function ExamPage() {
+  const exam = getAppSettings().exam;
+  const selectedClass = exam.classes.find(item => item.id === exam.selectedClassId);
+  const bindingValid = Boolean(exam.selectedGradeId && selectedClass && selectedClass.gradeId === exam.selectedGradeId);
+  return bindingValid ? <BoundExamPage /> : <Navigate to="/?selectClass=1" replace />;
+}
+
+function BoundExamPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<ExamItem[]>(() => getResolvedExamItems());
   const [title, setTitle] = useState<string>(() => getAppSettings().exam?.title ?? '');

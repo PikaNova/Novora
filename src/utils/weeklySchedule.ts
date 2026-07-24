@@ -6,9 +6,9 @@ import type {
   IsoWeekday,
   ScheduleValidationIssue,
   WeeklyWeekType,
-} from '../types/exam';
-import { getZonedParts, DISPLAY_TIME_ZONE } from './timeSource';
-import { expandOfficialHolidayDates } from '../data/officialHolidays';
+} from '../types/exam.js';
+import { getZonedParts, DISPLAY_TIME_ZONE } from './zonedTime.js';
+import { expandOfficialHolidayDates } from '../data/officialHolidays.js';
 
 /**
  * 周测周期规则 -> 实际实例 的纯函数集合。

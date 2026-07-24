@@ -1,4 +1,4 @@
-import type { ExamItem } from '../types';
+import type { ExamItem } from '../types/index.js';
 import type {
   WeeklyConflictPolicy,
   WeeklyOccurrence,
@@ -6,12 +6,12 @@ import type {
   ScheduleConflict,
   ResolvedSchedule,
   ScheduleMode,
-} from '../types/exam';
-import { DEFAULT_WEEKLY_CONFLICT_POLICY } from '../types/exam';
-import { parseZonedTime } from './timeSource';
-import { sortExamItemsByTime } from './examSchedule';
-import { getShanghaiDateKey, resolveWeeklyOccurrences } from './weeklySchedule';
-import type { ResolveWeeklyOptions } from './weeklySchedule';
+} from '../types/exam.js';
+import { DEFAULT_WEEKLY_CONFLICT_POLICY } from '../types/exam.js';
+import { parseZonedTime } from './zonedTime.js';
+import { sortExamItemsByTime } from './examSchedule.js';
+import { getShanghaiDateKey, resolveWeeklyOccurrences } from './weeklySchedule.js';
+import type { ResolveWeeklyOptions } from './weeklySchedule.js';
 
 /**
  * 大型考试 <-> 周测 冲突判断，以及统一调度出口。

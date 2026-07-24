@@ -1,5 +1,5 @@
-import type { ExamItem } from '../types';
-import { parseZonedTime } from './timeSource';
+import type { ExamItem } from '../types/index.js';
+import { parseZonedTime } from './zonedTime.js';
 
 /** 考试时间线只由真实时间决定，旧 order 字段仅为兼容保存。 */
 export function sortExamItemsByTime<T extends ExamItem>(items: T[]): T[] {

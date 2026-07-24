@@ -3,7 +3,7 @@ import { neon } from '@neondatabase/serverless';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { canAccessClass, canAccessGrade, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
 import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
-import { parseZonedTime } from '../src/utils/timeSource.js';
+import { parseZonedTime } from '../src/utils/zonedTime.js';
 
 // 性能：缓存 neon 客户端（同一 warm 实例复用）。
 let _sql: ReturnType<typeof neon> | null = null;
@@ -289,6 +289,14 @@ function updatedAtIntegerOverflow(err: unknown): boolean {
 
 const PLUGIN_PAIR_TTL_MS = 5 * 60 * 1000;
 const PLUGIN_VIEWER_ONLINE_MS = 90 * 1000;
+const CLASSISLAND_API_VERSION = 2;
+const CLASSISLAND_API_CAPABILITIES = [
+  'pairing',
+  'class-binding',
+  'schedule-sync',
+  'viewer-link',
+  'exam-source',
+] as const;
 const PLUGIN_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;
 const PLUGIN_SECRET_RE = /^[a-f0-9]{32,256}$/i;
 const PLUGIN_TOKEN_RE = /^[a-f0-9]{32,256}$/i;
@@ -307,6 +315,14 @@ function pluginCredentials(body: Record<string, unknown>): { instanceId: string;
   const instanceId = String(body.pluginInstanceId ?? '').trim();
   const secret = String(body.clientSecret ?? '').trim();
   return PLUGIN_ID_RE.test(instanceId) && PLUGIN_SECRET_RE.test(secret) ? { instanceId, secret } : null;
+}
+
+function classIslandApiMeta() {
+  return {
+    apiVersion: CLASSISLAND_API_VERSION,
+    minApiVersion: 1,
+    capabilities: CLASSISLAND_API_CAPABILITIES,
+  };
 }
 
 function classLabel(payload: ReturnType<typeof examPayload>, gradeId: string, classId: string): string {
@@ -334,7 +350,16 @@ function resolvePluginExams(payload: ReturnType<typeof examPayload>, gradeId: st
     const start = parseZonedTime(item.startTime);
     const end = parseZonedTime(item.endTime);
     if (!item.enabled || !Number.isFinite(start) || !Number.isFinite(end) || end <= now - 2 * 60 * 1000) return [];
-    return [{ id: item.id, name: item.name, startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() }];
+    const source = item as typeof item & { kind?: string; majorName?: string; note?: string };
+    return [{
+      id: item.id,
+      name: item.name,
+      startAt: new Date(start).toISOString(),
+      endAt: new Date(end).toISOString(),
+      kind: source.kind || 'major',
+      sourceName: source.majorName || '',
+      note: source.note || '',
+    }];
   });
 }
 
@@ -352,6 +377,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sql = database();
 
     const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
+    if (action === 'plugin-api') {
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      res.status(200).json({ ok: true, ...classIslandApiMeta() }); return;
+    }
     if (action === 'plugin-pair-start') {
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
@@ -371,7 +401,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           pair_token_hash=EXCLUDED.pair_token_hash, pair_expires_at=EXCLUDED.pair_expires_at,
           paired=FALSE, updated_at=EXCLUDED.updated_at
       `;
-      res.status(200).json({ ok: true, pairExpiresAt: now + PLUGIN_PAIR_TTL_MS }); return;
+      res.status(200).json({ ok: true, ...classIslandApiMeta(), pairExpiresAt: now + PLUGIN_PAIR_TTL_MS }); return;
     }
     if (action === 'plugin-pair-info') {
       res.setHeader('Cache-Control', 'no-store');
@@ -386,7 +416,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const payload = examPayload(examRows[0] ?? {});
       const grades = (Array.isArray(payload.grades) ? payload.grades : []).filter((item: any) => item?.enabled !== false);
       const classes = (Array.isArray(payload.classes) ? payload.classes : []).filter((item: any) => item?.enabled !== false);
-      res.status(200).json({ ok: true, pluginInstanceId: plugin.plugin_instance_id, expiresAt: Number(plugin.pair_expires_at), grades, classes }); return;
+      res.status(200).json({ ok: true, ...classIslandApiMeta(), pluginInstanceId: plugin.plugin_instance_id, expiresAt: Number(plugin.pair_expires_at), grades, classes }); return;
     }
     if (action === 'plugin-pair-confirm') {
       res.setHeader('Cache-Control', 'no-store');
@@ -406,7 +436,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const classValid = (payload.classes as any[]).some(item => item?.id === classId && item?.gradeId === gradeId && item?.enabled !== false);
       if (!gradeValid || !classValid) { res.status(400).json({ ok: false, error: 'Invalid class binding' }); return; }
       await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, viewer_instance_id=${viewerInstanceId}, paired=TRUE, pair_token_hash=NULL, pair_expires_at=NULL, updated_at=${Date.now()} WHERE plugin_instance_id=${plugin.plugin_instance_id}`;
-      res.status(200).json({ ok: true, binding: { gradeId, classId, classTag: classLabel(payload, gradeId, classId) } }); return;
+      res.status(200).json({ ok: true, ...classIslandApiMeta(), binding: { gradeId, classId, classTag: classLabel(payload, gradeId, classId) } }); return;
     }
     if (action === 'plugin-pair-status' || action === 'plugin-bootstrap') {
       res.setHeader('Cache-Control', 'no-store');
@@ -424,7 +454,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
           classTag = classLabel(examPayload(examRows[0] ?? {}), String(plugin.grade_id ?? ''), String(plugin.class_id ?? ''));
         }
-        res.status(200).json({ ok: true, paired, classTag, pairExpiresAt: Number(plugin.pair_expires_at ?? 0) || null }); return;
+        res.status(200).json({ ok: true, ...classIslandApiMeta(), paired, classTag, pairExpiresAt: Number(plugin.pair_expires_at ?? 0) || null }); return;
       }
       if (plugin.paired !== true || !plugin.class_id) { res.status(409).json({ ok: false, error: 'Plugin is not paired' }); return; }
       const examRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
@@ -434,9 +464,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await sql`UPDATE classisland_plugin_instances SET updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
       res.status(200).json({
         ok: true,
-        schemaVersion: 1,
+        ...classIslandApiMeta(),
+        schemaVersion: CLASSISLAND_API_VERSION,
         serverTime: new Date().toISOString(),
         binding: { gradeId, classId, classTag: classLabel(payload, gradeId, classId) },
+        school: payload.initialization ?? {},
         viewerOnline: Date.now() - Number(plugin.viewer_last_seen_at ?? 0) <= PLUGIN_VIEWER_ONLINE_MS,
         exams: resolvePluginExams(payload, gradeId, classId),
         updatedAt: payload.updatedAt,

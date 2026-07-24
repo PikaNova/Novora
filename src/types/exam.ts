@@ -1,4 +1,4 @@
-import type { ExamItem, MajorExam } from './index';
+import type { ExamItem, MajorExam } from './index.js';
 
 /**
  * 周测（v1.24.0）相关类型定义。

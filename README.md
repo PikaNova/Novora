@@ -1,8 +1,16 @@
-# 考试看板 V2.2
+# 考试看板 V2.3
 
 面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 导出。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
 ![项目预览](https://raw.githubusercontent.com/jinzhiyuan0327/exam-board-v1.24/refs/heads/main/IMG_20260717_222529.png)
+
+## V2.3 更新
+
+- 修复 Vercel Node ESM 无法解析前端调度模块、导致 `/api/exams` 在连接 Neon 前直接返回 500 的问题；新增 `npm run typecheck:api`，会按生产 Node ESM 方式编译并导入函数入口。
+- 未绑定班级时，“查看考试大屏”和直接访问 `/exam` 都会回到首页年级、班级选择，不再误进后台登录，也不会先渲染错误的大屏内容。
+- 首次云端同步完成前不再把空的本地缓存判定为“系统未初始化”；网络失败时提供重新同步，不会引导用户覆盖已有云端配置。
+- 初始化使用独立登录文案与 `initialize` 流程，验证成功后直接打开初始化向导。
+- ClassIsland 联动 API 升级为向后兼容的 v2，增加能力探测、考试来源与学校信息；配套插件源码位于 `integrations/ClassIsland.ExamReminder`，使用官方稳定 PluginSdk 2.0。
 
 ## V2.2 功能
 
@@ -107,12 +115,22 @@ pg_restore --dbname="新加坡连接串" --no-owner --no-privileges exam-board.d
 
 ## ClassIsland 插件连接
 
-1. ClassIsland 插件使用自己的实例 ID、客户端密钥和一次性配对令牌调用 `/api/exams` 的 `plugin-pair-start`。
+ClassIsland API v2 继续复用 `/api/exams`。`GET /api/exams?action=plugin-api` 可读取 `apiVersion`、最低兼容版本和能力列表；未发送版本字段的旧插件按 API v1 兼容处理，不需要重新绑定。
+
+1. ClassIsland 插件使用自己的实例 ID、客户端密钥、API 版本和一次性配对令牌调用 `/api/exams` 的 `plugin-pair-start`。
 2. 插件打开 `/plugin/connect?token=一次性令牌`，用户在网页中选择年级和班级并确认连接。
 3. 网页会把插件实例与当前考试看板实例关联；插件通过 `plugin-bootstrap` 获取该班级的有效考试安排。
 4. 设备管理把关联的考试看板和 ClassIsland 显示为同一台设备。删除设备时，两端都会解除绑定并要求重新配对。
 
 配对令牌有效期为 5 分钟。客户端密钥只以 SHA-256 摘要保存，配对与同步接口不会返回原始密钥。
+
+配套插件可在 `integrations/ClassIsland.ExamReminder` 中构建：
+
+```bash
+dotnet build integrations/ClassIsland.ExamReminder/ClassIsland.ExamReminder.csproj -c Release
+```
+
+插件使用 `ClassIsland.PluginSdk 2.0.0.*` 和 `apiVersion: 2`，同时可读取旧服务端未声明版本的响应。
 
 ## JSON 导入
 
