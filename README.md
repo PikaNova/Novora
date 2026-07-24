@@ -2,19 +2,19 @@
 
 独立部署的考试大屏 + 管理后台，基于 React + Vite + Vercel Serverless。
 
-![项目图片](https://raw.githubusercontent.com/jinzhiyuan0327/exam-board/refs/heads/main/IMG_20260717_222529.png)
+![项目图片](https://raw.githubusercontent.com/jinzhiyuan0327/exam-board-v1.24/refs/heads/main/IMG_20260717_222529.png)
 
 ## 功能
-- 🖥️ **考试大屏**：全屏深色大时钟 + 实时倒计时 + 进度条 + 开考提醒
-- ⚙️ **管理后台**：分别管理大型考试与周测，支持独立 JSON 导入导出和云端同步
-- 🏫 **多班级显示**：按设备绑定班级，为不同班级选择周测计划并过滤适用考试
-- 📅 **两周日历**：预览周测实例，支持单次取消、临时调课、删除与撤销
-- 🎨 **免密偏好页**：无需进入后台即可调整显示、字体分区和当前班级
-- 🕐 **网络校时**：自动通过 `/api/time` 校准时钟
-- 🔔 **统一提醒**：五种设计各自匹配的全屏提醒浮层，支持自定义提醒
-- 📢 **系统公告**：作者端统一发布 Markdown 公告；新实例自动展示，运行中检测到公告更新后自动弹出，五套大屏均可从顶栏随时查看
-- 🛠️ **系统设置**：集中管理校时、默认设计、提醒与关于（内置 README）
-- 📡 **实时同步**：大屏每 30 秒自动拉取最新考试数据
+- **考试大屏**：13 套显示设计、网络校时、倒计时、进度和全屏阶段提醒。
+- **大型考试**：按年级设置考试及分科安排，不同年级可以使用不同考试规划。
+- **周测计划**：按班级管理周测，支持 A/B 周、法定节假日排除、批量复制和未来日历预览。
+- **年级与班级**：统一维护学校结构，客户端按“年级 → 班级”两级完成绑定。
+- **设备管理**：查看设备在线状态、当前考试和绑定情况，也可以删除绑定并要求客户端重新选择班级。
+- **多管理员权限**：内置及自定义角色、功能读写权限、年级/班级数据范围和操作审计。
+- **初始化向导**：首次部署后建立超级管理员、学校结构和初始数据，可选择空白开始或演示数据。
+- **离线与同步**：本地先保存、恢复联网后回推；服务端使用版本冲突检测和三方合并避免静默覆盖。
+- **公告与文档**：展示作者端 Markdown 公告及文档链接，复杂设置配有统一帮助提示。
+- **手机与触摸屏**：管理后台、设置、大屏及弹窗均适配手机浏览器和触摸一体机。
 
 ## v1.30.0 更新
 
@@ -40,6 +40,7 @@
 ├── api/                 # Vercel Serverless Functions
 │   ├── exams.ts         # 考试数据读写
 │   ├── login.ts         # 管理员登录
+│   ├── users.ts         # 用户、角色和审计日志
 │   ├── time.ts          # 服务器时间
 │   └── _auth.ts         # 鉴权工具
 ├── src/
@@ -58,30 +59,82 @@
 └── package.json
 ```
 
-## 快速部署（Vercel，推荐：直接导入作者仓库）
+## 推荐部署架构
 
-> 推荐客户端部署时直接导入作者仓库 **`jinzhiyuan0327/exam-board`**（而非 Fork 到自己名下）。这样作者每次更新仓库时，Vercel 会自动重新构建部署，客户端无需任何 GitHub 操作，刷新网页即为新版本。
+为减少 Vercel Functions 与 Neon 之间的跨区域往返，本项目统一使用新加坡：
 
-**有任何问题请进官方交流群:1067566386咨询，作者手把手教你部署[doge]**
+```text
+浏览器 → Vercel 边缘网络 → Serverless Functions（sin1，新加坡）→ Neon（AWS ap-southeast-1，新加坡）
+```
 
-1. **登录 Vercel**（用 GitHub 账号登录，如首次使用需授权 Vercel 访问 GitHub）。
-2. **新建项目**：Dashboard 右上角 **Add New… → Project**。
-3. **导入作者仓库 `jinzhiyuan0327/exam-board`**：
-   - 在 *Import Git Repository* 列表里找到 `jinzhiyuan0327/exam-board`，点 **Import**。
-   - 若列表里没有（仓库不在你名下），点 *Import Third-Party Git Repository* / **Adjust GitHub App Permissions**，或直接粘贴仓库地址 `https://github.com/jinzhiyuan0327/exam-board` 导入。
-   - **请勿 Fork 到自己仓库**；Fork 后作者的更新不会自动同步到你的 Fork。
-4. **保持构建设置默认**：Framework 会自动识别为 **Vite**，Build Command / Output Directory 无需修改。
-5. **设置环境变量（展开 Environment Variables，仅两个）**：
-   - `DATABASE_URL` — Neon Postgres 连接串（必填）
-   - `ADMIN_PASSWORD` — 管理端登录密码（必填；留空则免登录）
-   - 其余变量（含 `TOKEN_SECRET`）均在部署时自动生成或使用内置默认，**无需填写**
-6. **点 Deploy**，等待构建完成后访问分配的域名即可使用。
-7. **注意**，国内用户请在vercel内设置自定义域名，vercel自动分配的域名国内通常无法访问。
+仓库内的 `vercel.json` 已包含 `"regions": ["sin1"]`，部署者不需要再手工修改函数代码。请同时选择新加坡 Neon 数据库；如果数据库仍在其他地区，函数与数据库之间依然会产生跨区域延迟。
 
-### 后续更新（自动）
-作者向 `jinzhiyuan0327/exam-board` 的 `main` 分支 push 新代码后，所有导入了该仓库的 Vercel 项目会**自动重新部署**，客户端无需处理；约 1–3 分钟后刷新网页即为新版本。若你是 Fork 自行维护的客户端，则需自行合并更新，或在设置页「🚀 版本与更新」点「一键重新部署」（需先配置 `VERCEL_DEPLOY_HOOK_URL`）。
+> 区域对齐主要优化接口和数据库访问。Vercel 默认域名在中国大陆的网络可达性仍取决于运营商，正式使用建议绑定自己的域名。
 
-> 旧方式（自行维护代码时）：Fork 或上传本仓库到自己的 GitHub → 在 Vercel 导入自己的仓库 → 同样只需配 `DATABASE_URL` + `ADMIN_PASSWORD`。
+## 从零部署
+
+### 1. 在 Neon 创建新加坡数据库
+
+1. 登录 [Neon Console](https://console.neon.tech/)，创建新 Project。
+2. Cloud Provider 选择 **AWS**，Region 选择 **Singapore / Asia Pacific (Singapore)**，区域标识通常为 `aws-ap-southeast-1`。
+3. 数据库名和 PostgreSQL 版本保持默认即可。
+4. 在项目的连接信息中复制 **Pooled connection string**。连接串应来自 Neon 控制台并包含 SSL 参数；不要手工拼接，也不要把连接串提交到 Git。
+
+Neon 项目创建后不能直接修改所在区域。已有非新加坡数据库需要新建一个新加坡项目，再按下方“迁移已有数据库”处理。
+
+### 2. 在 Vercel 导入本仓库
+
+1. 登录 [Vercel](https://vercel.com/)，选择 **Add New → Project**。
+2. 导入 [`jinzhiyuan0327/exam-board-v1.24`](https://github.com/jinzhiyuan0327/exam-board-v1.24)。直接导入作者仓库可以在作者推送后自动重新部署；Fork 用户需要自行同步上游更新。
+3. Framework Preset 选择 **Vite**。正常情况下 Vercel 会自动识别：
+   - Build Command：`npm run build`
+   - Output Directory：`dist`
+4. 添加以下 Production、Preview 和 Development 环境变量：
+   - `DATABASE_URL`：上一步复制的新加坡 Neon pooled connection string。
+   - `ADMIN_PASSWORD`：首次登录 `admin` 超级管理员使用的初始密码，建议至少 12 位。多管理员模式下不要留空。
+5. 点击 **Deploy**。`vercel.json` 会把所有 Node.js Serverless Functions 部署到 `sin1`。
+
+### 3. 首次初始化
+
+1. 部署完成后访问 `/login`。
+2. 用户名输入 `admin`，密码输入 Vercel 中设置的 `ADMIN_PASSWORD`。
+3. 首次成功登录会自动创建角色、用户、数据范围和审计表，并创建默认超级管理员，不需要手工执行 SQL。
+4. 进入初始化向导，设置年级、班级和初始考试数据。
+5. 初始化完成后可在“用户与权限”中创建其他管理员；日常密码修改在“系统设置 → 管理员安全”完成。
+
+### 4. 检查区域是否生效
+
+- Vercel 项目的 Functions 或 Runtime Logs 中应显示执行区域为 `sin1`。
+- Neon 项目 Overview 中应显示 AWS Singapore / `ap-southeast-1`。
+- `/api/login`、`/api/exams` 首次请求可能包含建表冷启动；后续请求才适合用于比较延迟。
+
+## 迁移已有数据库到新加坡
+
+### 可以清空旧数据
+
+直接创建新加坡 Neon 项目，把 Vercel 的 `DATABASE_URL` 改为新连接串后重新部署。首次登录会自动创建全部表，随后重新运行初始化向导。
+
+### 需要保留旧数据
+
+1. 暂停旧后台的编辑操作，避免迁移过程中继续写入。
+2. 用 PostgreSQL 官方工具导出旧库并导入空的新加坡数据库：
+
+```bash
+pg_dump --dbname="旧 Neon 连接串" --format=custom --no-owner --no-privileges --file=exam-board.dump
+pg_restore --dbname="新加坡 Neon 连接串" --no-owner --no-privileges exam-board.dump
+```
+
+3. 在 Vercel 中把 `DATABASE_URL` 更新为新加坡连接串，并同时更新 Production、Preview、Development 环境。
+4. 重新部署后先登录后台，确认大型考试、周测、年级班级、设备、用户角色和审计记录均可读取。
+5. 验证无误后再停用旧 Neon 项目。不要先删除旧数据库。
+
+旧版本只有 `exam_data`、`device_instances` 或 `app_auth` 也可以直接迁移。新版本首次访问时会自动补齐字段和用户权限表，并复用旧管理员密码创建 `admin` 超级管理员。
+
+### 后续更新
+
+作者向 `jinzhiyuan0327/exam-board-v1.24` 的 `main` 分支推送代码后，直接导入该仓库的 Vercel 项目会自动重新部署；构建完成后刷新页面即可使用新版本。Fork 用户需自行同步上游，或配置 `VERCEL_DEPLOY_HOOK_URL` 后在设置页触发重新部署。
+
+**有任何问题可加入官方交流群 `1067566386` 咨询。**
 
 ## 本地开发
 
@@ -93,7 +146,10 @@ npm run dev
 ## 路由
 - `/` — 首页（模式选择）
 - `/exam` — 考试大屏
+- `/login` — 管理员登录
 - `/admin` — 管理后台
+- `/settings` — 有密码的系统设置
+- `/preferences` — 无需管理员密码的本机显示与班级选择
 
 ## 导入考试数据格式
 
@@ -130,12 +186,12 @@ npm run dev
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `DATABASE_URL` | 是 | Neon Postgres 连接串 |
-| `ADMIN_PASSWORD` | 首次初始化建议填写 | 首次管理员密码。首次成功登录后会自动迁移为 Neon 内的安全密码哈希；后续可在设置页直接修改，无需重新部署 |
-| `TOKEN_SECRET` | 否 | 无需客户端填写。首次初始化后，随机令牌密钥保存在客户端自己的 Neon 数据库中；密码修改会使旧令牌失效 |
+| `DATABASE_URL` | 是 | Neon Postgres pooled connection string；推荐使用 AWS Singapore / `ap-southeast-1` 项目 |
+| `ADMIN_PASSWORD` | 是 | `admin` 超级管理员的首次登录密码。成功初始化后密码哈希和随机令牌密钥保存在 Neon；后续在设置页修改 |
 | `VERCEL_DEPLOY_HOOK_URL` | 否 | Vercel Deploy Hook 地址；配置后可在「设置 → 版本与更新」一键拉取最新代码重新部署。生成路径：Vercel 项目 → Settings → Git → Deploy Hooks |
-| `GITHUB_REPO` | 否 | 检查更新所用仓库，默认 `jinzhiyuan0327/exam-board`，格式 `owner/repo` |
+| `GITHUB_REPO` | 否 | 检查更新所用仓库，格式 `owner/repo`；从本部署仓库更新时建议设为 `jinzhiyuan0327/exam-board-v1.24` |
 | `GITHUB_TOKEN` | 否 | 提升 GitHub API 速率限制；私有仓库检查更新时必填 |
+| `ASSET_CDN_BASE` | 否 | 静态 JS/CSS 的 CDN 前缀，默认同源 `/`；未配置 CDN 时不要填写 |
 
 「检查更新」会读取 GitHub 仓库的最新 Release（无 Release 时回退到最大 tag），与当前构建版本做语义化版本比较；「一键拉取并重新部署」在配置了 `VERCEL_DEPLOY_HOOK_URL` 后触发 Vercel 从 GitHub 重新构建部署。
 
