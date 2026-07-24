@@ -18,7 +18,7 @@ public static class ExamBoardUrls
             (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.IsLoopback);
         if (uri.Scheme != Uri.UriSchemeHttps && !isLocalHttp)
         {
-            error = "考试看板网址必须使用 HTTPS；本机调试可使用 localhost HTTP";
+            error = "Novora 网址必须使用 HTTPS；本机调试可使用 localhost HTTP";
             return false;
         }
 

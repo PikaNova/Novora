@@ -41,7 +41,7 @@ export default function Editorial({ vm, onDismissNotification, onBack, quickMenu
           </div>
         </header>
 
-        <p className="ed__masthead">{masterTitle || '考试看板'}</p>
+        <p className="ed__masthead">{masterTitle || 'Novora'}</p>
 
         {notification && (
           <div className="ed__notify" role="status">

@@ -1,4 +1,4 @@
-# Exam Board local font notices
+# Novora local font notices
 
 All font files in this folder are locally packaged; the app requests no external font CDN.
 

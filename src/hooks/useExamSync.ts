@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExamItem, AlertsSettings } from '../types';
 import { APP_SETTINGS_CHANGED_EVENT, APP_SETTINGS_KEY, getAppSettings, updateExamSettings, updateAlertsSettings } from '../utils/appSettings';
-import { fetchExamsFromServer } from '../services/examService';
+import { fetchExamsFromServer, getLastExamApiError } from '../services/examService';
 import { flushPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import { getResolvedExamItems } from '../utils/appSchedule';
 import type { DeviceBinding } from '../services/classBinding';
+import { formatApiError } from '../services/apiError';
+import { notify } from '../services/notify';
 
 interface Options {
   onUpdate?: (data: { items: ExamItem[]; title: string; alerts: AlertsSettings }) => void;
@@ -30,6 +32,19 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
   const [syncState, setSyncState] = useState<ExamDataSyncState>(() => typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (getPendingExamSync() ? 'pending' : 'local'));
   const [lastSyncAt, setLastSyncAt] = useState(0);
   const [hasPendingSync, setHasPendingSync] = useState(() => !!getPendingExamSync());
+  const [syncError, setSyncError] = useState('');
+  const lastNotifiedError = useRef('');
+
+  const reportSyncError = useCallback((fallback: string) => {
+    const error = getLastExamApiError();
+    const message = error ? formatApiError(error) : fallback;
+    setSyncError(message);
+    const key = error ? `${error.code}:${error.requestId || error.message}` : message;
+    if (key !== lastNotifiedError.current) {
+      lastNotifiedError.current = key;
+      notify('error', message, error?.code.startsWith('DATABASE_') ? '数据库连接失败' : '云端同步失败');
+    }
+  }, []);
 
   const applyLocal = useCallback(() => {
     const s = getAppSettings();
@@ -81,7 +96,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
       } else if (flushed.kind === 'offline') { setSyncState('offline'); return; }
       else if (flushed.kind === 'deferred') { setHasPendingSync(true); setSyncState('pending'); return; }
       else if (flushed.kind === 'unauthorized') { setSyncState('auth-required'); return; }
-      else if (flushed.kind === 'error') { setHasPendingSync(true); setSyncState('error'); return; }
+      else if (flushed.kind === 'error') { setHasPendingSync(true); setSyncState('error'); reportSyncError('待同步数据暂时无法上传，本机数据已保留。'); return; }
 
       // 本地仍有待办时绝不以云端旧数据覆盖；等待下一次冲刷/三方合并。
       if (getPendingExamSync()) { setHasPendingSync(true); setSyncState('pending'); return; }
@@ -91,7 +106,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
         onBootstrapBindingRef.current?.(remote.binding ?? null);
         bootstrapResolved.current = true;
       }
-      if (!remote) { setSyncState('error'); return; }
+      if (!remote) { setSyncState('error'); reportSyncError('暂时无法读取云端考试与班级数据。'); return; }
       const localAt = getAppSettings().exam?.updatedAt ?? 0;
       const baseline = Math.max(lastApplied.current, localAt);
       if (remote.updatedAt > baseline) {
@@ -101,10 +116,11 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
       setHasPendingSync(false);
       setLastSyncAt(Date.now());
       setSyncState('synced');
+      setSyncError('');
     } finally {
       pulling.current = false;
     }
-  }, [applyLocal, applyPayload]);
+  }, [applyLocal, applyPayload, reportSyncError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,5 +153,5 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     };
   }, [intervalMs, refresh, applyLocal]);
 
-  return { refresh, reloadLocal: applyLocal, syncState, lastSyncAt, hasPendingSync };
+  return { refresh, reloadLocal: applyLocal, syncState, lastSyncAt, hasPendingSync, syncError };
 }

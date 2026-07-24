@@ -77,7 +77,10 @@ export async function flushPendingExamSync(force = false): Promise<FlushResult> 
     return { kind: 'saved', payload: pending.payload, updatedAt: first };
   }
   if (first === 'unauthorized') return { kind: 'unauthorized' };
-  if (first == null || !first.remote) { markPendingFailure(pending, '云端暂不可用'); return { kind: 'error' }; }
+  if (first == null || first.kind === 'error' || !first.remote) {
+    markPendingFailure(pending, first && first.kind === 'error' ? first.error.message : '云端暂不可用');
+    return { kind: 'error' };
+  }
 
   const merged = threeWayMergeExam(pending.baseSnapshot ?? first.remote, { ...pending.payload, updatedAt: pending.baseSnapshot?.updatedAt ?? 0 }, first.remote);
   if (merged.conflictCount) void recordSyncConflict(merged.conflictCount, pending.payload, first.remote);

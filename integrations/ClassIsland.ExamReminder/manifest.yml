@@ -1,7 +1,7 @@
 # nonk8s
 id: classisland.exam-reminder
 name: 考试提醒
-description: 从学校考试看板同步班级考试，并在开考前提醒和提前打开考试大屏。
+description: 从学校 Novora 看板同步班级考试，并在开考前提醒和提前打开考试大屏。
 entranceAssembly: "ClassIsland.ExamReminder.dll"
 url: https://github.com/jinzhiyuan0327/exam-board
 version: 0.2.1.0

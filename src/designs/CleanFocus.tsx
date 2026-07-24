@@ -32,7 +32,7 @@ export default function CleanFocus({ vm, onDismissNotification, onBack, quickMen
         <header className="cf__top">
           <div className="cf__top-left">
             <button className="cf__ghost" onClick={onBack} aria-label="返回"><ArrowLeft /></button>
-            <span className="cf__master">{masterTitle || '考试看板'}</span>
+            <span className="cf__master">{masterTitle || 'Novora'}</span>
           </div>
           <div className="cf__top-right">
             <span className={`cf__sync is-${sync.tone}`}>{sync.text}</span>

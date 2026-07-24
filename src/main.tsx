@@ -7,6 +7,7 @@ import './styles/motion.css';
 import './styles/schedule-print.css';
 import './styles/notice.css';
 import './styles/temporary-exam.css';
+import './styles/brand.css';
 import { startTimeSyncManager } from './utils/timeSync';
 import { registerPwa } from './services/pwa';
 import { bindTypographySettings } from './utils/typographySettings';

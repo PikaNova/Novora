@@ -39,7 +39,7 @@ export default function Emergency({ vm, onDismissNotification, onBack, quickMenu
           <div className="em__head-left">
             <button className="em__ghost" onClick={onBack} aria-label="返回"><ArrowLeft /></button>
             <div>
-              <p className="em__sys">{masterTitle || '考试看板系统'}</p>
+              <p className="em__sys">{masterTitle || 'Novora'}</p>
               {phase !== 'empty' && <p className="em__subject">{currentName ?? ''}{startHM && endHM ? `　${startHM}–${endHM}` : ''}</p>}
             </div>
           </div>

@@ -1,8 +1,8 @@
 # 考试提醒
 
-ClassIsland 2.x 插件，用于连接学校部署的考试看板、同步当前设备绑定班级的考试，并通过 ClassIsland 提醒 V2 API 显示开考提醒。
+ClassIsland 2.x 插件，用于连接学校部署的 Novora 看板、同步当前设备绑定班级的考试，并通过 ClassIsland 提醒 V2 API 显示开考提醒。
 
-当前插件版本保留 `ClassIsland.PluginSdk 1.7.106.2-dev-v2` 和 `net8.0-windows` 目标，支持考试看板 ClassIsland API v2，并兼容未返回版本字段的 API v1 服务端。
+当前插件版本保留 `ClassIsland.PluginSdk 1.7.106.2-dev-v2` 和 `net8.0-windows` 目标，支持 Novora ClassIsland API v2，并兼容未返回版本字段的 API v1 服务端。
 
 Linux 兼容沿用 ClassIsland 插件的现有加载方式。浏览器启动统一先使用 `UseShellExecute=true`，失败后在 Linux 依次回退到 `xdg-open` 和 `gio open`；网址通过参数列表传递，不拼接 shell 命令。
 
@@ -10,7 +10,7 @@ Linux 兼容沿用 ClassIsland 插件的现有加载方式。浏览器启动统�
 
 - 在 ClassIsland 设置中注册“考试提醒”页面
 - 在 ClassIsland 提醒设置中注册“考试提醒”提供方
-- 仅填写考试看板基础网址，自动生成接口、配对页和考试大屏路径
+- 仅填写 Novora 基础网址，自动生成接口、配对页和考试大屏路径
 - 浏览器一次性配对协议客户端
 - 每 30 秒同步考试时间线，并使用服务端时间校正调度
 - 开考前至少 20 分钟自动打开考试大屏
@@ -20,7 +20,7 @@ Linux 兼容沿用 ClassIsland 插件的现有加载方式。浏览器启动统�
 
 ## 看板联动协议
 
-插件预期考试看板在 `/api/exams` 提供以下 action：
+插件预期 Novora 在 `/api/exams` 提供以下 action：
 
 - `plugin-pair-start`
 - `plugin-pair-status`

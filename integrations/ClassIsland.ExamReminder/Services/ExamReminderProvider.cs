@@ -10,7 +10,7 @@ namespace ClassIsland.ExamReminder.Services;
     "8A997522-E450-4FE8-924F-04A4829B8B5C",
     "考试提醒",
     "\uE7C0",
-    "从考试看板同步考试，并在开考前显示提醒")]
+    "从 Novora 看板同步考试，并在开考前显示提醒")]
 public sealed class ExamReminderProvider : NotificationProviderBase
 {
     public void ShowExamReminder(ExamBoardExam exam, int minutes)

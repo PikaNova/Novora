@@ -90,7 +90,7 @@ public sealed class ExamSyncService : BackgroundService
         }
         if (result.Value.ApiVersion > 2)
         {
-            _store.Update(value => value.LastStatus = "考试看板 API 版本过新，请更新 ClassIsland 插件");
+            _store.Update(value => value.LastStatus = "Novora API 版本过新，请更新 ClassIsland 插件");
             return;
         }
 
@@ -108,7 +108,7 @@ public sealed class ExamSyncService : BackgroundService
             value.ServerOffsetMilliseconds = (long)offset.TotalMilliseconds;
             value.NextExamName = nextExam?.Name ?? string.Empty;
             value.NextExamStartAt = nextExam?.StartAt;
-            value.LastStatus = "已同步考试看板";
+            value.LastStatus = "已同步 Novora 看板";
         });
     }
 
@@ -150,7 +150,7 @@ public sealed class ExamSyncService : BackgroundService
                     else
                     {
                         _nextBrowserOpenAttemptAt = now.AddMinutes(1);
-                        _store.Update(value => value.LastStatus = $"无法自动打开考试看板：{error}");
+                        _store.Update(value => value.LastStatus = $"无法自动打开 Novora 看板：{error}");
                     }
                 }
             }

@@ -99,7 +99,7 @@ export interface WeeklyPlan {
   classId: string;
 }
 
-/** 顶层考试看板数据（schemaVersion 2）。 */
+/** 顶层 Novora 看板数据（schemaVersion 2）。 */
 export interface ExamBoardData {
   schemaVersion: 3;
   scheduleMode: ScheduleMode;

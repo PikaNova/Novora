@@ -23,7 +23,9 @@ import OverviewPanel from '../components/OverviewPanel';
 import AiImportGuide from '../components/AiImportGuide';
 import AccessDenied from '../components/AccessDenied';
 import SchedulePrintPreview from '../components/SchedulePrintPreview';
+import BrandMark from '../components/BrandMark';
 import { notify } from '../services/notify';
+import { formatApiError } from '../services/apiError';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { saveDeviceBinding } from '../services/classBinding';
@@ -125,7 +127,9 @@ export default function AdminPage() {
   const [selectedClassId, setSelectedClassId] = useState(initial.selectedClassId);
   const [weeklyConflictPolicy, setWeeklyConflictPolicy] = useState<WeeklyConflictPolicy>(initial.weeklyConflictPolicy);
   const [initialization, setInitialization] = useState(initial.initialization);
-  const [wizardOpen, setWizardOpen] = useState(() => !initial.initialization.completedAt || initial.grades.length === 0 || initial.classes.length === 0);
+  // Never open from local cache alone. The home page only links here after a successful
+  // cloud read confirms that no school structure exists.
+  const [wizardOpen, setWizardOpen] = useState(false);
   // 有本地令牌时初始即就绪，立即渲染后台（本地缓存数据），鉴权与拉取在后台并行进行。
   const [ready, setReady] = useState<boolean>(() => hasValidLocalToken());
   const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() => getAdminUser());
@@ -143,6 +147,7 @@ export default function AdminPage() {
   const [majorPrintOpen, setMajorPrintOpen] = useState(false);
   const [editingMajorIdByGrade, setEditingMajorIdByGrade] = useState<Record<string, string>>({});
   const [sync, setSync] = useState<SyncState>('loading');
+  const [cloudReadConfirmed, setCloudReadConfirmed] = useState(false);
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   // 统一提醒管理
   const [alerts, setAlerts] = useState<AlertsSettings>(() => getAppSettings().alerts);
@@ -181,8 +186,9 @@ export default function AdminPage() {
     }
     if (params.get('alerts') === '1' && adminCan('alerts.read', adminUser)) setAlertsOpen(true);
     if (params.get('announce') === '1') setAnnounceOpen(true);
-    if (params.get('initialize') === '1' && adminCan('initialization.run', adminUser)) setWizardOpen(true);
-  }, [adminUser, location.search]);
+    const setupRequired = !initialization.completedAt || grades.length === 0 || classes.length === 0;
+    if (params.get('initialize') === '1' && cloudReadConfirmed && setupRequired && adminCan('initialization.run', adminUser)) setWizardOpen(true);
+  }, [adminUser, location.search, cloudReadConfirmed, initialization.completedAt, grades.length, classes.length]);
 
   // 打开公告弹窗时拉取最新公告
   useEffect(() => {
@@ -313,6 +319,7 @@ export default function AdminPage() {
     if (typeof result !== 'number') {
       pendingRef.current = true;
       setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error');
+      if (result && result.kind === 'error') notify('error', formatApiError(result.error, '保存考试数据失败'), result.error.code.startsWith('DATABASE_') ? '数据库连接失败' : '同步失败');
       return;
     }
     pendingRef.current = false;
@@ -388,7 +395,11 @@ export default function AdminPage() {
       notify('error', '周测保存遇到云端变化，自动重试仍失败；请刷新后台后重新保存。', '同步失败');
       return;
     }
-    if (typeof result !== 'number') { pendingRef.current = true; setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error'); return; }
+    if (typeof result !== 'number') {
+      pendingRef.current = true; setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error');
+      if (result && result.kind === 'error') notify('error', formatApiError(result.error, '保存周测与班级数据失败'), result.error.code.startsWith('DATABASE_') ? '数据库连接失败' : '同步失败');
+      return;
+    }
     pendingRef.current = false;
     updateExamSettings({ ...weekly, updatedAt: result });
     setSync('saved');
@@ -412,7 +423,7 @@ export default function AdminPage() {
     commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: classId ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClassId: nextByClass }, immediate);
   };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
-  const completeInitialization = (result: InitializationResult) => {
+  const completeInitialization = async (result: InitializationResult) => {
     const nextWeekly = {
       scheduleMode: result.scheduleMode,
       weeklyPlans: result.weeklyPlans,
@@ -423,20 +434,28 @@ export default function AdminPage() {
       weeklyConflictPolicy,
     };
     const active = result.majors.find(item => item.id === result.activeMajorId) ?? result.majors[0];
-    const now = Date.now();
+    const payload = { items: active?.items ?? [], title: active?.name ?? '', majors: result.majors, activeMajorId: result.activeMajorId, alerts: alertsRef.current, ...nextWeekly, initialization: result.initialization };
+    setSync('saving');
+    const saved = await saveExamsToServer({ ...payload, action: 'initialize', baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
+    if (saved === 'unauthorized') { navigate('/login?mode=initialize&next=/admin%3Finitialize%3D1', { replace: true }); return; }
+    if (typeof saved !== 'number') {
+      setSync('error');
+      const message = saved && saved.kind === 'error' ? formatApiError(saved.error) : '初始化数据未能写入云端，请刷新后重试。';
+      notify('error', message, '初始化失败');
+      return;
+    }
     setMajors(result.majors); setActiveMajorId(result.activeMajorId); setEditingMajorId(result.activeMajorId);
     setScheduleMode(result.scheduleMode); setWeeklyPlans(result.weeklyPlans); setActiveWeeklyPlanId(result.activeWeeklyPlanId); setActiveWeeklyPlanIdByClassId(result.activeWeeklyPlanIdByClassId);
     setGrades(result.grades); setClasses(result.classes); setSelectedGradeId(''); setSelectedClassId(''); setInitialization(result.initialization);
     stateRef.current = { majors: result.majors, activeMajorId: result.activeMajorId };
     weeklyStateRef.current = nextWeekly;
     initializationRef.current = result.initialization;
-    const payload = { items: active?.items ?? [], title: active?.name ?? '', majors: result.majors, activeMajorId: result.activeMajorId, alerts: alertsRef.current, ...nextWeekly, initialization: result.initialization };
-    updateExamSettings({ ...payload, selectedGradeId: '', selectedClassId: '', updatedAt: now });
+    updateExamSettings({ ...payload, selectedGradeId: '', selectedClassId: '', updatedAt: saved });
     clearPendingExamSync();
-    queuePendingExamSync({ payload, baseSnapshot: getCloudSnapshot(), savedAt: now });
-    pendingRef.current = true;
+    pendingRef.current = false;
+    setSync('saved');
     setWizardOpen(false); setAdminTab('classes');
-    void pushToServer(result.majors, result.activeMajorId);
+    notify('success', '学校信息、年级与班级已完成首次初始化。');
   };
   const addGrade = (name: string) => { const item = { id: genGradeId(), name, order: grades.length, enabled: true }; commitWeekly({ grades: [...grades, item] }, true); if (!selectedGradeId) changeSelectedGrade(item.id); };
   const addClass = (gradeId: string, name: string) => { const item = { id: genClassId(), gradeId, name, order: classes.filter(value => value.gradeId === gradeId).length, enabled: true }; commitWeekly({ classes: [...classes, item], activeWeeklyPlanIdByClassId: { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [item.id]: null } }, true); };
@@ -487,6 +506,7 @@ export default function AdminPage() {
 
       const remote = await remoteP;
       if (cancelled) return;
+      if (remote) setCloudReadConfirmed(true);
       const localAt = getAppSettings().exam?.updatedAt ?? 0;
 
       if (remote && remote.updatedAt > localAt) {
@@ -666,14 +686,14 @@ export default function AdminPage() {
   return <div className="admin-page">
     <Watermark />
     <header className="admin-header">
-      <div className="admin-header__left"><button className="admin-back-btn admin-back-btn--icon" onClick={() => navigate('/')} aria-label="返回首页" title="返回首页"><ArrowLeft /></button><div className="admin-header__identity"><h1 className="admin-header__title">考试管理</h1><span>{ADMIN_NAV.find(item => item.id === adminTab)?.label}</span></div>{hasScopedMajor && adminTab === 'major' && <span className="admin-header__major" title={`适用范围：${activeMajorScopeLabel}`}><span className="admin-header__major-dot" />{activeMajorScopeLabel} · {activeMajor.name}<span className="admin-header__major-count">{items.length} 科</span></span>}</div>
+      <div className="admin-header__left"><button className="admin-back-btn admin-back-btn--icon" onClick={() => navigate('/')} aria-label="返回首页" title="返回首页"><ArrowLeft /></button><BrandMark compact className="admin-header__brand" /><div className="admin-header__identity"><h1 className="admin-header__title">考试管理</h1><span>{ADMIN_NAV.find(item => item.id === adminTab)?.label}</span></div>{hasScopedMajor && adminTab === 'major' && <span className="admin-header__major" title={`适用范围：${activeMajorScopeLabel}`}><span className="admin-header__major-dot" />{activeMajorScopeLabel} · {activeMajor.name}<span className="admin-header__major-count">{items.length} 科</span></span>}</div>
       <div className="admin-header__right">
         <span className="admin-user-chip" title={`登录账号：${adminUser.username}`}><strong>{adminUser.displayName}</strong><small>{adminUser.roleName}</small></span>
         <span className={`admin-cloud ${syncMeta.cls}`} title={online ? '云服务在线' : '当前离线'}>
           <span className="admin-cloud__dot" />{syncMeta.label}
         </span>
         <div className="admin-header__quick-actions">{can('alerts.read') && <button className="admin-btn admin-btn--primary" onClick={() => setAlertsOpen(true)}>提醒{alerts.enabled ? '' : '（停用）'}</button>}{can('settings.read') && <button className="admin-btn" onClick={() => navigate('/settings')}>系统设置</button>}</div>
-        <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 700px)').matches) { const width = Math.min(280, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: rect.bottom + 8, left: window.innerWidth - width - 14, width, maxHeight: `calc(100dvh - ${rect.bottom + 24}px)` }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="menu">更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle} role="menu"><button onClick={() => { setAnnounceOpen(true); setMoreOpen(false); }}>查看公告</button>{can('alerts.read') && <button className="admin-more__mobile-only" onClick={() => { setAlertsOpen(true); setMoreOpen(false); }}>提醒管理{alerts.enabled ? '' : '（已停用）'}</button>}{can('settings.read') && <button className="admin-more__mobile-only" onClick={() => { navigate('/settings'); setMoreOpen(false); }}>系统设置</button>}{can('initialization.run') && <button onClick={() => { setWizardOpen(true); setMoreOpen(false); }}>初始化向导</button>}{adminTab === 'major' && can('major.import') && <button onClick={() => { setImportOpen(true); setMoreOpen(false); }}>导入大型考试 JSON</button>}{adminTab === 'major' && can('major.export') && <button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button>}<button className="is-danger" onClick={() => { logoutAdmin(); navigate('/login?next=/admin', { replace: true }); }}>退出登录</button></div>}</div>
+        <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 700px)').matches) { const width = Math.min(280, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: rect.bottom + 8, left: window.innerWidth - width - 14, width, maxHeight: `calc(100dvh - ${rect.bottom + 24}px)` }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="menu">更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle} role="menu"><button onClick={() => { setAnnounceOpen(true); setMoreOpen(false); }}>查看公告</button>{can('alerts.read') && <button className="admin-more__mobile-only" onClick={() => { setAlertsOpen(true); setMoreOpen(false); }}>提醒管理{alerts.enabled ? '' : '（已停用）'}</button>}{can('settings.read') && <button className="admin-more__mobile-only" onClick={() => { navigate('/settings'); setMoreOpen(false); }}>系统设置</button>}{can('initialization.run') && (!initialization.completedAt || grades.length === 0 || classes.length === 0) && <button onClick={() => { setWizardOpen(true); setMoreOpen(false); }}>首次初始化</button>}{adminTab === 'major' && can('major.import') && <button onClick={() => { setImportOpen(true); setMoreOpen(false); }}>导入大型考试 JSON</button>}{adminTab === 'major' && can('major.export') && <button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button>}<button className="is-danger" onClick={() => { logoutAdmin(); navigate('/login?next=/admin', { replace: true }); }}>退出登录</button></div>}</div>
       </div>
     </header>
     <div className={`admin-tabbar${adminTab === 'major' || adminTab === 'weekly' ? ' has-context' : ''}`}>

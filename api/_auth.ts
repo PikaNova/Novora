@@ -267,7 +267,11 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
     const row = await userById(userId);
     if (!row || row.status !== 'active' || row.token_version !== version && parts.length === 4) return null;
     return actorFromUserRow(row);
-  } catch { return null; }
+  } catch (error) {
+    // Token validation uses explicit null returns above. Re-throw unexpected failures so a
+    // database outage is reported as such instead of being disguised as an expired login.
+    throw error;
+  }
 }
 
 export async function verifyToken(token: string | undefined): Promise<boolean> {
@@ -290,9 +294,9 @@ export function canAccessClass(actor: AdminActor, gradeId: string, classId: stri
 
 export async function requireActor(req: VercelRequest, res: VercelResponse, permission?: Permission, allowPasswordChange = false): Promise<AdminActor | null> {
   const actor = await getActor(extractBearer(req.headers.authorization));
-  if (!actor) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
+  if (!actor) { res.status(401).json({ ok: false, code: 'AUTH_EXPIRED', error: '登录状态已失效，请重新登录' }); return null; }
   if (actor.mustChangePassword && !allowPasswordChange) { res.status(403).json({ ok: false, error: '请先修改初始密码', code: 'PASSWORD_CHANGE_REQUIRED' }); return null; }
-  if (permission && !hasPermission(actor, permission)) { res.status(403).json({ ok: false, error: 'Forbidden', permission }); return null; }
+  if (permission && !hasPermission(actor, permission)) { res.status(403).json({ ok: false, code: 'PERMISSION_DENIED', error: '当前账号没有执行此操作的权限', permission }); return null; }
   return actor;
 }
 

@@ -168,7 +168,7 @@ export default function WeeklyPanel({
     return (
       <>
         <aside className="admin-sidebar"><div className="admin-tips"><p className="admin-tips__title"><CalendarDays size={16} />周测</p><ul><li>周测计划始终归属于一个具体班级。</li><li>点击右侧按钮后，在新建界面依次选择年级和班级。</li></ul></div></aside>
-        <main className="admin-main"><div className="admin-empty"><div className="admin-empty__icon"><CalendarDays /></div><p>请先选择年级与班级</p><span className="admin-major-card__hint">也可以直接新建计划，并在新建界面选择适用班级。</span><button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={openNewPlan}>选择班级并新建周测计划</button></div></main>
+        <main className="admin-main"><div className="admin-list-header"><h2 className="admin-list-title">周测考试安排</h2><button className="admin-btn" disabled title="请先选择年级与班级">A4 预览与下载 PDF</button></div><div className="admin-empty"><div className="admin-empty__icon"><CalendarDays /></div><p>请先选择年级与班级</p><span className="admin-major-card__hint">也可以直接新建计划，并在新建界面选择适用班级。</span><button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={openNewPlan}>选择班级并新建周测计划</button></div></main>
         {planModal && renderPlanModal()}
       </>
     );
@@ -188,6 +188,7 @@ export default function WeeklyPanel({
           </div>
         </aside>
         <main className="admin-main">
+          <div className="admin-list-header"><h2 className="admin-list-title">周测考试安排</h2><button className="admin-btn" disabled title="当前班级还没有周测计划">A4 预览与下载 PDF</button></div>
           <div className="admin-empty">
             <div className="admin-empty__icon"><CalendarDays /></div>
             <p>还没有周测计划</p>
@@ -545,7 +546,7 @@ export default function WeeklyPanel({
         <div className="admin-list-header" style={{ marginTop: 22 }}>
           <h2 className="admin-list-title">未来两周预览</h2>
           <span className="admin-list-count">{preview.length} 场</span>
-          <button className="admin-btn" onClick={() => setPrintOpen(true)}>A4 预览与导出</button>
+          <button className="admin-btn" onClick={() => setPrintOpen(true)}>A4 预览与下载 PDF</button>
         </div>
         <div className="weekly-calendar-scroll" tabIndex={0} aria-label="横向滚动查看未来两周">
           <div className="weekly-calendar" role="grid" aria-label="未来两周周测日历">

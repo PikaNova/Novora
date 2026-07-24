@@ -1,6 +1,6 @@
 .welcome-page{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:max(36px,env(safe-area-inset-top)) 24px max(30px,env(safe-area-inset-bottom));background:radial-gradient(circle at 50% 0%,#172842 0,#0d1119 42%,#090b0f 100%);color:#f0f5fa;font-family:var(--font-region-content);overflow-y:auto;}
 .welcome-header,.welcome-exam-banner,.welcome-setup-notice,.welcome-grid,.welcome-idle-hint{flex:none}
-.welcome-header{text-align:center;}.welcome-header:before{content:"EXAM BOARD · LOCAL FIRST";display:block;margin-bottom:8px;color:#73c8ff;font-size:.68rem;font-weight:700;letter-spacing:.18em;}
+.welcome-header{text-align:center;}.welcome-brand{justify-content:center;margin:0 auto 8px;color:#f7f4ec}
 .welcome-title{font-family:var(--font-region-display);font-size:clamp(2.25rem,7vw,4.3rem);font-weight:750;letter-spacing:.04em;margin:0 0 8px;}
 .welcome-subtitle{font-size:1rem;opacity:0.5;margin:0;}
 .welcome-exam-banner{width:min(100%,760px);display:flex;align-items:center;gap:16px;padding:20px 24px;border-radius:20px;background:linear-gradient(135deg,rgba(41,114,181,.25),rgba(21,36,57,.9));border:1px solid rgba(117,198,255,.34);box-shadow:0 20px 60px rgba(0,0,0,.24);}
@@ -71,3 +71,30 @@
 @keyframes welcomeClassSpin{to{transform:rotate(360deg)}}
 @media(max-width:420px){.welcome-class-dialog{padding:20px 16px}.welcome-class-dialog__close{top:12px;right:12px}.welcome-class-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.welcome-class-choices--classes{grid-template-columns:repeat(3,minmax(0,1fr))}.welcome-class-options .is-general{grid-column:auto}.welcome-class-empty>div{flex-direction:column}.welcome-class-empty button{width:100%}}
 @media(max-width:560px){.welcome-setup-notice{align-items:stretch;flex-direction:column;gap:10px}.welcome-setup-notice button{width:100%}}
+
+/* V2.4: a stable one-screen home. Height breakpoints compress the same layout without scrolling. */
+.welcome-page{overflow:hidden;gap:clamp(10px,2.4vh,22px);padding:max(16px,env(safe-area-inset-top)) 18px max(14px,env(safe-area-inset-bottom));background:#111827}
+.welcome-title{font-size:clamp(1.9rem,5.2vh,3.9rem);margin-bottom:4px;letter-spacing:0}
+.welcome-subtitle{font-size:clamp(.72rem,1.7vh,.95rem)}
+.welcome-lastopen{margin-top:3px}
+.welcome-exam-banner{min-height:clamp(78px,13vh,104px);padding:clamp(11px,2vh,16px) 18px}
+.welcome-grid,.welcome-grid--has-exam{grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(8px,1.5vh,14px)}
+.welcome-grid--has-exam .welcome-card--featured{grid-column:1/-1}
+.welcome-card{min-height:clamp(76px,13vh,118px);padding:clamp(10px,1.8vh,18px) 14px;border-radius:8px}
+.welcome-card--featured{min-height:clamp(72px,11vh,100px);padding:clamp(12px,2vh,20px) 24px;border-radius:8px;background:rgba(66,211,200,.11);border-color:rgba(66,211,200,.42)}
+.welcome-card--featured:hover{background:rgba(66,211,200,.18)}
+.welcome-card svg{width:clamp(20px,3vh,28px);height:clamp(20px,3vh,28px)}
+.welcome-card--featured .welcome-card__label{font-size:clamp(1rem,2.3vh,1.3rem)}
+.welcome-pwa{min-height:22px}.welcome-idle-hint{min-height:14px}
+@media(max-width:560px){
+  .welcome-page{justify-content:center;gap:clamp(7px,1.35vh,12px);padding:calc(env(safe-area-inset-top) + 10px) 10px calc(env(safe-area-inset-bottom) + 10px)}
+  .welcome-brand{margin-bottom:3px}.welcome-brand>img{width:30px;height:30px}.welcome-brand strong{font-size:15px}.welcome-brand small{display:none}
+  .welcome-title{font-size:clamp(1.55rem,5vh,2.25rem);margin-bottom:2px}.welcome-lastopen{display:none}
+  .welcome-exam-banner{min-height:82px;padding:9px 11px;grid-template-columns:auto minmax(0,1fr) auto}.welcome-exam-banner__eyebrow{margin-bottom:-5px}.welcome-exam-banner__count{grid-column:auto;display:block;min-width:78px;padding:0;border:0;text-align:right}.welcome-exam-banner__count small{display:block}
+  .welcome-grid,.welcome-grid--has-exam{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.welcome-grid--has-exam .welcome-card--featured{grid-column:1/-1}
+  .welcome-card{min-height:72px;display:flex;flex-direction:column;justify-content:center;text-align:center;padding:8px 5px;gap:4px}.welcome-card--featured{min-height:70px;flex-direction:row;padding:10px 14px;gap:12px}.welcome-card__text{align-items:center}.welcome-card--featured .welcome-card__text{align-items:flex-start}.welcome-card__label{font-size:clamp(.67rem,2.8vw,.82rem);white-space:normal;line-height:1.2}.welcome-card__desc{display:none}.welcome-card--featured .welcome-card__desc{display:block;font-size:.7rem;white-space:nowrap}
+  .welcome-setup-notice{padding:9px 10px;gap:7px}.welcome-setup-notice span{font-size:.7rem;line-height:1.35}.welcome-setup-notice button{min-height:32px}
+  .welcome-pwa{font-size:.65rem}.welcome-idle-hint{font-size:.65rem}
+}
+@media(max-height:680px){.welcome-page{gap:7px}.welcome-brand small,.welcome-lastopen,.welcome-pwa{display:none}.welcome-title{font-size:1.7rem}.welcome-exam-banner{min-height:70px;padding:7px 10px}.welcome-card{min-height:62px}.welcome-card--featured{min-height:58px}.welcome-idle-hint{margin:0}}
+@media(max-height:560px){.welcome-header{display:flex;align-items:center;gap:10px}.welcome-brand{margin:0}.welcome-title{font-size:1.25rem}.welcome-subtitle{font-size:.65rem}.welcome-exam-banner{min-height:58px}.welcome-exam-banner__eyebrow{display:none}.welcome-grid{gap:6px}.welcome-card{min-height:52px;flex-direction:row}.welcome-card--featured{min-height:52px}.welcome-card__icon{display:grid}.welcome-card__label{font-size:.68rem}.welcome-idle-hint{display:none}}

@@ -1,4 +1,4 @@
-Bundled fonts for Exam Board Editorial design
+Bundled fonts for Novora Editorial design
 Noto Serif CJK SC Regular and Noto Sans SC Black
 Copyright 2014-2021 Adobe and Google Inc.
 Licensed under the SIL Open Font License, Version 1.1.

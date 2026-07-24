@@ -2,6 +2,7 @@ import type { ExamItem, MajorExam, AlertsSettings } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
+import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -29,6 +30,11 @@ const ADMIN_USER_KEY = 'admin_user_context';
 const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
+let lastExamApiError: ApiError | null = null;
+let lastAuthApiError: ApiError | null = null;
+
+export function getLastExamApiError(): ApiError | null { return lastExamApiError; }
+export function getLastAuthApiError(): ApiError | null { return lastAuthApiError; }
 
 function toPayload(data: any): ExamPayload {
   return {
@@ -89,27 +95,29 @@ export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promis
       // 极少数情况下本地基线快照丢失（隐私模式/配额清理/跨版本），但服务端已确认未变更；
       // 去掉条件头重新完整拉取一次，避免把“已同步”误判为同步失败。
       const full = await fetch(API_URL, { method: 'GET', cache: 'no-cache' });
-      if (!full.ok) return null;
+      if (!full.ok) { lastExamApiError = await apiErrorFromResponse(full, '读取考试与班级数据失败'); return null; }
       const fullEtag = full.headers.get('ETag'); if (fullEtag) localStorage.setItem(CLOUD_ETAG_KEY, fullEtag);
       const fullData = await full.json();
-      if (!fullData?.ok) return null;
+      if (!fullData?.ok) { lastExamApiError = new ApiError({ status: 500, code: 'INVALID_RESPONSE', message: '服务器返回了无效的数据', retryable: true }); return null; }
       const fullPayload = toPayload(fullData);
       rememberCloudSnapshot(fullPayload);
       return fullPayload;
     }
-    if (!res.ok) return null;
+    if (!res.ok) { lastExamApiError = await apiErrorFromResponse(res, '读取考试与班级数据失败'); return null; }
     const freshEtag = res.headers.get('ETag'); if (freshEtag) localStorage.setItem(CLOUD_ETAG_KEY, freshEtag);
     const data = await res.json();
-    if (!data?.ok) return null;
+    if (!data?.ok) { lastExamApiError = new ApiError({ status: 500, code: 'INVALID_RESPONSE', message: '服务器返回了无效的数据', retryable: true }); return null; }
     const payload = toPayload(data);
     // 原代码在 return 后写缓存，实际从未执行；现在读取成功即同时写入版本和完整基线快照。
     rememberCloudSnapshot(payload);
+    lastExamApiError = null;
     return payload;
-  } catch { return null; }
+  } catch { lastExamApiError = networkApiError(); return null; }
 }
 
 export interface SaveExamsInput {
   items: ExamItem[];
+  action?: 'initialize';
   baseUpdatedAt?: number;
   title?: string;
   majors?: MajorExam[];
@@ -125,7 +133,7 @@ export interface SaveExamsInput {
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
 }
 
-export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remote: ExamPayload | null } | null;
+export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remote: ExamPayload | null } | { kind: 'error'; error: ApiError } | null;
 
 /**
  * 将数据推送至服务器。
@@ -144,6 +152,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       alerts: input.alerts ?? null,
       baseUpdatedAt: input.baseUpdatedAt ?? Number(localStorage.getItem(CLOUD_VERSION_KEY) ?? 0),
     };
+    if (input.action) requestBody.action = input.action;
     // 仅在显式提供时才发送周测字段；缺省时服务端保留既有值，避免后台保存把周测数据覆盖为空。
     if (input.scheduleMode !== undefined) requestBody.scheduleMode = input.scheduleMode;
     if (input.weeklyPlans !== undefined) requestBody.weeklyPlans = input.weeklyPlans;
@@ -154,12 +163,20 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     if (input.initialization !== undefined) requestBody.initialization = input.initialization;
     if (input.weeklyConflictPolicy !== undefined) requestBody.weeklyConflictPolicy = input.weeklyConflictPolicy;
     const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) });
-    if (res.status === 401) { logoutAdmin(); return 'unauthorized'; }
+    if (res.status === 401) { lastExamApiError = await apiErrorFromResponse(res, '登录状态已失效'); logoutAdmin(); return 'unauthorized'; }
     if (res.status === 409) {
       const data = await res.json().catch(() => null);
-      return { kind: 'conflict', remote: data?.remote ? toPayload(data.remote) : null };
+      if (data?.code === 'DATA_CONFLICT' || data?.remote) return { kind: 'conflict', remote: data?.remote ? toPayload(data.remote) : null };
+      const replay = new Response(JSON.stringify(data), { status: res.status, headers: res.headers });
+      const error = await apiErrorFromResponse(replay, '云端拒绝了本次保存');
+      lastExamApiError = error;
+      return { kind: 'error', error };
     }
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const error = await apiErrorFromResponse(res, '考试数据同步失败');
+      lastExamApiError = error;
+      return { kind: 'error', error };
+    }
     const data = await res.json();
     if (!data?.ok) return null;
     const updatedAt = Number(data.updatedAt ?? Date.now());
@@ -179,17 +196,23 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       weeklyConflictPolicy: input.weeklyConflictPolicy,
       updatedAt,
     });
+    lastExamApiError = null;
     return updatedAt;
-  } catch { return null; }
+  } catch {
+    const error = networkApiError('无法连接服务器，本机修改已保留，联网后会自动重试。');
+    lastExamApiError = error;
+    return { kind: 'error', error };
+  }
 }
 
 export async function isLoginRequired(): Promise<boolean> {
   try {
     const res = await fetch(LOGIN_URL, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
-    if (!res.ok) return false;
+    if (!res.ok) { lastAuthApiError = await apiErrorFromResponse(res, '无法读取登录配置'); return true; }
     const data = await res.json();
+    lastAuthApiError = null;
     return !!data?.required;
-  } catch { return false; }
+  } catch { lastAuthApiError = networkApiError('无法连接登录服务，请检查网络后重试。'); return true; }
 }
 
 export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
@@ -244,14 +267,18 @@ export async function loginAdmin(username: string, password: string): Promise<bo
       body: JSON.stringify({ username, password }),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) return false;
+    if (!res.ok || !data?.ok) {
+      lastAuthApiError = await apiErrorFromResponse(new Response(JSON.stringify(data), { status: res.status, headers: res.headers }), '登录失败');
+      return false;
+    }
     if (data.token) {
       localStorage.setItem(TOKEN_KEY, data.token);
       localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
     }
     if (data.user) localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
+    lastAuthApiError = null;
     return true;
-  } catch { return false; }
+  } catch { lastAuthApiError = networkApiError('无法连接登录服务，请检查网络后重试。'); return false; }
 }
 
 export function hasValidLocalToken(): boolean {

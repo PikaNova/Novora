@@ -17,7 +17,7 @@ public sealed class PluginSettings
     public bool EnableFiveMinuteReminder { get; set; } = true;
     public bool EnableStartReminder { get; set; } = true;
     public DateTimeOffset? LastSyncAt { get; set; }
-    public string LastStatus { get; set; } = "请填写考试看板网址并连接";
+    public string LastStatus { get; set; } = "请填写 Novora 网址并连接";
     public string NextExamName { get; set; } = string.Empty;
     public DateTimeOffset? NextExamStartAt { get; set; }
     public long ServerOffsetMilliseconds { get; set; }

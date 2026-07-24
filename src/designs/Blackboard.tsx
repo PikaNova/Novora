@@ -26,7 +26,7 @@ export default function Blackboard({ vm, onDismissNotification, onBack, quickMen
         <header className="bb__top">
           <button className="bb__ghost" onClick={onBack} aria-label="返回"><ArrowLeft /></button>
           <div className="bb__title-col">
-            <span className="bb__master">{masterTitle || '考试看板'}</span>
+            <span className="bb__master">{masterTitle || 'Novora'}</span>
             {phase !== 'empty' && <span className="bb__subject">{currentName ?? ''}</span>}
           </div>
           <div className="bb__top-right">

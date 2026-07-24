@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { canAccessClass, canAccessGrade, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
+import { requestId, sendDatabaseError } from './_apiError.js';
 import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
 import { parseZonedTime } from '../src/utils/zonedTime.js';
 
@@ -365,6 +366,7 @@ function resolvePluginExams(payload: ReturnType<typeof examPayload>, gradeId: st
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const startedAt = Date.now();
+  requestId(req, res);
   // Short edge cache reduces repeated US→Singapore database reads while keeping updates prompt.
   if (req.method === 'GET') res.setHeader('Cache-Control', 'public, s-maxage=10, stale-while-revalidate=50');
   else res.setHeader('Cache-Control', 'no-store');
@@ -696,9 +698,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         actor = await requireActor(req, res);
         if (!actor) return;
       }
-      const { items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, weeklyConflictPolicy, grades, classes, initialization, baseUpdatedAt } = req.body ?? {};
+      const { action, items, title, majors, activeMajorId, alerts, weeklyPlans, scheduleMode, activeWeeklyPlanId, activeWeeklyPlanIdByClassId, weeklyConflictPolicy, grades, classes, initialization, baseUpdatedAt } = req.body ?? {};
       if (!Array.isArray(items)) { res.status(400).json({ ok: false, error: 'items must be an array' }); return; }
-      if (actor) {
+      if (actor || action === 'initialize') {
         let currentRows: ExamRow[];
         try {
           currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
@@ -707,8 +709,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           await ensureTableOnce();
           currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
         }
-        const permission = validateMutation(actor, examPayload(currentRows[0] ?? {}), req.body ?? {});
-        if (!permission.ok) { res.status(403).json(permission); return; }
+        const currentPayload = examPayload(currentRows[0] ?? {});
+        if (action === 'initialize') {
+          const alreadyInitialized = Number((currentPayload.initialization as any)?.completedAt ?? 0) > 0
+            || currentPayload.grades.length > 0
+            || currentPayload.classes.length > 0;
+          if (alreadyInitialized) {
+            res.status(409).json({ ok: false, code: 'ALREADY_INITIALIZED', error: '云端已经存在学校结构，请在年级与班级页面调整，或先从数据维护中重置学校数据', requestId: res.getHeader('X-Request-Id') });
+            return;
+          }
+          if (actor && !actor.permissions.includes('*')) {
+            res.status(403).json({ ok: false, code: 'PERMISSION_DENIED', error: '只有超级管理员可以执行首次初始化', requestId: res.getHeader('X-Request-Id') });
+            return;
+          }
+        }
+        if (actor) {
+          const permission = validateMutation(actor, currentPayload, req.body ?? {});
+          if (!permission.ok) { res.status(403).json({ ...permission, code: 'PERMISSION_DENIED', requestId: res.getHeader('X-Request-Id') }); return; }
+        }
       }
       const expectedVersion = Number(baseUpdatedAt ?? 0);
       const updatedAt = Date.now();
@@ -754,7 +772,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
         const row = rows[0] ?? {};
         const { ok: _ok, ...remote } = examPayload(row);
-        res.status(409).json({ ok: false, error: 'Conflict', remote });
+        res.status(409).json({ ok: false, code: 'DATA_CONFLICT', error: '云端数据已发生变化', remote, requestId: res.getHeader('X-Request-Id') });
         return;
       }
       getCache = null;
@@ -765,7 +783,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.status(405).json({ ok: false, error: 'Method not allowed' });
   } catch (error: unknown) {
-    console.error('Exam API error:', error);
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Database error' });
+    sendDatabaseError(req, res, error, req.method === 'GET' ? 'read' : 'write');
   }
 }

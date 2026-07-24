@@ -31,6 +31,7 @@ import '../styles/settings.css';
 import AccessDenied from '../components/AccessDenied';
 import { CHINA_PROVINCES, schoolFullName } from '../data/provinces';
 import { notify } from '../services/notify';
+import { apiErrorFromResponse, formatApiError } from '../services/apiError';
 import { AlertTriangle, ArrowLeft, ArrowRight, Bell, Clock3, DatabaseZap, Info, Megaphone, Palette, RadioTower, Rocket, Type } from 'lucide-react';
 import { addDaysToDateKey, createEmptyWeeklyPlan, getShanghaiDateKey } from '../utils/weeklySchedule';
 
@@ -212,12 +213,15 @@ export default function SettingsPage() {
       const token = localStorage.getItem('admin_auth_token') || '';
       const response = await fetch('/api/exams', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'reset-data', categories: resetCategories }) });
       const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok) throw new Error(data?.error || '数据库重置失败');
+      if (!response.ok || !data?.ok) {
+        const replay = new Response(JSON.stringify(data), { status: response.status, headers: response.headers });
+        throw await apiErrorFromResponse(replay, '数据库重置失败');
+      }
       notify('success', '所选云端数据已重置，即将重新载入初始化状态。');
       localStorage.removeItem(APP_SETTINGS_KEY);
-      localStorage.removeItem('exam_board_pending_exam_sync');
+      localStorage.removeItem('exam_pending_sync');
       window.setTimeout(() => window.location.assign('/'), 900);
-    } catch (error) { notify('error', error instanceof Error ? error.message : '数据库重置失败'); setResettingCloud(false); }
+    } catch (error) { notify('error', formatApiError(error, '重置失败'), '数据库操作失败'); setResettingCloud(false); }
   };
 
   const toggleResetCategory = (category: string, checked: boolean) => setResetCategories(current => {
@@ -241,7 +245,10 @@ export default function SettingsPage() {
     const input = { items: majors.find(item => item.id === activeMajorId)?.items || [], title: majors.find(item => item.id === activeMajorId)?.name || '', majors, activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: weeklyPlansNext, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId, grades: exam.grades, classes: exam.classes, weeklyConflictPolicy: exam.weeklyConflictPolicy, initialization };
     try {
       const result = await saveExamsToServer({ ...input, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
-      if (typeof result !== 'number') throw new Error('演示数据同步失败，请刷新后重试');
+      if (typeof result !== 'number') {
+        if (result && result !== 'unauthorized' && result.kind === 'error') throw result.error;
+        throw new Error('演示数据同步失败，请刷新后重试');
+      }
       updateExamSettings({ ...input, updatedAt: result });
       notify('success', enable ? '演示考试与周测数据已导入。' : '演示数据已移除。');
     } catch (error) { notify('error', error instanceof Error ? error.message : '演示数据操作失败'); }
@@ -293,7 +300,12 @@ export default function SettingsPage() {
     }
     if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
     if (typeof result === 'number') { setWeeklyPlans(persistedPlans); updateExamSettings({ weeklyPlans: persistedPlans, updatedAt: result }); setCalendarSave('已保存到云端'); notify('success', '周测日历设置已保存到云端。'); }
-    else { setCalendarSave('保存失败，请检查网络后重试'); notify('error', '周测日历保存失败，请检查网络后重试。'); }
+    else {
+      const message = result && result.kind === 'error'
+        ? formatApiError(result.error, '周测日历保存失败')
+        : '周测日历保存失败，请刷新后重试。';
+      setCalendarSave(message); notify('error', message, '保存失败');
+    }
   };
 
   const saveSchoolName = async () => {
@@ -306,8 +318,11 @@ export default function SettingsPage() {
     setSchoolSave('正在保存到云端…');
     const result = await saveExamsToServer({ items: exam.items, title: exam.title, majors: exam.majors, activeMajorId: exam.activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: exam.weeklyPlans, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId: exam.activeWeeklyPlanIdByClassId, grades: exam.grades, classes: exam.classes, weeklyConflictPolicy: exam.weeklyConflictPolicy, initialization, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
     if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
-    setSchoolSave(typeof result === 'number' ? '学校信息已保存' : '保存失败，请检查网络后重试');
-    notify(typeof result === 'number' ? 'success' : 'error', typeof result === 'number' ? '省份与完整校名已保存。' : '学校信息保存失败，请检查网络后重试。');
+    const failure = result && typeof result === 'object' && result.kind === 'error'
+      ? formatApiError(result.error, '学校信息保存失败')
+      : '学校信息保存失败，请刷新后重试。';
+    setSchoolSave(typeof result === 'number' ? '学校信息已保存' : failure);
+    notify(typeof result === 'number' ? 'success' : 'error', typeof result === 'number' ? '省份与完整校名已保存。' : failure, typeof result === 'number' ? undefined : '保存失败');
     if (typeof result === 'number') void reportNow('school_name_updated');
   };
 
@@ -566,7 +581,7 @@ export default function SettingsPage() {
           <div className="set-card__head"><h2 className="set-card__title"><Info size={20} />关于</h2></div>
           <div className="set-about">
             <div className="set-about__meta">
-              <div><b>考试看板 Exam Board</b> · v{APP_VERSION}</div>
+              <div><b>Novora</b> · v{APP_VERSION}</div>
               <div className="set-note">React + Vite + Vercel Serverless · Neon Postgres</div>
             </div>
             <div className="set-about__actions">

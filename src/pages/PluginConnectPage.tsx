@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Link2, MonitorCheck } from 'lucide-react';
+import { CheckCircle2, Link2 } from 'lucide-react';
+import BrandMark from '../components/BrandMark';
 import { useSearchParams } from 'react-router-dom';
 import { getCachedDeviceBinding, saveDeviceBinding } from '../services/classBinding';
 import { confirmPluginPairing, fetchPluginPairInfo, type PluginPairInfo } from '../services/pluginPairing';
@@ -44,7 +45,7 @@ export default function PluginConnectPage() {
   };
 
   return <main className="plugin-connect">
-    <div className="plugin-connect__brand"><MonitorCheck aria-hidden="true"/><span>考试看板</span></div>
+    <BrandMark className="plugin-connect__brand" />
     <section className="plugin-connect__panel" aria-live="polite">
       {complete ? <>
         <CheckCircle2 className="plugin-connect__success" aria-hidden="true"/>

@@ -37,7 +37,7 @@ public sealed class ExamBoardClient : IDisposable
         }, cancellationToken);
         return result.IsSuccess && result.Value?.Ok == true
             ? ClientResult<Uri>.Success(ExamBoardUrls.Pairing(baseUrl, pairToken))
-            : ClientResult<Uri>.Failure(result.Error ?? "考试看板拒绝了配对请求");
+            : ClientResult<Uri>.Failure(result.Error ?? "Novora 看板拒绝了配对请求");
     }
 
     public Task<ClientResult<PairStatusResponse>> GetPairStatusAsync(
@@ -83,7 +83,7 @@ public sealed class ExamBoardClient : IDisposable
             if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed ||
                 response.StatusCode == HttpStatusCode.BadRequest)
             {
-                return ClientResult<T>.Failure("当前考试看板版本暂不支持 ClassIsland 插件联动");
+                return ClientResult<T>.Failure("当前 Novora 版本暂不支持 ClassIsland 插件联动");
             }
             if (response.StatusCode == HttpStatusCode.Conflict)
             {
@@ -91,25 +91,25 @@ public sealed class ExamBoardClient : IDisposable
             }
             if (!response.IsSuccessStatusCode)
             {
-                return ClientResult<T>.Failure($"考试看板连接失败（HTTP {(int)response.StatusCode}）");
+                return ClientResult<T>.Failure($"Novora 看板连接失败（HTTP {(int)response.StatusCode}）");
             }
 
             var value = await response.Content.ReadFromJsonAsync<T>(_jsonOptions, cancellationToken);
             return value is null
-                ? ClientResult<T>.Failure("考试看板返回了空数据")
+                ? ClientResult<T>.Failure("Novora 看板返回了空数据")
                 : ClientResult<T>.Success(value);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return ClientResult<T>.Failure("连接考试看板超时");
+            return ClientResult<T>.Failure("连接 Novora 看板超时");
         }
         catch (HttpRequestException)
         {
-            return ClientResult<T>.Failure("无法连接考试看板，请检查网址和网络");
+            return ClientResult<T>.Failure("无法连接 Novora 看板，请检查网址和网络");
         }
         catch (JsonException)
         {
-            return ClientResult<T>.Failure("考试看板返回的数据格式不兼容");
+            return ClientResult<T>.Failure("Novora 看板返回的数据格式不兼容");
         }
         catch (Exception ex)
         {

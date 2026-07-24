@@ -2,6 +2,7 @@
 .admin-page { min-height:100vh; background:#0d0d0d; color:#f0f0f0; font-family:var(--font-region-content); display:flex; flex-direction:column; }
 .admin-header { display:flex; align-items:center; justify-content:space-between; gap:10px; row-gap:8px; padding:10px 18px; border-bottom:1px solid rgba(255,255,255,0.08); background:#161616; flex-wrap:wrap; position:sticky; top:0; z-index:100; }
 .admin-header__left { display:flex; align-items:center; gap:12px; }
+.admin-header__brand{padding-right:12px;border-right:1px solid rgba(255,255,255,.1)}
 .admin-header__title { font-size:1rem; font-weight:600; margin:0; }
 .admin-header__right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .admin-header__desktop-data { display:flex; gap:8px; }
@@ -24,6 +25,7 @@
 .admin-body { display:grid; grid-template-columns:280px 1fr; flex:1; min-height:0; }
 .admin-body--wide{display:block;padding:16px 18px}.admin-permission-fieldset{display:contents}.admin-user-chip{display:grid;gap:1px;padding:4px 9px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.035);line-height:1.2}.admin-user-chip strong{font-size:12px}.admin-user-chip small{color:rgba(240,240,240,.5);font-size:10px}.device-status__readonly{color:rgba(240,240,240,.45);font-size:12px;text-align:center}.admin-permission-modal{min-width:0;margin:0;padding:0;border:0}.admin-permission-modal:disabled{opacity:.7}
 @media(max-width:900px){.admin-page{display:block;min-height:100vh}.admin-body{display:block;flex:none;min-height:0}.admin-body--wide{padding:14px 12px}}
+@media(max-width:560px){.admin-header__brand strong{display:none}.admin-header__brand{padding-right:7px}.admin-header__left{gap:7px}}
 .admin-sidebar { border-right:1px solid rgba(255,255,255,0.06); padding:16px 14px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; max-height:calc(100vh - 49px); position:sticky; top:49px; }
 @media(max-width:900px){.admin-sidebar{max-height:none;position:static;overflow:visible;border-right:none;border-bottom:1px solid rgba(255,255,255,0.06)}}
 .admin-title-card { background:rgba(52,152,219,0.06); border:1px solid rgba(52,152,219,0.25); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; }

@@ -62,7 +62,7 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
             ItemsSource = new[] { 20, 25, 30, 45, 60, 90, 120 },
             MinWidth = 140,
         };
-        _autoOpenCheckBox = new CheckBox { Content = "自动打开考试看板" };
+        _autoOpenCheckBox = new CheckBox { Content = "自动打开 Novora 看板" };
         _fifteenMinuteCheckBox = new CheckBox { Content = "开考前 15 分钟提醒" };
         _fiveMinuteCheckBox = new CheckBox { Content = "开考前 5 分钟提醒" };
         _startCheckBox = new CheckBox { Content = "开考时提醒" };
@@ -72,12 +72,12 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
         var syncButton = new Button { Content = "立即同步" };
         syncButton.Click += (_, _) =>
         {
-            _store.Update(value => value.LastStatus = "正在同步考试看板…");
+            _store.Update(value => value.LastStatus = "正在同步 Novora 看板…");
             _syncService.RequestImmediateSync();
         };
         var testButton = new Button { Content = "测试提醒" };
         testButton.Click += (_, _) => _provider.ShowTestReminder();
-        var openButton = new Button { Content = "打开考试看板" };
+        var openButton = new Button { Content = "打开 Novora 看板" };
         openButton.Click += (_, _) => OpenBoard();
 
         _leadTimeBox.SelectionChanged += (_, _) =>
@@ -103,16 +103,16 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
                     new TextBlock { Text = "考试提醒", FontSize = 24, FontWeight = FontWeight.SemiBold },
                     new TextBlock
                     {
-                        Text = "连接学校考试看板后，插件会同步当前浏览器绑定的班级，并在开考前提醒。",
+                        Text = "连接学校 Novora 看板后，插件会同步当前浏览器绑定的班级，并在开考前提醒。",
                         TextWrapping = TextWrapping.Wrap,
                         Opacity = 0.72,
                     },
-                    Section("考试看板连接", new StackPanel
+                    Section("Novora 看板连接", new StackPanel
                     {
                         Spacing = 10,
                         Children =
                         {
-                            Label("考试看板网址"),
+                            Label("Novora 网址"),
                             _urlBox,
                             new TextBlock
                             {
@@ -231,7 +231,7 @@ public sealed class ExamReminderSettingsPage : SettingsPageBase
         var settings = _store.Settings;
         if (string.IsNullOrWhiteSpace(settings.BaseUrl))
         {
-            _store.Update(value => value.LastStatus = "请先填写考试看板网址");
+            _store.Update(value => value.LastStatus = "请先填写 Novora 网址");
             return;
         }
         if (!_uriLauncher.TryOpen(

@@ -40,7 +40,12 @@ const token = () => localStorage.getItem('admin_auth_token') || '';
 
 export class AdminApiError extends Error {
   field?: string;
-  constructor(message: string, field?: string) { super(message); this.name = 'AdminApiError'; this.field = field; }
+  code?: string;
+  requestId?: string;
+  constructor(message: string, field?: string, code?: string, requestId?: string) {
+    super(`${message}${requestId ? `（请求 ID：${requestId}）` : ''}`);
+    this.name = 'AdminApiError'; this.field = field; this.code = code; this.requestId = requestId;
+  }
 }
 
 async function request(path: string, init: RequestInit = {}) {
@@ -49,7 +54,7 @@ async function request(path: string, init: RequestInit = {}) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(init.headers || {}) },
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok || !data?.ok) throw new AdminApiError(data?.error || `HTTP ${response.status}`, data?.field);
+  if (!response.ok || !data?.ok) throw new AdminApiError(data?.error || `HTTP ${response.status}`, data?.field, data?.code, data?.requestId || response.headers.get('X-Request-Id') || undefined);
   return data;
 }
 

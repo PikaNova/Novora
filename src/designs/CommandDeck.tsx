@@ -48,7 +48,7 @@ export default function CommandDeck({ vm, onDismissNotification, onBack, quickMe
       <header className="cd__top">
         <div className="cd__top-left">
           <button className="cd__ghost" onClick={onBack} aria-label="返回首页"><ArrowLeft /></button>
-          <span className="cd__master">{masterTitle || '考试看板'}</span>
+          <span className="cd__master">{masterTitle || 'Novora'}</span>
         </div>
         <div className="cd__top-right">
           <span className={`cd__sync cd__sync--${sync.tone}`}>

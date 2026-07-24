@@ -1,8 +1,10 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { getAdminUser, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin } from '../services/examService';
+import { getAdminUser, getLastAuthApiError, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin } from '../services/examService';
+import { formatApiError } from '../services/apiError';
 import { changeOwnPassword } from '../services/adminUsers';
 import Watermark from '../components/Watermark';
+import BrandMark from '../components/BrandMark';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import '../styles/login.css';
 
@@ -21,6 +23,7 @@ export default function LoginPage() {
   useEffect(() => {
     isLoginRequired().then(required => {
       if (!required || hasValidLocalToken()) navigate(next, { replace: true });
+      else if (getLastAuthApiError()) setError(formatApiError(getLastAuthApiError(), '无法连接管理服务'));
     });
   }, [navigate, next]);
 
@@ -30,7 +33,7 @@ export default function LoginPage() {
     setLoading(true); setError('');
     const ok = await loginAdmin(username.trim(), password);
     setLoading(false);
-    if (!ok) { setError('用户名或密码不正确，请重新输入'); return; }
+    if (!ok) { const cause = getLastAuthApiError(); setError(cause ? formatApiError(cause) : '用户名或密码不正确，请重新输入'); return; }
     if (getAdminUser()?.mustChangePassword || password.length < 8) { setPasswordUpgrade({ current: password, next: '', confirm: '' }); return; }
     navigate(next, { replace: true });
   };
@@ -51,8 +54,7 @@ export default function LoginPage() {
       <div className="login-page__ambient login-page__ambient--one" />
       <div className="login-page__ambient login-page__ambient--two" />
       <section className="login-card" aria-label="考试管理登录">
-        <div className="login-card__mark">⌁</div>
-        <p className="login-card__eyebrow">EXAM BOARD</p>
+        <BrandMark className="login-card__brand" />
         <h1 className="login-card__title">{initializing ? '系统初始化' : '考试管理'}</h1>
         <p className="login-card__subtitle">{initializing ? '验证超级管理员后直接打开初始化向导' : '使用管理员账号登录以继续'}</p>
         {passwordUpgrade ? <form className="login-form" onSubmit={upgradePassword}>
@@ -83,7 +85,7 @@ export default function LoginPage() {
         </form>}
         <Link className="login-card__back" to="/"><ArrowLeft aria-hidden="true" />返回首页</Link>
       </section>
-      <footer className="login-page__footer">沉浸式时钟 · Exam Board</footer>
+      <footer className="login-page__footer">Novora · 考试管理与教室大屏</footer>
       <Watermark />
     </main>
   );

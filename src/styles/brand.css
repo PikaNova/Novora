@@ -1,0 +1,6 @@
+.brand-mark{display:inline-flex;align-items:center;gap:9px;min-width:0;color:inherit;font-family:var(--font-region-navigation)}
+.brand-mark>img{display:block;width:38px;height:38px;flex:0 0 auto;object-fit:contain}
+.brand-mark>span{display:grid;gap:1px;min-width:0;line-height:1.1}
+.brand-mark strong{font-size:17px;font-weight:800;letter-spacing:0;white-space:nowrap}
+.brand-mark small{color:currentColor;font-size:10px;opacity:.55;white-space:nowrap}
+.brand-mark.is-compact{gap:7px}.brand-mark.is-compact>img{width:27px;height:27px}.brand-mark.is-compact strong{font-size:14px}

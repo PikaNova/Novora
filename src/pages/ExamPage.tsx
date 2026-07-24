@@ -14,6 +14,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import ExamAlertOverlay from '../components/ExamAlertOverlay';
 import ExamSyncAction from '../components/ExamSyncAction';
 import Watermark from '../components/Watermark';
+import BrandMark from '../components/BrandMark';
 import { getDesign, isMobileReadyDesign } from '../designs/registry';
 import { getDesignId, setDesignId } from '../utils/designPref';
 import DesignSwitcher from '../components/DesignSwitcher';
@@ -206,7 +207,7 @@ function BoundExamPage() {
   const nowTick = Math.floor(now / 1000) * 1000;
   const raw = useMemo(() => computeRawState(items, nowTick), [items, nowTick]);
   const currentKind = raw.currentExam && (raw.currentExam as { kind?: string }).kind;
-  const displayMasterTitle = currentKind === 'weekly' ? '周测' : currentKind === 'temporary' ? `${raw.currentExam?.name} - 临时考试` : raw.currentExam?.majorName || title || '考试看板';
+  const displayMasterTitle = currentKind === 'weekly' ? '周测' : currentKind === 'temporary' ? `${raw.currentExam?.name} - 临时考试` : raw.currentExam?.majorName || title || 'Novora';
   examLiveRef.current = raw.phase === 'live';
   useEffect(() => {
     if (raw.phase === 'live') return;
@@ -328,6 +329,7 @@ function BoundExamPage() {
         onToggleFullscreen={() => { void toggleFullscreen(); }}
       /></Suspense>
       <Watermark exam />
+      <BrandMark compact className="exam-brand-mark" />
       <ExamSyncAction
         state={examDataSyncState}
         lastSyncAt={examDataLastSyncAt}

@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requestId, sendDatabaseError } from './_apiError.js';
 import { randomBytes } from 'node:crypto';
 import {
   ALL_PERMISSIONS,
@@ -237,6 +238,7 @@ async function handleRoles(req: VercelRequest, res: VercelResponse, actor: Admin
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  requestId(req, res);
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -257,6 +259,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return await handleUsers(req, res, actor);
   } catch (error) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Database error' });
+    sendDatabaseError(req, res, error, req.method === 'GET' ? 'read' : 'write');
   }
 }
