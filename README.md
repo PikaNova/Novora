@@ -6,7 +6,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 
 一键部署
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3a%2f%2fgithub.com%2fPikaNova%2fNovora&project-name=novora-board&repository-name=novora-board&env=DATABASE_URL,ADMIN_PASSWORD,ADMIN_RECOVERY_KEY&envDescription=请填写%20Neon%20PostgreSQL%20连接字符串,超级管理员的初始密码,至少16位字符的恢复密钥)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3a%2f%2fgithub.com%2fPikaNova%2fNovora&project-name=novora-board&repository-name=novora-board&env=DATABASE_URL,ADMIN_PASSWORD,ADMIN_RECOVERY_KEY&envDescription=请填写%20Neon%20PostgreSQL%20连接字符串、超级管理员初始密码和应急恢复密钥)
 
 ## V2.5.4 更新
 
