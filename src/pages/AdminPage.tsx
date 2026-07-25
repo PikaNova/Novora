@@ -509,7 +509,7 @@ export default function AdminPage() {
     pendingRef.current = false;
     setSync('saved');
     setWizardOpen(false); setAdminTab('classes');
-    notify('success', '学校信息、年级与班级已完成首次初始化。');
+    notify('success', '首次初始化已完成。使用文档可在首页系统公告或后台“更多 → 查看公告 → 文档”中再次打开。');
   };
   const addGrade = (name: string) => { const item = { id: genGradeId(), name, order: grades.length, enabled: true }; commitWeekly({ grades: [...grades, item] }, true); if (!selectedGradeId) changeSelectedGrade(item.id); };
   const addClass = (gradeId: string, name: string) => { const item = { id: genClassId(), gradeId, name, order: classes.filter(value => value.gradeId === gradeId).length, enabled: true }; commitWeekly({ classes: [...classes, item], activeWeeklyPlanIdByClassId: { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [item.id]: null } }, true); };
@@ -626,11 +626,13 @@ export default function AdminPage() {
   useEffect(() => {
     if (!adminUser) return;
     if (adminUser.mustChangePassword) { if (adminTab !== 'users') setAdminTab('users'); return; }
+    const accountView = new URLSearchParams(location.search).get('account') === '1';
+    if (adminTab === 'users' && accountView) return;
     const permissionByTab: Record<AdminTab, string> = { overview: 'overview.read', major: 'major.read', weekly: 'weekly.read', classes: 'school.read', devices: 'device.read', users: 'user.read' };
     if (adminCan(permissionByTab[adminTab], adminUser)) return;
     const next = (Object.keys(permissionByTab) as AdminTab[]).find(tab => adminCan(permissionByTab[tab], adminUser));
     if (next) setAdminTab(next);
-  }, [adminTab, adminUser]);
+  }, [adminTab, adminUser, location.search]);
 
   // ===== 大型考试：添加 / 切换 / 重命名 / 删除 =====
   const switchMajor = (id: string) => {

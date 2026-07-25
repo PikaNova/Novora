@@ -1,11 +1,11 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { getAdminUser, getLastAuthApiError, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin } from '../services/examService';
+import { getAdminRecoveryStatus, getAdminUser, getLastAuthApiError, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin, recoverSuperAdminAccount } from '../services/examService';
 import { formatApiError } from '../services/apiError';
 import { changeOwnCredentials } from '../services/adminUsers';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
 import '../styles/login.css';
 
 export default function LoginPage() {
@@ -15,6 +15,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [recoveryView, setRecoveryView] = useState<'guide' | 'form' | null>(null);
+  const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
+  const [recoveryDraft, setRecoveryDraft] = useState({ username: 'admin', recoveryKey: '', next: '', confirm: '' });
   const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; username: string; next: string; confirm: string } | null>(null);
   const search = new URLSearchParams(location.search);
   const next = search.get('next') || '/admin';
@@ -51,6 +55,27 @@ export default function LoginPage() {
     finally { setLoading(false); }
   };
 
+  const openRecovery = async () => {
+    setRecoveryView('guide'); setError(''); setNotice(''); setRecoveryConfigured(null);
+    try { setRecoveryConfigured(await getAdminRecoveryStatus()); }
+    catch (cause) { setRecoveryConfigured(false); setError(cause instanceof Error ? cause.message : '无法读取账户恢复配置'); }
+  };
+
+  const recoverAccount = async (event: FormEvent) => {
+    event.preventDefault(); setError('');
+    if (!recoveryDraft.username.trim() || !recoveryDraft.recoveryKey) { setError('请输入超级管理员用户名和恢复密钥'); return; }
+    if (recoveryDraft.next.length < 8) { setError('新密码至少需要 8 位'); return; }
+    if (recoveryDraft.next !== recoveryDraft.confirm) { setError('两次输入的新密码不一致'); return; }
+    setLoading(true);
+    try {
+      await recoverSuperAdminAccount(recoveryDraft.username.trim(), recoveryDraft.recoveryKey, recoveryDraft.next);
+      setUsername(recoveryDraft.username.trim()); setPassword(''); setRecoveryView(null);
+      setRecoveryDraft({ username: 'admin', recoveryKey: '', next: '', confirm: '' });
+      setNotice('超级管理员密码已恢复，旧会话已失效。请使用新密码登录并完成账户信息确认。');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '账户恢复失败'); }
+    finally { setLoading(false); }
+  };
+
   return (
     <main className="login-page">
       <div className="login-page__ambient login-page__ambient--one" />
@@ -59,14 +84,32 @@ export default function LoginPage() {
         <BrandMark className="login-card__brand" />
         <h1 className="login-card__title">{initializing ? '系统初始化' : '考试管理'}</h1>
         <p className="login-card__subtitle">{initializing ? '验证超级管理员后直接打开初始化向导' : '使用管理员账号登录以继续'}</p>
-        {passwordUpgrade ? <form className="login-form" onSubmit={upgradePassword}>
+        {recoveryView ? <div className="login-recovery">
+          {recoveryView === 'guide' ? <>
+            <div className="login-recovery__icon"><KeyRound aria-hidden="true" /></div>
+            <h2>找回管理员账户</h2>
+            <div className="login-recovery__rules"><p><strong>班级管理员</strong><span>联系所属年级管理员或超级管理员重置密码。</span></p><p><strong>年级管理员</strong><span>联系超级管理员重置密码。</span></p><p><strong>超级管理员</strong><span>使用部署环境中的恢复密钥自行恢复。</span></p></div>
+            {error && <p className="login-form__error">{error}</p>}
+            {recoveryConfigured === null ? <p className="login-form__notice">正在检查部署恢复配置…</p> : recoveryConfigured ? <button className="login-form__submit" type="button" onClick={() => { setRecoveryView('form'); setError(''); }}>恢复超级管理员</button> : <p className="login-form__notice">当前部署未配置恢复密钥。请先在 Vercel 添加至少 16 位的 <code>ADMIN_RECOVERY_KEY</code> 并重新部署。</p>}
+          </> : <form className="login-form" onSubmit={recoverAccount}>
+            <p className="login-form__notice">恢复成功后旧登录会话会立即失效，恢复密钥不会保存在浏览器或数据库中。</p>
+            <label className="login-form__label" htmlFor="recovery-username">超级管理员用户名</label><div className="login-form__field"><span aria-hidden="true">@</span><input id="recovery-username" autoComplete="username" value={recoveryDraft.username} onChange={event => setRecoveryDraft(value => ({ ...value, username: event.target.value }))} /></div>
+            <label className="login-form__label" htmlFor="recovery-key">部署恢复密钥</label><div className="login-form__field"><span aria-hidden="true">◆</span><input id="recovery-key" type="password" autoComplete="off" value={recoveryDraft.recoveryKey} onChange={event => setRecoveryDraft(value => ({ ...value, recoveryKey: event.target.value }))} placeholder="ADMIN_RECOVERY_KEY" /></div>
+            <label className="login-form__label" htmlFor="recovery-password">新密码</label><div className="login-form__field"><span aria-hidden="true">●</span><input id="recovery-password" type="password" autoComplete="new-password" value={recoveryDraft.next} onChange={event => setRecoveryDraft(value => ({ ...value, next: event.target.value }))} placeholder="至少 8 位" /></div>
+            <label className="login-form__label" htmlFor="recovery-confirm">确认新密码</label><div className="login-form__field"><span aria-hidden="true">●</span><input id="recovery-confirm" type="password" autoComplete="new-password" value={recoveryDraft.confirm} onChange={event => setRecoveryDraft(value => ({ ...value, confirm: event.target.value }))} /></div>
+            {error && <p className="login-form__error">{error}</p>}<button className="login-form__submit" disabled={loading} type="submit">{loading ? '正在恢复…' : '确认恢复'}</button>
+          </form>}
+          <button className="login-form__link" type="button" onClick={() => { setRecoveryView(recoveryView === 'form' ? 'guide' : null); setError(''); }}>{recoveryView === 'form' ? '返回找回说明' : '返回登录'}</button>
+        </div> : passwordUpgrade ? <form className="login-form" onSubmit={upgradePassword}>
           <p className="login-form__notice">当前使用的是初始账户信息。请设置自己的登录用户名和新密码，保存后重新登录。</p>
           <label className="login-form__label" htmlFor="new-username">新登录用户名</label><div className={`login-form__field${error ? ' login-form__field--error' : ''}`}><span aria-hidden="true">@</span><input id="new-username" type="text" autoComplete="username" value={passwordUpgrade.username} onChange={event => { setPasswordUpgrade(value => value && ({ ...value, username: event.target.value })); setError(''); }} placeholder="3-40 位字母、数字、点、横线或下划线" /></div>
           <label className="login-form__label" htmlFor="new-password">新密码</label><div className={`login-form__field${error ? ' login-form__field--error' : ''}`}><span aria-hidden="true">●</span><input id="new-password" type="password" autoComplete="new-password" value={passwordUpgrade.next} onChange={event => { setPasswordUpgrade(value => value && ({ ...value, next: event.target.value })); setError(''); }} placeholder="至少 8 位" /></div>
           <label className="login-form__label" htmlFor="confirm-password">确认新密码</label><div className={`login-form__field${error ? ' login-form__field--error' : ''}`}><span aria-hidden="true">●</span><input id="confirm-password" type="password" autoComplete="new-password" value={passwordUpgrade.confirm} onChange={event => { setPasswordUpgrade(value => value && ({ ...value, confirm: event.target.value })); setError(''); }} placeholder="再次输入新密码" /></div>
           {error && <p className="login-form__error">{error}</p>}<button className="login-form__submit" disabled={loading} type="submit">{loading ? '正在保存…' : '保存用户名和新密码'}</button>
-        </form> : <form className="login-form" onSubmit={submit}>
+        </form> : <>
+        <form className="login-form" onSubmit={submit}>
           {initializing && <p className="login-form__notice">首次部署请使用用户名 admin 和 Vercel 中设置的 ADMIN_PASSWORD。首次验证会自动创建超级管理员。</p>}
+          {notice && <p className="login-form__success">{notice}</p>}
           <label className="login-form__label" htmlFor="admin-username">{initializing ? '超级管理员用户名' : '用户名'}</label>
           <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>
             <span aria-hidden="true">@</span>
@@ -85,7 +128,9 @@ export default function LoginPage() {
           <button className="login-form__submit" disabled={loading} type="submit">
             {loading ? '正在验证…' : initializing ? '验证并开始初始化' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
           </button>
-        </form>}
+        </form>
+        {!initializing && <button className="login-form__link" type="button" onClick={() => void openRecovery()}>忘记密码？</button>}
+        </>}
         <Link className="login-card__back" to="/"><ArrowLeft aria-hidden="true" />返回首页</Link>
       </section>
       <footer className="login-page__footer">Novora · 考试管理与教室大屏</footer>

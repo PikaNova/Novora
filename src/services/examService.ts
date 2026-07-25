@@ -216,6 +216,21 @@ export async function isLoginRequired(): Promise<boolean> {
   } catch { lastAuthApiError = networkApiError('无法连接登录服务，请检查网络后重试。'); return true; }
 }
 
+export async function getAdminRecoveryStatus(): Promise<boolean> {
+  const res = await fetch(`${LOGIN_URL}?action=recovery-status`, { headers: { 'Cache-Control': 'no-store' } });
+  if (!res.ok) throw await apiErrorFromResponse(res, '无法读取账户恢复配置');
+  const data = await res.json();
+  return data?.configured === true;
+}
+
+export async function recoverSuperAdminAccount(username: string, recoveryKey: string, newPassword: string): Promise<void> {
+  const res = await fetch(LOGIN_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'recover-super-admin', username, recoveryKey, newPassword }),
+  });
+  if (!res.ok) throw await apiErrorFromResponse(res, '超级管理员账户恢复失败');
+}
+
 export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
 export type AdminUserContext = {
   id: number;

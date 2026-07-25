@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCallback);
 const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || '';
 const TOKEN_TTL = 24 * 60 * 60 * 1000;
 
 export const ALL_PERMISSIONS = [
@@ -168,6 +169,27 @@ async function matches(password: string, hash: string, salt: string): Promise<bo
   const actual = Buffer.from(await hashPassword(password, salt));
   const expected = Buffer.from(hash);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function isAdminRecoveryConfigured(): boolean {
+  return ADMIN_RECOVERY_KEY.length >= 16;
+}
+
+export async function recoverSuperAdmin(username: string, recoveryKey: string, nextPassword: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isAdminRecoveryConfigured()) return { ok: false, error: '当前部署未配置超级管理员恢复密钥' };
+  if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
+  const supplied = Buffer.from(recoveryKey);
+  const expected = Buffer.from(ADMIN_RECOVERY_KEY);
+  const keyMatches = supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  await ensureAuthTables();
+  const rows = await authSql()`SELECT id, username FROM app_users
+    WHERE LOWER(username)=LOWER(${username.trim().slice(0, 80)}) AND role_id='super_admin' AND status='active' LIMIT 1` as unknown as Array<{ id: number; username: string }>;
+  if (!keyMatches || !rows[0]) return { ok: false, error: '恢复信息不正确' };
+  const password = await makePasswordHash(nextPassword);
+  await authSql()`UPDATE app_users SET password_hash=${password.hash}, password_salt=${password.salt},
+    must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${rows[0].id}`;
+  await writeAudit(null, 'user.password.recover', 'user', String(rows[0].id), { username: rows[0].username });
+  return { ok: true };
 }
 
 async function bootstrapAuth(password: string): Promise<AuthRow | null> {

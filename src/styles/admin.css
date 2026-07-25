@@ -402,6 +402,7 @@
 .role-editor__modules{display:grid;gap:8px;margin-top:14px}.role-editor__modules>label{display:grid;grid-template-columns:minmax(0,1fr) 150px;align-items:center;gap:16px;padding:11px 12px;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:rgba(0,0,0,.12)}.role-editor__modules>label>span{display:grid;gap:3px}.role-editor__modules small{color:rgba(240,240,240,.48);font-size:10px}
 .user-management__password-fields{display:grid;gap:10px}
 .user-management__password-fields .admin-input{width:100%;min-height:42px;box-sizing:border-box}
+.user-management__reset-modes{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:13px;padding:4px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.025)}.user-management__reset-modes button{min-height:38px;border:0;border-radius:6px;background:transparent;color:rgba(240,240,240,.58);font:inherit;font-size:12px;cursor:pointer}.user-management__reset-modes button.is-active{background:#3498db;color:#fff;font-weight:700}.user-management__regenerate{margin-top:8px}.user-management__issued-password{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px;border:1px solid rgba(70,194,128,.35);border-radius:8px;background:rgba(70,194,128,.08)}.user-management__issued-password code{overflow-wrap:anywhere;color:#b8f1cf;font-size:17px;letter-spacing:.04em}.user-management__issued-password+.admin-field-hint{display:block;margin-top:8px;color:#9ce2ba}
 
 @media(max-width:1100px){
   .admin-header__major{display:none}
