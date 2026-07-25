@@ -124,7 +124,7 @@ ClassIsland API v2 继续复用 `/api/exams`。`GET /api/exams?action=plugin-api
 
 配对令牌有效期为 5 分钟。客户端密钥只以 SHA-256 摘要保存，配对与同步接口不会返回原始密钥。
 
-配套插件可在 `integrations/ClassIsland.ExamReminder` 中构建：
+配套插件可在ClassIsland官方插件仓库中寻找或 `integrations/ClassIsland.ExamReminder` 构建：
 
 ```bash
 dotnet build integrations/ClassIsland.ExamReminder/ClassIsland.ExamReminder.csproj -c Release
