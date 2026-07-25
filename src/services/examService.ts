@@ -27,6 +27,7 @@ const LOGIN_URL = '/api/login';
 const TOKEN_KEY = 'admin_auth_token';
 const TOKEN_EXPIRES_KEY = 'admin_auth_token_expires';
 const ADMIN_USER_KEY = 'admin_user_context';
+const GRADE_ADMIN_FIRST_LOGIN_KEY = 'novora_grade_admin_first_login';
 const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
@@ -234,6 +235,15 @@ export function getAdminUser(): AdminUserContext | null {
   } catch { return null; }
 }
 
+export function shouldPromptGradeAdminSetup(user: AdminUserContext | null): boolean {
+  if (!user || user.roleId !== 'grade_admin' || user.mustChangePassword) return false;
+  try { return localStorage.getItem(GRADE_ADMIN_FIRST_LOGIN_KEY) === String(user.id); } catch { return false; }
+}
+
+export function clearGradeAdminSetupPrompt(): void {
+  try { localStorage.removeItem(GRADE_ADMIN_FIRST_LOGIN_KEY); } catch { /* storage optional */ }
+}
+
 export function adminCan(permission: string, user = getAdminUser()): boolean {
   return !!user && (user.permissions.includes('*') || user.permissions.includes(permission));
 }
@@ -275,7 +285,10 @@ export async function loginAdmin(username: string, password: string): Promise<bo
       localStorage.setItem(TOKEN_KEY, data.token);
       localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
     }
-    if (data.user) localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
+    if (data.user) {
+      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
+      if (data.firstLogin === true && data.user.roleId === 'grade_admin') localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(data.user.id));
+    }
     lastAuthApiError = null;
     return true;
   } catch { lastAuthApiError = networkApiError('无法连接登录服务，请检查网络后重试。'); return false; }

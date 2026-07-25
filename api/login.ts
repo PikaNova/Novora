@@ -25,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const login = await authenticateUser(String(username ?? 'admin'), String(password ?? ''));
     if (!login) { await new Promise(resolve => setTimeout(resolve, 350)); res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: '用户名或密码不正确' }); return; }
     await writeAudit(login.actor, 'auth.login', 'user', String(login.actor.id));
-    res.json({ ok: true, token: login.token, expiresAt: login.expiresAt, user: login.actor });
+    res.json({ ok: true, token: login.token, expiresAt: login.expiresAt, user: login.actor, firstLogin: login.firstLogin });
   } catch (error) {
     sendDatabaseError(req, res, error, req.method === 'GET' ? 'read' : 'write');
   }

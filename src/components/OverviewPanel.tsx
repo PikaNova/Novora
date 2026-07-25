@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, Database, MonitorCheck } from 'lucide-react';
 import type { MajorExam } from '../types';
 import type { WeeklyPlan } from '../types/exam';
@@ -21,6 +21,7 @@ interface Props {
 export default function OverviewPanel({ user, grades, classes, majors, weeklyPlans, syncLabel, online }: Props) {
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [deviceError, setDeviceError] = useState('');
+  const [now, setNow] = useState(Date.now());
   const scope = useMemo(() => {
     if (user.permissions.includes('*') || user.scopes.some(item => item.type === 'all')) return { gradeIds: new Set(grades.map(item => item.id)), classIds: new Set(classes.map(item => item.id)) };
     const gradeIds = new Set(user.scopes.filter(item => item.type === 'grade').map(item => item.gradeId));
@@ -29,17 +30,28 @@ export default function OverviewPanel({ user, grades, classes, majors, weeklyPla
     return { gradeIds, classIds };
   }, [classes, grades, user.permissions, user.scopes]);
 
-  useEffect(() => {
-    let alive = true;
-    fetchDeviceBindings().then(result => { if (alive) setDevices(result.bindings.filter(item => scope.classIds.has(item.classId))); }).catch(error => { if (alive) setDeviceError(error instanceof Error ? error.message : '设备状态读取失败'); });
-    return () => { alive = false; };
+  const loadDevices = useCallback(async () => {
+    try {
+      const result = await fetchDeviceBindings();
+      setDevices(result.bindings.filter(item => scope.classIds.has(item.classId)));
+      setDeviceError('');
+    } catch (error) {
+      setDeviceError(error instanceof Error ? error.message : '设备状态读取失败');
+    }
   }, [scope]);
 
-  const now = Date.now();
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => { if (alive) { setNow(Date.now()); await loadDevices(); } };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [loadDevices]);
+
   const activeMajors = majors.filter(major => major.items.some(item => item.enabled && new Date(item.endTime).getTime() >= now) && (!major.targetGradeIds?.length || major.targetGradeIds.some(id => scope.gradeIds.has(id))));
   const scopedPlans = weeklyPlans.filter(plan => scope.classIds.has(plan.classId));
   const onlineDevices = devices.filter(item => !item.revoked && now - item.lastSeenAt <= ONLINE_MS);
-  const runningDevices = devices.filter(item => item.status === 'exam-running' && !item.revoked);
+  const runningDevices = onlineDevices.filter(item => item.status === 'exam-running');
   const majorItems = activeMajors.flatMap(major => major.items.filter(item => item.enabled).map(item => ({ major, item })));
   const majorConflicts = majorItems.flatMap((left, index) => majorItems.slice(index + 1).filter(right => {
     const timeOverlap = new Date(left.item.startTime).getTime() < new Date(right.item.endTime).getTime() && new Date(left.item.endTime).getTime() > new Date(right.item.startTime).getTime();

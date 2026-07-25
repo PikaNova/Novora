@@ -54,7 +54,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   const [numericFont, setNumericFont] = useState<FontKey>('source');
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
-  const exportSheetRef = useRef<HTMLElement>(null);
+  const exportSheetRefs = useRef<Array<HTMLElement | null>>([]);
   const settings = getAppSettings().exam;
   const schoolName = settings.initialization.schoolFullName || settings.initialization.schoolName || '未设置学校名称';
   const instanceId = getClassBindingInstanceId();
@@ -65,6 +65,16 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
     .sort(comparePrintEntries), [entries, mode, weekEnd, weekStart]);
   const groups = useMemo(() => [...new Set(visible.map(item => item.date))].map(date => ({ date, entries: visible.filter(item => item.date === date) })), [visible]);
   const dateRange = useMemo(() => [...new Set(visible.map(item => item.date))].sort(), [visible]);
+  const pages = useMemo(() => {
+    if (mode === 'major') return [{ key: 'major', visible, groups, periodText: dateRange.length ? `${dateRange[0]} 至 ${dateRange[dateRange.length - 1]}` : '尚未添加科目' }];
+    return [0, 7].map(offset => {
+      const start = addDaysToDateKey(weekStart, offset);
+      const end = addDaysToDateKey(start, 6);
+      const pageVisible = visible.filter(item => item.date >= start && item.date <= end);
+      const pageGroups = [...new Set(pageVisible.map(item => item.date))].map(date => ({ date, entries: pageVisible.filter(item => item.date === date) }));
+      return { key: start, visible: pageVisible, groups: pageGroups, periodText: `${start} 至 ${end}` };
+    });
+  }, [dateRange, groups, mode, visible, weekStart]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
@@ -78,23 +88,27 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   const sheetStyle = { '--schedule-title-font': fontCss(titleFont), '--schedule-body-font': fontCss(bodyFont), '--schedule-numeric-font': fontCss(numericFont) } as React.CSSProperties;
 
   const downloadPdf = async () => {
-    if (!exportSheetRef.current || exporting) return;
+    const sheets = exportSheetRefs.current.filter((item): item is HTMLElement => !!item);
+    if (!sheets.length || exporting) return;
     setExporting(true);
     setExportError('');
     try {
       const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
       if (fonts) await fonts.ready;
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas = await html2canvas(exportSheetRef.current, {
-        backgroundColor: '#ffffff',
-        logging: false,
-        scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
-        useCORS: true,
-      });
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const pageWidth = 210;
       const pageHeight = 297;
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+      for (let index = 0; index < sheets.length; index += 1) {
+        const canvas = await html2canvas(sheets[index], {
+          backgroundColor: '#ffffff',
+          logging: false,
+          scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
+          useCORS: true,
+        });
+        if (index > 0) pdf.addPage('a4', 'portrait');
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+      }
       const fileTitle = mode === 'major' ? (title || '大型考试') : `${gradeName}-${className}-周测`;
       pdf.save(`${safeFileName(fileTitle)}-考试安排-${getShanghaiDateKey(Date.now())}.pdf`);
     } catch (error) {
@@ -111,9 +125,9 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
       <div className="schedule-preview__actions">{exportError && <span className="schedule-preview__error" role="alert">{exportError}</span>}<button disabled={exporting} onClick={() => void downloadPdf()}><Download />{exporting ? '正在生成 PDF' : '下载 PDF'}</button><button title="关闭预览" aria-label="关闭预览" onClick={onClose}><X /></button></div>
     </header>
     <main className="schedule-preview__stage">
-      <ScheduleSheet visible={visible} groups={groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />
+      <div className="schedule-preview__pages">{pages.map(page => <ScheduleSheet key={page.key} visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}</div>
       <div className="schedule-export-host" aria-hidden="true">
-      <ScheduleSheet ref={exportSheetRef} exportMode visible={visible} groups={groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />
+      {pages.map((page, index) => <ScheduleSheet key={page.key} ref={element => { exportSheetRefs.current[index] = element; }} exportMode visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}
       </div>
     </main>
   </div>, document.body);

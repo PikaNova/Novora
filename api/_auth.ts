@@ -44,6 +44,7 @@ type UserRow = {
   status: string;
   must_change_password: boolean;
   token_version: number;
+  last_login_at?: number | null;
 };
 
 let sqlClient: ReturnType<typeof neon> | null = null;
@@ -225,11 +226,11 @@ function signature(userId: number, expiresAt: number, version: number, secret: s
   return createHmac('sha256', secret).update(`${userId}.${expiresAt}.${version}`).digest('base64url');
 }
 
-export async function authenticateUser(username: string, password: string): Promise<{ actor: AdminActor; token: string; expiresAt: number } | null> {
+export async function authenticateUser(username: string, password: string): Promise<{ actor: AdminActor; token: string; expiresAt: number; firstLogin: boolean } | null> {
   await ensureDefaultSuperAdmin(password);
   const name = (username.trim() || 'admin').slice(0, 80);
   const rows = await authSql()`SELECT u.id, u.username, u.display_name, u.password_hash, u.password_salt, u.role_id,
-      r.name AS role_name, r.permissions, u.status, u.must_change_password, u.token_version
+      r.name AS role_name, r.permissions, u.status, u.must_change_password, u.token_version, u.last_login_at
     FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE LOWER(u.username)=LOWER(${name}) LIMIT 1` as unknown as UserRow[];
   const row = rows[0];
   if (!row || row.status !== 'active' || !await matches(password, row.password_hash, row.password_salt)) return null;
@@ -237,8 +238,9 @@ export async function authenticateUser(username: string, password: string): Prom
   if (!auth) return null;
   const expiresAt = Date.now() + TOKEN_TTL;
   const token = Buffer.from(`${row.id}.${expiresAt}.${row.token_version}.${signature(row.id, expiresAt, row.token_version, auth.token_secret)}`).toString('base64url');
+  const firstLogin = row.last_login_at == null;
   await authSql()`UPDATE app_users SET last_login_at=${Date.now()} WHERE id=${row.id}`;
-  return { actor: await actorFromUserRow(row), token, expiresAt };
+  return { actor: await actorFromUserRow(row), token, expiresAt, firstLogin };
 }
 
 export async function getActor(token: string | undefined): Promise<AdminActor | null> {

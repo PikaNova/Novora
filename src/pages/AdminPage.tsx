@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Watermark from '../components/Watermark';
 import type { ExamItem, MajorExam, AlertsSettings, AlertState, CustomReminder } from '../types';
 import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId, genReminderId, DEFAULT_ALERTS, normalizeAlerts } from '../utils/appSettings';
-import { adminCan, adminCanClass, adminCanGrade, fetchExamsFromServer, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, logoutAdmin, refreshAdminUser, saveExamsToServer, type AdminUserContext } from '../services/examService';
+import { adminCan, adminCanClass, adminCanGrade, clearGradeAdminSetupPrompt, fetchExamsFromServer, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, logoutAdmin, refreshAdminUser, saveExamsToServer, shouldPromptGradeAdminSetup, type AdminUserContext } from '../services/examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '../services/examOutbox';
 import { normalizeExamItems } from '../utils/examSchedule';
@@ -161,6 +161,7 @@ export default function AdminPage() {
   const [moreMenuStyle, setMoreMenuStyle] = useState<React.CSSProperties>({});
   const [longDurationConfirmed, setLongDurationConfirmed] = useState(false);
   const [deniedModule, setDeniedModule] = useState('');
+  const [gradeAdminSetupPromptOpen, setGradeAdminSetupPromptOpen] = useState(false);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -189,6 +190,10 @@ export default function AdminPage() {
     const setupRequired = !initialization.completedAt || grades.length === 0 || classes.length === 0;
     if (params.get('initialize') === '1' && cloudReadConfirmed && setupRequired && adminCan('initialization.run', adminUser)) setWizardOpen(true);
   }, [adminUser, location.search, cloudReadConfirmed, initialization.completedAt, grades.length, classes.length]);
+
+  useEffect(() => {
+    if (shouldPromptGradeAdminSetup(adminUser)) setGradeAdminSetupPromptOpen(true);
+  }, [adminUser]);
 
   // 打开公告弹窗时拉取最新公告
   useEffect(() => {
@@ -223,6 +228,14 @@ export default function AdminPage() {
     const classMatch = !major.targetClassIds?.length || major.targetClassIds.some(id => visibleClassIds.has(id));
     return gradeMatch && classMatch;
   });
+  const majorAppliesToGrade = useCallback((major: MajorExam, gradeId: string) => {
+    if (!gradeId) return false;
+    if (major.targetGradeIds?.length) return major.targetGradeIds.includes(gradeId);
+    if (major.targetClassIds?.length) {
+      return major.targetClassIds.some(classId => classes.some(item => item.id === classId && item.gradeId === gradeId));
+    }
+    return true;
+  }, [classes]);
 
   useEffect(() => {
     if (!adminUser || !visibleGrades.length) return;
@@ -242,7 +255,7 @@ export default function AdminPage() {
   }, [adminUser, selectedGradeId, selectedClassId, visibleGrades, visibleClasses]);
 
   const scopedMajors = selectedGradeId
-    ? visibleMajors.filter(major => !major.targetGradeIds?.length || major.targetGradeIds.includes(selectedGradeId))
+    ? visibleMajors.filter(major => majorAppliesToGrade(major, selectedGradeId))
     : [];
   const orderedScopedMajors = [...scopedMajors].sort((a, b) => {
     const aSpecific = a.targetGradeIds?.includes(selectedGradeId) ? 0 : 1;
@@ -266,12 +279,18 @@ export default function AdminPage() {
   const hasScopedMajor = orderedScopedMajors.length > 0;
   const activeMajor: MajorExam = orderedScopedMajors.find(m => m.id === editingMajorId) ?? orderedScopedMajors[0] ?? { id: '', name: '当前年级暂无大型考试', items: [], order: -1, targetGradeIds: selectedGradeId ? [selectedGradeId] : [] };
   const items = activeMajor?.items ?? [];
-  const activeMajorApplies = !activeMajor?.targetGradeIds?.length || (!!selectedGradeId && activeMajor.targetGradeIds.includes(selectedGradeId));
+  useEffect(() => {
+    if (!orderedScopedMajors.length) return;
+    if (orderedScopedMajors.some(major => major.id === editingMajorId)) return;
+    const remembered = editingMajorIdByGrade[selectedGradeId];
+    const next = orderedScopedMajors.find(major => major.id === remembered) ?? orderedScopedMajors[0];
+    setEditingMajorId(next.id);
+  }, [editingMajorId, editingMajorIdByGrade, orderedScopedMajors, selectedGradeId]);
 
   const changeSelectedGrade = (gradeId: string) => {
     if (gradeId && !visibleGrades.some(grade => grade.id === gradeId)) return;
     setSelectedGradeId(gradeId); setSelectedClassId('');
-    const candidates = visibleMajors.filter(major => !major.targetGradeIds?.length || major.targetGradeIds.includes(gradeId));
+    const candidates = visibleMajors.filter(major => majorAppliesToGrade(major, gradeId));
     const remembered = editingMajorIdByGrade[gradeId];
     const nextMajor = candidates.find(major => major.id === remembered)
       ?? candidates.find(major => major.targetGradeIds?.includes(gradeId))
@@ -544,7 +563,7 @@ export default function AdminPage() {
       if (remote) setCloudReadConfirmed(true);
       const localAt = getAppSettings().exam?.updatedAt ?? 0;
 
-      if (remote && remote.updatedAt > localAt) {
+      if (remote && (remote.updatedAt > localAt || (remote.updatedAt === localAt && !getPendingExamSync()))) {
         // 服务器更新：应用远端
         const remoteUpdates: Record<string, unknown> = {
           items: remote.items, title: remote.title,
@@ -631,7 +650,14 @@ export default function AdminPage() {
     const removedId = activeMajor.id;
     const ms = majors.filter(m => m.id !== removedId).map((m, i) => ({ ...m, order: i }));
     const nextActiveId = removedId === activeMajorId ? ms[0].id : activeMajorId;
-    setEditingMajorId(ms[0].id);
+    const nextEditing = ms.find(major => majorAppliesToGrade(major, selectedGradeId)) ?? ms[0];
+    setEditingMajorId(nextEditing.id);
+    setEditingMajorIdByGrade(value => {
+      const next = { ...value };
+      for (const gradeId of Object.keys(next)) if (next[gradeId] === removedId) delete next[gradeId];
+      if (selectedGradeId) next[selectedGradeId] = nextEditing.id;
+      return next;
+    });
     commit(ms, nextActiveId, true);
     setDeleteMajorOpen(false);
   };
@@ -797,10 +823,10 @@ export default function AdminPage() {
             <span className="admin-major-card__active-name" title={activeMajor?.name}>{activeMajor?.name || '未命名考试'}</span>
             <span className="admin-major-card__active-meta">{items.length} 个分考试 · {items.filter(i => i.enabled).length} 个启用</span>
           </div>
-          {orderedScopedMajors.length > 1 && (
+          {orderedScopedMajors.length > 0 && (
             <label className="admin-major-card__switch">
               <span className="admin-major-card__switch-k">切换考试</span>
-              <select className="admin-input admin-major-select" value={activeMajor.id} onChange={e => switchMajor(e.target.value)}>
+              <select className="admin-input admin-major-select" value={activeMajor.id} onChange={e => switchMajor(e.target.value)} disabled={orderedScopedMajors.length === 1}>
                 {orderedScopedMajors.map(m => <option key={m.id} value={m.id}>{m.name}（{m.items.length} 科）{!m.targetGradeIds?.length ? ' · 全校统一' : ''}</option>)}
               </select>
             </label>
@@ -844,6 +870,7 @@ export default function AdminPage() {
     <nav className="admin-mobile-nav" aria-label="管理功能">
       {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => selectAdminTab(item)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true"><ModuleIcon module={item.id} size={18} /></span><small>{item.mobileLabel}</small></button>)}
     </nav>
+    {gradeAdminSetupPromptOpen && <div className="admin-modal-overlay"><div className="admin-modal" onClick={event => event.stopPropagation()}><h2 className="admin-modal__title">快速添加班级管理员</h2><p className="admin-modal__body">这是该年级管理员账号首次登录。可为授权年级下的各班创建班级管理员账号，让每位管理员只维护自己的班级。</p><p className="admin-major-card__hint">可管理范围：{visibleGrades.map(grade => grade.name).join('、') || '当前授权年级'}。创建账号时选择“班级管理员”角色，并勾选对应班级。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={() => { clearGradeAdminSetupPrompt(); setGradeAdminSetupPromptOpen(false); setAdminTab('users'); }}>前往添加账号</button><button className="admin-btn" onClick={() => { clearGradeAdminSetupPrompt(); setGradeAdminSetupPromptOpen(false); }}>稍后处理</button></div></div></div>}
     {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip><select className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : 'all'} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.value === 'all' ? [] : [e.target.value] }))}>{hasAllScope && <option value="all">全校统一</option>}{visibleGrades.map(grade => <option key={grade.id} value={grade.id}>{grade.name}</option>)}</select></label><p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
     {majorPrintOpen && <SchedulePrintPreview mode="major" title={activeMajor.name} entries={items.filter(item => item.enabled).map(item => ({ date: item.startTime.slice(0, 10), name: item.name, startTime: item.startTime.slice(11, 16), endTime: item.endTime.slice(11, 16), note: STATUS[phase(item)].label }))} gradeName={grades.find(grade => grade.id === selectedGradeId)?.name || activeMajorScopeLabel} className="全年级" onClose={() => setMajorPrintOpen(false)} />}
     {deleteMajorOpen && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteMajorOpen(false))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
@@ -945,7 +972,7 @@ export default function AdminPage() {
         )}
       </div>
     </div>}
-    {importOpen && <div className="admin-modal-overlay" {...backdropProps(() => setImportOpen(false))}><div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">导入分考试 JSON</h2><p className="admin-modal__body">导入到当前大型考试「{activeMajor.name}」，导入前会校验必填字段并按开始时间排序。支持纯数组，或含 <code>title</code> 与 <code>items</code> 的对象。</p><AiImportGuide kind="major" context={`${initialization.schoolFullName || '当前学校'}，${activeMajorScopeLabel}，大型考试“${activeMajor.name}”`} />{importError && <div className="admin-error">{importError}</div>}<textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>校验并导入</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div></div></div>}
+    {importOpen && <div className="admin-modal-overlay" {...backdropProps(() => setImportOpen(false))}><div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">导入分考试 JSON</h2><p className="admin-modal__body">导入到当前大型考试「{activeMajor.name}」，导入前会校验必填字段并按开始时间排序。支持纯数组，或含 <code>title</code> 与 <code>items</code> 的对象。</p><AiImportGuide kind="major" context={`${initialization.schoolFullName || '当前学校'}，${activeMajorScopeLabel}，大型考试“${activeMajor.name}”`} targetTitle={activeMajor.name} />{importError && <div className="admin-error">{importError}</div>}<textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>校验并导入</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div></div></div>}
     {can('initialization.run') && <InitializationWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onComplete={completeInitialization} />}
   </div>;
 }
