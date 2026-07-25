@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "vite",
@@ -24,7 +24,7 @@
     "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
-    "@types/node": "^22.20.1",
+    "@types/node": "^24.0.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vercel/node": "^5.8.27",
