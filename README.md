@@ -2,7 +2,7 @@
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
-![项目预览](https://raw.githubusercontent.com/jinzhiyuan0327/exam-board-v1.24/refs/heads/main/IMG_20260717_222529.png)
+![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/IMG_20260717_222529.png)
 
 ## V2.4.1 更新
 
@@ -95,7 +95,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 | `DATABASE_URL` | 是 | Neon 新加坡 pooled connection string |
 | `ADMIN_PASSWORD` | 是 | 首次创建 `admin` 超级管理员的初始密码，至少 8 位，建议 12 位以上 |
 | `VERCEL_DEPLOY_HOOK_URL` | 否 | 设置页触发重新部署时使用 |
-| `GITHUB_REPO` | 否 | 更新检查仓库，例如 `jinzhiyuan0327/exam-board-v1.24` |
+| `GITHUB_REPO` | 否 | 更新检查仓库，默认 `PikaNova/Novora` |
 | `GITHUB_TOKEN` | 否 | 私有仓库或提高 GitHub API 限额时使用 |
 | `ASSET_CDN_BASE` | 否 | 静态 JS/CSS 的 CDN 基址，未配置时不要填写 |
 

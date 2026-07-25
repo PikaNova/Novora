@@ -2,12 +2,12 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 /**
  * 检查更新：读取 GitHub 最新发布版本，与客户端当前版本比较。
- * - 仓库默认 jinzhiyuan0327/exam-board，可用环境变量 GITHUB_REPO 覆盖（形如 owner/repo）。
+ * - 仓库默认 PikaNova/Novora，可用环境变量 GITHUB_REPO 覆盖（形如 owner/repo）。
  * - 可选 GITHUB_TOKEN 提升速率限制（私有仓库必填）。
  * - 结果在服务端内存缓存 5 分钟，降低 GitHub API 调用。
  */
 
-const DEFAULT_REPO = 'jinzhiyuan0327/exam-board';
+const DEFAULT_REPO = 'PikaNova/Novora';
 const CACHE_TTL = 5 * 60 * 1000;
 
 interface LatestInfo {
