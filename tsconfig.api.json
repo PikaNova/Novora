@@ -6,9 +6,8 @@
     "moduleResolution": "NodeNext",
     "rootDir": ".",
     "outDir": ".api-check",
-    "noCheck": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["api/exams.ts"]
+  "include": ["api/**/*.ts"]
 }

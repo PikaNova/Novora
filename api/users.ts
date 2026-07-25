@@ -66,16 +66,29 @@ async function delegatedRole(actor: AdminActor, roleId: string): Promise<{ id: s
 
 async function listUsers(actor?: AdminActor) {
   const sql = authSql();
+  type UserRow = {
+    id: number;
+    username: string;
+    displayName: string;
+    roleId: string;
+    roleName: string;
+    status: string;
+    mustChangePassword: boolean;
+    lastLoginAt: number | null;
+    createdAt: number;
+    permissions: unknown;
+  };
+  type ScopeRow = { user_id: number; scope_type: AdminScope['type']; grade_id: string; class_id: string };
   const [users, scopeRows] = await Promise.all([
     sql`SELECT u.id, u.username, u.display_name AS "displayName", u.role_id AS "roleId", r.name AS "roleName",
       u.status, u.must_change_password AS "mustChangePassword", u.last_login_at AS "lastLoginAt", u.created_at AS "createdAt", r.permissions
-      FROM app_users u JOIN app_roles r ON r.id=u.role_id ORDER BY u.created_at ASC`,
-    sql`SELECT user_id, scope_type, grade_id, class_id FROM app_user_scopes ORDER BY id`,
+      FROM app_users u JOIN app_roles r ON r.id=u.role_id ORDER BY u.created_at ASC` as unknown as Promise<UserRow[]>,
+    sql`SELECT user_id, scope_type, grade_id, class_id FROM app_user_scopes ORDER BY id` as unknown as Promise<ScopeRow[]>,
   ]);
-  const result = users.map((user: any) => ({
+  const result = users.map(user => ({
     id: Number(user.id), username: user.username, displayName: user.displayName, roleId: user.roleId, roleName: user.roleName,
     status: user.status, mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt,
-    scopes: scopeRows.filter((scope: any) => Number(scope.user_id) === Number(user.id)).map((scope: any) => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
+    scopes: scopeRows.filter(scope => Number(scope.user_id) === Number(user.id)).map(scope => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
   }));
   if (!actor || actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return result;
   return result.filter((user: any) => canDelegatePermissions(actor, jsonPermissions(user.permissions)) && user.scopes.length > 0 && user.scopes.every((scope: AdminScope) => scope.type !== 'all' && (scope.type === 'grade' ? canAccessGrade(actor, scope.gradeId) : canAccessClass(actor, scope.gradeId, scope.classId))));
@@ -93,7 +106,7 @@ async function canManageTarget(actor: AdminActor, userId: number): Promise<boole
 }
 
 async function listRoles() {
-  const rows = await authSql()`SELECT id, name, description, permissions, built_in AS "builtIn", created_at AS "createdAt", updated_at AS "updatedAt" FROM app_roles ORDER BY built_in DESC, created_at ASC`;
+  const rows = await authSql()`SELECT id, name, description, permissions, built_in AS "builtIn", created_at AS "createdAt", updated_at AS "updatedAt" FROM app_roles ORDER BY built_in DESC, created_at ASC` as unknown as Array<Record<string, any>>;
   return rows.map((row: any) => ({ ...row, permissions: jsonPermissions(row.permissions) }));
 }
 
@@ -173,7 +186,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
     if (!await ensureNotLastSuperAdmin(id, roleId, status)) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
-    const updated = await sql`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id`;
+    const updated = await sql`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id` as unknown as Array<{ id: number }>;
     if (!updated.length) return res.status(404).json({ ok: false, error: '用户不存在' });
     await replaceScopes(id, nextScopes);
     await writeAudit(actor, 'user.update', 'user', String(id), { roleId, status });

@@ -154,21 +154,26 @@ type PluginInstanceRow = {
   viewer_last_seen_at?: number | string | null;
 };
 
+const arrayValue = (value: unknown): any[] => Array.isArray(value) ? value : [];
+const objectValue = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value)
+  ? value as Record<string, any>
+  : {};
+
 function examPayload(row: ExamRow) {
   return {
     ok: true,
-    items: row.items ?? [],
+    items: arrayValue(row.items),
     title: row.title ?? '',
-    majors: row.majors ?? [],
+    majors: arrayValue(row.majors),
     activeMajorId: row.active_major_id ?? '',
     alerts: row.alerts ?? null,
-    weeklyPlans: row.weekly_plans ?? [],
+    weeklyPlans: arrayValue(row.weekly_plans),
     scheduleMode: row.schedule_mode ?? 'major-only',
     activeWeeklyPlanId: row.active_weekly_plan_id ?? '',
-    activeWeeklyPlanIdByClassId: row.active_weekly_plan_by_class ?? {},
-    grades: row.grades ?? [],
-    classes: row.classes ?? [],
-    initialization: row.initialization ?? {},
+    activeWeeklyPlanIdByClassId: objectValue(row.active_weekly_plan_by_class),
+    grades: arrayValue(row.grades),
+    classes: arrayValue(row.classes),
+    initialization: objectValue(row.initialization),
     weeklyConflictPolicy: row.weekly_conflict_policy ?? null,
     updatedAt: Number(row.updated_at ?? 0),
   };
