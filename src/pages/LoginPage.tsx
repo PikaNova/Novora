@@ -23,6 +23,7 @@ export default function LoginPage() {
   const search = new URLSearchParams(location.search);
   const next = search.get('next') || '/admin';
   const initializing = search.get('mode') === 'initialize';
+  const passwordChanged = search.get('passwordChanged') === '1';
 
   useEffect(() => {
     isLoginRequired().then(required => {
@@ -109,7 +110,7 @@ export default function LoginPage() {
         </form> : <>
         <form className="login-form" onSubmit={submit}>
           {initializing && <p className="login-form__notice">首次部署请使用用户名 admin 和 Vercel 中设置的 ADMIN_PASSWORD。首次验证会自动创建超级管理员。</p>}
-          {notice && <p className="login-form__success">{notice}</p>}
+          {(notice || passwordChanged) && <p className="login-form__success">{notice || '超级管理员密码已修改，旧会话已失效。请使用新密码重新登录。'}</p>}
           <label className="login-form__label" htmlFor="admin-username">{initializing ? '超级管理员用户名' : '用户名'}</label>
           <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>
             <span aria-hidden="true">@</span>

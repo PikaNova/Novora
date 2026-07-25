@@ -15,7 +15,7 @@ import AnnouncementList from '../components/AnnouncementList';
 import WeeklyPanel from '../components/WeeklyPanel';
 import DeviceStatusPanel from '../components/DeviceStatusPanel';
 import ClassManagementPanel from '../components/ClassManagementPanel';
-import InitializationWizard from '../components/InitializationWizard';
+import InitializationWizard, { type InitializationCompletion, type InitializationPasswordChange } from '../components/InitializationWizard';
 import UserManagementPanel from '../components/UserManagementPanel';
 import HelpTip from '../components/HelpTip';
 import ModuleIcon from '../components/ModuleIcon';
@@ -26,6 +26,7 @@ import SchedulePrintPreview from '../components/SchedulePrintPreview';
 import BrandMark from '../components/BrandMark';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
+import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { saveDeviceBinding } from '../services/classBinding';
@@ -477,7 +478,7 @@ export default function AdminPage() {
     commitWeekly({ weeklyPlans: mergedPlans, activeWeeklyPlanId: classId ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClassId: nextByClass }, immediate);
   };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
-  const completeInitialization = async (result: InitializationResult) => {
+  const completeInitialization = async (result: InitializationResult, passwordChange: InitializationPasswordChange): Promise<InitializationCompletion> => {
     const nextWeekly = {
       scheduleMode: result.scheduleMode,
       weeklyPlans: result.weeklyPlans,
@@ -489,27 +490,38 @@ export default function AdminPage() {
     };
     const active = result.majors.find(item => item.id === result.activeMajorId) ?? result.majors[0];
     const payload = { items: active?.items ?? [], title: active?.name ?? '', majors: result.majors, activeMajorId: result.activeMajorId, alerts: alertsRef.current, ...nextWeekly, initialization: result.initialization };
-    setSync('saving');
-    const saved = await saveExamsToServer({ ...payload, action: 'initialize', baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
-    if (saved === 'unauthorized') { navigate('/login?mode=initialize&next=/admin%3Finitialize%3D1', { replace: true }); return; }
-    if (typeof saved !== 'number') {
-      setSync('error');
-      const message = saved && saved.kind === 'error' ? formatApiError(saved.error) : '初始化数据未能写入云端，请刷新后重试。';
-      notify('error', message, '初始化失败');
-      return;
+    const alreadySaved = !!initializationRef.current.completedAt && grades.length > 0 && classes.length > 0;
+    if (!alreadySaved) {
+      setSync('saving');
+      const saved = await saveExamsToServer({ ...payload, action: 'initialize', baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
+      if (saved === 'unauthorized') { navigate('/login?mode=initialize&next=/admin%3Finitialize%3D1', { replace: true }); return { ok: false, error: '登录状态已失效，请重新登录后继续初始化' }; }
+      if (typeof saved !== 'number') {
+        setSync('error');
+        const message = saved && saved.kind === 'error' ? formatApiError(saved.error) : '初始化数据未能写入云端，请刷新后重试。';
+        notify('error', message, '初始化失败');
+        return { ok: false, error: message };
+      }
+      setMajors(result.majors); setActiveMajorId(result.activeMajorId); setEditingMajorId(result.activeMajorId);
+      setScheduleMode(result.scheduleMode); setWeeklyPlans(result.weeklyPlans); setActiveWeeklyPlanId(result.activeWeeklyPlanId); setActiveWeeklyPlanIdByClassId(result.activeWeeklyPlanIdByClassId);
+      setGrades(result.grades); setClasses(result.classes); setSelectedGradeId(''); setSelectedClassId(''); setInitialization(result.initialization);
+      stateRef.current = { majors: result.majors, activeMajorId: result.activeMajorId };
+      weeklyStateRef.current = nextWeekly;
+      initializationRef.current = result.initialization;
+      updateExamSettings({ ...payload, selectedGradeId: '', selectedClassId: '', updatedAt: saved });
+      clearPendingExamSync();
+      pendingRef.current = false;
+      setSync('saved');
     }
-    setMajors(result.majors); setActiveMajorId(result.activeMajorId); setEditingMajorId(result.activeMajorId);
-    setScheduleMode(result.scheduleMode); setWeeklyPlans(result.weeklyPlans); setActiveWeeklyPlanId(result.activeWeeklyPlanId); setActiveWeeklyPlanIdByClassId(result.activeWeeklyPlanIdByClassId);
-    setGrades(result.grades); setClasses(result.classes); setSelectedGradeId(''); setSelectedClassId(''); setInitialization(result.initialization);
-    stateRef.current = { majors: result.majors, activeMajorId: result.activeMajorId };
-    weeklyStateRef.current = nextWeekly;
-    initializationRef.current = result.initialization;
-    updateExamSettings({ ...payload, selectedGradeId: '', selectedClassId: '', updatedAt: saved });
-    clearPendingExamSync();
-    pendingRef.current = false;
-    setSync('saved');
+    try { await changeOwnPassword(passwordChange.currentPassword, passwordChange.newPassword); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : '超级管理员密码修改失败';
+      notify('error', message, '学校信息已保存，请重新确认当前密码');
+      return { ok: false, error: `学校信息已保存，但密码修改失败：${message}` };
+    }
     setWizardOpen(false); setAdminTab('classes');
-    notify('success', '首次初始化已完成。使用文档可在首页系统公告或后台“更多 → 查看公告 → 文档”中再次打开。');
+    logoutAdmin();
+    navigate('/login?next=/admin&passwordChanged=1', { replace: true });
+    return { ok: true };
   };
   const addGrade = (name: string) => { const item = { id: genGradeId(), name, order: grades.length, enabled: true }; commitWeekly({ grades: [...grades, item] }, true); if (!selectedGradeId) changeSelectedGrade(item.id); };
   const addClass = (gradeId: string, name: string) => { const item = { id: genClassId(), gradeId, name, order: classes.filter(value => value.gradeId === gradeId).length, enabled: true }; commitWeekly({ classes: [...classes, item], activeWeeklyPlanIdByClassId: { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [item.id]: null } }, true); };
