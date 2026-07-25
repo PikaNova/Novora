@@ -54,7 +54,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   const [numericFont, setNumericFont] = useState<FontKey>('source');
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
-  const sheetRef = useRef<HTMLElement>(null);
+  const exportSheetRef = useRef<HTMLElement>(null);
   const settings = getAppSettings().exam;
   const schoolName = settings.initialization.schoolFullName || settings.initialization.schoolName || '未设置学校名称';
   const instanceId = getClassBindingInstanceId();
@@ -78,14 +78,14 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   const sheetStyle = { '--schedule-title-font': fontCss(titleFont), '--schedule-body-font': fontCss(bodyFont), '--schedule-numeric-font': fontCss(numericFont) } as React.CSSProperties;
 
   const downloadPdf = async () => {
-    if (!sheetRef.current || exporting) return;
+    if (!exportSheetRef.current || exporting) return;
     setExporting(true);
     setExportError('');
     try {
       const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
       if (fonts) await fonts.ready;
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas = await html2canvas(sheetRef.current, {
+      const canvas = await html2canvas(exportSheetRef.current, {
         backgroundColor: '#ffffff',
         logging: false,
         scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
@@ -94,10 +94,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const pageWidth = 210;
       const pageHeight = 297;
-      const scale = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-      const imageWidth = canvas.width * scale;
-      const imageHeight = canvas.height * scale;
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', (pageWidth - imageWidth) / 2, 0, imageWidth, imageHeight, undefined, 'FAST');
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
       const fileTitle = mode === 'major' ? (title || '大型考试') : `${gradeName}-${className}-周测`;
       pdf.save(`${safeFileName(fileTitle)}-考试安排-${getShanghaiDateKey(Date.now())}.pdf`);
     } catch (error) {
@@ -114,12 +111,27 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
       <div className="schedule-preview__actions">{exportError && <span className="schedule-preview__error" role="alert">{exportError}</span>}<button disabled={exporting} onClick={() => void downloadPdf()}><Download />{exporting ? '正在生成 PDF' : '下载 PDF'}</button><button title="关闭预览" aria-label="关闭预览" onClick={onClose}><X /></button></div>
     </header>
     <main className="schedule-preview__stage">
-      <article ref={sheetRef} className={`schedule-sheet${visible.length > 12 ? ' is-dense' : ''}`} style={sheetStyle}>
-        <header className="schedule-sheet__head"><img src="/icon-512-rounded.png" alt="Novora 图标" /><div><span>{schoolName}</span><h1>{sheetTitle}</h1></div></header>
-        <dl className="schedule-sheet__meta"><div><dt>适用范围</dt><dd>{gradeName}{className && className !== '全年级' ? ` · ${className}` : ' · 全年级'}</dd></div><div><dt>安排日期</dt><dd>{periodText}</dd></div><div><dt>设备实例号</dt><dd>{instanceId}</dd></div><div><dt>导出时间</dt><dd>{exportedAt}</dd></div></dl>
-        {groups.length ? <div className="schedule-sheet__days">{groups.map(group => <section className="schedule-day" key={group.date}><header className="schedule-day__date"><strong>{group.date.slice(5).replace('-', ' / ')}</strong><span>{WEEKDAYS[isoWeekdayOfDateKey(group.date)]}</span></header><div className="schedule-day__events">{group.entries.map((item, index) => <article className="schedule-event" key={`${item.date}-${item.name}-${item.startTime}-${index}`}><time>{item.startTime}<i>至</i>{item.endTime}</time><div><strong>{item.name}</strong>{item.note && <span>{item.note}</span>}</div></article>)}</div></section>)}</div> : <div className="schedule-sheet__empty"><strong>当前日期范围内暂无考试安排</strong><span>请返回管理后台添加考试后重新预览。</span></div>}
-        <footer className="schedule-sheet__footer"><span>Novora · 考试管理与教室大屏</span><span>Created By PikaNova</span></footer>
-      </article>
+      <ScheduleSheet visible={visible} groups={groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />
+      <div className="schedule-export-host" aria-hidden="true">
+      <ScheduleSheet ref={exportSheetRef} exportMode visible={visible} groups={groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />
+      </div>
     </main>
   </div>, document.body);
 }
+
+type ScheduleSheetProps = {
+  visible: PrintScheduleEntry[];
+  groups: Array<{ date: string; entries: PrintScheduleEntry[] }>;
+  schoolName: string; sheetTitle: string; gradeName: string; className: string;
+  periodText: string; instanceId: string; exportedAt: string; sheetStyle: React.CSSProperties;
+  exportMode?: boolean;
+};
+
+const ScheduleSheet = React.forwardRef<HTMLElement, ScheduleSheetProps>(function ScheduleSheet({ visible, groups, schoolName, sheetTitle, gradeName, className, periodText, instanceId, exportedAt, sheetStyle, exportMode = false }, ref) {
+  return <article ref={ref} className={`schedule-sheet${visible.length > 12 ? ' is-dense' : ''}${exportMode ? ' schedule-sheet--export' : ''}`} style={sheetStyle}>
+    <header className="schedule-sheet__head"><img src="/icon-512-rounded.png" alt="Novora 图标" /><div><span>{schoolName}</span><h1>{sheetTitle}</h1></div></header>
+    <dl className="schedule-sheet__meta"><div><dt>适用范围</dt><dd>{gradeName}{className && className !== '全年级' ? ` · ${className}` : ' · 全年级'}</dd></div><div><dt>安排日期</dt><dd>{periodText}</dd></div><div><dt>设备实例号</dt><dd>{instanceId}</dd></div><div><dt>导出时间</dt><dd>{exportedAt}</dd></div></dl>
+    {groups.length ? <div className="schedule-sheet__days">{groups.map(group => <section className="schedule-day" key={group.date}><header className="schedule-day__date"><strong>{group.date.slice(5).replace('-', ' / ')}</strong><span>{WEEKDAYS[isoWeekdayOfDateKey(group.date)]}</span></header><div className="schedule-day__events">{group.entries.map((item, index) => <article className="schedule-event" key={`${item.date}-${item.name}-${item.startTime}-${index}`}><time>{item.startTime}<i>至</i>{item.endTime}</time><div><strong>{item.name}</strong>{item.note && <span>{item.note}</span>}</div></article>)}</div></section>)}</div> : <div className="schedule-sheet__empty"><strong>当前日期范围内暂无考试安排</strong><span>请返回管理后台添加考试后重新预览。</span></div>}
+    <footer className="schedule-sheet__footer"><span>Novora · 考试管理与教室大屏</span><span>Created By PikaNova</span></footer>
+  </article>;
+});

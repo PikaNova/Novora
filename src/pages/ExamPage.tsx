@@ -329,13 +329,15 @@ function BoundExamPage() {
         onToggleFullscreen={() => { void toggleFullscreen(); }}
       /></Suspense>
       <Watermark exam />
-      <BrandMark compact className="exam-brand-mark" />
-      <ExamSyncAction
-        state={examDataSyncState}
-        lastSyncAt={examDataLastSyncAt}
-        hasPendingSync={hasPendingSync}
-        onRefresh={() => { void refreshExamData(true); }}
-      />
+      <div className="exam-corner-stack">
+        <ExamSyncAction
+          state={examDataSyncState}
+          lastSyncAt={examDataLastSyncAt}
+          hasPendingSync={hasPendingSync}
+          onRefresh={() => { void refreshExamData(true); }}
+        />
+        <BrandMark compact className="exam-brand-mark" />
+      </div>
       <ExamAnnouncementOverlay
         open={announcementsOpen}
         announcements={announcements}

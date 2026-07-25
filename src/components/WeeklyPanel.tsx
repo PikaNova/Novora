@@ -70,6 +70,7 @@ export interface WeeklyPanelProps {
   onSavePlans: (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate?: boolean) => void;
   onConflictPolicyChange: (policy: WeeklyConflictPolicy, immediate?: boolean) => void;
   onSelectScope?: (gradeId: string, classId: string) => void;
+  allowBatchApply?: boolean;
 }
 
 export default function WeeklyPanel({
@@ -87,6 +88,7 @@ export default function WeeklyPanel({
   onSavePlans,
   onConflictPolicyChange,
   onSelectScope,
+  allowBatchApply = true,
 }: WeeklyPanelProps) {
   const backdropProps = useBackdropDismiss();
   const scopedPlans = weeklyPlans.filter(p => p.classId === selectedClassId);
@@ -475,9 +477,9 @@ export default function WeeklyPanel({
           </div>
           <div className="admin-major-card__btns">
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
-            <button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [], name: activePlan.name.replace(/（复制）$/u, '') })}>批量应用</button><HelpTip title="批量应用">应用后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip>
+            {allowBatchApply && <><button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [], name: activePlan.name.replace(/（复制）$/u, '') })}>批量应用</button><HelpTip title="批量应用">应用后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip></>}
           </div>
-          <button className="admin-btn admin-btn--primary" style={{ width: '100%', marginTop: 8 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: classOptions.filter(item => item.gradeId === activePlan.gradeId && item.id !== activePlan.classId).map(item => item.id), name: activePlan.name.replace(/（复制）$/u, '') })}>同步至同年级其他班级</button>
+          {allowBatchApply && <button className="admin-btn admin-btn--primary" style={{ width: '100%', marginTop: 8 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: classOptions.filter(item => item.gradeId === activePlan.gradeId && item.id !== activePlan.classId).map(item => item.id), name: activePlan.name.replace(/（复制）$/u, '') })}>同步至同年级其他班级</button>}
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
 
@@ -678,7 +680,7 @@ export default function WeeklyPanel({
           </div>
         </div>
       )}
-      {copyModal && (
+      {allowBatchApply && copyModal && (
         <div className="admin-modal-overlay" {...backdropProps(() => setCopyModal(null))}>
           <div className="admin-modal" onClick={event => event.stopPropagation()}>
             <h2 className="admin-modal__title">批量应用周测计划</h2>

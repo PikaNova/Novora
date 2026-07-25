@@ -24,8 +24,9 @@ function getNextExam(items: ExamItem[], now: number): { exam: ExamItem; phase: '
   return null;
 }
 /** 周测实例结构上是标准 ExamItem，运行时附带 kind 字段；用于区分横幅文案（大型考试 / 周测）。 */
-function examKind(exam: ExamItem): 'weekly' | 'major' {
-  return (exam as unknown as { kind?: string }).kind === 'weekly' ? 'weekly' : 'major';
+function examKind(exam: ExamItem): 'weekly' | 'major' | 'temporary' {
+  const kind = (exam as unknown as { kind?: string }).kind;
+  return kind === 'weekly' || kind === 'temporary' ? kind : 'major';
 }
 const pad2 = (n: number) => String(n).padStart(2, '0');
 function fmtRemain(ms: number): string { const total = Math.max(0, Math.floor(ms / 1000)); const d = Math.floor(total / 86400); const h = Math.floor((total % 86400) / 3600); const m = Math.floor((total % 3600) / 60); const s = total % 60; return d > 0 ? `${d} 天 ${pad2(h)}:${pad2(m)}:${pad2(s)}` : `${pad2(h)}:${pad2(m)}:${pad2(s)}`; }
@@ -78,7 +79,16 @@ export default function WelcomePage() {
   };
   const ongoing = nextExam?.phase === 'ongoing'; const startMs = nextExam ? parseZonedTime(nextExam.exam.startTime) : NaN; const endMs = nextExam ? parseZonedTime(nextExam.exam.endTime) : NaN; const countdownMs = nextExam ? (ongoing ? endMs - now : startMs - now) : 0;
   const currentClass = classDisplayName(currentExamSettings.grades, currentExamSettings.classes, currentExamSettings.selectedClassId);
-  return <div className="welcome-page"><div className="welcome-header"><BrandMark className="welcome-brand" /><h1 className="welcome-title">考试看板</h1><p className="welcome-subtitle">{currentExamSettings.selectedClassId ? `${currentClass} · ` : ''}{getAppSettings().exam.title} · {new Date(now).toLocaleTimeString('zh-CN', { hour12: false })}</p>{lastOpenedRef.current > 0 && <p className="welcome-lastopen">上次打开 {formatDateTimeInZone(lastOpenedRef.current)}</p>}</div>
+  const resolvedTitle = !isBound
+    ? '未选择班级'
+    : nextExam
+      ? examKind(nextExam.exam) === 'weekly'
+        ? '周测'
+        : examKind(nextExam.exam) === 'temporary'
+          ? `${nextExam.exam.name} · 临时考试`
+          : ((nextExam.exam as ExamItem & { majorName?: string }).majorName || nextExam.exam.name)
+      : '暂无考试安排';
+  return <div className="welcome-page"><div className="welcome-header"><BrandMark className="welcome-brand" /><h1 className="welcome-title">考试看板</h1><p className="welcome-subtitle">{isBound ? `${currentClass} · ` : ''}{resolvedTitle} · {new Date(now).toLocaleTimeString('zh-CN', { hour12: false })}</p>{lastOpenedRef.current > 0 && <p className="welcome-lastopen">上次打开 {formatDateTimeInZone(lastOpenedRef.current)}</p>}</div>
     {!nextExam && <div className="welcome-exam-banner is-ended"><div className="welcome-exam-banner__eyebrow">当前状态</div><span className="welcome-exam-banner__icon">✓</span><div className="welcome-exam-banner__info"><strong>暂无进行中的考试</strong><span>可进入管理后台安排下一场考试</span></div><div className="welcome-exam-banner__count"><small>看板状态</small>待安排</div></div>}
     {nextExam && <div className={`welcome-exam-banner ${ongoing ? 'is-ongoing' : 'is-waiting'}`}><div className="welcome-exam-banner__eyebrow">{ongoing ? (examKind(nextExam.exam) === 'weekly' ? '周测进行中' : '正在考试') : (examKind(nextExam.exam) === 'weekly' ? '下一场周测' : '下一场考试')}</div><span className="welcome-exam-banner__icon">{ongoing ? '●' : '→'}</span><div className="welcome-exam-banner__info"><strong>{nextExam.exam.name}</strong><span>{ongoing ? '开始 ' : '开考 '}{formatDateTimeInZone(startMs)}</span></div><div className="welcome-exam-banner__count"><small>{ongoing ? '距结束' : '距开考'}</small>{fmtRemain(countdownMs)}</div></div>}
     {!isInitialized && <div className="welcome-setup-notice"><div><strong>{classDataLoading ? '正在同步班级配置' : syncState === 'synced' ? '系统尚未初始化' : '暂时无法读取班级配置'}</strong><span>{classDataLoading ? '正在从云端获取年级与班级，请稍候。' : syncState === 'synced' ? '云端尚未创建年级和班级，请完成首次初始化。' : '请检查网络后重试；现有云端数据不会被当作未初始化。'}</span></div>{syncState === 'synced' ? <button onClick={openInitialization}>开始初始化</button> : !classDataLoading ? <button onClick={() => void refresh(true)}>重新同步</button> : null}</div>}

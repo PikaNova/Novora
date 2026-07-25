@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Watermark from '../components/Watermark';
 import type { ExamItem, MajorExam, AlertsSettings, AlertState, CustomReminder } from '../types';
 import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId, genReminderId, DEFAULT_ALERTS, normalizeAlerts } from '../utils/appSettings';
-import { adminCan, fetchExamsFromServer, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, logoutAdmin, refreshAdminUser, saveExamsToServer, type AdminUserContext } from '../services/examService';
+import { adminCan, adminCanClass, adminCanGrade, fetchExamsFromServer, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, logoutAdmin, refreshAdminUser, saveExamsToServer, type AdminUserContext } from '../services/examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '../services/examOutbox';
 import { normalizeExamItems } from '../utils/examSchedule';
@@ -212,8 +212,37 @@ export default function AdminPage() {
     return () => { document.removeEventListener('pointerdown', closeOnOutside); document.removeEventListener('keydown', closeOnEscape); };
   }, [moreOpen]);
 
+  const hasAllScope = !!adminUser && (adminUser.permissions.includes('*') || adminUser.scopes.some(scope => scope.type === 'all'));
+  const visibleGrades = grades.filter(grade => adminCanGrade(grade.id, adminUser));
+  const visibleClasses = classes.filter(item => adminCanClass(item.gradeId, item.id, adminUser));
+  const visibleClassIds = new Set(visibleClasses.map(item => item.id));
+  const visibleWeeklyPlans = weeklyPlans.filter(plan => visibleClassIds.has(plan.classId));
+  const visibleMajors = majors.filter(major => {
+    if (hasAllScope) return true;
+    const gradeMatch = !major.targetGradeIds?.length || major.targetGradeIds.some(id => visibleGrades.some(grade => grade.id === id));
+    const classMatch = !major.targetClassIds?.length || major.targetClassIds.some(id => visibleClassIds.has(id));
+    return gradeMatch && classMatch;
+  });
+
+  useEffect(() => {
+    if (!adminUser || !visibleGrades.length) return;
+    if (!visibleGrades.some(grade => grade.id === selectedGradeId)) {
+      const gradeId = visibleGrades[0].id;
+      const classId = adminUser.roleId === 'class_admin' ? (visibleClasses.find(item => item.gradeId === gradeId)?.id ?? '') : '';
+      setSelectedGradeId(gradeId);
+      setSelectedClassId(classId);
+      updateExamSettings({ selectedGradeId: gradeId, selectedClassId: classId });
+      return;
+    }
+    if ((selectedClassId && !visibleClasses.some(item => item.id === selectedClassId && item.gradeId === selectedGradeId)) || (!selectedClassId && adminUser.roleId === 'class_admin')) {
+      const classId = adminUser.roleId === 'class_admin' ? (visibleClasses.find(item => item.gradeId === selectedGradeId)?.id ?? '') : '';
+      setSelectedClassId(classId);
+      updateExamSettings({ selectedGradeId, selectedClassId: classId });
+    }
+  }, [adminUser, selectedGradeId, selectedClassId, visibleGrades, visibleClasses]);
+
   const scopedMajors = selectedGradeId
-    ? majors.filter(major => !major.targetGradeIds?.length || major.targetGradeIds.includes(selectedGradeId))
+    ? visibleMajors.filter(major => !major.targetGradeIds?.length || major.targetGradeIds.includes(selectedGradeId))
     : [];
   const orderedScopedMajors = [...scopedMajors].sort((a, b) => {
     const aSpecific = a.targetGradeIds?.includes(selectedGradeId) ? 0 : 1;
@@ -240,8 +269,9 @@ export default function AdminPage() {
   const activeMajorApplies = !activeMajor?.targetGradeIds?.length || (!!selectedGradeId && activeMajor.targetGradeIds.includes(selectedGradeId));
 
   const changeSelectedGrade = (gradeId: string) => {
+    if (gradeId && !visibleGrades.some(grade => grade.id === gradeId)) return;
     setSelectedGradeId(gradeId); setSelectedClassId('');
-    const candidates = majors.filter(major => !major.targetGradeIds?.length || major.targetGradeIds.includes(gradeId));
+    const candidates = visibleMajors.filter(major => !major.targetGradeIds?.length || major.targetGradeIds.includes(gradeId));
     const remembered = editingMajorIdByGrade[gradeId];
     const nextMajor = candidates.find(major => major.id === remembered)
       ?? candidates.find(major => major.targetGradeIds?.includes(gradeId))
@@ -250,6 +280,7 @@ export default function AdminPage() {
     updateExamSettings({ selectedGradeId: gradeId, selectedClassId: '' });
   };
   const changeSelectedClass = (classId: string) => {
+    if (classId && !visibleClasses.some(item => item.id === classId && item.gradeId === selectedGradeId)) return;
     setSelectedClassId(classId);
     updateExamSettings({ selectedGradeId, selectedClassId: classId });
     if (selectedGradeId && classId) void saveDeviceBinding(selectedGradeId, classId);
@@ -419,8 +450,12 @@ export default function AdminPage() {
 
   const handleScheduleModeChange = (mode: ScheduleMode) => commitWeekly({ scheduleMode: mode }, true);
   const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate = false) => {
+    const mergedPlans = hasAllScope ? plans : [
+      ...weeklyStateRef.current.weeklyPlans.filter(plan => !visibleClassIds.has(plan.classId)),
+      ...plans.filter(plan => visibleClassIds.has(plan.classId)),
+    ];
     const nextByClass = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [classId]: activeId };
-    commitWeekly({ weeklyPlans: plans, activeWeeklyPlanId: classId ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClassId: nextByClass }, immediate);
+    commitWeekly({ weeklyPlans: mergedPlans, activeWeeklyPlanId: classId ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClassId: nextByClass }, immediate);
   };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
   const completeInitialization = async (result: InitializationResult) => {
@@ -675,6 +710,11 @@ export default function AdminPage() {
 
   const syncMeta = SYNC_META[sync];
   const can = (permission: string) => adminCan(permission, adminUser);
+  const selectAdminTab = (item: (typeof ADMIN_NAV)[number]) => {
+    if (!can(item.permission)) { setDeniedModule(item.label); return; }
+    setDeniedModule('');
+    setAdminTab(item.id);
+  };
   const editDurationMs = editing?.startTime && editing?.endTime ? new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime() : 0;
   const isLongEdit = Number.isFinite(editDurationMs) && editDurationMs > 6 * 60 * 60 * 1000;
   const activeMajorScopeLabel = activeMajor.targetClassIds?.length
@@ -698,7 +738,7 @@ export default function AdminPage() {
     </header>
     <div className={`admin-tabbar${adminTab === 'major' || adminTab === 'weekly' ? ' has-context' : ''}`}>
       <div className="admin-tabbar__tabs">
-        {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={`admin-tab${adminTab === item.id ? ' is-active' : ''}`} onClick={() => setAdminTab(item.id)} aria-current={adminTab === item.id ? 'page' : undefined}><span><ModuleIcon module={item.id} size={16} /></span>{item.label}{item.id === 'weekly' && weeklyPlans.length ? `（${weeklyPlans.length}）` : ''}</button>)}
+        {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={`admin-tab${adminTab === item.id ? ' is-active' : ''}`} onClick={() => selectAdminTab(item)} aria-current={adminTab === item.id ? 'page' : undefined}><span><ModuleIcon module={item.id} size={16} /></span>{item.label}{item.id === 'weekly' && visibleWeeklyPlans.length ? `（${visibleWeeklyPlans.length}）` : ''}</button>)}
       </div>
       {adminTab !== 'overview' && adminTab !== 'devices' && adminTab !== 'classes' && adminTab !== 'users' && <>
       <label className="admin-tabbar__mode"><span>运行模式 <HelpTip title="运行模式">仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。</HelpTip></span>
@@ -710,28 +750,28 @@ export default function AdminPage() {
       </label>
       <label className="admin-tabbar__mode">年级
         <select className="admin-input" value={selectedGradeId} onChange={e => changeSelectedGrade(e.target.value)}>
-          <option value="">请选择年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          <option value="">请选择年级</option>{visibleGrades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
       </label>
       {adminTab === 'weekly' && <label className="admin-tabbar__mode">班级
         <select className="admin-input" value={selectedClassId} onChange={e => changeSelectedClass(e.target.value)} disabled={!selectedGradeId}>
-          <option value="">请选择班级</option>{classes.filter(item => item.gradeId === selectedGradeId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          <option value="">请选择班级</option>{visibleClasses.filter(item => item.gradeId === selectedGradeId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
       </label>}
       </>}
     </div>
     <div className={`admin-body${(['overview', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ? ' admin-body--wide' : ''}`}>
       {adminTab === 'overview' ? (
-        <OverviewPanel user={adminUser} grades={grades} classes={classes} majors={majors} weeklyPlans={weeklyPlans} syncLabel={syncMeta.label} online={online} />
+        <OverviewPanel user={adminUser} grades={visibleGrades} classes={visibleClasses} majors={visibleMajors} weeklyPlans={visibleWeeklyPlans} syncLabel={syncMeta.label} online={online} />
       ) : adminTab === 'weekly' ? (
         <fieldset className="admin-permission-fieldset" disabled={!can('weekly.edit')}><WeeklyPanel
-          weeklyPlans={weeklyPlans}
+          weeklyPlans={visibleWeeklyPlans}
           activeWeeklyPlanId={activeWeeklyPlanId}
           activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
           selectedGradeId={selectedGradeId}
           selectedClassId={selectedClassId}
-          selectedClassName={classes.find(item => item.id === selectedClassId)?.name ?? '当前班级'}
-          classOptions={classes.map(item => ({ id: item.id, gradeId: item.gradeId, label: `${grades.find(grade => grade.id === item.gradeId)?.name ?? '未知年级'} · ${item.name}` }))}
+          selectedClassName={visibleClasses.find(item => item.id === selectedClassId)?.name ?? '当前班级'}
+          classOptions={visibleClasses.map(item => ({ id: item.id, gradeId: item.gradeId, label: `${visibleGrades.find(grade => grade.id === item.gradeId)?.name ?? '未知年级'} · ${item.name}` }))}
           scheduleMode={scheduleMode}
           weeklyConflictPolicy={weeklyConflictPolicy}
           majorItems={orderedScopedMajors.flatMap(major => major.items)}
@@ -739,13 +779,14 @@ export default function AdminPage() {
           onSavePlans={handleSaveWeeklyPlans}
           onConflictPolicyChange={handleConflictPolicyChange}
           onSelectScope={(gradeId, classId) => { setSelectedGradeId(gradeId); setSelectedClassId(classId); }}
+          allowBatchApply={adminUser.roleId !== 'class_admin' && can('weekly.copy')}
         /></fieldset>
       ) : adminTab === 'classes' ? (
-        <ClassManagementPanel grades={grades} classes={classes} weeklyPlans={weeklyPlans} majors={majors} onAddGrade={addGrade} onRemoveGrade={removeGrade} onAddClass={addClass} onAddClasses={addClasses} onRemoveClass={removeClass} readOnly={!can('school.class_manage') && !can('school.grade_manage')} />
+        <ClassManagementPanel grades={visibleGrades} classes={visibleClasses} weeklyPlans={visibleWeeklyPlans} majors={visibleMajors} onAddGrade={addGrade} onRemoveGrade={removeGrade} onAddClass={addClass} onAddClasses={addClasses} onRemoveClass={removeClass} canManageGrades={can('school.grade_manage')} canManageClasses={can('school.class_manage')} />
       ) : adminTab === 'devices' ? (
         <DeviceStatusPanel canRevoke={can('device.revoke')} />
       ) : adminTab === 'users' ? (
-        <UserManagementPanel grades={grades} classes={classes} currentUser={adminUser} forcePasswordChange={adminUser.mustChangePassword || new URLSearchParams(location.search).get('password') === '1'} />
+        <UserManagementPanel grades={visibleGrades} classes={visibleClasses} currentUser={adminUser} forcePasswordChange={adminUser.mustChangePassword || new URLSearchParams(location.search).get('password') === '1'} />
       ) : (
       <>
       <aside className="admin-sidebar">
@@ -801,9 +842,9 @@ export default function AdminPage() {
       )}
     </div>
     <nav className="admin-mobile-nav" aria-label="管理功能">
-      {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => setAdminTab(item.id)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true"><ModuleIcon module={item.id} size={18} /></span><small>{item.mobileLabel}</small></button>)}
+      {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => selectAdminTab(item)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true"><ModuleIcon module={item.id} size={18} /></span><small>{item.mobileLabel}</small></button>)}
     </nav>
-    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip><select className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : 'all'} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.value === 'all' ? [] : [e.target.value] }))}><option value="all">全校统一</option>{grades.map(grade => <option key={grade.id} value={grade.id}>{grade.name}</option>)}</select></label><p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
+    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip><select className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : 'all'} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.value === 'all' ? [] : [e.target.value] }))}>{hasAllScope && <option value="all">全校统一</option>}{visibleGrades.map(grade => <option key={grade.id} value={grade.id}>{grade.name}</option>)}</select></label><p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
     {majorPrintOpen && <SchedulePrintPreview mode="major" title={activeMajor.name} entries={items.filter(item => item.enabled).map(item => ({ date: item.startTime.slice(0, 10), name: item.name, startTime: item.startTime.slice(11, 16), endTime: item.endTime.slice(11, 16), note: STATUS[phase(item)].label }))} gradeName={grades.find(grade => grade.id === selectedGradeId)?.name || activeMajorScopeLabel} className="全年级" onClose={() => setMajorPrintOpen(false)} />}
     {deleteMajorOpen && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteMajorOpen(false))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
     {deleteTarget && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteTarget(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">确认删除</h2><p className="admin-modal__body">确定删除「{deleteTarget.name}」？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={() => remove(deleteTarget)}>删除</button><button className="admin-btn" onClick={() => setDeleteTarget(null)}>取消</button></div></div></div>}

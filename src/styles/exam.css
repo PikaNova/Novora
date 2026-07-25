@@ -3,7 +3,8 @@
 .exam-root { position: fixed; inset: 0; }
 
 /* 大屏数据同步：独立于五套设计的轻量操作入口，不遮挡各设计顶栏。 */
-.exam-sync-action { position:fixed; left:max(12px, env(safe-area-inset-left)); bottom:max(12px, env(safe-area-inset-bottom)); z-index:40; display:flex; flex-direction:column; align-items:flex-start; gap:5px; font:500 12px/1.2 system-ui,sans-serif; pointer-events:none; }
+.exam-corner-stack{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:40;display:flex;flex-direction:column;align-items:flex-start;gap:7px;max-width:min(260px,calc(100vw - 24px));pointer-events:none}
+.exam-sync-action { position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:5px; font:500 12px/1.2 system-ui,sans-serif; pointer-events:none; }
 .exam-sync-action__button { pointer-events:auto; display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:7px 10px; border:1px solid rgba(255,255,255,.2); border-radius:999px; color:#eaf3ff; background:rgba(10,18,32,.78); box-shadow:0 4px 16px rgba(0,0,0,.24); backdrop-filter:blur(10px); font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
 .exam-sync-action__button svg{width:15px;height:15px}.exam-sync-action__button .is-spinning{animation:exam-sync-spin .8s linear infinite}@keyframes exam-sync-spin{to{transform:rotate(360deg)}}
 .exam-sync-action__button:hover { background:rgba(29,76,119,.92); }
@@ -13,12 +14,12 @@
 .exam-sync-action.has-pending .exam-sync-action__button { border-color:rgba(245,180,65,.75); color:#ffe2a1; }
 .exam-sync-action.is-offline .exam-sync-action__button { border-color:rgba(245,180,65,.65); color:#ffe2a1; }
 .exam-sync-action.is-error .exam-sync-action__button { border-color:rgba(255,113,105,.7); color:#ffd0cc; }
-@media (max-width:620px) { .exam-sync-action { bottom:max(10px, env(safe-area-inset-bottom)); left:max(8px, env(safe-area-inset-left)); } .exam-sync-action__status { max-width:185px; } }
+@media (max-width:620px) { .exam-corner-stack{left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));gap:5px}.exam-sync-action__status { max-width:185px; } }
 
 /* Attribution sits bottom-right, opposite the sync control, and disappears below full-screen alerts. */
 .exam-watermark{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:30;pointer-events:none;user-select:none;font:600 11px/1 "Exam Source Han",system-ui,sans-serif;letter-spacing:.045em;color:rgba(255,255,255,.68);mix-blend-mode:difference;white-space:nowrap}@media(max-width:620px){.exam-watermark{display:none}}
-.exam-brand-mark{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:max(10px,env(safe-area-inset-bottom));z-index:30;padding:5px 8px;border:1px solid rgba(255,255,255,.16);border-radius:7px;background:rgba(17,24,39,.38);color:#f7f4ec;pointer-events:none;user-select:none;backdrop-filter:blur(8px)}
-@media(max-width:620px){.exam-brand-mark{left:8px;bottom:8px;padding:3px 5px}.exam-brand-mark>img{width:20px;height:20px}.exam-brand-mark strong{font-size:11px}}
+.exam-brand-mark{position:relative;padding:5px 8px;border:1px solid rgba(255,255,255,.16);border-radius:7px;background:rgba(17,24,39,.38);color:#f7f4ec;pointer-events:none;user-select:none;backdrop-filter:blur(8px)}
+@media(max-width:620px){.exam-brand-mark{padding:3px 5px}.exam-brand-mark>img{width:20px;height:20px}.exam-brand-mark strong{font-size:11px}}
 
 .exam-design-loading{position:fixed;inset:0;display:grid;place-items:center;background:#101216;color:#f4f7fb;font:600 16px var(--font-region-content,system-ui)}
 /* Responsive safety rail: design internals may scale, but never grow the viewport. */

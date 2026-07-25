@@ -14,10 +14,12 @@ interface Props {
   onAddClass: (gradeId: string, name: string) => void;
   onAddClasses: (gradeId: string, names: string[]) => void;
   onRemoveClass: (id: string) => void;
-  readOnly?: boolean;
+  canManageGrades?: boolean;
+  canManageClasses?: boolean;
 }
 
-export default function ClassManagementPanel({ grades, classes, weeklyPlans, majors, onAddGrade, onRemoveGrade, onAddClass, onAddClasses, onRemoveClass, readOnly = false }: Props) {
+export default function ClassManagementPanel({ grades, classes, weeklyPlans, majors, onAddGrade, onRemoveGrade, onAddClass, onAddClasses, onRemoveClass, canManageGrades = false, canManageClasses = false }: Props) {
+  const readOnly = !canManageGrades && !canManageClasses;
   const orderedGrades = useMemo(() => sortedGrades(grades), [grades]);
   const [selectedGradeId, setSelectedGradeId] = useState(orderedGrades[0]?.id ?? '');
   const [gradeName, setGradeName] = useState('');
@@ -48,11 +50,11 @@ export default function ClassManagementPanel({ grades, classes, weeklyPlans, maj
 
   return <main className="class-management">
     <div className="device-status__heading"><div><h2>年级与班级</h2><p>{readOnly ? '当前账号可以查看学校结构，但不能增删年级或班级。' : '先建立年级，再在年级下管理班级。客户端将按两级选项完成绑定。'}</p></div></div>
-    {!readOnly && <div className="class-management__add"><input className="admin-input" value={gradeName} onChange={event => setGradeName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addGrade(); }} placeholder="如：高三" /><button className="admin-btn admin-btn--primary" onClick={addGrade}>添加年级</button></div>}
+    {canManageGrades && <div className="class-management__add"><input className="admin-input" value={gradeName} onChange={event => setGradeName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addGrade(); }} placeholder="如：高三" /><button className="admin-btn admin-btn--primary" onClick={addGrade}>添加年级</button></div>}
     {orderedGrades.length === 0 ? <div className="admin-empty"><p>首次使用请先添加年级。</p></div> : <>
-      <div className="device-status__toolbar"><label><span>当前年级</span><select className="admin-input" value={gradeId} onChange={event => setSelectedGradeId(event.target.value)}>{orderedGrades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{!readOnly && <button className="admin-btn admin-btn--danger" onClick={() => removeGrade(gradeId, selectedGrade.name)}>删除年级</button>}</div>
-      {!readOnly && <><div className="admin-info-banner">{pendingGradeName ? `已新建 ${pendingGradeName}，请继续设置班级数量。` : '新建年级后会自动进入快速创建班级步骤，也可以逐个添加。'}</div><div className="class-management__add"><input ref={bulkCountRef} className="admin-input" type="number" min="1" max="99" value={bulkCount} onChange={event=>setBulkCount(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')createClasses();}} aria-label="快速创建班级数量"/><button className="admin-btn admin-btn--primary" onClick={createClasses}>生成 1班至{Math.max(1,Number(bulkCount)||10)}班</button></div><div className="class-management__add"><input className="admin-input" value={className} onChange={event => setClassName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addClass(); }} placeholder="如：1班" /><button className="admin-btn" onClick={addClass}>单独添加班级</button></div></>}
-      {gradeClasses.length === 0 ? <div className="admin-empty"><p>当前年级还没有班级。</p></div> : <div className="class-management__list">{gradeClasses.map(item => <article className="class-management__row" key={item.id}><div><strong>{item.name}</strong><span>{weeklyPlans.filter(plan => plan.classId === item.id).length} 个周测计划</span></div>{!readOnly && <button className="admin-btn admin-btn--danger" onClick={() => removeClass(item.id, item.name)}>删除</button>}</article>)}</div>}
+      <div className="device-status__toolbar"><label><span>当前年级</span><select className="admin-input" value={gradeId} onChange={event => setSelectedGradeId(event.target.value)}>{orderedGrades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{canManageGrades && <button className="admin-btn admin-btn--danger" onClick={() => removeGrade(gradeId, selectedGrade.name)}>删除年级</button>}</div>
+      {canManageClasses && <><div className="admin-info-banner">{pendingGradeName ? `已新建 ${pendingGradeName}，请继续设置班级数量。` : canManageGrades ? '新建年级后会自动进入快速创建班级步骤，也可以逐个添加。' : '当前账号可管理授权年级下的班级，但不能增删年级。'}</div><div className="class-management__add"><input ref={bulkCountRef} className="admin-input" type="number" min="1" max="99" value={bulkCount} onChange={event=>setBulkCount(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')createClasses();}} aria-label="快速创建班级数量"/><button className="admin-btn admin-btn--primary" onClick={createClasses}>生成 1班至{Math.max(1,Number(bulkCount)||10)}班</button></div><div className="class-management__add"><input className="admin-input" value={className} onChange={event => setClassName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addClass(); }} placeholder="如：1班" /><button className="admin-btn" onClick={addClass}>单独添加班级</button></div></>}
+      {gradeClasses.length === 0 ? <div className="admin-empty"><p>当前年级还没有班级。</p></div> : <div className="class-management__list">{gradeClasses.map(item => <article className="class-management__row" key={item.id}><div><strong>{item.name}</strong><span>{weeklyPlans.filter(plan => plan.classId === item.id).length} 个周测计划</span></div>{canManageClasses && <button className="admin-btn admin-btn--danger" onClick={() => removeClass(item.id, item.name)}>删除</button>}</article>)}</div>}
     </>}
   </main>;
 }
