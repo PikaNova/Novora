@@ -1,8 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { canAccessClass, canAccessGrade, ensureGeneratedRecoveryKey, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
+import { canAccessClass, canAccessGrade, ensureGeneratedRecoveryKey, hasPermission, isPasswordRequired, requireActor, SCHEMA_MIGRATION_LOCK_ID, writeAudit, type AdminActor, type Permission } from './_auth.js';
 import { requestId, sendDatabaseError } from './_apiError.js';
+import { applyCors } from './_cors.js';
 import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
 import { parseZonedTime } from '../src/utils/zonedTime.js';
 
@@ -41,8 +42,9 @@ function ensureTableOnce(): Promise<void> {
   if (!migratePromise) {
     migratePromise = (async () => {
       const sql = database();
-      await sql`
-        CREATE TABLE IF NOT EXISTS exam_data (
+      await sql.transaction(transaction => [
+        transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
+        transaction`CREATE TABLE IF NOT EXISTS exam_data (
           id INTEGER PRIMARY KEY DEFAULT 1,
           items JSONB NOT NULL DEFAULT '[]',
           title TEXT NOT NULL DEFAULT '',
@@ -59,23 +61,19 @@ function ensureTableOnce(): Promise<void> {
           initialization JSONB NOT NULL DEFAULT '{}',
           updated_at BIGINT NOT NULL DEFAULT 0,
           CHECK (id = 1)
-        )
-      `;
-      // 兼容未重置的旧库；并行执行可避免免费函数冷启动串行累加跨洲数据库延迟。
-      await Promise.all([
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS majors JSONB NOT NULL DEFAULT '[]'`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_major_id TEXT NOT NULL DEFAULT ''`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS alerts JSONB`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_plans JSONB NOT NULL DEFAULT '[]'`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS schedule_mode TEXT NOT NULL DEFAULT 'major-only'`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_weekly_plan_id TEXT NOT NULL DEFAULT ''`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_weekly_plan_by_class JSONB NOT NULL DEFAULT '{}'`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_conflict_policy JSONB`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS grades JSONB NOT NULL DEFAULT '[]'`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS classes JSONB NOT NULL DEFAULT '[]'`,
-        sql`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS initialization JSONB NOT NULL DEFAULT '{}'`,
-        sql`
-        CREATE TABLE IF NOT EXISTS device_instances (
+        )`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS majors JSONB NOT NULL DEFAULT '[]'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_major_id TEXT NOT NULL DEFAULT ''`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS alerts JSONB`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_plans JSONB NOT NULL DEFAULT '[]'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS schedule_mode TEXT NOT NULL DEFAULT 'major-only'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_weekly_plan_id TEXT NOT NULL DEFAULT ''`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS active_weekly_plan_by_class JSONB NOT NULL DEFAULT '{}'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS weekly_conflict_policy JSONB`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS grades JSONB NOT NULL DEFAULT '[]'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS classes JSONB NOT NULL DEFAULT '[]'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS initialization JSONB NOT NULL DEFAULT '{}'`,
+        transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
           grade_id TEXT NOT NULL DEFAULT '',
           class_id TEXT NOT NULL DEFAULT '',
@@ -90,10 +88,8 @@ function ensureTableOnce(): Promise<void> {
           temporary_command JSONB,
           last_seen_at BIGINT NOT NULL DEFAULT 0,
           updated_at BIGINT NOT NULL
-        )
-      `,
-        sql`
-        CREATE TABLE IF NOT EXISTS classisland_plugin_instances (
+        )`,
+        transaction`CREATE TABLE IF NOT EXISTS classisland_plugin_instances (
           plugin_instance_id TEXT PRIMARY KEY,
           client_secret_hash TEXT NOT NULL,
           pair_token_hash TEXT,
@@ -105,10 +101,9 @@ function ensureTableOnce(): Promise<void> {
           viewer_last_seen_at BIGINT NOT NULL DEFAULT 0,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
-        )
-      `,
-        ensureUpdatedAtBigIntOnce(),
+        )`,
       ]);
+      await ensureUpdatedAtBigIntOnce();
       await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`;
       await sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`;
       await sql`
@@ -372,18 +367,19 @@ function resolvePluginExams(payload: ReturnType<typeof examPayload>, gradeId: st
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const startedAt = Date.now();
   requestId(req, res);
+  const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
+  const publicPostActions = new Set(['plugin-pair-start', 'plugin-pair-confirm', 'plugin-pair-status', 'plugin-bootstrap', 'plugin-viewer-heartbeat', 'device-binding', 'device-heartbeat']);
+  const publicRequest = req.method === 'OPTIONS'
+    || (req.method === 'GET' && action !== 'device-bindings')
+    || (req.method === 'POST' && publicPostActions.has(action));
   // Short edge cache reduces repeated US→Singapore database reads while keeping updates prompt.
   if (req.method === 'GET') res.setHeader('Cache-Control', 'public, s-maxage=10, stale-while-revalidate=50');
   else res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+  if (!applyCors(req, res, { methods: ['GET', 'POST'], public: publicRequest })) return;
 
   try {
     const sql = database();
 
-    const action = String(req.method === 'GET' ? req.query?.action ?? '' : req.body?.action ?? '');
     if (action === 'plugin-api') {
       res.setHeader('Cache-Control', 'public, max-age=300');
       if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }

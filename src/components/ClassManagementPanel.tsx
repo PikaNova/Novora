@@ -3,6 +3,7 @@ import type { MajorExam } from '../types';
 import type { WeeklyPlan } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { sortedClasses, sortedGrades } from '../utils/classSettings';
+import { confirmDialog } from '../services/appDialog';
 
 interface Props {
   grades: SchoolGrade[];
@@ -42,22 +43,22 @@ export default function ClassManagementPanel({ grades, classes, weeklyPlans, maj
   const addClass = () => { const name = className.trim(); if (!name || !gradeId) return; onAddClass(gradeId, name); setClassName(''); };
   const createClasses = () => { const count=Math.max(1,Math.min(99,Number(bulkCount)||10)); const existing=new Set(gradeClasses.map(item=>item.name)); onAddClasses(gradeId,Array.from({length:count},(_,index)=>`${index+1}班`).filter(name=>!existing.has(name))); };
   const createRange = () => { const start=Math.max(1,Math.min(999,Number(rangeStart)||1)); const end=Math.max(start,Math.min(999,Number(rangeEnd)||start)); const existing=new Set(gradeClasses.map(item=>item.name)); onAddClasses(gradeId,Array.from({length:end-start+1},(_,index)=>`${start+index}班`).filter(name=>!existing.has(name))); };
-  const removeGrade = (id: string, name: string) => {
+  const removeGrade = async (id: string, name: string) => {
     const count = classes.filter(item => item.gradeId === id).length;
-    if (!window.confirm(`删除“${name}”及其 ${count} 个班级？相关周测计划和考试范围也会一并清理。`)) return;
+    if (!await confirmDialog({ title: `删除“${name}”`, message: `将删除该年级及其 ${count} 个班级，相关周测计划和考试范围也会一并清理。`, tone: 'danger', confirmLabel: '删除年级' })) return;
     onRemoveGrade(id);
     setSelectedGradeId(orderedGrades.find(item => item.id !== id)?.id ?? '');
   };
-  const removeClass = (id: string, name: string) => {
+  const removeClass = async (id: string, name: string) => {
     const plans = weeklyPlans.filter(item => item.classId === id).length;
     const exams = majors.filter(item => item.targetClassIds?.includes(id)).length;
-    if (!window.confirm(`删除“${name}”？${plans || exams ? `将同步清理 ${plans} 个周测计划和 ${exams} 个考试范围引用。` : ''}`)) return;
+    if (!await confirmDialog({ title: `删除“${name}”`, message: plans || exams ? `将同步清理 ${plans} 个周测计划和 ${exams} 个考试范围引用。` : '删除后该班级需要重新创建。', tone: 'danger', confirmLabel: '删除班级' })) return;
     onRemoveClass(id);
   };
-  const removeSelected = () => {
+  const removeSelected = async () => {
     if (!selectedClassIds.length) return;
     const plans = weeklyPlans.filter(item => selectedClassIds.includes(item.classId)).length;
-    if (!window.confirm(`删除选中的 ${selectedClassIds.length} 个班级？将同步清理 ${plans} 个周测计划和相关考试范围引用。`)) return;
+    if (!await confirmDialog({ title: `删除 ${selectedClassIds.length} 个班级`, message: `将同步清理 ${plans} 个周测计划和相关考试范围引用。`, tone: 'danger', confirmLabel: '批量删除' })) return;
     onRemoveClasses(selectedClassIds);
     setSelectedClassIds([]);
   };

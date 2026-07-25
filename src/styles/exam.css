@@ -14,7 +14,12 @@
 .exam-sync-action.has-pending .exam-sync-action__button { border-color:rgba(245,180,65,.75); color:#ffe2a1; }
 .exam-sync-action.is-offline .exam-sync-action__button { border-color:rgba(245,180,65,.65); color:#ffe2a1; }
 .exam-sync-action.is-error .exam-sync-action__button { border-color:rgba(255,113,105,.7); color:#ffd0cc; }
-@media (max-width:620px) { .exam-corner-stack{left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));gap:5px}.exam-sync-action__status { max-width:185px; } }
+@media (max-width:620px) {
+  .exam-corner-stack{left:max(8px,env(safe-area-inset-left));top:max(62px,calc(env(safe-area-inset-top) + 54px));bottom:auto;gap:5px}
+  .exam-sync-action__button{width:34px;min-height:34px;padding:0;justify-content:center;font-size:0}
+  .exam-sync-action__button svg{width:16px;height:16px}
+  .exam-sync-action__status,.exam-brand-mark{display:none}
+}
 
 /* Attribution sits bottom-right, opposite the sync control, and disappears below full-screen alerts. */
 .exam-watermark{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:30;pointer-events:none;user-select:none;font:600 11px/1 "Exam Source Han",system-ui,sans-serif;letter-spacing:.045em;color:rgba(255,255,255,.68);mix-blend-mode:difference;white-space:nowrap}@media(max-width:620px){.exam-watermark{display:none}}

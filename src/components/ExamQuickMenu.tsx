@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Ellipsis, LogIn, MonitorCog, Play } from 'lucide-react';
+import { confirmDialog } from '../services/appDialog';
 import '../styles/exam-quick-menu.css';
 
 type MenuPosition = { top: number; left: number; width: number };
@@ -45,15 +46,15 @@ export default function ExamQuickMenu({ onLocal, onAdmin, onTemporary }: { onLoc
     };
   }, [open, updatePosition]);
 
-  const go = (fn: () => void, confirm?: string) => {
-    if (!confirm || window.confirm(confirm)) { setOpen(false); fn(); }
+  const go = async (fn: () => void, message?: string) => {
+    if (!message || await confirmDialog({ title: '离开考试大屏', message, tone: 'warning', confirmLabel: '继续' })) { setOpen(false); fn(); }
   };
 
   const menu = open ? createPortal(
     <div ref={menuRef} className="exam-quick__menu" style={position} role="menu" aria-label="大屏更多功能">
-      <button role="menuitem" onClick={() => go(onTemporary)}><Play />快速开始考试</button>
-      <button role="menuitem" onClick={() => go(onLocal)}><MonitorCog />本地设置</button>
-      <button role="menuitem" onClick={() => go(onAdmin, '进入管理后台？大屏将停止全屏展示。')}><LogIn />进入管理后台</button>
+      <button role="menuitem" onClick={() => void go(onTemporary)}><Play />快速开始考试</button>
+      <button role="menuitem" onClick={() => void go(onLocal)}><MonitorCog />本地设置</button>
+      <button role="menuitem" onClick={() => void go(onAdmin, '进入管理后台后，大屏将停止全屏展示。')}><LogIn />进入管理后台</button>
     </div>,
     document.body,
   ) : null;

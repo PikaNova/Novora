@@ -5,6 +5,7 @@ import { endTemporaryExam, extendTemporaryExam, getTemporaryExam, saveTemporaryE
 import { notify } from '../services/notify';
 import { getAppSettings } from '../utils/appSettings';
 import { classDisplayName } from '../utils/classSettings';
+import { confirmDialog } from '../services/appDialog';
 
 const COMMON_SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '政治', '历史', '地理'];
 const DURATION_PRESETS = [30, 45, 60, 90, 120];
@@ -43,9 +44,9 @@ export default function TemporaryExamLauncher({ formalItems, externalOpen = fals
     if (step === 1 && (!Number.isFinite(startMs) || startMs < Date.now() - 60_000 || duration < 5)) { notify('error', '请检查开始时间和考试时长。'); return; }
     setStep(value => Math.min(2, value + 1));
   };
-  const create = () => {
+  const create = async () => {
     if (!finalSubject || !Number.isFinite(startMs) || endMs <= startMs) { notify('error', '临时考试信息不完整，请返回检查。'); return; }
-    if (conflicts.length && !window.confirm(`${conflicts.map(item => item.name).join('、')} 与本次临时考试重叠。${priority ? '本设备将优先显示临时考试。' : '正式考试开始后将自动接管。'}确认创建？`)) return;
+    if (conflicts.length && !await confirmDialog({ title: '临时考试时间冲突', message: `${conflicts.map(item => item.name).join('、')} 与本次临时考试重叠。\n${priority ? '本设备将优先显示临时考试。' : '正式考试开始后将自动接管。'}`, tone: priority ? 'danger' : 'warning', confirmLabel: '确认创建' })) return;
     saveTemporaryExam({ id: `temp_${Date.now()}`, subject: finalSubject, startTime: isoLocal(startMs), endTime: isoLocal(endMs), priorityOverFormal: priority, status: startMs <= Date.now() ? 'running' : 'scheduled', createdAt: Date.now() });
     notify('success', `${finalSubject} - 临时考试已创建，仅应用于当前设备。`);
     close();
@@ -55,7 +56,7 @@ export default function TemporaryExamLauncher({ formalItems, externalOpen = fals
     <button className="temp-exam-fab" onClick={() => setOpen(true)}><Play />{current && current.status !== 'ended' ? '管理临时考试' : '快速开始考试'}</button>
     {shouldOpen && <div className="temp-exam-overlay" role="dialog" aria-modal="true"><section className="temp-exam-panel">
       <header><div><span>当前设备{boundClass ? ` · ${boundClass}` : ''}</span><h2>{current && current.status !== 'ended' ? '管理临时考试' : '快速开始考试'}</h2></div><button onClick={close} aria-label="关闭">×</button></header>
-      {current && current.status !== 'ended' ? <div className="temp-exam-current"><TimerReset /><h3>{current.subject} - 临时考试</h3><p>{current.startTime.replace('T', ' ')} 至 {current.endTime.replace('T', ' ')}</p><div><button onClick={() => { toggleTemporaryExamPause(); notify('warning', current.status === 'paused' ? '临时考试已继续。' : '临时考试已暂停。'); close(); }}>{current.status === 'paused' ? '继续' : '暂停'}</button><button onClick={() => { extendTemporaryExam(5); notify('success', '临时考试已延长 5 分钟。'); close(); }}>增加 5 分钟</button><button className="is-danger" onClick={() => { if (window.confirm('确定提前结束当前临时考试？')) { endTemporaryExam(); notify('warning', '临时考试已提前结束。'); close(); } }}>提前结束</button></div></div> : <>
+      {current && current.status !== 'ended' ? <div className="temp-exam-current"><TimerReset /><h3>{current.subject} - 临时考试</h3><p>{current.startTime.replace('T', ' ')} 至 {current.endTime.replace('T', ' ')}</p><div><button onClick={() => { toggleTemporaryExamPause(); notify('warning', current.status === 'paused' ? '临时考试已继续。' : '临时考试已暂停。'); close(); }}>{current.status === 'paused' ? '继续' : '暂停'}</button><button onClick={() => { extendTemporaryExam(5); notify('success', '临时考试已延长 5 分钟。'); close(); }}>增加 5 分钟</button><button className="is-danger" onClick={async () => { if (await confirmDialog({ title: '提前结束临时考试', message: '确定提前结束当前临时考试？结束后无法恢复当前计时状态。', tone: 'danger', confirmLabel: '提前结束' })) { endTemporaryExam(); notify('warning', '临时考试已提前结束。'); close(); } }}>提前结束</button></div></div> : <>
         <div className="temp-exam-progress">{['选择科目', '设置时间', '确认选项'].map((label, index) => <div key={label} className={index === step ? 'is-active' : index < step ? 'is-done' : ''}><i>{index < step ? <Check /> : index + 1}</i><span>{label}</span></div>)}</div>
         <div className="temp-exam-wizard">
           {step === 0 && <section className="temp-exam-step"><div className="temp-exam-step__head"><span>第一步</span><h3>选择考试科目</h3><p>选择常用科目，或填写其他科目名称。</p></div><div className="temp-subject-grid">{COMMON_SUBJECTS.map(item => <button key={item} className={!customSubjectOpen && subject === item ? 'is-selected' : ''} onClick={() => chooseSubject(item)}><span>{item}</span>{!customSubjectOpen && subject === item && <Check />}</button>)}<button className={customSubjectOpen ? 'is-selected' : ''} onClick={() => { setCustomSubjectOpen(true); setSubject(''); }}>其他科目</button></div>{customSubjectOpen && <label className="temp-custom-subject"><span>科目名称</span><input autoFocus value={customSubject} onChange={event => setCustomSubject(event.target.value)} maxLength={30} placeholder="如：信息技术" /></label>}</section>}

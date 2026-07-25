@@ -26,6 +26,7 @@ import SchedulePrintPreview from '../components/SchedulePrintPreview';
 import BrandMark from '../components/BrandMark';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
+import { confirmDialog } from '../services/appDialog';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
@@ -692,13 +693,13 @@ export default function AdminPage() {
   };
 
   // ===== 分考试：添加 / 编辑 / 启用 / 删除 / 排序 =====
-  const commitEdit = () => {
+  const commitEdit = async () => {
     if (!editing) return;
     if (!editing.name.trim()) { setEditError('请输入考试名称'); return; }
     if (!editing.startTime || !editing.endTime) { setEditError('请输入开始与结束时间'); return; }
     if (new Date(editing.startTime) >= new Date(editing.endTime)) { setEditError('结束时间必须晚于开始时间'); return; }
     const overlaps = items.some(x => x.id !== editing.id && x.enabled && editing.enabled && new Date(editing.startTime) < new Date(x.endTime) && new Date(editing.endTime) > new Date(x.startTime));
-    if (overlaps && !window.confirm('此科目与已启用科目时间重叠，仍要保存吗？')) return;
+    if (overlaps && !await confirmDialog({ title: '考试时间重叠', message: '此科目与已启用科目时间重叠，仍要保存吗？', tone: 'warning', confirmLabel: '仍然保存' })) return;
     if (new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime() > 6 * 60 * 60 * 1000 && !longDurationConfirmed) {
       setEditError('本场时长超过 6 小时，请确认这是跨天或特殊安排。'); return;
     }
@@ -884,7 +885,7 @@ export default function AdminPage() {
             <label className="admin-label">结束时间<input className="admin-input" type="datetime-local" value={fmtLocal(editing.endTime)} onChange={e => { setLongDurationConfirmed(false); setEditing(p => p && { ...p, endTime: toISO(e.target.value) }); }} />{editing.startTime && editing.endTime && <span className="admin-duration-hint">历时 {duration(editing.startTime, editing.endTime)}</span>}</label>
             {isLongEdit && <label className="admin-long-duration"><input type="checkbox" checked={longDurationConfirmed} onChange={e => setLongDurationConfirmed(e.target.checked)} />我确认这是超过 6 小时的跨天或特殊考试安排</label>}
             <label className="admin-toggle-label"><input type="checkbox" checked={editing.enabled} onChange={e => setEditing(p => p && { ...p, enabled: e.target.checked })} />启用此科目</label>
-            <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={commitEdit}>确认并保存</button><button className="admin-btn admin-btn--ghost" onClick={() => { setEditing(null); setEditError(''); }}>取消</button></div>
+            <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={() => void commitEdit()}>确认并保存</button><button className="admin-btn admin-btn--ghost" onClick={() => { setEditing(null); setEditError(''); }}>取消</button></div>
           </div>
         </div> : <button className="admin-btn admin-btn--primary" style={{ width: '100%' }} onClick={() => { setLongDurationConfirmed(false); setEditing({ name: '', startTime: '', endTime: '', enabled: true }); }}>+ 添加分考试</button>)}
         <div className="admin-tips"><p className="admin-tips__title"><CircleHelp size={16} />使用说明</p><ul><li>每次修改会自动保存并同步到云（Neon）</li><li>离线时仍可编辑，数据先存本地，联网后自动回推</li><li>不同大型考试各自拥有独立的分考试列表</li><li>大屏每 30 秒自动拉取最新数据</li></ul></div>

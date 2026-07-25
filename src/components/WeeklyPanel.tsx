@@ -28,6 +28,7 @@ import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { getOfficialHolidayName, OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
 import HelpTip from './HelpTip';
 import SchedulePrintPreview, { type PrintScheduleDocument } from './SchedulePrintPreview';
+import { confirmDialog } from '../services/appDialog';
 import { notify } from '../services/notify';
 import AiImportGuide from './AiImportGuide';
 import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
@@ -315,8 +316,8 @@ export default function WeeklyPanel({
     onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
-  function cancelOccurrence(o: PreviewOcc) {
-    if (!window.confirm(`确定取消「${o.name}」${o.date} 这一次吗？此操作仅影响这一次，不影响周期规则。`)) return;
+  async function cancelOccurrence(o: PreviewOcc) {
+    if (!await confirmDialog({ title: '取消本次周测', message: `确定取消「${o.name}」${o.date} 这一次吗？\n此操作仅影响这一次，不影响周期规则。`, tone: 'warning', confirmLabel: '确认取消' })) return;
     const overrideId = genWeeklyOverrideId(o.weeklyItemId, o.date);
     upsertOverride({ id: overrideId, sourceItemId: o.weeklyItemId, date: o.date, action: 'cancel', reason: '管理员单次取消' });
     setLastDeleted({ kind: 'occurrence', overrideId, name: `${o.date} ${o.name}` });
@@ -580,7 +581,7 @@ export default function WeeklyPanel({
                   <button className="weekly-calendar__event-main" onClick={() => entry.suppressed ? setConflictTarget(entry) : openReschedule(entry)} title={entry.message || '点击临时调整'}>
                     <b>{entry.name}</b><span>{entry.startTime}–{entry.endTime}</span>
                   </button>
-                  <button className="weekly-calendar__remove" aria-label={`取消 ${entry.name}`} title="取消本次" onClick={() => cancelOccurrence(entry)}>×</button>
+                  <button className="weekly-calendar__remove" aria-label={`取消 ${entry.name}`} title="取消本次" onClick={() => void cancelOccurrence(entry)}>×</button>
                 </article>)}
               </div>
             </section>)}

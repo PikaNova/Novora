@@ -27,6 +27,7 @@ import { checkForUpdate, getRedeployConfigured, triggerRedeploy } from '../servi
 import type { UpdateInfo } from '../services/update';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
+import { confirmDialog } from '../services/appDialog';
 import '../styles/settings.css';
 import AccessDenied from '../components/AccessDenied';
 import { CHINA_PROVINCES, schoolFullName } from '../data/provinces';
@@ -95,6 +96,7 @@ export default function SettingsPage() {
   const [redeployOk, setRedeployOk] = useState(false);
   const [redeploy, setRedeploy] = useState<{ status: 'idle' | 'running' | 'done' | 'error'; msg?: string }>({ status: 'idle' });
   const [notesOpen, setNotesOpen] = useState(false);
+  const [updateGuideOpen, setUpdateGuideOpen] = useState(false);
   const instId = useMemo(() => getInstanceId(), []);
   const consent = getConsent();
   const [anns, setAnns] = useState<Announcement[]>([]);
@@ -146,7 +148,7 @@ export default function SettingsPage() {
   };
 
   const doRedeploy = async () => {
-    if (!window.confirm('确定触发 Vercel 重新部署？\n将从 GitHub 拉取最新代码并重新构建，约需 1–3 分钟，完成后刷新页面即为新版本。')) return;
+    if (!await confirmDialog({ title: '重新部署 Novora', message: '将从 GitHub 拉取最新代码并重新构建，约需 1-3 分钟。完成后刷新页面即可使用新版本。', tone: 'warning', confirmLabel: '开始部署' })) return;
     setRedeploy({ status: 'running', msg: '已触发，正在部署…' });
     const r = await triggerRedeploy();
     if (r.ok) { setRedeploy({ status: 'done', msg: '已触发部署，请稍后在 Vercel 查看进度。' }); notify('success', 'Vercel 更新部署已触发。'); }
@@ -200,8 +202,8 @@ export default function SettingsPage() {
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const resetLocal = () => {
-    if (!window.confirm('确定清除本机所有本地设置并恢复默认？\n（仅影响当前浏览器，不影响云端考试数据）')) return;
+  const resetLocal = async () => {
+    if (!await confirmDialog({ title: '清除本地设置', message: '确定清除本机所有本地设置并恢复默认？\n仅影响当前浏览器，不影响云端考试数据。', tone: 'danger', confirmLabel: '清除并重载' })) return;
     try { localStorage.removeItem(APP_SETTINGS_KEY); localStorage.removeItem('exam_design_id'); } catch { /* ignore */ }
     window.location.reload();
   };
@@ -502,7 +504,7 @@ export default function SettingsPage() {
           </div>
           <div className="set-row">
             <label className="set-label">重置本地设置</label>
-            <button className="set-btn set-btn--danger" disabled={!canEditSettings} onClick={resetLocal}>清除本地缓存并恢复默认</button>
+            <button className="set-btn set-btn--danger" disabled={!canEditSettings} onClick={() => void resetLocal()}>清除本地缓存并恢复默认</button>
           </div>
         </section>
 
@@ -558,9 +560,11 @@ export default function SettingsPage() {
           <div className="set-about__actions" style={{ marginTop: 12 }}>
             <button className="set-btn set-btn--primary" disabled={upd.status === 'checking'} onClick={doCheck}>{upd.status === 'checking' ? '检查中…' : '检查更新'}</button>
             {redeployOk && adminCan('deployment.trigger', adminUser) ? <button className="set-btn" disabled={redeploy.status === 'running'} onClick={doRedeploy}>{redeploy.status === 'running' ? '部署中…' : '一键部署更新'}</button> : null}
+            <button className="set-btn set-btn--ghost" onClick={() => setUpdateGuideOpen(value => !value)}>{updateGuideOpen ? '收起更新流程' : '查看后续更新完整流程'}</button>
           </div>
           {!redeployOk && <p className="set-note set-note--warn">当前部署缺少必填的 <code>VERCEL_DEPLOY_HOOK_URL</code>。请在 Project Settings → Git → Deploy Hooks 为 main 分支生成钩子，加入环境变量后重新部署。</p>}
           {redeploy.status !== 'idle' && redeploy.msg ? <p className={`set-note${redeploy.status === 'error' ? ' set-note--warn' : ''}`}>{redeploy.msg}</p> : null}
+          {updateGuideOpen && <div className="set-update-guide"><strong>后续版本更新完整流程</strong><ol><li><b>确认仓库</b><span>Deploy Hook 只部署当前 Vercel 项目连接的 main 分支。使用一键部署生成的 Fork 时，先在 GitHub 点击 Sync fork；有自定义代码时先合并上游并解决冲突。</span></li><li><b>备份与安排窗口</b><span>阅读目标版本发布说明，备份 Neon，并记录当前可用的 Vercel Deployment，避开考试和上课时段。</span></li><li><b>检查版本</b><span>点击“检查更新”。确认目标版本和发布说明，且 GitHub 生产分支已经包含该版本代码。</span></li><li><b>触发部署</b><span>点击“一键部署更新”，再到 Vercel Deployments 查看构建。按钮只触发 Deploy Hook，不会替未同步的 Fork 合并官方代码。</span></li><li><b>验收与回滚</b><span>部署完成后检查首页、登录、数据保存、大屏、PDF 和 ClassIsland；失败时在 Vercel 将上一个成功 Deployment 重新设为生产版本。</span></li></ol><a href="https://github.com/PikaNova/novora-vitepress-docs/blob/main/guide/12-maintenance.md" target="_blank" rel="noopener noreferrer">打开详细维护文档</a></div>}
         </section>
 
         {/* ―― 公告（作者端统一发布） ―― */}

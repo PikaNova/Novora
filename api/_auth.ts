@@ -8,6 +8,7 @@ const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
 // 仅用于兼容已经配置过旧版环境变量的部署。新部署会在首次初始化时自动生成恢复密钥。
 const LEGACY_ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || '';
 const TOKEN_TTL = 24 * 60 * 60 * 1000;
+export const SCHEMA_MIGRATION_LOCK_ID = 1649236847;
 
 export const ALL_PERMISSIONS = [
   'overview.read',
@@ -70,44 +71,45 @@ const BUILTIN_ROLES: Array<{ id: string; name: string; description: string; perm
 export async function ensureAuthTables(): Promise<void> {
   if (!setupPromise) setupPromise = (async () => {
     const sql = authSql();
-    await sql`CREATE TABLE IF NOT EXISTS app_auth (
-      id INTEGER PRIMARY KEY DEFAULT 1,
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      token_secret TEXT NOT NULL,
-      token_version INTEGER NOT NULL DEFAULT 1,
-      initialized_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL,
-      CHECK (id = 1)
-    )`;
-    await sql`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_hash TEXT`;
-    await sql`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_salt TEXT`;
-    await sql`CREATE TABLE IF NOT EXISTS app_roles (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      permissions JSONB NOT NULL DEFAULT '[]',
-      built_in BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL
-    )`;
-    await sql`CREATE TABLE IF NOT EXISTS app_users (
-      id BIGSERIAL PRIMARY KEY,
-      username TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      role_id TEXT NOT NULL REFERENCES app_roles(id),
-      status TEXT NOT NULL DEFAULT 'active',
-      must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
-      token_version INTEGER NOT NULL DEFAULT 1,
-      last_login_at BIGINT,
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL
-    )`;
-    await Promise.all([
-      sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_username_lower ON app_users (LOWER(username))`,
-      sql`CREATE TABLE IF NOT EXISTS app_user_scopes (
+    await sql.transaction(transaction => [
+      transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
+      transaction`CREATE TABLE IF NOT EXISTS app_auth (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        token_secret TEXT NOT NULL,
+        token_version INTEGER NOT NULL DEFAULT 1,
+        initialized_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        CHECK (id = 1)
+      )`,
+      transaction`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_hash TEXT`,
+      transaction`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_salt TEXT`,
+      transaction`CREATE TABLE IF NOT EXISTS app_roles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        permissions JSONB NOT NULL DEFAULT '[]',
+        built_in BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )`,
+      transaction`CREATE TABLE IF NOT EXISTS app_users (
+        id BIGSERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        role_id TEXT NOT NULL REFERENCES app_roles(id),
+        status TEXT NOT NULL DEFAULT 'active',
+        must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+        token_version INTEGER NOT NULL DEFAULT 1,
+        last_login_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )`,
+      transaction`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_username_lower ON app_users (LOWER(username))`,
+      transaction`CREATE TABLE IF NOT EXISTS app_user_scopes (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
         scope_type TEXT NOT NULL,
@@ -115,7 +117,7 @@ export async function ensureAuthTables(): Promise<void> {
         class_id TEXT NOT NULL DEFAULT '',
         UNIQUE(user_id, scope_type, grade_id, class_id)
       )`,
-      sql`CREATE TABLE IF NOT EXISTS app_audit_logs (
+      transaction`CREATE TABLE IF NOT EXISTS app_audit_logs (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT,
         username TEXT NOT NULL DEFAULT '',

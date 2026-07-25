@@ -4,6 +4,7 @@ import { fetchDeviceBindings, revokeDevice, sendDeviceCommand, type DeviceBindin
 import { getAppSettings } from '../utils/appSettings';
 import { classDisplayName } from '../utils/classSettings';
 import { notify } from '../services/notify';
+import { confirmDialog } from '../services/appDialog';
 import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
 
 const ONLINE_MS = 90_000;
@@ -75,13 +76,13 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
 
   const remove = async (item: DeviceGroup) => {
     const label = item.instanceId || item.plugins[0]?.pluginInstanceId || item.key;
-    if (!window.confirm(`删除设备 ${label}？Novora 看板与关联 ClassIsland 插件都会解除绑定。`)) return;
+    if (!await confirmDialog({ title: '删除设备', message: `确定删除设备 ${label}？\nNovora 看板与关联 ClassIsland 插件都会解除绑定。`, tone: 'danger', confirmLabel: '删除设备' })) return;
     try { await revokeDevice(item.dashboard?.instanceId || '', item.plugins.map(plugin => plugin.pluginInstanceId)); await load(true); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '删除设备失败'); }
   };
   const removeSelected = async () => {
     const targets = groups.filter(item => selectedKeys.includes(item.key));
-    if (!targets.length || !window.confirm(`删除选中的 ${targets.length} 台设备？所有关联看板和 ClassIsland 插件都需要重新绑定。`)) return;
+    if (!targets.length || !await confirmDialog({ title: `删除 ${targets.length} 台设备`, message: '所有关联看板和 ClassIsland 插件都会解除绑定，并需要重新绑定。', tone: 'danger', confirmLabel: '批量删除' })) return;
     const results = await Promise.allSettled(targets.map(item => revokeDevice(item.dashboard?.instanceId || '', item.plugins.map(plugin => plugin.pluginInstanceId))));
     const failed = targets.filter((_, index) => results[index].status === 'rejected');
     setSelectedKeys(failed.map(item => item.key));

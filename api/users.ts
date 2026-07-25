@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requestId, sendDatabaseError } from './_apiError.js';
+import { applyCors } from './_cors.js';
 import { randomBytes } from 'node:crypto';
 import {
   ALL_PERMISSIONS,
@@ -260,10 +261,7 @@ async function handleRoles(req: VercelRequest, res: VercelResponse, actor: Admin
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   requestId(req, res);
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+  if (!applyCors(req, res, { methods: ['GET', 'POST'] })) return;
   if (req.method !== 'GET' && req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
   try {
     await ensureAuthTables();

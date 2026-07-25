@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { applyCors } from './_cors.js';
 import { isPasswordRequired, requireActor, writeAudit } from './_auth.js';
 
 /**
@@ -11,10 +12,7 @@ import { isPasswordRequired, requireActor, writeAudit } from './_auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+  if (!applyCors(req, res, { methods: ['GET', 'POST'] })) return;
 
   const hookUrl = process.env.VERCEL_DEPLOY_HOOK_URL || '';
 

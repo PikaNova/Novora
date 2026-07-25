@@ -1,5 +1,5 @@
-const CACHE = 'exam-board-shell-v2.4.1';
-const RUNTIME = 'exam-board-runtime-v2';
+const CACHE = 'novora-shell-v2.5.6';
+const RUNTIME = 'novora-runtime-v2.5.6';
 // Keep installation light. Fonts are cached after a design actually requests them.
 const CORE = ['/', '/index.html', '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512-rounded.png', '/manifest.webmanifest', '/fonts/exam-numeric-subset.ttf', '/fonts/source-han-sc-standard-subset.woff2'];
 
@@ -21,7 +21,12 @@ async function precacheShell() {
 self.addEventListener('install', event => event.waitUntil(precacheShell().then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil((async () => {
   const keys = await caches.keys();
-  const stale = keys.filter(key => (key.startsWith('exam-board-shell-') && key !== CACHE) || (key.startsWith('exam-board-runtime-') && key !== RUNTIME));
+  const stale = keys.filter(key => (
+    key.startsWith('exam-board-shell-')
+    || key.startsWith('exam-board-runtime-')
+    || (key.startsWith('novora-shell-') && key !== CACHE)
+    || (key.startsWith('novora-runtime-') && key !== RUNTIME)
+  ));
   await Promise.all(stale.map(key => caches.delete(key)));
   await self.clients.claim();
 })()));

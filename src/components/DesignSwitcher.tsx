@@ -3,6 +3,7 @@ import { Check, LockKeyhole, Smartphone, Star, X } from 'lucide-react';
 import { DESIGNS } from '../designs/registry';
 import type { DesignTheme } from '../designs/types';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { confirmDialog } from '../services/appDialog';
 import '../styles/design-switcher.css';
 
 interface Props {
@@ -64,12 +65,12 @@ export default function DesignSwitcher({ open, onClose, currentId, onSelect }: P
             <div className="dsw-group__grid">{list.map(design => {
               const active = design.id === currentId;
               const locked = mobile && !design.mobileReady;
-              const selectDesign = () => {
+              const selectDesign = async () => {
                 if (locked) {
-                  if (window.confirm(`“${design.name}”尚未针对手机端适配，手机上可能显示不全。\n建议到电脑端查看最优效果。仍要切换到该设计吗？`)) onSelect(design.id);
+                  if (await confirmDialog({ title: '设计尚未适配手机', message: `“${design.name}”在手机上可能显示不全。\n建议在电脑端查看完整效果。`, tone: 'warning', confirmLabel: '仍然切换' })) onSelect(design.id);
                 } else onSelect(design.id);
               };
-              return <div className={`dsw-card ${active ? 'is-active' : ''} ${locked ? 'is-locked' : ''}`} key={design.id} onClick={selectDesign} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') selectDesign(); }} role="button" tabIndex={0} aria-pressed={active} title={locked ? '该设计未适配手机端，电脑端效果最佳' : undefined}>
+              return <div className={`dsw-card ${active ? 'is-active' : ''} ${locked ? 'is-locked' : ''}`} key={design.id} onClick={() => void selectDesign()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') void selectDesign(); }} role="button" tabIndex={0} aria-pressed={active} title={locked ? '该设计未适配手机端，电脑端效果最佳' : undefined}>
                 <span className="dsw-card__thumb"><img src={design.thumb} alt={`${design.name} 样例`} loading="lazy" decoding="async" />{active && <i><Check aria-hidden="true" /></i>}{locked && <b className="dsw-card__lock"><LockKeyhole aria-hidden="true" />电脑端最佳</b>}</span>
                 <span><strong>{design.name}{active && <em>当前</em>}{mobile && design.mobileReady && !active && <em className="dsw-card__ok">手机适配</em>}<button type="button" className="dsw-fav" aria-label={favorites.includes(design.id) ? '取消收藏设计' : '收藏设计'} onClick={event => { event.stopPropagation(); toggleFavorite(design.id); }}><Star fill={favorites.includes(design.id) ? 'currentColor' : 'none'} /></button></strong><small>{design.description} · {tags[design.id] || '展示'}</small></span>
               </div>;
