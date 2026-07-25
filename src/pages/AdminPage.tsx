@@ -748,7 +748,14 @@ export default function AdminPage() {
 
   const syncMeta = SYNC_META[sync];
   const can = (permission: string) => adminCan(permission, adminUser);
+  const openMyAccount = () => {
+    setDeniedModule('');
+    navigate('/admin?tab=users&account=1');
+    setAdminTab('users');
+    setMoreOpen(false);
+  };
   const selectAdminTab = (item: (typeof ADMIN_NAV)[number]) => {
+    if (item.id === 'users' && !can(item.permission)) { openMyAccount(); return; }
     if (!can(item.permission)) { setDeniedModule(item.label); return; }
     setDeniedModule('');
     setAdminTab(item.id);
@@ -880,7 +887,7 @@ export default function AdminPage() {
       )}
     </div>
     <nav className="admin-mobile-nav" aria-label="管理功能">
-      {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => selectAdminTab(item)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true"><ModuleIcon module={item.id} size={18} /></span><small>{item.mobileLabel}</small></button>)}
+      {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => item.id === 'users' ? openMyAccount() : selectAdminTab(item)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true"><ModuleIcon module={item.id} size={18} /></span><small>{item.id === 'users' ? '我的账户' : item.mobileLabel}</small></button>)}
     </nav>
     {gradeAdminSetupPromptOpen && <div className="admin-modal-overlay"><div className="admin-modal" onClick={event => event.stopPropagation()}><h2 className="admin-modal__title">快速添加班级管理员</h2><p className="admin-modal__body">这是该年级管理员账号首次登录。可为授权年级下的各班创建班级管理员账号，让每位管理员只维护自己的班级。</p><p className="admin-major-card__hint">可管理范围：{visibleGrades.map(grade => grade.name).join('、') || '当前授权年级'}。创建账号时选择“班级管理员”角色，并勾选对应班级。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={() => { clearGradeAdminSetupPrompt(); setGradeAdminSetupPromptOpen(false); setAdminTab('users'); }}>前往添加账号</button><button className="admin-btn" onClick={() => { clearGradeAdminSetupPrompt(); setGradeAdminSetupPromptOpen(false); }}>稍后处理</button></div></div></div>}
     {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip><select className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : 'all'} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.value === 'all' ? [] : [e.target.value] }))}>{hasAllScope && <option value="all">全校统一</option>}{visibleGrades.map(grade => <option key={grade.id} value={grade.id}>{grade.name}</option>)}</select></label><p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>确认</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}

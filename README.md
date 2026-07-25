@@ -1,8 +1,13 @@
-# Novora V2.5.2
+# Novora V2.5.3
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
 ![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/IMG_20260717_222529.png)
+
+## V2.5.3 更新
+
+- 修复班级管理员、只读账号和自定义受限角色从底栏进入“我的账户”时被 `user.read` 权限拦截的问题。
+- 右上角与移动端底栏统一使用个人账户入口；所有已登录角色均可修改自己的用户名和密码，其他用户数据仍按原权限隔离。
 
 ## V2.5.2 更新
 
