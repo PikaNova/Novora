@@ -5,7 +5,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 > **官方问题反馈与部署交流群：`1067566386`**<br>
 > 零基础部署遇到问题时，请携带错误提示和 Request ID 入群咨询；不要发送数据库连接串、密码、Deploy Hook 或恢复密钥。
 
-![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/IMG_20260717_222529.png)
+![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/background.png)
 
 一键部署
 
