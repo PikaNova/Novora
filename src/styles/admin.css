@@ -272,6 +272,7 @@
 .device-status__stats strong { display:block; margin-top:6px; font-size:1.35rem; font-variant-numeric:tabular-nums; }
 .device-status__toolbar { display:flex; align-items:flex-end; gap:10px; padding:12px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.025); margin-bottom:10px; }
 .device-status__toolbar label { display:flex; flex-direction:column; gap:5px; min-width:190px; color:rgba(255,255,255,.62); font-size:.73rem; }
+.device-status__class-filter{position:relative;min-width:210px}.device-status__class-filter>summary{display:flex;align-items:center;min-height:38px;padding:0 11px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.035);color:#e7edf1;cursor:pointer;list-style:none}.device-status__class-filter[open]{z-index:5}.device-status__class-filter>.class-picker{position:absolute;right:0;top:44px;width:min(520px,80vw);padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:#171c22;box-shadow:0 18px 45px #000a}.device-status__batch{display:flex;align-items:center;gap:12px;margin:0 0 10px;padding:9px 11px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.025)}.device-status__batch label{display:flex;align-items:center;gap:7px}.device-status__batch span{margin-right:auto;color:rgba(255,255,255,.55);font-size:12px}.device-status__instance>input{float:left;margin:1px 8px 7px 0}
 .device-status__result { margin-left:auto; padding-bottom:7px; color:rgba(255,255,255,.48); font-size:.74rem; white-space:nowrap; }
 .device-status__error { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .device-status__notice { margin:10px 0; padding:8px 10px; border-radius:7px; background:rgba(230,162,60,.1); color:#f4c977; font-size:.76rem; }
@@ -313,6 +314,7 @@
 .class-management__row strong,.class-management__row span { display:block; }
 .class-management__row strong { font-size:.88rem; }
 .class-management__row span { margin-top:4px; color:rgba(255,255,255,.48); font-size:.7rem; }
+.class-management__range{grid-template-columns:minmax(80px,1fr) auto minmax(80px,1fr) auto}.class-management__range>span{color:rgba(255,255,255,.55);text-align:center}.class-management__batch{display:flex;align-items:center;gap:12px;margin-top:12px;padding:9px 11px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.025)}.class-management__batch label{display:flex;align-items:center;gap:7px}.class-management__batch>span{margin-right:auto;color:rgba(255,255,255,.55);font-size:12px}.class-management__row>input{flex:none}.class-management__row>div{flex:1;min-width:0}
 .admin-major-targets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; max-height:240px; margin-top:8px; overflow:auto; }
 .admin-major-targets label { display:flex; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid rgba(255,255,255,.09); border-radius:6px; background:rgba(255,255,255,.025); font-size:.8rem; }
 .admin-btn:disabled { opacity:.4; cursor:not-allowed; }
@@ -327,6 +329,7 @@
   .device-status__stats strong { margin:0; font-size:1.05rem; }
   .device-status__toolbar { align-items:stretch; flex-direction:column; }
   .device-status__toolbar label { min-width:0; width:100%; }
+  .device-status__class-filter{width:100%}.device-status__class-filter>.class-picker{position:static;width:auto;margin-top:7px}.device-status__batch{flex-wrap:wrap}.device-status__batch span{margin-right:0;flex:1}.device-status__batch .admin-btn{width:100%}
   .device-status__toolbar .admin-input { min-height:42px; width:100%; box-sizing:border-box; }
   .device-status__result { margin-left:0; padding:0; }
   .device-status__table { overflow:visible; border:0; }
@@ -337,6 +340,7 @@
   .device-status__row>.admin-btn { grid-column:2; grid-row:1; min-height:38px; }
   .class-management { padding:16px 14px 28px; }
   .class-management__add { grid-template-columns:1fr; }
+  .class-management__range{grid-template-columns:1fr auto 1fr}.class-management__range .admin-btn{grid-column:1/-1}.class-management__batch{align-items:stretch;flex-wrap:wrap}.class-management__batch>span{margin-right:0;flex:1}.class-management__batch .admin-btn{width:100%}
   .class-management__add .admin-btn { min-height:44px; }
   .class-management__row { align-items:flex-start; }
   .class-management__row .admin-btn { min-height:40px; }

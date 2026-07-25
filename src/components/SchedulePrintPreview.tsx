@@ -13,6 +13,7 @@ export interface PrintScheduleEntry {
   suppressed?: boolean;
   note?: string;
 }
+export interface PrintScheduleDocument { entries: PrintScheduleEntry[]; gradeName: string; className: string; }
 
 type FontKey = 'smiley' | 'source' | 'alibaba' | 'wenkai';
 const FONT_OPTIONS: Array<{ id: FontKey; label: string; css: string }> = [
@@ -45,9 +46,10 @@ type Props = {
   onClose: () => void;
   mode?: 'weekly' | 'major';
   title?: string;
+  schedules?: PrintScheduleDocument[];
 };
 
-export default function SchedulePrintPreview({ entries, gradeName, className, onClose, mode = 'weekly', title = '' }: Props) {
+export default function SchedulePrintPreview({ entries, gradeName, className, onClose, mode = 'weekly', title = '', schedules }: Props) {
   const [weekStart, setWeekStart] = useState(() => mondayOf(getShanghaiDateKey(Date.now())));
   const [titleFont, setTitleFont] = useState<FontKey>('smiley');
   const [bodyFont, setBodyFont] = useState<FontKey>('wenkai');
@@ -59,22 +61,22 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   const schoolName = settings.initialization.schoolFullName || settings.initialization.schoolName || '未设置学校名称';
   const instanceId = getClassBindingInstanceId();
   const exportedAt = useMemo(() => new Date().toLocaleString('zh-CN', { hour12: false }), []);
-  const weekEnd = addDaysToDateKey(weekStart, 13);
-  const visible = useMemo(() => entries
-    .filter(item => !item.suppressed && (mode === 'major' || (item.date >= weekStart && item.date <= weekEnd)))
-    .sort(comparePrintEntries), [entries, mode, weekEnd, weekStart]);
-  const groups = useMemo(() => [...new Set(visible.map(item => item.date))].map(date => ({ date, entries: visible.filter(item => item.date === date) })), [visible]);
+  const weekEnd = addDaysToDateKey(weekStart, 6);
+  const documents = useMemo<PrintScheduleDocument[]>(() => schedules?.length ? schedules : [{ entries, gradeName, className }], [className, entries, gradeName, schedules]);
+  const visible = useMemo(() => documents[0].entries.filter(item => !item.suppressed && (mode === 'major' || (item.date >= weekStart && item.date <= weekEnd))).sort(comparePrintEntries), [documents, mode, weekEnd, weekStart]);
   const dateRange = useMemo(() => [...new Set(visible.map(item => item.date))].sort(), [visible]);
   const pages = useMemo(() => {
-    if (mode === 'major') return [{ key: 'major', visible, groups, periodText: dateRange.length ? `${dateRange[0]} 至 ${dateRange[dateRange.length - 1]}` : '尚未添加科目' }];
-    return [0, 7].map(offset => {
-      const start = addDaysToDateKey(weekStart, offset);
-      const end = addDaysToDateKey(start, 6);
-      const pageVisible = visible.filter(item => item.date >= start && item.date <= end);
+    return documents.flatMap(document => {
+      const documentVisible = document.entries.filter(item => !item.suppressed && (mode === 'major' || (item.date >= weekStart && item.date <= weekEnd))).sort(comparePrintEntries);
+      if (mode === 'major') {
+        const dates = [...new Set(documentVisible.map(item => item.date))].sort();
+        return [{ key: `major-${document.className}`, visible: documentVisible, groups: [...new Set(documentVisible.map(item => item.date))].map(date => ({ date, entries: documentVisible.filter(item => item.date === date) })), periodText: dates.length ? `${dates[0]} 至 ${dates[dates.length - 1]}` : '尚未添加科目', gradeName: document.gradeName, className: document.className }];
+      }
+      const pageVisible = documentVisible.filter(item => item.date >= weekStart && item.date <= weekEnd);
       const pageGroups = [...new Set(pageVisible.map(item => item.date))].map(date => ({ date, entries: pageVisible.filter(item => item.date === date) }));
-      return { key: start, visible: pageVisible, groups: pageGroups, periodText: `${start} 至 ${end}` };
+      return [{ key: `${document.className}-${weekStart}`, visible: pageVisible, groups: pageGroups, periodText: `${weekStart} 至 ${weekEnd}`, gradeName: document.gradeName, className: document.className }];
     });
-  }, [dateRange, groups, mode, visible, weekStart]);
+  }, [documents, mode, weekEnd, weekStart]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
@@ -100,16 +102,24 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
       const pageWidth = 210;
       const pageHeight = 297;
       for (let index = 0; index < sheets.length; index += 1) {
-        const canvas = await html2canvas(sheets[index], {
+        const sheet = sheets[index];
+        const canvas = await html2canvas(sheet, {
           backgroundColor: '#ffffff',
           logging: false,
-          scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
+          scale: 2,
           useCORS: true,
+          width: sheet.scrollWidth,
+          height: sheet.scrollHeight,
+          windowWidth: 1200,
+          windowHeight: 1600,
+          scrollX: 0,
+          scrollY: 0,
         });
         if (index > 0) pdf.addPage('a4', 'portrait');
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
       }
-      const fileTitle = mode === 'major' ? (title || '大型考试') : `${gradeName}-${className}-周测`;
+      const firstDocument = documents[0];
+      const fileTitle = mode === 'major' ? (title || '大型考试') : documents.length > 1 ? `${firstDocument.gradeName}-${documents.length}个班级-周测` : `${firstDocument.gradeName}-${firstDocument.className}-周测`;
       pdf.save(`${safeFileName(fileTitle)}-考试安排-${getShanghaiDateKey(Date.now())}.pdf`);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : 'PDF 生成失败，请重试');
@@ -120,14 +130,14 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
 
   return createPortal(<div className="schedule-preview" role="dialog" aria-modal="true" aria-label="A4 考试安排预览">
     <header className="schedule-preview__toolbar">
-      <div className="schedule-preview__period">{mode === 'weekly' && <button title="前两周" aria-label="前两周" onClick={() => setWeekStart(value => addDaysToDateKey(value, -14))}><ChevronLeft /></button>}<strong>{periodText}</strong>{mode === 'weekly' && <button title="后两周" aria-label="后两周" onClick={() => setWeekStart(value => addDaysToDateKey(value, 14))}><ChevronRight /></button>}</div>
+      <div className="schedule-preview__period">{mode === 'weekly' && <button title="上一周" aria-label="上一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, -7))}><ChevronLeft /></button>}<strong>{periodText}</strong>{mode === 'weekly' && <button title="下一周" aria-label="下一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, 7))}><ChevronRight /></button>}</div>
       <div className="schedule-preview__fonts"><label>标题<select value={titleFont} onChange={event => setTitleFont(event.target.value as FontKey)}>{FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label><label>正文<select value={bodyFont} onChange={event => setBodyFont(event.target.value as FontKey)}>{FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label><label>时间数字<select value={numericFont} onChange={event => setNumericFont(event.target.value as FontKey)}>{FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label></div>
       <div className="schedule-preview__actions">{exportError && <span className="schedule-preview__error" role="alert">{exportError}</span>}<button disabled={exporting} onClick={() => void downloadPdf()}><Download />{exporting ? '正在生成 PDF' : '下载 PDF'}</button><button title="关闭预览" aria-label="关闭预览" onClick={onClose}><X /></button></div>
     </header>
     <main className="schedule-preview__stage">
-      <div className="schedule-preview__pages">{pages.map(page => <ScheduleSheet key={page.key} visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}</div>
+      <div className="schedule-preview__pages">{pages.map(page => <ScheduleSheet key={page.key} visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={page.gradeName} className={page.className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}</div>
       <div className="schedule-export-host" aria-hidden="true">
-      {pages.map((page, index) => <ScheduleSheet key={page.key} ref={element => { exportSheetRefs.current[index] = element; }} exportMode visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={gradeName} className={className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}
+      {pages.map((page, index) => <ScheduleSheet key={page.key} ref={element => { exportSheetRefs.current[index] = element; }} exportMode visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={page.gradeName} className={page.className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}
       </div>
     </main>
   </div>, document.body);

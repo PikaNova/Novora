@@ -468,12 +468,12 @@ export default function AdminPage() {
   }, [pushWeeklyToServer]);
 
   const handleScheduleModeChange = (mode: ScheduleMode) => commitWeekly({ scheduleMode: mode }, true);
-  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate = false) => {
+  const handleSaveWeeklyPlans = (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate = false, activeByClass?: Record<string, string | null>) => {
     const mergedPlans = hasAllScope ? plans : [
       ...weeklyStateRef.current.weeklyPlans.filter(plan => !visibleClassIds.has(plan.classId)),
       ...plans.filter(plan => visibleClassIds.has(plan.classId)),
     ];
-    const nextByClass = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [classId]: activeId };
+    const nextByClass = activeByClass ?? { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [classId]: activeId };
     commitWeekly({ weeklyPlans: mergedPlans, activeWeeklyPlanId: classId ? weeklyStateRef.current.activeWeeklyPlanId : activeId, activeWeeklyPlanIdByClassId: nextByClass }, immediate);
   };
   const handleConflictPolicyChange = (policy: WeeklyConflictPolicy, immediate = false) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
@@ -522,6 +522,16 @@ export default function AdminPage() {
     setMajors(nextMajors); stateRef.current = { majors: nextMajors, activeMajorId };
     updateExamSettings({ majors: nextMajors });
     commitWeekly({ classes: classes.filter(item => item.id !== classId), weeklyPlans: nextPlans, activeWeeklyPlanIdByClassId: nextMap }, true);
+  };
+  const removeClasses = (classIds: string[]) => {
+    const removing = new Set(classIds);
+    const nextMap = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId }; removing.forEach(id => delete nextMap[id]);
+    const nextMajors = majors.map(major => ({ ...major, targetClassIds: major.targetClassIds?.filter(id => !removing.has(id)) }));
+    if (removing.has(selectedClassId)) changeSelectedClass('');
+    setMajors(nextMajors); stateRef.current = { majors: nextMajors, activeMajorId };
+    updateExamSettings({ majors: nextMajors });
+    commitWeekly({ classes: classes.filter(item => !removing.has(item.id)), weeklyPlans: weeklyPlans.filter(plan => !removing.has(plan.classId)), activeWeeklyPlanIdByClassId: nextMap }, true);
+    notify('success', `已删除 ${removing.size} 个班级及其关联计划。`);
   };
   const removeGrade = (gradeId: string) => {
     const classIds = new Set(classes.filter(item => item.gradeId === gradeId).map(item => item.id));
@@ -808,7 +818,7 @@ export default function AdminPage() {
           allowBatchApply={adminUser.roleId !== 'class_admin' && can('weekly.copy')}
         /></fieldset>
       ) : adminTab === 'classes' ? (
-        <ClassManagementPanel grades={visibleGrades} classes={visibleClasses} weeklyPlans={visibleWeeklyPlans} majors={visibleMajors} onAddGrade={addGrade} onRemoveGrade={removeGrade} onAddClass={addClass} onAddClasses={addClasses} onRemoveClass={removeClass} canManageGrades={can('school.grade_manage')} canManageClasses={can('school.class_manage')} />
+        <ClassManagementPanel grades={visibleGrades} classes={visibleClasses} weeklyPlans={visibleWeeklyPlans} majors={visibleMajors} onAddGrade={addGrade} onRemoveGrade={removeGrade} onAddClass={addClass} onAddClasses={addClasses} onRemoveClass={removeClass} onRemoveClasses={removeClasses} canManageGrades={can('school.grade_manage')} canManageClasses={can('school.class_manage')} />
       ) : adminTab === 'devices' ? (
         <DeviceStatusPanel canRevoke={can('device.revoke')} />
       ) : adminTab === 'users' ? (

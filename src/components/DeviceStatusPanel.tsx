@@ -4,6 +4,7 @@ import { fetchDeviceBindings, revokeDevice, sendDeviceCommand, type DeviceBindin
 import { getAppSettings } from '../utils/appSettings';
 import { classDisplayName } from '../utils/classSettings';
 import { notify } from '../services/notify';
+import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
 
 const ONLINE_MS = 90_000;
 const formatTime = (value: number) => value > 0 ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '从未上线';
@@ -25,7 +26,8 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [gradeFilter, setGradeFilter] = useState('*');
-  const [classFilter, setClassFilter] = useState('*');
+  const [classFilters, setClassFilters] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
   const { grades, classes } = getAppSettings().exam;
 
@@ -56,13 +58,14 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
   }, [bindings, plugins]);
 
   const visibleClasses = classes.filter(item => gradeFilter === '*' || item.gradeId === gradeFilter);
+  const pickerOptions = useMemo<ClassPickerOption[]>(() => visibleClasses.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: grades.find(grade => grade.id === item.gradeId)?.name ?? '未知年级', className: item.name })), [grades, visibleClasses]);
   const filtered = useMemo(() => groups.filter(item => {
     const name = classDisplayName(grades, classes, item.classId);
     const text = query.trim().toLowerCase();
     const pluginIds = item.plugins.map(plugin => plugin.pluginInstanceId).join(' ');
     const dashboard = item.dashboard;
-    return (gradeFilter === '*' || item.gradeId === gradeFilter) && (classFilter === '*' || item.classId === classFilter) && (!text || `${item.instanceId} ${pluginIds} ${name} ${dashboard?.currentExam || ''} ${dashboard?.currentSubject || ''}`.toLowerCase().includes(text));
-  }), [classFilter, classes, gradeFilter, grades, groups, query]);
+    return (gradeFilter === '*' || item.gradeId === gradeFilter) && (!classFilters.length || classFilters.includes(item.classId)) && (!text || `${item.instanceId} ${pluginIds} ${name} ${dashboard?.currentExam || ''} ${dashboard?.currentSubject || ''}`.toLowerCase().includes(text));
+  }), [classFilters, classes, gradeFilter, grades, groups, query]);
 
   const dashboardOnline = (item: DeviceGroup) => !!item.dashboard && !item.dashboard.revoked && now - item.dashboard.lastSeenAt <= ONLINE_MS;
   const pluginOnline = (plugin: PluginBindingInfo) => plugin.paired && now - plugin.pluginLastSeenAt <= ONLINE_MS;
@@ -76,6 +79,24 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
     try { await revokeDevice(item.dashboard?.instanceId || '', item.plugins.map(plugin => plugin.pluginInstanceId)); await load(true); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '删除设备失败'); }
   };
+  const removeSelected = async () => {
+    const targets = groups.filter(item => selectedKeys.includes(item.key));
+    if (!targets.length || !window.confirm(`删除选中的 ${targets.length} 台设备？所有关联看板和 ClassIsland 插件都需要重新绑定。`)) return;
+    const results = await Promise.allSettled(targets.map(item => revokeDevice(item.dashboard?.instanceId || '', item.plugins.map(plugin => plugin.pluginInstanceId))));
+    const failed = targets.filter((_, index) => results[index].status === 'rejected');
+    setSelectedKeys(failed.map(item => item.key));
+    await load(true);
+    if (!failed.length) {
+      setError('');
+      notify('success', `已删除 ${targets.length} 台设备。`);
+    } else if (failed.length < targets.length) {
+      setError(`${targets.length - failed.length} 台设备已删除，${failed.length} 台删除失败并保持选中，请重试。`);
+      notify('warning', '部分设备删除失败，列表已按实际结果刷新。');
+    } else {
+      const firstFailure = results.find(result => result.status === 'rejected');
+      setError(firstFailure?.status === 'rejected' && firstFailure.reason instanceof Error ? firstFailure.reason.message : '批量删除设备失败');
+    }
+  };
 
   const command = async (item: DeviceBindingInfo, action: DeviceCommand['action']) => {
     try {
@@ -87,7 +108,8 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
   return <main className="device-status">
     <div className="device-status__heading"><div><h2>设备管理 <HelpTip title="看板与 ClassIsland">同一台设备上的 Novora 看板和 ClassIsland 插件按实例关联后合并展示。在线状态分别由各自心跳判断；删除会让两端重新绑定。</HelpTip></h2><p>一个设备视图同时显示 Novora 看板、ClassIsland 插件、当前考试和班级绑定。</p></div><button className="admin-btn" onClick={() => void load()} disabled={loading}>刷新</button></div>
     <div className="device-status__stats"><div><span>设备总数</span><strong>{groups.length}</strong></div><div><span>任一端在线</span><strong>{onlineCount}</strong></div><div><span>考试进行中</span><strong>{groups.filter(item => dashboardOnline(item) && item.dashboard?.status === 'exam-running').length}</strong></div><div><span>ClassIsland 已配对</span><strong>{plugins.filter(item => item.paired).length}</strong></div></div>
-    <div className="device-status__toolbar"><label><span>搜索</span><input className="admin-input" value={query} onChange={event => setQuery(event.target.value)} placeholder="看板实例、插件实例、班级或考试" /></label><label><span>年级</span><select className="admin-input" value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setClassFilter('*'); }}><option value="*">全部年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>班级</span><select className="admin-input" value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="*">全部班级</option>{visibleClasses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+    <div className="device-status__toolbar"><label><span>搜索</span><input className="admin-input" value={query} onChange={event => setQuery(event.target.value)} placeholder="看板实例、插件实例、班级或考试" /></label><label><span>年级</span><select className="admin-input" value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setClassFilters([]); }}><option value="*">全部年级</option>{grades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><details className="device-status__class-filter"><summary>班级筛选{classFilters.length ? ` · ${classFilters.length} 个` : ' · 全部'}</summary><ClassMultiPicker options={pickerOptions} selectedIds={classFilters} onChange={setClassFilters} /></details></div>
+    {canRevoke && <div className="device-status__batch"><label><input type="checkbox" checked={filtered.length > 0 && filtered.every(item => selectedKeys.includes(item.key))} onChange={event => setSelectedKeys(event.target.checked ? [...new Set([...selectedKeys, ...filtered.map(item => item.key)])] : selectedKeys.filter(key => !filtered.some(item => item.key === key)))} />选择当前结果</label><span>已选择 {selectedKeys.length} 台设备</span><button className="admin-btn admin-btn--danger" disabled={!selectedKeys.length} onClick={() => void removeSelected()}>批量删除</button></div>}
     {error && <div className="admin-error">{error}</div>}
     {loading && <div className="device-status__loading">正在读取设备状态…</div>}
     {!loading && filtered.length === 0 && <div className="admin-empty"><p>暂无符合条件的设备</p></div>}
@@ -97,7 +119,7 @@ export default function DeviceStatusPanel({ canRevoke = true }: { canRevoke?: bo
       const lastSeenAt = Math.max(dashboard?.lastSeenAt || 0, ...item.plugins.flatMap(plugin => [plugin.pluginLastSeenAt, plugin.viewerLastSeenAt]));
       const removed = dashboard?.revoked === true && item.plugins.every(plugin => !plugin.paired);
       const isDashboardOnline = dashboardOnline(item);
-      return <div className={`device-status__row${removed ? ' is-revoked' : ''}`} key={item.key}><div className="device-status__instance"><span>{classDisplayName(grades, classes, item.classId)}</span>{dashboard ? <code title={dashboard.instanceId}>看板 {dashboard.instanceId}</code> : <code>尚无独立看板心跳</code>}{item.plugins.map(plugin => <code title={plugin.pluginInstanceId} key={plugin.pluginInstanceId}>ClassIsland {plugin.pluginInstanceId}</code>)}</div><div className="device-status__class"><strong>{removed ? '已删除，等待重新绑定' : isDashboardOnline ? statusLabel(dashboard) : '设备离线'}</strong><div className="device-status__channels"><span className={isDashboardOnline ? 'is-online' : 'is-offline'}>Novora 看板 {isDashboardOnline ? '在线' : '离线'}</span>{item.plugins.map(plugin => <span key={plugin.pluginInstanceId} className={pluginOnline(plugin) ? 'is-online' : plugin.paired ? 'is-offline' : 'is-removed'}>ClassIsland {pluginOnline(plugin) ? '在线' : plugin.paired ? '离线' : '未绑定'}</span>)}</div><span>{isDashboardOnline && dashboard?.currentSubject ? `${dashboard.currentExam} · ${dashboard.currentSubject}` : dashboard ? `页面 ${dashboard.page || '未知'} · v${dashboard.clientVersion || '未知'}` : '插件已接入，等待 Novora 看板客户端心跳'}</span>{isDashboardOnline && temporary && canRevoke && <div className="device-status__commands"><button onClick={() => void command(dashboard, dashboard.status === 'temporary-paused' ? 'resume' : 'pause')}>{dashboard.status === 'temporary-paused' ? '继续' : '暂停'}</button><button onClick={() => void command(dashboard, 'extend')}>+5 分钟</button><button className="is-danger" onClick={() => void command(dashboard, 'end')}>结束</button></div>}</div><div className="device-status__updated"><time>{formatTime(lastSeenAt)}</time></div>{canRevoke ? <button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={removed}>{removed ? '已删除' : '删除'}</button> : <span className="device-status__readonly">只读</span>}</div>;
+      return <div className={`device-status__row${removed ? ' is-revoked' : ''}`} key={item.key}><div className="device-status__instance">{canRevoke && <input type="checkbox" checked={selectedKeys.includes(item.key)} onChange={event => setSelectedKeys(value => event.target.checked ? [...value, item.key] : value.filter(key => key !== item.key))} aria-label={`选择设备 ${item.instanceId}`} />}<span>{classDisplayName(grades, classes, item.classId)}</span>{dashboard ? <code title={dashboard.instanceId}>看板 {dashboard.instanceId}</code> : <code>尚无独立看板心跳</code>}{item.plugins.map(plugin => <code title={plugin.pluginInstanceId} key={plugin.pluginInstanceId}>ClassIsland {plugin.pluginInstanceId}</code>)}</div><div className="device-status__class"><strong>{removed ? '已删除，等待重新绑定' : isDashboardOnline ? statusLabel(dashboard) : '设备离线'}</strong><div className="device-status__channels"><span className={isDashboardOnline ? 'is-online' : 'is-offline'}>Novora 看板 {isDashboardOnline ? '在线' : '离线'}</span>{item.plugins.map(plugin => <span key={plugin.pluginInstanceId} className={pluginOnline(plugin) ? 'is-online' : plugin.paired ? 'is-offline' : 'is-removed'}>ClassIsland {pluginOnline(plugin) ? '在线' : plugin.paired ? '离线' : '未绑定'}</span>)}</div><span>{isDashboardOnline && dashboard?.currentSubject ? `${dashboard.currentExam} · ${dashboard.currentSubject}` : dashboard ? `页面 ${dashboard.page || '未知'} · v${dashboard.clientVersion || '未知'}` : '插件已接入，等待 Novora 看板客户端心跳'}</span>{isDashboardOnline && temporary && canRevoke && <div className="device-status__commands"><button onClick={() => void command(dashboard, dashboard.status === 'temporary-paused' ? 'resume' : 'pause')}>{dashboard.status === 'temporary-paused' ? '继续' : '暂停'}</button><button onClick={() => void command(dashboard, 'extend')}>+5 分钟</button><button className="is-danger" onClick={() => void command(dashboard, 'end')}>结束</button></div>}</div><div className="device-status__updated"><time>{formatTime(lastSeenAt)}</time></div>{canRevoke ? <button className="admin-btn admin-btn--danger" onClick={() => void remove(item)} disabled={removed}>{removed ? '已删除' : '删除'}</button> : <span className="device-status__readonly">只读</span>}</div>;
     })}</div></div>}
   </main>;
 }

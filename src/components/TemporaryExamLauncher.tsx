@@ -1,35 +1,69 @@
 import React, { useMemo, useState } from 'react';
-import { Play, Plus, TimerReset } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Clock3, Play, Plus, TimerReset } from 'lucide-react';
 import type { ExamItem } from '../types';
 import { endTemporaryExam, extendTemporaryExam, getTemporaryExam, saveTemporaryExam, toggleTemporaryExamPause } from '../services/temporaryExam';
 import { notify } from '../services/notify';
+import { getAppSettings } from '../utils/appSettings';
+import { classDisplayName } from '../utils/classSettings';
 
-const isoLocal = (value: number) => new Date(value - new Date(value).getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+const COMMON_SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '政治', '历史', '地理'];
+const DURATION_PRESETS = [30, 45, 60, 90, 120];
+const DELAY_PRESETS = [5, 10, 15, 30];
+const isoLocal = (value: number) => new Date(value - new Date(value).getTimezoneOffset() * 60_000).toISOString().slice(0, 19);
+const dateKey = (value: number) => isoLocal(value).slice(0, 10);
+const timeKey = (value: number) => isoLocal(value).slice(11, 16);
+const parseLocal = (date: string, time: string) => new Date(`${date}T${time}:00`).getTime();
+const formatDateTime = (value: number) => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+const nextFiveMinutes = () => Math.ceil((Date.now() + 5 * 60_000) / 300_000) * 300_000;
 
 export default function TemporaryExamLauncher({ formalItems, externalOpen = false, onExternalHandled }: { formalItems: ExamItem[]; externalOpen?: boolean; onExternalHandled?: () => void }) {
   const current = getTemporaryExam();
+  const settings = getAppSettings().exam;
+  const boundClass = classDisplayName(settings.grades, settings.classes, settings.selectedClassId);
   const [open, setOpen] = useState(false);
-  const [subject, setSubject] = useState('数学');
-  const [mode, setMode] = useState<'now' | 'delay'>('now');
+  const [step, setStep] = useState(0);
+  const [subject, setSubject] = useState('');
+  const [customSubject, setCustomSubject] = useState('');
+  const [customSubjectOpen, setCustomSubjectOpen] = useState(false);
+  const [mode, setMode] = useState<'now' | 'delay' | 'specific'>('now');
   const [delay, setDelay] = useState(10);
-  const [endTime, setEndTime] = useState(() => isoLocal(Date.now() + 45 * 60_000));
+  const [duration, setDuration] = useState(45);
+  const [specificDate, setSpecificDate] = useState(() => dateKey(nextFiveMinutes()));
+  const [specificTime, setSpecificTime] = useState(() => timeKey(nextFiveMinutes()));
   const [priority, setPriority] = useState(false);
   const shouldOpen = open || externalOpen;
-  const startMs = mode === 'now' ? Date.now() : Date.now() + delay * 60_000;
-  const conflicts = useMemo(() => formalItems.filter(item => item.enabled && new Date(item.startTime).getTime() < new Date(endTime).getTime() && new Date(item.endTime).getTime() > startMs), [endTime, formalItems, startMs]);
-  const close = () => { setOpen(false); onExternalHandled?.(); };
+  const finalSubject = customSubjectOpen ? customSubject.trim() : subject;
+  const startMs = mode === 'now' ? Date.now() : mode === 'delay' ? Date.now() + delay * 60_000 : parseLocal(specificDate, specificTime);
+  const endMs = startMs + Math.max(5, duration) * 60_000;
+  const conflicts = useMemo(() => formalItems.filter(item => item.enabled && new Date(item.startTime).getTime() < endMs && new Date(item.endTime).getTime() > startMs), [endMs, formalItems, startMs]);
+  const close = () => { setOpen(false); setStep(0); onExternalHandled?.(); };
+  const chooseSubject = (value: string) => { setSubject(value); setCustomSubjectOpen(false); setCustomSubject(''); };
+  const next = () => {
+    if (step === 0 && !finalSubject) { notify('error', '请先选择或填写考试科目。'); return; }
+    if (step === 1 && (!Number.isFinite(startMs) || startMs < Date.now() - 60_000 || duration < 5)) { notify('error', '请检查开始时间和考试时长。'); return; }
+    setStep(value => Math.min(2, value + 1));
+  };
   const create = () => {
-    const endMs = new Date(endTime).getTime();
-    if (!subject.trim()) { notify('error', '请选择或填写考试科目。'); return; }
-    if (!Number.isFinite(endMs) || endMs <= startMs) { notify('error', '结束时间必须晚于开始时间。'); return; }
-    if (conflicts.length && !window.confirm(`${conflicts.map(item => item.name).join('、')} 将与临时考试时间重叠。${priority ? '临时考试将在本设备上优先显示。' : '正式考试开始时将自动接管。'}确认创建？`)) return;
-    saveTemporaryExam({ id: `temp_${Date.now()}`, subject: subject.trim(), startTime: isoLocal(startMs), endTime, priorityOverFormal: priority, status: startMs <= Date.now() ? 'running' : 'scheduled', createdAt: Date.now() });
-    notify('success', `${subject.trim()} - 临时考试已创建，仅应用于当前设备。`);
+    if (!finalSubject || !Number.isFinite(startMs) || endMs <= startMs) { notify('error', '临时考试信息不完整，请返回检查。'); return; }
+    if (conflicts.length && !window.confirm(`${conflicts.map(item => item.name).join('、')} 与本次临时考试重叠。${priority ? '本设备将优先显示临时考试。' : '正式考试开始后将自动接管。'}确认创建？`)) return;
+    saveTemporaryExam({ id: `temp_${Date.now()}`, subject: finalSubject, startTime: isoLocal(startMs), endTime: isoLocal(endMs), priorityOverFormal: priority, status: startMs <= Date.now() ? 'running' : 'scheduled', createdAt: Date.now() });
+    notify('success', `${finalSubject} - 临时考试已创建，仅应用于当前设备。`);
     close();
   };
 
   return <>
     <button className="temp-exam-fab" onClick={() => setOpen(true)}><Play />{current && current.status !== 'ended' ? '管理临时考试' : '快速开始考试'}</button>
-    {shouldOpen && <div className="temp-exam-overlay" role="dialog" aria-modal="true"><section className="temp-exam-panel"><header><div><span>当前设备</span><h2>{current && current.status !== 'ended' ? '管理临时考试' : '新建临时考试'}</h2></div><button onClick={close} aria-label="关闭">×</button></header>{current && current.status !== 'ended' ? <div className="temp-exam-current"><TimerReset /><h3>{current.subject} - 临时考试</h3><p>{current.startTime.replace('T', ' ')} 至 {current.endTime.replace('T', ' ')}</p><div><button onClick={() => { toggleTemporaryExamPause(); notify('warning', current.status === 'paused' ? '临时考试已继续。' : '临时考试已暂停。'); close(); }}>{current.status === 'paused' ? '继续' : '暂停'}</button><button onClick={() => { extendTemporaryExam(5); notify('success', '临时考试已延长 5 分钟。'); close(); }}>增加 5 分钟</button><button className="is-danger" onClick={() => { if (window.confirm('确定提前结束当前临时考试？')) { endTemporaryExam(); notify('warning', '临时考试已提前结束。'); close(); } }}>提前结束</button></div></div> : <div className="temp-exam-form"><label>考试科目<input list="temporary-subjects" value={subject} onChange={event => setSubject(event.target.value)} /><datalist id="temporary-subjects"><option value="语文"/><option value="数学"/><option value="英语"/><option value="物理"/><option value="化学"/><option value="生物"/><option value="政治"/><option value="历史"/><option value="地理"/></datalist></label><fieldset><legend>开始方式</legend><button className={mode === 'now' ? 'is-active' : ''} onClick={() => setMode('now')}>立即开始</button><button className={mode === 'delay' ? 'is-active' : ''} onClick={() => setMode('delay')}>几分钟后开始</button></fieldset>{mode === 'delay' && <label>延迟分钟数<input type="number" min="1" max="180" value={delay} onChange={event => setDelay(Math.max(1, Number(event.target.value) || 1))} /></label>}<label>开始时间<input type="datetime-local" value={isoLocal(startMs)} readOnly /></label><label>结束时间<input type="datetime-local" value={endTime} onChange={event => setEndTime(event.target.value)} /></label><label className="temp-exam-priority"><input type="checkbox" checked={priority} onChange={event => setPriority(event.target.checked)} /><span><strong>临时考试优先于正式考试</strong><small>只覆盖当前设备显示，不修改统一下发的正式排期。</small></span></label>{conflicts.length > 0 && <div className="temp-exam-conflict">将与正式考试冲突：{conflicts.map(item => item.name).join('、')}</div>}<button className="temp-exam-submit" onClick={create}><Plus />创建临时考试</button></div>}</section></div>}
+    {shouldOpen && <div className="temp-exam-overlay" role="dialog" aria-modal="true"><section className="temp-exam-panel">
+      <header><div><span>当前设备{boundClass ? ` · ${boundClass}` : ''}</span><h2>{current && current.status !== 'ended' ? '管理临时考试' : '快速开始考试'}</h2></div><button onClick={close} aria-label="关闭">×</button></header>
+      {current && current.status !== 'ended' ? <div className="temp-exam-current"><TimerReset /><h3>{current.subject} - 临时考试</h3><p>{current.startTime.replace('T', ' ')} 至 {current.endTime.replace('T', ' ')}</p><div><button onClick={() => { toggleTemporaryExamPause(); notify('warning', current.status === 'paused' ? '临时考试已继续。' : '临时考试已暂停。'); close(); }}>{current.status === 'paused' ? '继续' : '暂停'}</button><button onClick={() => { extendTemporaryExam(5); notify('success', '临时考试已延长 5 分钟。'); close(); }}>增加 5 分钟</button><button className="is-danger" onClick={() => { if (window.confirm('确定提前结束当前临时考试？')) { endTemporaryExam(); notify('warning', '临时考试已提前结束。'); close(); } }}>提前结束</button></div></div> : <>
+        <div className="temp-exam-progress">{['选择科目', '设置时间', '确认选项'].map((label, index) => <div key={label} className={index === step ? 'is-active' : index < step ? 'is-done' : ''}><i>{index < step ? <Check /> : index + 1}</i><span>{label}</span></div>)}</div>
+        <div className="temp-exam-wizard">
+          {step === 0 && <section className="temp-exam-step"><div className="temp-exam-step__head"><span>第一步</span><h3>选择考试科目</h3><p>选择常用科目，或填写其他科目名称。</p></div><div className="temp-subject-grid">{COMMON_SUBJECTS.map(item => <button key={item} className={!customSubjectOpen && subject === item ? 'is-selected' : ''} onClick={() => chooseSubject(item)}><span>{item}</span>{!customSubjectOpen && subject === item && <Check />}</button>)}<button className={customSubjectOpen ? 'is-selected' : ''} onClick={() => { setCustomSubjectOpen(true); setSubject(''); }}>其他科目</button></div>{customSubjectOpen && <label className="temp-custom-subject"><span>科目名称</span><input autoFocus value={customSubject} onChange={event => setCustomSubject(event.target.value)} maxLength={30} placeholder="如：信息技术" /></label>}</section>}
+          {step === 1 && <section className="temp-exam-step"><div className="temp-exam-step__head"><span>第二步</span><h3>设置考试时间</h3><p>先选择开始方式，再设置考试时长。</p></div><fieldset className="temp-mode-grid"><legend>开始方式</legend><button className={mode === 'now' ? 'is-active' : ''} onClick={() => setMode('now')}>立即开始</button><button className={mode === 'delay' ? 'is-active' : ''} onClick={() => setMode('delay')}>稍后开始</button><button className={mode === 'specific' ? 'is-active' : ''} onClick={() => setMode('specific')}>指定时间</button></fieldset>{mode === 'delay' && <div className="temp-preset"><span>延迟时间</span><div>{DELAY_PRESETS.map(value => <button key={value} className={delay === value ? 'is-active' : ''} onClick={() => setDelay(value)}>{value} 分钟后</button>)}</div></div>}{mode === 'specific' && <div className="temp-specific-time"><label><span>日期</span><input type="date" value={specificDate} min={dateKey(Date.now())} onChange={event => setSpecificDate(event.target.value)} /></label><label><span>时间</span><input type="time" step="300" value={specificTime} onChange={event => setSpecificTime(event.target.value)} /></label></div>}<div className="temp-preset"><span>考试时长</span><div>{DURATION_PRESETS.map(value => <button key={value} className={duration === value ? 'is-active' : ''} onClick={() => setDuration(value)}>{value} 分钟</button>)}<label className={!DURATION_PRESETS.includes(duration) ? 'is-active' : ''}><input type="number" min="5" max="480" value={duration} onChange={event => setDuration(Math.max(5, Number(event.target.value) || 5))} /><span>自定义</span></label></div></div><div className="temp-time-summary"><Clock3 /><div><span>预计时间</span><strong>{formatDateTime(startMs)} - {new Date(endMs).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</strong></div></div></section>}
+          {step === 2 && <section className="temp-exam-step"><div className="temp-exam-step__head"><span>第三步</span><h3>确认临时考试</h3><p>临时考试只影响当前设备，不修改统一排期。</p></div><div className="temp-exam-summary"><strong>{finalSubject}</strong><span>{formatDateTime(startMs)} - {new Date(endMs).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</span><small>{boundClass || '当前设备尚未绑定班级'}</small></div><fieldset className="temp-priority-options"><legend>与正式考试的关系</legend><button className={!priority ? 'is-active' : ''} onClick={() => setPriority(false)}><i>{!priority && <Check />}</i><span><strong>不覆盖正式考试</strong><small>正式考试开始时自动接管大屏，推荐使用。</small></span></button><button className={priority ? 'is-danger is-active' : ''} onClick={() => setPriority(true)}><i>{priority && <Check />}</i><span><strong>临时考试优先</strong><small>发生冲突时，本设备仍显示临时考试。</small></span></button></fieldset>{conflicts.length ? <div className={`temp-exam-conflict${priority ? ' is-priority' : ''}`}><strong>检测到时间冲突</strong><span>{conflicts.map(item => item.name).join('、')}</span><small>{priority ? '创建时将再次确认是否覆盖。' : '正式考试开始后会自动接管。'}</small></div> : <div className="temp-exam-no-conflict"><Check />未发现正式考试冲突</div>}</section>}
+        </div>
+        <footer className="temp-exam-actions">{step > 0 && <button onClick={() => setStep(value => value - 1)}><ChevronLeft />上一步</button>}<button className="is-primary" onClick={step < 2 ? next : create}>{step < 2 ? <>下一步<ChevronRight /></> : <><Plus />{mode === 'now' ? '立即开始考试' : mode === 'delay' ? `创建并在 ${delay} 分钟后开始` : '创建定时考试'}</>}</button></footer>
+      </>}
+    </section></div>}
   </>;
 }

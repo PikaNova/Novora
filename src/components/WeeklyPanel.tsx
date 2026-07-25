@@ -27,9 +27,10 @@ import { resolveMajorWeeklyConflicts } from '../utils/scheduleConflict';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 import { getOfficialHolidayName, OFFICIAL_HOLIDAYS } from '../data/officialHolidays';
 import HelpTip from './HelpTip';
-import SchedulePrintPreview from './SchedulePrintPreview';
+import SchedulePrintPreview, { type PrintScheduleDocument } from './SchedulePrintPreview';
 import { notify } from '../services/notify';
 import AiImportGuide from './AiImportGuide';
+import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
 import { CalendarDays, CircleHelp } from 'lucide-react';
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
@@ -41,7 +42,7 @@ const SCOPE_LABEL: Record<WeeklyConflictPolicy['scope'], string> = {
 };
 
 type ItemEdit = Omit<WeeklyExamItem, 'id' | 'order'> & { id?: string };
-type PlanModal = { mode: 'add' | 'settings'; name: string; gradeId: string; classId: string; activeFrom: string; activeUntil: string; anchorDate: string; forever: boolean; repeatEveryWeeks: number; weekMode: WeeklyWeekMode; excludeOfficialHolidays: boolean } | null;
+type PlanModal = { mode: 'add' | 'settings'; name: string; gradeId: string; classIds: string[]; activeFrom: string; activeUntil: string; anchorDate: string; forever: boolean; repeatEveryWeeks: number; weekMode: WeeklyWeekMode; excludeOfficialHolidays: boolean } | null;
 type PreviewOcc = {
   date: string; weekday: IsoWeekday; name: string; startTime: string; endTime: string;
   suppressed: boolean; forced: boolean; weeklyItemId: string; message?: string;
@@ -67,7 +68,7 @@ export interface WeeklyPanelProps {
   weeklyConflictPolicy: WeeklyConflictPolicy;
   majorItems: ExamItem[];
   majorName: string;
-  onSavePlans: (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate?: boolean) => void;
+  onSavePlans: (plans: WeeklyPlan[], activeId: string | null, classId: string, immediate?: boolean, activeByClass?: Record<string, string | null>) => void;
   onConflictPolicyChange: (policy: WeeklyConflictPolicy, immediate?: boolean) => void;
   onSelectScope?: (gradeId: string, classId: string) => void;
   allowBatchApply?: boolean;
@@ -106,6 +107,7 @@ export default function WeeklyPanel({
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
+  const [importClassIds, setImportClassIds] = useState<string[]>([]);
   const [exceptionsOpen, setExceptionsOpen] = useState(false);
   const [newExcludeDate, setNewExcludeDate] = useState('');
   const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
@@ -113,6 +115,9 @@ export default function WeeklyPanel({
   const [rescheduleError, setRescheduleError] = useState('');
   const [copyModal, setCopyModal] = useState<{ sourcePlanId: string; targetClassIds: string[]; name: string } | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
+  const [printPickerOpen, setPrintPickerOpen] = useState(false);
+  const [printClassIds, setPrintClassIds] = useState<string[]>([]);
+  const pickerOptions = useMemo<ClassPickerOption[]>(() => classOptions.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: item.label.split(' · ')[0] || '未知年级', className: item.label.split(' · ').at(-1) || item.label })), [classOptions]);
   const [lastDeleted, setLastDeleted] = useState<
     | { kind: 'plan'; plan: WeeklyPlan; index: number }
     | { kind: 'item'; item: WeeklyExamItem; index: number; planId: string }
@@ -122,7 +127,7 @@ export default function WeeklyPanel({
 
   const openNewPlan = () => {
     const today = getShanghaiDateKey(Date.now());
-    setPlanModal({ mode: 'add', name: selectedClassName && selectedClassId ? `${selectedClassName}周测计划` : '', gradeId: selectedGradeId, classId: selectedClassId, activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false });
+    setPlanModal({ mode: 'add', name: selectedClassName && selectedClassId ? `${selectedClassName}周测计划` : '', gradeId: selectedGradeId, classIds: selectedClassId ? [selectedClassId] : [], activeFrom: today, activeUntil: '', anchorDate: today, forever: true, repeatEveryWeeks: 1, weekMode: 'single', excludeOfficialHolidays: false });
     setPlanError('');
   };
 
@@ -165,6 +170,14 @@ export default function WeeklyPanel({
     const showSunday = allDays.some(day => day.weekday === 7 && day.entries.length > 0);
     return allDays.filter(day => day.weekday <= 5 || (day.weekday === 6 ? showSaturday : showSunday));
   }, [preview, activePlan]);
+  const printSchedules = useMemo<PrintScheduleDocument[]>(() => printClassIds.flatMap(classId => {
+    const planId = activeWeeklyPlanIdByClassId[classId];
+    const plan = weeklyPlans.find(item => item.classId === classId && item.id === planId) ?? weeklyPlans.find(item => item.classId === classId && item.enabled);
+    const target = pickerOptions.find(item => item.id === classId);
+    if (!plan || !target) return [];
+    const occurrences = resolveWeeklyOccurrences(plan, Date.now(), { daysBack: 7, daysForward: 28 });
+    return [{ gradeName: target.gradeName, className: target.className, entries: occurrences.map(item => ({ date: item.date, name: item.name, startTime: item.startTime.slice(11, 16), endTime: item.endTime.slice(11, 16), note: item.forced ? '冲突时保留' : '' })) }];
+  }), [activeWeeklyPlanIdByClassId, pickerOptions, printClassIds, weeklyPlans]);
 
   if (!selectedGradeId || !selectedClassId) {
     return (
@@ -206,15 +219,24 @@ export default function WeeklyPanel({
     if (!planModal) return;
     const name = planModal.name.trim();
     if (!name) { setPlanError('请输入计划名称'); return; }
-    if (!planModal.gradeId || !planModal.classId) { setPlanError('请选择计划适用的年级和班级'); return; }
+    if (!planModal.gradeId || !planModal.classIds.length) { setPlanError('请至少选择一个适用班级'); return; }
     if (!DATE_RE.test(planModal.activeFrom)) { setPlanError('请填写生效日期'); return; }
     if (!DATE_RE.test(planModal.anchorDate)) { setPlanError('请填写学期开始日期'); return; }
     if (!planModal.forever && planModal.activeUntil && planModal.activeUntil < planModal.activeFrom) { setPlanError('结束日期不得早于生效日期'); return; }
     const repeat = Math.min(8, Math.max(1, Math.round(planModal.repeatEveryWeeks) || 1));
     if (planModal.mode === 'add') {
-      const plan = { ...createEmptyWeeklyPlan(Date.now(), name), gradeId: planModal.gradeId, classId: planModal.classId, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays, order: weeklyPlans.length };
-      onSavePlans([...weeklyPlans, plan], plan.id, plan.classId, true);
-      onSelectScope?.(plan.gradeId, plan.classId);
+      const created = planModal.classIds.map((classId, offset) => {
+        const target = pickerOptions.find(item => item.id === classId)!;
+        const className = target?.className || '班级';
+        const planName = planModal.classIds.length > 1
+          ? (name.includes(selectedClassName) && selectedClassName ? name.replace(selectedClassName, className) : `${className} · ${name}`)
+          : name;
+        return { ...createEmptyWeeklyPlan(Date.now() + offset, planName), gradeId: target.gradeId, classId, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays, order: weeklyPlans.length + offset };
+      });
+      const activeByClass = { ...activeWeeklyPlanIdByClassId, ...Object.fromEntries(created.map(plan => [plan.classId, plan.id])) };
+      onSavePlans([...weeklyPlans, ...created], created[0].id, created[0].classId, true, activeByClass);
+      onSelectScope?.(created[0].gradeId, created[0].classId);
+      notify('success', created.length > 1 ? `已为 ${created.length} 个班级创建独立周测计划。` : '周测计划已创建。');
     } else {
       const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, name, activeFrom: planModal.activeFrom, activeUntil: planModal.forever ? null : (planModal.activeUntil || null), anchorDate: planModal.anchorDate, repeatEveryWeeks: repeat, weekMode: planModal.weekMode, excludeOfficialHolidays: planModal.excludeOfficialHolidays } : p);
       onSavePlans(plans, activePlan.id, selectedClassId, true);
@@ -358,24 +380,19 @@ export default function WeeklyPanel({
     setImportError('');
     try {
       const source = JSON.parse(importText);
+      const targets = importClassIds.length ? importClassIds : [selectedClassId];
+      if (!targets.length) throw new Error('请至少选择一个目标班级');
       if (source?.plan && typeof source.plan === 'object') {
         const imported = normalizeWeeklyPlan(source.plan, weeklyPlans.length);
-        const newPlanId = genWeeklyPlanId();
-        const idMap = new Map(imported.items.map(item => [item.id, makeItemId()]));
-        const importedPlan: WeeklyPlan = {
-          ...imported,
-          id: newPlanId,
-          name: `${imported.name}（导入）`,
-          gradeId: selectedGradeId,
-          classId: selectedClassId,
-          order: weeklyPlans.length,
-          items: imported.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })),
-          overrides: imported.overrides
-            .filter(item => idMap.has(item.sourceItemId))
-            .map(item => ({ ...item, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date), sourceItemId: idMap.get(item.sourceItemId)! })),
-        };
-        onSavePlans([...weeklyPlans, importedPlan], importedPlan.id, selectedClassId, true);
+        const importedPlans = targets.map((classId, offset) => {
+          const target = pickerOptions.find(item => item.id === classId)!;
+          const idMap = new Map(imported.items.map(item => [item.id, makeItemId()]));
+          return { ...imported, id: genWeeklyPlanId(), name: `${target.className} · ${imported.name.replace(/（导入）$/u, '')}`, gradeId: target.gradeId, classId, order: weeklyPlans.length + offset, items: imported.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })), overrides: imported.overrides.filter(item => idMap.has(item.sourceItemId)).map(item => ({ ...item, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date), sourceItemId: idMap.get(item.sourceItemId)! })) };
+        });
+        const nextActive = { ...activeWeeklyPlanIdByClassId, ...Object.fromEntries(importedPlans.map(plan => [plan.classId, plan.id])) };
+        onSavePlans([...weeklyPlans, ...importedPlans], importedPlans[0].id, importedPlans[0].classId, true, nextActive);
         setImportText(''); setImportOpen(false);
+        notify('success', `已向 ${importedPlans.length} 个班级导入独立计划。`);
         return;
       }
       const list = Array.isArray(source) ? source : source.items;
@@ -394,9 +411,12 @@ export default function WeeklyPanel({
            weekType: (['all', 'a', 'b'] as WeeklyWeekType[]).includes(row.weekType as WeeklyWeekType) ? row.weekType as WeeklyWeekType : 'all',
         };
       });
-      const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, items: sortWeeklyItems(nextItems) } : p);
+      const targetPlanIds = new Set(targets.map(classId => activeWeeklyPlanIdByClassId[classId] ?? weeklyPlans.find(plan => plan.classId === classId)?.id).filter(Boolean));
+      if (targetPlanIds.size !== targets.length) throw new Error('部分目标班级尚无周测计划，请先批量新建计划');
+      const plans = weeklyPlans.map(plan => targetPlanIds.has(plan.id) ? { ...plan, items: sortWeeklyItems(nextItems.map((item, index) => ({ ...item, id: makeItemId(), order: index }))) } : plan);
       onSavePlans(plans, activePlan.id, selectedClassId, true);
       setImportText(''); setImportOpen(false);
+      notify('success', `已向 ${targets.length} 个班级导入周测项目。`);
     } catch (error) { setImportError(error instanceof Error ? error.message : 'JSON 格式错误'); }
   }
 
@@ -435,7 +455,7 @@ export default function WeeklyPanel({
           <h2 className="admin-modal__title">{planModal.mode === 'add' ? '新建周测计划' : '周测计划设置'}</h2>
           {planError && <div className="admin-error">{planError}</div>}
           <div className="admin-form">
-            {planModal.mode === 'add' && <><label className="admin-label">适用年级<select className="admin-input" autoFocus value={planModal.gradeId} onChange={e => setPlanModal(p => p && { ...p, gradeId: e.target.value, classId: '', name: '' })}><option value="">请选择年级</option>{[...new Map(classOptions.map(item => [item.gradeId, item.label.split(' · ')[0]]))].map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label className="admin-label">适用班级<select className="admin-input" value={planModal.classId} disabled={!planModal.gradeId} onChange={e => { const target = classOptions.find(item => item.id === e.target.value); setPlanModal(p => p && { ...p, classId: e.target.value, name: p.name || `${target?.label.split(' · ').at(-1) || ''}周测计划` }); }}><option value="">请选择班级</option>{classOptions.filter(item => item.gradeId === planModal.gradeId).map(item => <option key={item.id} value={item.id}>{item.label.split(' · ').at(-1)}</option>)}</select></label></>}
+            {planModal.mode === 'add' && <><label className="admin-label">适用年级<select className="admin-input" autoFocus value={planModal.gradeId} onChange={e => setPlanModal(p => p && { ...p, gradeId: e.target.value, classIds: [], name: '' })}><option value="">请选择年级</option>{[...new Map(classOptions.map(item => [item.gradeId, item.label.split(' · ')[0]]))].map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><div className="admin-label">适用班级<ClassMultiPicker options={pickerOptions} gradeId={planModal.gradeId} selectedIds={planModal.classIds} onChange={ids => setPlanModal(p => p && { ...p, classIds: ids, name: p.name || (ids.length === 1 ? `${pickerOptions.find(item => item.id === ids[0])?.className || ''}周测计划` : '周测计划') })} disabled={!planModal.gradeId} single={!allowBatchApply} /></div></>}
             <label className="admin-label">计划名称<input className="admin-input" autoFocus={planModal.mode !== 'add'} value={planModal.name} onChange={e => setPlanModal(p => p && { ...p, name: e.target.value })} placeholder="如：高三周测 / 晚自习周测" /></label>
             <label className="admin-label">生效日期<input className="admin-input" type="date" value={planModal.activeFrom} onChange={e => setPlanModal(p => p && { ...p, activeFrom: e.target.value })} /></label>
             <label className="admin-label">学期开始日期（A 周锚点）<input className="admin-input" type="date" value={planModal.anchorDate} onChange={e => setPlanModal(p => p && { ...p, anchorDate: e.target.value })} /></label>
@@ -446,7 +466,7 @@ export default function WeeklyPanel({
               {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n === 1 ? '每周' : `每 ${n} 周（隔 ${n - 1} 周）`}</option>)}
             </select></label>}
             <label className="admin-toggle-label"><input type="checkbox" checked={planModal.excludeOfficialHolidays} onChange={e => setPlanModal(p => p && { ...p, excludeOfficialHolidays: e.target.checked })} />自动排除 2026 年法定节假日</label>
-            <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={commitPlanModal}>确认并保存</button><button className="admin-btn admin-btn--ghost" onClick={() => { setPlanModal(null); setPlanError(''); }}>取消</button></div>
+            <div className="admin-form-actions"><button className="admin-btn admin-btn--primary" onClick={commitPlanModal}>保存到 {planModal.mode === 'add' ? planModal.classIds.length : 1} 个班级</button><button className="admin-btn admin-btn--ghost" onClick={() => { setPlanModal(null); setPlanError(''); }}>取消</button></div>
           </div>
         </div>
       </div>
@@ -472,7 +492,7 @@ export default function WeeklyPanel({
           )}
           <div className="admin-major-card__btns">
             <button className="admin-btn admin-btn--primary" onClick={openNewPlan}>+ 新建</button>
-            <button className="admin-btn" onClick={() => { setPlanModal({ mode: 'settings', name: activePlan.name, gradeId: activePlan.gradeId, classId: activePlan.classId, activeFrom: activePlan.activeFrom, activeUntil: activePlan.activeUntil ?? '', anchorDate: activePlan.anchorDate, forever: !activePlan.activeUntil, repeatEveryWeeks: activePlan.repeatEveryWeeks, weekMode: activePlan.weekMode ?? 'single', excludeOfficialHolidays: activePlan.excludeOfficialHolidays === true }); setPlanError(''); }}>计划设置</button>
+            <button className="admin-btn" onClick={() => { setPlanModal({ mode: 'settings', name: activePlan.name, gradeId: activePlan.gradeId, classIds: [activePlan.classId], activeFrom: activePlan.activeFrom, activeUntil: activePlan.activeUntil ?? '', anchorDate: activePlan.anchorDate, forever: !activePlan.activeUntil, repeatEveryWeeks: activePlan.repeatEveryWeeks, weekMode: activePlan.weekMode ?? 'single', excludeOfficialHolidays: activePlan.excludeOfficialHolidays === true }); setPlanError(''); }}>计划设置</button>
             <button className="admin-btn admin-btn--danger" onClick={() => setDeletePlanOpen(true)}>删除</button>
           </div>
           <div className="admin-major-card__btns">
@@ -509,7 +529,7 @@ export default function WeeklyPanel({
           <h2 className="admin-list-title">{activePlan.name} · 周测</h2>
           <span className="admin-list-count">{items.length} 项</span>
           <div className="weekly-list-actions">
-            <button className="admin-btn" onClick={() => setImportOpen(true)}>导入周测 JSON</button>
+            <button className="admin-btn" onClick={() => { setImportClassIds([selectedClassId]); setImportOpen(true); }}>导入周测 JSON</button>
             <button className="admin-btn" onClick={exportJson}>导出周测 JSON</button>
             <button className="admin-btn admin-btn--primary" onClick={() => { setEditing({ name: '', weekday: 1, startTime: '19:00', endTime: '20:00', endNextDay: false, enabled: true, weekType: 'all' }); setEditError(''); }}>+ 添加周测</button>
           </div>
@@ -548,7 +568,7 @@ export default function WeeklyPanel({
         <div className="admin-list-header" style={{ marginTop: 22 }}>
           <h2 className="admin-list-title">未来两周预览</h2>
           <span className="admin-list-count">{preview.length} 场</span>
-          <button className="admin-btn" onClick={() => setPrintOpen(true)}>A4 预览与下载 PDF</button>
+          <button className="admin-btn" onClick={() => { if (allowBatchApply) { setPrintClassIds([selectedClassId]); setPrintPickerOpen(true); } else setPrintOpen(true); }}>A4 预览与下载 PDF</button>
         </div>
         <div className="weekly-calendar-scroll" tabIndex={0} aria-label="横向滚动查看未来两周">
           <div className="weekly-calendar" role="grid" aria-label="未来两周周测日历">
@@ -615,9 +635,10 @@ export default function WeeklyPanel({
             <h2 className="admin-modal__title">导入周测 JSON</h2>
             <p className="admin-modal__body">旧版 items 数据会覆盖当前周测列表；新版整份计划备份会创建一个独立的新计划，并保留 A/B 周、例外和节假日设置。</p>
             <AiImportGuide kind="weekly" context={`${classOptions.find(item => item.id === selectedClassId)?.label || selectedClassName}，计划“${activePlan.name}”`} />
+            {allowBatchApply && <div className="admin-label">导入到班级<ClassMultiPicker options={pickerOptions} gradeId={selectedGradeId} selectedIds={importClassIds} onChange={setImportClassIds} /></div>}
             {importError && <div className="admin-error">{importError}</div>}
             <textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"items":[{"name":"周测","weekday":1,"startTime":"19:00","endTime":"20:00","enabled":true}]}' />
-            <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>校验并导入</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div>
+            <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>校验并导入到 {importClassIds.length || 1} 个班级</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); setImportClassIds([]); }}>取消</button></div>
           </div>
         </div>
       )}
@@ -686,7 +707,7 @@ export default function WeeklyPanel({
             <h2 className="admin-modal__title">批量应用周测计划</h2>
             <label className="admin-label">源计划<select className="admin-input" value={copyModal.sourcePlanId} onChange={event => { const source = weeklyPlans.find(plan => plan.id === event.target.value); setCopyModal(current => current && { ...current, sourcePlanId: event.target.value, name: source?.name.replace(/（复制）$/u, '') || current.name }); }}>{[...weeklyPlans].sort((a, b) => { const ac = classOptions.find(item => item.id === a.classId)?.label || ''; const bc = classOptions.find(item => item.id === b.classId)?.label || ''; return ac.localeCompare(bc, 'zh-CN') || a.name.localeCompare(b.name, 'zh-CN'); }).map(plan => <option key={plan.id} value={plan.id}>{classOptions.find(item => item.id === plan.classId)?.label} · {plan.name}</option>)}</select></label>
             <label className="admin-label">应用后的计划标题<input className="admin-input" value={copyModal.name} onChange={event => setCopyModal(current => current && { ...current, name: event.target.value })} placeholder="请输入计划标题" /></label>
-            <div className="admin-label">应用到班级<div className="admin-form-actions"><button className="admin-btn" type="button" onClick={() => { const source = weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId); const ids = classOptions.filter(item => item.gradeId === source?.gradeId && item.id !== source.classId).map(item => item.id); setCopyModal(current => current && { ...current, targetClassIds: ids }); }}>选择同年级全部班级</button><button className="admin-btn admin-btn--ghost" type="button" onClick={() => setCopyModal(current => current && { ...current, targetClassIds: [] })}>清空</button></div><div className="admin-major-targets">{[...classOptions].filter(item => item.id !== weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId)?.classId).sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')).map(item => <label key={item.id}><input type="checkbox" checked={copyModal.targetClassIds.includes(item.id)} onChange={event => setCopyModal(current => current && ({ ...current, targetClassIds: event.target.checked ? [...current.targetClassIds, item.id] : current.targetClassIds.filter(id => id !== item.id) }))} />{item.label}</label>)}</div></div>
+            <div className="admin-label">应用到班级<ClassMultiPicker options={pickerOptions.filter(item => item.id !== weeklyPlans.find(plan => plan.id === copyModal.sourcePlanId)?.classId)} selectedIds={copyModal.targetClassIds} onChange={ids => setCopyModal(current => current && ({ ...current, targetClassIds: ids }))} /></div>
             <p className="admin-major-card__hint">每个目标班级会创建一份已启用的独立计划，之后可分别编辑。</p>
             <div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitCopyPlan} disabled={!copyModal.targetClassIds.length}>应用到 {copyModal.targetClassIds.length} 个班级</button><button className="admin-btn" onClick={() => setCopyModal(null)}>取消</button></div>
           </div>
@@ -723,7 +744,8 @@ export default function WeeklyPanel({
           </div>
         </div>
       )}
-      {printOpen && <SchedulePrintPreview entries={preview} gradeName={classOptions.find(item => item.id === selectedClassId)?.label.split(' · ')[0] || '当前年级'} className={selectedClassName} onClose={() => setPrintOpen(false)} />}
+      {printPickerOpen && <div className="admin-modal-overlay" {...backdropProps(() => setPrintPickerOpen(false))}><div className="admin-modal admin-modal--wide" onClick={event => event.stopPropagation()}><h2 className="admin-modal__title">批量预览与下载 PDF</h2><p className="admin-modal__body">选择需要导出的班级。一个 PDF 内按班级分组，每个班级仍保持一周一张 A4 页面。</p><ClassMultiPicker options={pickerOptions} gradeId={selectedGradeId} selectedIds={printClassIds} onChange={setPrintClassIds} /><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" disabled={!printSchedules.length} onClick={() => { setPrintPickerOpen(false); setPrintOpen(true); }}>预览 {printSchedules.length} 个班级</button><button className="admin-btn" onClick={() => setPrintPickerOpen(false)}>取消</button></div></div></div>}
+      {printOpen && <SchedulePrintPreview entries={preview} gradeName={classOptions.find(item => item.id === selectedClassId)?.label.split(' · ')[0] || '当前年级'} className={selectedClassName} schedules={printClassIds.length ? printSchedules : undefined} onClose={() => { setPrintOpen(false); setPrintClassIds([]); }} />}
     </>
   );
 }
