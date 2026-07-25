@@ -6,6 +6,7 @@ import { changeOwnCredentials } from '../services/adminUsers';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
 import { ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
+import { safeLoginDestination } from '../utils/safeNavigation';
 import '../styles/login.css';
 
 export default function LoginPage() {
@@ -21,7 +22,7 @@ export default function LoginPage() {
   const [recoveryDraft, setRecoveryDraft] = useState({ username: 'admin', recoveryKey: '', next: '', confirm: '' });
   const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; username: string; next: string; confirm: string } | null>(null);
   const search = new URLSearchParams(location.search);
-  const next = search.get('next') || '/admin';
+  const next = safeLoginDestination(search.get('next'));
   const initializing = search.get('mode') === 'initialize';
   const passwordChanged = search.get('passwordChanged') === '1';
 
