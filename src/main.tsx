@@ -22,7 +22,8 @@ style.textContent = `
   *, *::before, *::after { box-sizing: border-box; }
   html, body, #root { margin: 0; padding: 0; width: 100%; height: 100%; }
   body { background: #0d0d0d; color: #f0f0f0; font-family: var(--font-region-content); }
-  body.lock-scroll { overflow: hidden; }
+  body.lock-scroll,
+  body.preview-scroll-lock { overflow: hidden; }
   button { font-family: inherit; }
   input, textarea, select { font-family: inherit; }
 `;

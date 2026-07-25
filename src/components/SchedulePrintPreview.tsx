@@ -84,6 +84,10 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+  useEffect(() => {
+    document.body.classList.add('preview-scroll-lock');
+    return () => document.body.classList.remove('preview-scroll-lock');
+  }, []);
   const fontCss = (id: FontKey) => FONT_OPTIONS.find(item => item.id === id)?.css || FONT_OPTIONS[1].css;
   const periodText = mode === 'major' ? (dateRange.length ? `${dateRange[0]} 至 ${dateRange[dateRange.length - 1]}` : '尚未添加科目') : `${weekStart} 至 ${weekEnd}`;
   const sheetTitle = mode === 'major' ? `${title || '大型考试'} · 考试安排` : 'Novora · 班级周测考试安排';

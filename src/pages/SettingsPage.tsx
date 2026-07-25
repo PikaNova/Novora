@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getAppSettings,
@@ -107,6 +107,8 @@ export default function SettingsPage() {
   const [calendarClassId, setCalendarClassId] = useState(initialExam.selectedClassId);
   const [calendarPlanId, setCalendarPlanId] = useState(() => initialExam.activeWeeklyPlanIdByClassId[initialExam.selectedClassId] ?? initialExam.activeWeeklyPlanId ?? '');
   const [calendarSave, setCalendarSave] = useState('');
+  const [calendarSaving, setCalendarSaving] = useState(false);
+  const calendarSavingRef = useRef(false);
   const [schoolName, setSchoolName] = useState(initialExam.initialization.schoolName);
   const [province, setProvince] = useState(initialExam.initialization.province);
   const [schoolSave, setSchoolSave] = useState('');
@@ -269,44 +271,51 @@ export default function SettingsPage() {
   };
 
   const saveCalendarPlan = async (updates: Partial<WeeklyPlan>) => {
-    if (!calendarPlan || !canEditWeekly) return;
+    if (!calendarPlan || !canEditWeekly || calendarSavingRef.current) return;
+    calendarSavingRef.current = true;
+    setCalendarSaving(true);
     const nextPlans = weeklyPlans.map(plan => plan.id === calendarPlan.id ? { ...plan, ...updates } : plan);
     setWeeklyPlans(nextPlans);
     updateExamSettings({ weeklyPlans: nextPlans, updatedAt: Date.now() });
     setCalendarSave('正在保存到云端…');
     const exam = getAppSettings().exam;
     const input = { items: exam.items, title: exam.title, majors: exam.majors, activeMajorId: exam.activeMajorId, alerts: getAppSettings().alerts, scheduleMode: exam.scheduleMode, weeklyPlans: nextPlans, activeWeeklyPlanId: exam.activeWeeklyPlanId, activeWeeklyPlanIdByClassId: exam.activeWeeklyPlanIdByClassId, grades: exam.grades, classes: exam.classes, weeklyConflictPolicy: exam.weeklyConflictPolicy };
-    let persistedPlans = nextPlans;
-    let result = await saveExamsToServer({ ...input, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
-    if (result && typeof result === 'object' && result.kind === 'conflict' && result.remote) {
-      const remote = result.remote;
-      const mergedPlans = (remote.weeklyPlans ?? nextPlans).map(plan => plan.id === calendarPlan.id ? { ...plan, ...updates } : plan);
-      if (!mergedPlans.some(plan => plan.id === calendarPlan.id)) mergedPlans.push({ ...calendarPlan, ...updates });
-      persistedPlans = mergedPlans;
-      result = await saveExamsToServer({
-        ...input,
-        items: remote.items,
-        title: remote.title,
-        majors: remote.majors,
-        activeMajorId: remote.activeMajorId,
-        alerts: remote.alerts,
-        scheduleMode: remote.scheduleMode ?? input.scheduleMode,
-        weeklyPlans: mergedPlans,
-        activeWeeklyPlanId: remote.activeWeeklyPlanId ?? input.activeWeeklyPlanId,
-        activeWeeklyPlanIdByClassId: remote.activeWeeklyPlanIdByClassId ?? input.activeWeeklyPlanIdByClassId,
-        grades: remote.grades ?? input.grades,
-        classes: remote.classes ?? input.classes,
-        weeklyConflictPolicy: remote.weeklyConflictPolicy ?? input.weeklyConflictPolicy,
-        baseUpdatedAt: remote.updatedAt,
-      });
-    }
-    if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
-    if (typeof result === 'number') { setWeeklyPlans(persistedPlans); updateExamSettings({ weeklyPlans: persistedPlans, updatedAt: result }); setCalendarSave('已保存到云端'); notify('success', '周测日历设置已保存到云端。'); }
-    else {
-      const message = result && result.kind === 'error'
-        ? formatApiError(result.error, '周测日历保存失败')
-        : '周测日历保存失败，请刷新后重试。';
-      setCalendarSave(message); notify('error', message, '保存失败');
+    try {
+      let persistedPlans = nextPlans;
+      let result = await saveExamsToServer({ ...input, baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0 });
+      if (result && typeof result === 'object' && result.kind === 'conflict' && result.remote) {
+        const remote = result.remote;
+        const mergedPlans = (remote.weeklyPlans ?? nextPlans).map(plan => plan.id === calendarPlan.id ? { ...plan, ...updates } : plan);
+        if (!mergedPlans.some(plan => plan.id === calendarPlan.id)) mergedPlans.push({ ...calendarPlan, ...updates });
+        persistedPlans = mergedPlans;
+        result = await saveExamsToServer({
+          ...input,
+          items: remote.items,
+          title: remote.title,
+          majors: remote.majors,
+          activeMajorId: remote.activeMajorId,
+          alerts: remote.alerts,
+          scheduleMode: remote.scheduleMode ?? input.scheduleMode,
+          weeklyPlans: mergedPlans,
+          activeWeeklyPlanId: remote.activeWeeklyPlanId ?? input.activeWeeklyPlanId,
+          activeWeeklyPlanIdByClassId: remote.activeWeeklyPlanIdByClassId ?? input.activeWeeklyPlanIdByClassId,
+          grades: remote.grades ?? input.grades,
+          classes: remote.classes ?? input.classes,
+          weeklyConflictPolicy: remote.weeklyConflictPolicy ?? input.weeklyConflictPolicy,
+          baseUpdatedAt: remote.updatedAt,
+        });
+      }
+      if (result === 'unauthorized') { navigate('/login?next=/settings', { replace: true }); return; }
+      if (typeof result === 'number') { setWeeklyPlans(persistedPlans); updateExamSettings({ weeklyPlans: persistedPlans, updatedAt: result }); setCalendarSave('已保存到云端'); notify('success', '周测日历设置已保存到云端。'); }
+      else {
+        const message = result && result.kind === 'error'
+          ? formatApiError(result.error, '周测日历保存失败')
+          : '周测日历保存失败，请刷新后重试。';
+        setCalendarSave(message); notify('error', message, '保存失败');
+      }
+    } finally {
+      calendarSavingRef.current = false;
+      setCalendarSaving(false);
     }
   };
 
@@ -363,9 +372,9 @@ export default function SettingsPage() {
             <div className="set-row"><label className="set-label">班级</label><select className="set-input" value={calendarClassId} onChange={event => selectCalendarClass(event.target.value)}><option value="">请选择班级</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
             {classPlans.length > 1 && <div className="set-row"><label className="set-label">周测计划</label><select className="set-input" value={calendarPlan?.id ?? ''} onChange={event => setCalendarPlanId(event.target.value)}>{classPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></div>}
             {calendarPlan ? <>
-              <div className="set-row"><label className="set-label">学期开始日期 <HelpTip title="A/B 周基准">该日期所在周固定为 A 周，后续自然周按 A、B 交替推算。修改日期会立即反映到日历预览。</HelpTip></label><input className="set-input" type="date" disabled={!canEditWeekly} value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
-              <div className="set-row"><label className="set-label">周次模式</label><select className="set-input" disabled={!canEditWeekly} value={calendarPlan.weekMode ?? 'single'} onChange={event => void saveCalendarPlan({ weekMode: event.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></div>
-              <div className="set-row"><label className="set-label">法定节假日自动排除</label><Switch checked={calendarPlan.excludeOfficialHolidays === true} disabled={!canEditWeekly} onChange={value => void saveCalendarPlan({ excludeOfficialHolidays: value })} /></div>
+              <div className="set-row"><label className="set-label">学期开始日期 <HelpTip title="A/B 周基准">该日期所在周固定为 A 周，后续自然周按 A、B 交替推算。修改日期会立即反映到日历预览。</HelpTip></label><input className="set-input" type="date" disabled={!canEditWeekly || calendarSaving} value={calendarPlan.anchorDate} onChange={event => void saveCalendarPlan({ anchorDate: event.target.value })} /></div>
+              <div className="set-row"><label className="set-label">周次模式</label><select className="set-input" disabled={!canEditWeekly || calendarSaving} value={calendarPlan.weekMode ?? 'single'} onChange={event => void saveCalendarPlan({ weekMode: event.target.value as WeeklyWeekMode })}><option value="single">统一周表</option><option value="ab">A/B 周交替</option></select></div>
+              <div className="set-row"><label className="set-label">法定节假日自动排除</label><Switch checked={calendarPlan.excludeOfficialHolidays === true} disabled={!canEditWeekly || calendarSaving} onChange={value => void saveCalendarPlan({ excludeOfficialHolidays: value })} /></div>
               {calendarPlan.excludeOfficialHolidays && <p className="set-note set-holiday-list">已启用：{OFFICIAL_HOLIDAYS.map(item => `${item.name} ${item.start.slice(5)}~${item.end.slice(5)}`).join(' · ')}</p>}
               {calendarSave && <p className="set-note" aria-live="polite">{calendarSave}</p>}
             </> : <div className="set-note set-note--warn">当前班级还没有周测计划，请先到管理后台的“周测”页创建计划。</div>}

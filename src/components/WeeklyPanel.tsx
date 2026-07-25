@@ -115,12 +115,20 @@ export default function WeeklyPanel({
   const [rescheduleTarget, setRescheduleTarget] = useState<{ occ: PreviewOcc; name: string; date: string; startTime: string; endTime: string } | null>(null);
   const [rescheduleError, setRescheduleError] = useState('');
   const [copyModal, setCopyModal] = useState<{ sourcePlanId: string; targetClassIds: string[]; name: string } | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeletePlanIds, setBatchDeletePlanIds] = useState<string[]>([]);
   const [printOpen, setPrintOpen] = useState(false);
   const [printPickerOpen, setPrintPickerOpen] = useState(false);
   const [printClassIds, setPrintClassIds] = useState<string[]>([]);
   const pickerOptions = useMemo<ClassPickerOption[]>(() => classOptions.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: item.label.split(' · ')[0] || '未知年级', className: item.label.split(' · ').at(-1) || item.label })), [classOptions]);
+  const planPickerOptions = useMemo<ClassPickerOption[]>(() => weeklyPlans.map(plan => {
+    const target = classOptions.find(item => item.id === plan.classId);
+    const [gradeName = '未知年级', className = '未知班级'] = target?.label.split(' · ') ?? [];
+    return { id: plan.id, gradeId: plan.gradeId, gradeName, className: `${className} · ${plan.name}（${plan.items.length} 条）` };
+  }), [classOptions, weeklyPlans]);
   const [lastDeleted, setLastDeleted] = useState<
     | { kind: 'plan'; plan: WeeklyPlan; index: number }
+    | { kind: 'plans'; plans: Array<{ plan: WeeklyPlan; index: number }>; activeByClass: Record<string, string | null> }
     | { kind: 'item'; item: WeeklyExamItem; index: number; planId: string }
     | { kind: 'occurrence'; overrideId: string; name: string }
     | null
@@ -254,6 +262,24 @@ export default function WeeklyPanel({
     setDeletePlanOpen(false);
   }
 
+  async function removeSelectedPlans() {
+    if (!batchDeletePlanIds.length) return;
+    const selected = new Set(batchDeletePlanIds);
+    const removed = weeklyPlans.flatMap((plan, index) => selected.has(plan.id) ? [{ plan, index }] : []);
+    if (!removed.length) return;
+    if (!await confirmDialog({ title: `删除 ${removed.length} 个周测计划`, message: '所选计划及其中的全部周测、例外日期和临时调整都会删除。此操作可在页面顶部整批撤销。', tone: 'danger', confirmLabel: '批量删除' })) return;
+    const remaining = weeklyPlans.filter(plan => !selected.has(plan.id)).map((plan, order) => ({ ...plan, order }));
+    const nextActiveByClass = { ...activeWeeklyPlanIdByClassId };
+    for (const classId of new Set(removed.map(item => item.plan.classId))) {
+      if (selected.has(nextActiveByClass[classId] ?? '')) nextActiveByClass[classId] = remaining.find(plan => plan.classId === classId)?.id ?? null;
+    }
+    setLastDeleted({ kind: 'plans', plans: removed, activeByClass: { ...activeWeeklyPlanIdByClassId } });
+    onSavePlans(remaining, nextActiveByClass[selectedClassId] ?? null, selectedClassId, true, nextActiveByClass);
+    setBatchDeleteOpen(false);
+    setBatchDeletePlanIds([]);
+    notify('success', `已删除 ${removed.length} 个周测计划。`);
+  }
+
   function togglePlanEnabled() {
     const plans = weeklyPlans.map(p => p.id === activePlan.id ? { ...p, enabled: !p.enabled } : p);
     onSavePlans(plans, activePlan.id, selectedClassId, true);
@@ -329,6 +355,11 @@ export default function WeeklyPanel({
       const plans = [...weeklyPlans];
       plans.splice(Math.max(0, lastDeleted.index), 0, lastDeleted.plan);
       onSavePlans(plans.map((p, i) => ({ ...p, order: i })), lastDeleted.plan.id, lastDeleted.plan.classId, true);
+    } else if (lastDeleted.kind === 'plans') {
+      const plans = [...weeklyPlans];
+      for (const item of [...lastDeleted.plans].sort((left, right) => left.index - right.index)) plans.splice(Math.min(item.index, plans.length), 0, item.plan);
+      const restored = plans.map((plan, order) => ({ ...plan, order }));
+      onSavePlans(restored, lastDeleted.activeByClass[selectedClassId] ?? null, selectedClassId, true, lastDeleted.activeByClass);
     } else if (lastDeleted.kind === 'item') {
       const plans = weeklyPlans.map(plan => {
         if (plan.id !== lastDeleted.planId) return plan;
@@ -441,8 +472,12 @@ export default function WeeklyPanel({
       const targetName = sourceClassName && copyName.includes(sourceClassName) ? copyName.replace(sourceClassName, targetClassName) : `${targetClassName} · ${copyName}`;
       return { ...source, id: genWeeklyPlanId(), gradeId: target.gradeId, classId, name: targetName, enabled: true, order: weeklyPlans.length + offset, items: source.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })), overrides: source.overrides.filter(item => idMap.has(item.sourceItemId)).map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })) };
     });
-    onSavePlans([...weeklyPlans, ...copies], activePlan.id, selectedClassId, true);
-    notify('success', `计划已应用到 ${copies.length} 个班级。`);
+    const nextActiveByClass = {
+      ...activeWeeklyPlanIdByClassId,
+      ...Object.fromEntries(copies.map(plan => [plan.classId, plan.id])),
+    };
+    onSavePlans([...weeklyPlans, ...copies], activePlan.id, selectedClassId, true, nextActiveByClass);
+    notify('success', `计划已应用到 ${copies.length} 个班级，并设为各班当前启用计划。`);
     setCopyModal(null);
   }
 
@@ -500,7 +535,6 @@ export default function WeeklyPanel({
             <button className="admin-btn" style={{ flex: 1 }} onClick={togglePlanEnabled}>{activePlan.enabled ? '停用此计划' : '启用此计划'}</button>
             {allowBatchApply && <><button className="admin-btn" style={{ flex: 1 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: [], name: activePlan.name.replace(/（复制）$/u, '') })}>批量应用</button><HelpTip title="批量应用">应用后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。</HelpTip></>}
           </div>
-          {allowBatchApply && <button className="admin-btn admin-btn--primary" style={{ width: '100%', marginTop: 8 }} onClick={() => setCopyModal({ sourcePlanId: activePlan.id, targetClassIds: classOptions.filter(item => item.gradeId === activePlan.gradeId && item.id !== activePlan.classId).map(item => item.id), name: activePlan.name.replace(/（复制）$/u, '') })}>同步至同年级其他班级</button>}
           <p className="admin-major-card__hint">生效期：{activePlan.activeFrom}{' ~ '}{activePlan.activeUntil || '长期'}</p>
         </div>
 
@@ -532,11 +566,12 @@ export default function WeeklyPanel({
           <div className="weekly-list-actions">
             <button className="admin-btn" onClick={() => { setImportClassIds([selectedClassId]); setImportOpen(true); }}>导入周测 JSON</button>
             <button className="admin-btn" onClick={exportJson}>导出周测 JSON</button>
+            {allowBatchApply && <button className="admin-btn admin-btn--danger" onClick={() => { setBatchDeletePlanIds([]); setBatchDeleteOpen(true); }}>批量删除计划</button>}
             <button className="admin-btn admin-btn--primary" onClick={() => { setEditing({ name: '', weekday: 1, startTime: '19:00', endTime: '20:00', endNextDay: false, enabled: true, weekType: 'all' }); setEditError(''); }}>+ 添加周测</button>
           </div>
         </div>
 
-        {lastDeleted && <div className="admin-undo"><span>已删除「{lastDeleted.kind === 'plan' ? lastDeleted.plan.name : lastDeleted.kind === 'item' ? lastDeleted.item.name : lastDeleted.name}」</span><button className="admin-btn admin-btn--ghost" onClick={restoreLastDeleted}>撤销删除</button></div>}
+        {lastDeleted && <div className="admin-undo"><span>{lastDeleted.kind === 'plans' ? `已批量删除 ${lastDeleted.plans.length} 个周测计划` : `已删除「${lastDeleted.kind === 'plan' ? lastDeleted.plan.name : lastDeleted.kind === 'item' ? lastDeleted.item.name : lastDeleted.name}」`}</span><button className="admin-btn admin-btn--ghost" onClick={restoreLastDeleted}>撤销删除</button></div>}
 
         {items.length === 0 ? (
           <div className="admin-empty"><div className="admin-empty__icon"><CalendarDays /></div><p>当前计划暂无周测，点击“添加周测”开始</p></div>
@@ -597,6 +632,16 @@ export default function WeeklyPanel({
             <h2 className="admin-modal__title">删除周测计划</h2>
             <p className="admin-modal__body">确定删除「{activePlan.name}」及其全部 {items.length} 条周测？删除后可在页面顶部立即撤销。</p>
             <div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removePlan}>删除</button><button className="admin-btn" onClick={() => setDeletePlanOpen(false)}>取消</button></div>
+          </div>
+        </div>
+      )}
+      {allowBatchApply && batchDeleteOpen && (
+        <div className="admin-modal-overlay" {...backdropProps(() => { setBatchDeleteOpen(false); setBatchDeletePlanIds([]); })}>
+          <div className="admin-modal admin-modal--wide" onClick={event => event.stopPropagation()}>
+            <h2 className="admin-modal__title">批量删除周测计划</h2>
+            <p className="admin-modal__body">按年级和班级选择要删除的具体计划。删除当前启用计划后，该班会自动切换到剩余计划；没有剩余计划时将清空。</p>
+            <ClassMultiPicker options={planPickerOptions} selectedIds={batchDeletePlanIds} onChange={setBatchDeletePlanIds} noun="计划" emptyText="当前范围内没有可删除的周测计划" />
+            <div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" disabled={!batchDeletePlanIds.length} onClick={() => void removeSelectedPlans()}>删除 {batchDeletePlanIds.length} 个计划</button><button className="admin-btn" onClick={() => { setBatchDeleteOpen(false); setBatchDeletePlanIds([]); }}>取消</button></div>
           </div>
         </div>
       )}
