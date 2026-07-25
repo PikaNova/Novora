@@ -4,6 +4,8 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 
 ![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/IMG_20260717_222529.png)
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3a%2f%2fgithub.com%2fPikaNova%2fNovora&project-name=Novora考试看板&repository-name=exam-board&env=DATABASE_URL,ADMIN_PASSWORD&envDescription=请填写%20Neon%20PostgreSQL%20连接字符串和超级管理员的初始密码)
+
 ## V2.5.4 更新
 
 - 修复初始化向导先创建空白窗口再导航文档、导致部分浏览器只停留在空白页的问题；现在与公告界面一致，直接打开有效 HTTPS 文档。
