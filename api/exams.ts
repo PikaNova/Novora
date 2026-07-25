@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { canAccessClass, canAccessGrade, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
+import { canAccessClass, canAccessGrade, ensureGeneratedRecoveryKey, hasPermission, isPasswordRequired, requireActor, writeAudit, type AdminActor, type Permission } from './_auth.js';
 import { requestId, sendDatabaseError } from './_apiError.js';
 import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
 import { parseZonedTime } from '../src/utils/zonedTime.js';
@@ -781,8 +781,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return;
       }
       getCache = null;
+      const recoveryKey = action === 'initialize' ? await ensureGeneratedRecoveryKey() : null;
       if (actor) await writeAudit(actor, 'exam-data.update', 'exam_data', '1', { updatedAt });
-      res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.status(200).json({ ok: true, updatedAt });
+      res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.status(200).json({ ok: true, updatedAt, ...(recoveryKey ? { recoveryKey } : {}) });
       return;
     }
 

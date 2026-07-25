@@ -149,7 +149,7 @@ export default function SettingsPage() {
     if (!window.confirm('确定触发 Vercel 重新部署？\n将从 GitHub 拉取最新代码并重新构建，约需 1–3 分钟，完成后刷新页面即为新版本。')) return;
     setRedeploy({ status: 'running', msg: '已触发，正在部署…' });
     const r = await triggerRedeploy();
-    if (r.ok) { setRedeploy({ status: 'done', msg: '已触发部署，请稍后在 Vercel 查看进度。' }); notify('success', 'Vercel 重新部署已触发。'); }
+    if (r.ok) { setRedeploy({ status: 'done', msg: '已触发部署，请稍后在 Vercel 查看进度。' }); notify('success', 'Vercel 更新部署已触发。'); }
     else { const message = r.code === 'NO_HOOK' ? '未配置部署钩子（VERCEL_DEPLOY_HOOK_URL）' : (r.error || '触发失败'); setRedeploy({ status: 'error', msg: message }); notify('error', message, '部署触发失败'); }
   };
 
@@ -538,7 +538,7 @@ export default function SettingsPage() {
         {/* ―― 版本与更新 ―― */}
         <section className="set-card">
           <div className="set-card__head"><h2 className="set-card__title"><Rocket size={20} />版本与更新</h2></div>
-          <p className="set-card__lead">检查 GitHub 仓库最新发布版本；如已配置 Vercel 部署钩子，可一键拉取最新代码并重新部署。</p>
+          <p className="set-card__lead">检查 Novora 官方仓库的最新发布版本；Deploy Hook 会重新拉取当前项目已连接的 main 分支并部署。</p>
           <ul className="set-status__list">
             <li><span>当前版本</span><b>v{APP_VERSION}</b></li>
             <li><span>最新版本</span><b>{upd.status === 'done' ? (upd.info?.latest ? `v${upd.info.latest}` : '尚无发布') : upd.status === 'checking' ? '检查中…' : '—'}</b></li>
@@ -557,9 +557,9 @@ export default function SettingsPage() {
           {upd.status === 'error' && <p className="set-note set-note--warn">检查失败：{upd.error}</p>}
           <div className="set-about__actions" style={{ marginTop: 12 }}>
             <button className="set-btn set-btn--primary" disabled={upd.status === 'checking'} onClick={doCheck}>{upd.status === 'checking' ? '检查中…' : '检查更新'}</button>
-            {redeployOk && adminCan('deployment.trigger', adminUser) ? <button className="set-btn" disabled={redeploy.status === 'running'} onClick={doRedeploy}>{redeploy.status === 'running' ? '部署中…' : '一键拉取并重新部署'}</button> : null}
+            {redeployOk && adminCan('deployment.trigger', adminUser) ? <button className="set-btn" disabled={redeploy.status === 'running'} onClick={doRedeploy}>{redeploy.status === 'running' ? '部署中…' : '一键部署更新'}</button> : null}
           </div>
-          {!redeployOk && <p className="set-note">如需「一键重新部署」，请在 Vercel 项目环境变量中配置 <code>VERCEL_DEPLOY_HOOK_URL</code>（Project Settings → Git → Deploy Hooks 生成）。</p>}
+          {!redeployOk && <p className="set-note set-note--warn">当前部署缺少必填的 <code>VERCEL_DEPLOY_HOOK_URL</code>。请在 Project Settings → Git → Deploy Hooks 为 main 分支生成钩子，加入环境变量后重新部署。</p>}
           {redeploy.status !== 'idle' && redeploy.msg ? <p className={`set-note${redeploy.status === 'error' ? ' set-note--warn' : ''}`}>{redeploy.msg}</p> : null}
         </section>
 

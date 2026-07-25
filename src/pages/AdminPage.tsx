@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Watermark from '../components/Watermark';
 import type { ExamItem, MajorExam, AlertsSettings, AlertState, CustomReminder } from '../types';
 import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId, genReminderId, DEFAULT_ALERTS, normalizeAlerts } from '../utils/appSettings';
-import { adminCan, adminCanClass, adminCanGrade, clearGradeAdminSetupPrompt, fetchExamsFromServer, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, logoutAdmin, refreshAdminUser, saveExamsToServer, shouldPromptGradeAdminSetup, type AdminUserContext } from '../services/examService';
+import { adminCan, adminCanClass, adminCanGrade, clearGradeAdminSetupPrompt, fetchExamsFromServer, getAdminRecoveryStatus, getAdminUser, getCloudSnapshot, hasValidLocalToken, isLoginRequired, logoutAdmin, refreshAdminUser, saveExamsToServer, shouldPromptGradeAdminSetup, takeGeneratedRecoveryKey, type AdminUserContext } from '../services/examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '../services/examOutbox';
 import { normalizeExamItems } from '../utils/examSchedule';
@@ -163,6 +163,7 @@ export default function AdminPage() {
   const [longDurationConfirmed, setLongDurationConfirmed] = useState(false);
   const [deniedModule, setDeniedModule] = useState('');
   const [gradeAdminSetupPromptOpen, setGradeAdminSetupPromptOpen] = useState(false);
+  const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -189,7 +190,9 @@ export default function AdminPage() {
     if (params.get('alerts') === '1' && adminCan('alerts.read', adminUser)) setAlertsOpen(true);
     if (params.get('announce') === '1') setAnnounceOpen(true);
     const setupRequired = !initialization.completedAt || grades.length === 0 || classes.length === 0;
-    if (params.get('initialize') === '1' && cloudReadConfirmed && setupRequired && adminCan('initialization.run', adminUser)) setWizardOpen(true);
+    const allowIncomplete = params.get('allowIncomplete') === '1';
+    if (params.get('initialize') === '1' && !allowIncomplete && cloudReadConfirmed && setupRequired && adminCan('initialization.run', adminUser)) setWizardOpen(true);
+    if (allowIncomplete && cloudReadConfirmed && adminCan('initialization.run', adminUser)) void getAdminRecoveryStatus().then(setRecoveryConfigured).catch(() => setRecoveryConfigured(null));
   }, [adminUser, location.search, cloudReadConfirmed, initialization.completedAt, grades.length, classes.length]);
 
   useEffect(() => {
@@ -518,10 +521,12 @@ export default function AdminPage() {
       notify('error', message, '学校信息已保存，请重新确认当前密码');
       return { ok: false, error: `学校信息已保存，但密码修改失败：${message}` };
     }
+    return { ok: true, recoveryKey: takeGeneratedRecoveryKey() || undefined };
+  };
+  const finalizeInitialization = () => {
     setWizardOpen(false); setAdminTab('classes');
     logoutAdmin();
     navigate('/login?next=/admin&passwordChanged=1', { replace: true });
-    return { ok: true };
   };
   const addGrade = (name: string) => { const item = { id: genGradeId(), name, order: grades.length, enabled: true }; commitWeekly({ grades: [...grades, item] }, true); if (!selectedGradeId) changeSelectedGrade(item.id); };
   const addClass = (gradeId: string, name: string) => { const item = { id: genClassId(), gradeId, name, order: classes.filter(value => value.gradeId === gradeId).length, enabled: true }; commitWeekly({ classes: [...classes, item], activeWeeklyPlanIdByClassId: { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId, [item.id]: null } }, true); };
@@ -1004,6 +1009,7 @@ export default function AdminPage() {
       </div>
     </div>}
     {importOpen && <div className="admin-modal-overlay" {...backdropProps(() => setImportOpen(false))}><div className="admin-modal admin-modal--wide" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">导入分考试 JSON</h2><p className="admin-modal__body">导入到当前大型考试「{activeMajor.name}」，导入前会校验必填字段并按开始时间排序。支持纯数组，或含 <code>title</code> 与 <code>items</code> 的对象。</p><AiImportGuide kind="major" context={`${initialization.schoolFullName || '当前学校'}，${activeMajorScopeLabel}，大型考试“${activeMajor.name}”`} targetTitle={activeMajor.name} />{importError && <div className="admin-error">{importError}</div>}<textarea className="admin-textarea" rows={11} value={importText} onChange={e => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={importJson}>校验并导入</button><button className="admin-btn" onClick={() => { setImportOpen(false); setImportError(''); }}>取消</button></div></div></div>}
-    {can('initialization.run') && <InitializationWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onComplete={completeInitialization} />}
+    {can('initialization.run') && <InitializationWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onComplete={completeInitialization} onFinalized={finalizeInitialization} />}
+    {new URLSearchParams(location.search).get('allowIncomplete') === '1' && cloudReadConfirmed && can('initialization.run') && (!initialization.completedAt || !initialization.schoolFullName || grades.length === 0 || classes.length === 0 || recoveryConfigured === false) && <aside className="admin-incomplete-prompt" role="alert" aria-live="assertive"><strong>初始化尚未完整完成</strong><p>这是应急进入管理页模式。以下设置仍需补充，提醒会一直保留：</p><ul>{!initialization.schoolFullName && <li>学校名称与省份</li>}{grades.length === 0 && <li>至少一个年级</li>}{classes.length === 0 && <li>至少一个班级</li>}{!initialization.completedAt && <li>学期、调度规则和初始化确认</li>}{recoveryConfigured === false && <li>自动生成并安全保存超级管理员恢复密钥</li>}</ul><div><button className="admin-btn admin-btn--primary" onClick={() => setWizardOpen(true)}>继续完整初始化</button><button className="admin-btn" onClick={() => setAdminTab('classes')}>打开年级与班级</button></div><small>补齐全部项目后，请使用普通管理地址重新登录。</small></aside>}
   </div>;
 }

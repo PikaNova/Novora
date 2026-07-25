@@ -5,7 +5,8 @@ import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCallback);
 const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || '';
+// 仅用于兼容已经配置过旧版环境变量的部署。新部署会在首次初始化时自动生成恢复密钥。
+const LEGACY_ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || '';
 const TOKEN_TTL = 24 * 60 * 60 * 1000;
 
 export const ALL_PERMISSIONS = [
@@ -79,6 +80,8 @@ export async function ensureAuthTables(): Promise<void> {
       updated_at BIGINT NOT NULL,
       CHECK (id = 1)
     )`;
+    await sql`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_hash TEXT`;
+    await sql`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_salt TEXT`;
     await sql`CREATE TABLE IF NOT EXISTS app_roles (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -171,17 +174,26 @@ async function matches(password: string, hash: string, salt: string): Promise<bo
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-export function isAdminRecoveryConfigured(): boolean {
-  return ADMIN_RECOVERY_KEY.length >= 16;
+export async function isAdminRecoveryConfigured(): Promise<boolean> {
+  await ensureAuthTables();
+  const rows = await authSql()`SELECT recovery_key_hash FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null }>;
+  return !!rows[0]?.recovery_key_hash || LEGACY_ADMIN_RECOVERY_KEY.length >= 16;
 }
 
 export async function recoverSuperAdmin(username: string, recoveryKey: string, nextPassword: string): Promise<{ ok: boolean; error?: string }> {
-  if (!isAdminRecoveryConfigured()) return { ok: false, error: '当前部署未配置超级管理员恢复密钥' };
+  if (!await isAdminRecoveryConfigured()) return { ok: false, error: '当前项目尚未生成超级管理员恢复密钥' };
   if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
-  const supplied = Buffer.from(recoveryKey);
-  const expected = Buffer.from(ADMIN_RECOVERY_KEY);
-  const keyMatches = supplied.length === expected.length && timingSafeEqual(supplied, expected);
   await ensureAuthTables();
+  const recoveryRows = await authSql()`SELECT recovery_key_hash, recovery_key_salt FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null; recovery_key_salt?: string | null }>;
+  const stored = recoveryRows[0];
+  let keyMatches = false;
+  if (stored?.recovery_key_hash && stored.recovery_key_salt) {
+    keyMatches = await matches(recoveryKey, stored.recovery_key_hash, stored.recovery_key_salt);
+  } else if (LEGACY_ADMIN_RECOVERY_KEY.length >= 16) {
+    const supplied = Buffer.from(recoveryKey);
+    const expected = Buffer.from(LEGACY_ADMIN_RECOVERY_KEY);
+    keyMatches = supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
   const rows = await authSql()`SELECT id, username FROM app_users
     WHERE LOWER(username)=LOWER(${username.trim().slice(0, 80)}) AND role_id='super_admin' AND status='active' LIMIT 1` as unknown as Array<{ id: number; username: string }>;
   if (!keyMatches || !rows[0]) return { ok: false, error: '恢复信息不正确' };
@@ -190,6 +202,18 @@ export async function recoverSuperAdmin(username: string, recoveryKey: string, n
     must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${rows[0].id}`;
   await writeAudit(null, 'user.password.recover', 'user', String(rows[0].id), { username: rows[0].username });
   return { ok: true };
+}
+
+/** 首次学校初始化时生成一次；数据库只保存加盐哈希，明文只返回给当前超级管理员。 */
+export async function ensureGeneratedRecoveryKey(): Promise<string | null> {
+  await ensureAuthTables();
+  const rows = await authSql()`SELECT recovery_key_hash FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null }>;
+  if (rows[0]?.recovery_key_hash || LEGACY_ADMIN_RECOVERY_KEY.length >= 16) return null;
+  const recoveryKey = `NVR-${randomBytes(24).toString('base64url')}`;
+  const encoded = await makePasswordHash(recoveryKey);
+  const updated = await authSql()`UPDATE app_auth SET recovery_key_hash=${encoded.hash}, recovery_key_salt=${encoded.salt}, updated_at=${Date.now()}
+    WHERE id=1 AND recovery_key_hash IS NULL RETURNING id` as unknown as Array<{ id: number }>;
+  return updated[0] ? recoveryKey : null;
 }
 
 async function bootstrapAuth(password: string): Promise<AuthRow | null> {

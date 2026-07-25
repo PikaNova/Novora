@@ -33,9 +33,15 @@ const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
 let lastExamApiError: ApiError | null = null;
 let lastAuthApiError: ApiError | null = null;
+let generatedRecoveryKey: string | null = null;
 
 export function getLastExamApiError(): ApiError | null { return lastExamApiError; }
 export function getLastAuthApiError(): ApiError | null { return lastAuthApiError; }
+export function takeGeneratedRecoveryKey(): string | null {
+  const value = generatedRecoveryKey;
+  generatedRecoveryKey = null;
+  return value;
+}
 
 function toPayload(data: any): ExamPayload {
   return {
@@ -180,6 +186,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     }
     const data = await res.json();
     if (!data?.ok) return null;
+    if (input.action === 'initialize' && typeof data.recoveryKey === 'string') generatedRecoveryKey = data.recoveryKey;
     const updatedAt = Number(data.updatedAt ?? Date.now());
     rememberCloudSnapshot({
       items: input.items,

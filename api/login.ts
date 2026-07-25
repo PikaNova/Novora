@@ -17,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!actor) { res.status(401).json({ ok: false, code: 'AUTH_EXPIRED', error: '登录状态已失效，请重新登录' }); return; }
         res.json({ ok: true, user: actor }); return;
       }
-      if (action === 'recovery-status') { res.json({ ok: true, configured: isAdminRecoveryConfigured() }); return; }
+      if (action === 'recovery-status') { res.json({ ok: true, configured: await isAdminRecoveryConfigured() }); return; }
       res.json({ ok: true, required: await isPasswordRequired(), multiUser: true, defaultUsername: 'admin' }); return;
     }
     if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }

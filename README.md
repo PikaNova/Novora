@@ -1,12 +1,35 @@
-# Novora V2.5.4
+# Novora V2.5.5
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
+
+> **官方问题反馈与部署交流群：`1067566386`**<br>
+> 零基础部署遇到问题时，请携带错误提示和 Request ID 入群咨询；不要发送数据库连接串、密码、Deploy Hook 或恢复密钥。
 
 ![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/IMG_20260717_222529.png)
 
 一键部署
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3a%2f%2fgithub.com%2fPikaNova%2fNovora&project-name=novora-board&repository-name=novora-board&env=DATABASE_URL,ADMIN_PASSWORD,ADMIN_RECOVERY_KEY&envDescription=请填写%20Neon%20PostgreSQL%20连接字符串、超级管理员初始密码和应急恢复密钥)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3a%2f%2fgithub.com%2fPikaNova%2fNovora&project-name=novora-board&repository-name=novora-board&env=DATABASE_URL,ADMIN_PASSWORD&envDescription=请填写%20Neon%20PostgreSQL%20连接字符串和超级管理员初始密码)
+
+简易部署：
+
+1. 在 Neon 创建 AWS Singapore 数据库并复制 Pooled connection string。
+2. 点击上方按钮，填写 `DATABASE_URL` 和至少 8 位的 `ADMIN_PASSWORD`，完成首次 Deploy。
+3. 在 Vercel `Settings → Git → Deploy Hooks` 创建 `main` 分支钩子，将 URL 添加为必填的 `VERCEL_DEPLOY_HOOK_URL`，然后 Redeploy。
+4. 确认 Functions 位于 Singapore (`sin1`)，并绑定自定义域名。
+5. 从首页开始初始化，修改初始密码并保存只显示一次的自动恢复密钥。
+
+完整零基础教程：[Novora 部署文档](https://github.com/PikaNova/novora-vitepress-docs)
+
+<!-- 历史更新内容移至 README 最底部的“更新日志”。
+
+## V2.5.5 更新
+
+- 超级管理员恢复密钥改为首次初始化时自动生成，数据库只保存加盐哈希，明文只显示一次；新部署不再填写 `ADMIN_RECOVERY_KEY`。
+- 初始化向导增加恢复密钥保存确认；第一步与密钥确认步骤不可关闭。
+- 使用文档改为推荐阅读。浏览器阻止弹窗时不再要求放行，可稍后从系统公告手动打开。
+- 正式部署要求配置 `VERCEL_DEPLOY_HOOK_URL`，用于“检查更新”界面的一键部署；Deploy Hook 需在项目首次创建后生成。
+- 增加 `/login?next=/admin%3FallowIncomplete%3D1` 应急入口。后台会持续显示不可关闭的缺失设置提醒。
 
 ## V2.5.4 更新
 
@@ -118,6 +141,8 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 - 数据库支持整体重置和按大型考试、周测、学校结构、设备、调度设置分模块重置；登录账号不会被业务数据重置删除。
 - ClassIsland 使用 `/api/exams` 完成配对、课表同步和看板心跳关联，没有增加新的 Vercel Function。
 
+-->
+
 ## 推荐部署区域
 
 ```text
@@ -142,14 +167,13 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 1. Fork 或导入本仓库到自己的 GitHub 账号。
 2. 在 [Vercel](https://vercel.com/) 中选择 Add New Project 并导入仓库。
 3. Framework Preset 选择 Vite，Build Command 使用 `npm run build`，Output Directory 使用 `dist`。
-4. 配置环境变量后执行 Deploy。
+4. 首次 Deploy 后创建 `main` 分支 Deploy Hook，添加 `VERCEL_DEPLOY_HOOK_URL`，再执行一次 Redeploy。
 
 | 环境变量 | 必填 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | 是 | Neon 新加坡 pooled connection string |
 | `ADMIN_PASSWORD` | 是 | 首次创建 `admin` 超级管理员的初始密码，至少 8 位，建议 12 位以上 |
-| `ADMIN_RECOVERY_KEY` | 建议 | 超级管理员应急恢复密钥，至少 16 位；只保存在 Vercel 环境变量中，恢复后建议轮换 |
-| `VERCEL_DEPLOY_HOOK_URL` | 否 | 设置页触发重新部署时使用 |
+| `VERCEL_DEPLOY_HOOK_URL` | 是（项目创建后补充） | Vercel `Settings → Git → Deploy Hooks` 创建的 `main` 分支钩子，用于设置页一键部署 |
 | `GITHUB_REPO` | 否 | 更新检查仓库，默认 `https://github.com/PikaNova/Novora`；支持完整 GitHub 地址或 `owner/repo` |
 | `GITHUB_TOKEN` | 否 | 私有仓库或提高 GitHub API 限额时使用 |
 | `ASSET_CDN_BASE` | 否 | 静态 JS/CSS 的 CDN 基址，未配置时不要填写 |
@@ -162,14 +186,14 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 2. 使用用户名 `admin` 和 `ADMIN_PASSWORD` 登录。
 3. 首次登录会自动建立数据库表、四个内置角色和超级管理员。
 4. 按向导选择省份、填写学校名称，创建年级与班级，并设置学期开始日期。
-5. 完成后进入“用户与权限”修改初始密码并创建年级或班级管理员。
-6. 客户端首页不会被初始化弹窗强制拦截；在首页选择年级、班级后进入大屏。
+5. 向导最后修改初始密码，并保存系统自动生成且只显示一次的恢复密钥。
+6. 重新登录后创建年级或班级管理员；在首页选择年级、班级后进入大屏。
 
 初始化完成后，普通菜单不再显示初始化入口。学校名称、年级、班级或学期需要调整时，请使用后台对应模块；确需重新开始时，先在“系统设置 → 数据维护”中重置学校结构。重复打开旧的 `?initialize=1` 地址不会覆盖已有云端数据。
 
 当页面提示数据库连接或同步失败时，会同时显示原因与请求 ID。先检查 Vercel 项目中的 `DATABASE_URL` 是否为当前 Neon 项目的 pooled connection string，再在 Vercel Functions 日志中搜索该请求 ID。超时和临时断线可以重试；认证失败、未配置连接或数据库结构不兼容需要先修正配置。
 
-超级管理员密码保存在 Neon 的加盐哈希中。重新部署不会使密码失效；更换或清空数据库后才会重新使用 `ADMIN_PASSWORD` 创建初始账号。忘记密码时，班级管理员联系所属年级管理员或超级管理员，年级管理员联系超级管理员；超级管理员可使用登录页的恢复入口和 Vercel `ADMIN_RECOVERY_KEY` 恢复。系统不依赖邮件或短信，恢复后应轮换密钥。
+超级管理员密码和恢复密钥都以加盐哈希保存在 Neon。重新部署不会使密码失效；更换或清空数据库后才会重新使用 `ADMIN_PASSWORD` 创建初始账号。忘记密码时，班级管理员联系所属年级管理员或超级管理员，年级管理员联系超级管理员；超级管理员使用首次初始化时保存的恢复密钥。系统无法再次显示恢复密钥原文。
 
 ## V2 数据策略
 
@@ -286,4 +310,23 @@ npm run build
 
 遥测启用后会上报实例版本、运行环境、匿名实例标识、省份和完整校名，用于作者了解部署运行情况；不上传考试安排正文、管理员密码或用户会话。可在系统设置中关闭并查看当前同意状态。
 
-问题反馈交流群：`1067566386`。
+## 更新日志
+
+### V2.5.5
+
+- 恢复密钥由项目在首次初始化后自动生成，明文只显示一次，数据库仅保存加盐哈希。
+- 初始化向导增加密钥保存确认；第一步和最终密钥确认步骤不可关闭。
+- 使用文档改为推荐阅读，浏览器拦截弹窗时可继续并稍后从公告获取链接。
+- `VERCEL_DEPLOY_HOOK_URL` 列为正式部署必填项，版本检查界面支持一键部署更新。
+- 新增新加坡 Functions 教程，以及初始化无法完成时的应急管理入口和持续缺项提醒。
+
+### 历史版本
+
+- V2.5.4：初始化向导、文档确认和超级管理员强制改密。
+- V2.5.0-V2.5.3：批量班级选择、分级管理员、密码找回和权限体验更新。
+- V2.4.x：Novora 品牌、A4 PDF、多考试切换、云端初始化和可靠性更新。
+- V2.2-V2.3：大型考试、周测、设备联动、ClassIsland、Vercel Functions 与 Neon 数据链路。
+
+完整发布记录以 [GitHub Releases](https://github.com/PikaNova/Novora/releases) 为准。
+
+官方问题反馈与部署交流群：`1067566386`。
