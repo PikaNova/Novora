@@ -146,7 +146,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 | `ADMIN_PASSWORD` | 是 | 首次创建 `admin` 超级管理员的初始密码，至少 8 位，建议 12 位以上 |
 | `ADMIN_RECOVERY_KEY` | 建议 | 超级管理员应急恢复密钥，至少 16 位；只保存在 Vercel 环境变量中，恢复后建议轮换 |
 | `VERCEL_DEPLOY_HOOK_URL` | 否 | 设置页触发重新部署时使用 |
-| `GITHUB_REPO` | 否 | 更新检查仓库，默认 `PikaNova/Novora` |
+| `GITHUB_REPO` | 否 | 更新检查仓库，默认 `https://github.com/PikaNova/Novora`；支持完整 GitHub 地址或 `owner/repo` |
 | `GITHUB_TOKEN` | 否 | 私有仓库或提高 GitHub API 限额时使用 |
 | `ASSET_CDN_BASE` | 否 | 静态 JS/CSS 的 CDN 基址，未配置时不要填写 |
 

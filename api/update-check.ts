@@ -2,12 +2,12 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 /**
  * 检查更新：读取 GitHub 最新发布版本，与客户端当前版本比较。
- * - 仓库默认 PikaNova/Novora，可用环境变量 GITHUB_REPO 覆盖（形如 owner/repo）。
+ * - 更新仓库默认 https://github.com/PikaNova/Novora，可用环境变量 GITHUB_REPO 覆盖。
  * - 可选 GITHUB_TOKEN 提升速率限制（私有仓库必填）。
  * - 结果在服务端内存缓存 5 分钟，降低 GitHub API 调用。
  */
 
-const DEFAULT_REPO = 'PikaNova/Novora';
+const DEFAULT_REPOSITORY_URL = 'https://github.com/PikaNova/Novora';
 const CACHE_TTL = 5 * 60 * 1000;
 
 interface LatestInfo {
@@ -19,6 +19,24 @@ interface LatestInfo {
 }
 
 let cache: { at: number; repo: string; data: LatestInfo } | null = null;
+
+function normalizeRepository(value: string): string {
+  const input = value.trim().replace(/\/$/, '').replace(/\.git$/i, '');
+  let repo = input;
+
+  try {
+    const url = new URL(input);
+    if (url.hostname.toLowerCase() !== 'github.com') throw new Error('仅支持 GitHub 仓库地址');
+    repo = url.pathname.replace(/^\/+|\/+$/g, '');
+  } catch (error) {
+    if (/^https?:\/\//i.test(input)) throw error;
+  }
+
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) {
+    throw new Error('GITHUB_REPO 必须是 GitHub 仓库地址或 owner/repo');
+  }
+  return repo;
+}
 
 function parseSemver(v: string): [number, number, number] {
   const core = String(v).trim().replace(/^v/i, '').split('-')[0].split('+')[0];
@@ -97,11 +115,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
 
-  const repo = process.env.GITHUB_REPO || DEFAULT_REPO;
+  const repositoryUrl = process.env.GITHUB_REPO || DEFAULT_REPOSITORY_URL;
   const currentRaw = Array.isArray(req.query.current) ? req.query.current[0] : req.query.current;
   const current = typeof currentRaw === 'string' && currentRaw ? currentRaw.replace(/^v/i, '') : '0.0.0';
 
   try {
+    const repo = normalizeRepository(repositoryUrl);
     let data: LatestInfo;
     if (cache && cache.repo === repo && Date.now() - cache.at < CACHE_TTL) {
       data = cache.data;
