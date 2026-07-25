@@ -60,8 +60,8 @@ export function authSql() {
 
 const BUILTIN_ROLES: Array<{ id: string; name: string; description: string; permissions: Permission[] }> = [
   { id: 'super_admin', name: '超级管理员', description: '拥有全校数据与全部系统权限，可管理用户、角色、部署及所有业务设置。', permissions: ['*'] },
-  { id: 'grade_admin', name: '年级管理员', description: '管理授权年级的考试、周测、班级、设备和下级用户，并查看该年级完整运行总览。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read', 'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password'] },
-  { id: 'class_admin', name: '班级管理员', description: '管理授权班级的周测、考试安排和绑定设备，不显示项目运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
+  { id: 'grade_admin', name: '年级管理员', description: '管理授权年级的考试、周测、班级、设备和下级用户，可批量创建该年级的班级管理员，并查看该年级完整运行总览。', permissions: ['overview.read', 'major.read', 'major.create', 'major.edit', 'major.delete', 'major.import', 'major.export', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'school.class_manage', 'device.read', 'device.bind', 'device.revoke', 'alerts.read', 'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password'] },
+  { id: 'class_admin', name: '班级管理员', description: '管理授权班级的周测、考试安排和绑定设备，可修改自己的用户名与密码，不显示项目运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export', 'school.read', 'device.read', 'device.bind', 'device.revoke', 'alerts.read'] },
   { id: 'viewer', name: '只读用户', description: '仅按授权范围预览和导出考试与周测安排，不进入运行总览。', permissions: ['major.read', 'weekly.read', 'weekly.export', 'school.read'] },
 ];
 
@@ -306,6 +306,7 @@ export async function changeOwnPassword(actorId: number, currentPassword: string
   if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
   const row = await userById(actorId);
   if (!row || !await matches(currentPassword, row.password_hash, row.password_salt)) return { ok: false, error: '当前密码不正确' };
+  if (row.must_change_password && row.role_id === 'class_admin') return { ok: false, error: '班级管理员首次登录必须同时设置新的用户名和密码' };
   const { hash, salt } = await makePasswordHash(nextPassword);
   await authSql()`UPDATE app_users SET password_hash=${hash}, password_salt=${salt}, must_change_password=FALSE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
   return { ok: true };
@@ -319,6 +320,26 @@ export async function changeOwnUsername(actorId: number, currentPassword: string
   try {
     await authSql()`UPDATE app_users SET username=${username}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
     return { ok: true, oldUsername: row.username };
+  } catch (error) {
+    if (/unique/i.test(error instanceof Error ? error.message : String(error))) return { ok: false, error: '用户名已存在' };
+    throw error;
+  }
+}
+
+export async function changeOwnCredentials(actorId: number, currentPassword: string, nextUsername: string, nextPassword: string): Promise<{ ok: boolean; error?: string; oldUsername?: string; username?: string }> {
+  const username = nextUsername.trim();
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(username)) return { ok: false, error: '用户名需为 3-40 位字母、数字、点、横线或下划线' };
+  const row = await userById(actorId);
+  if (!row || !await matches(currentPassword, row.password_hash, row.password_salt)) return { ok: false, error: '当前密码不正确' };
+  if (row.must_change_password && row.role_id === 'class_admin' && username.toLowerCase() === row.username.toLowerCase()) return { ok: false, error: '班级管理员首次登录必须设置新的用户名' };
+  if (row.must_change_password && nextPassword.length < 8) return { ok: false, error: '首次登录必须设置至少 8 位的新密码' };
+  if (nextPassword && nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
+  if (!nextPassword && username.toLowerCase() === row.username.toLowerCase()) return { ok: false, error: '用户名和密码均未修改' };
+  const password = nextPassword ? await makePasswordHash(nextPassword) : { hash: row.password_hash, salt: row.password_salt };
+  try {
+    await authSql()`UPDATE app_users SET username=${username}, password_hash=${password.hash}, password_salt=${password.salt},
+      must_change_password=${nextPassword ? false : row.must_change_password}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
+    return { ok: true, oldUsername: row.username, username };
   } catch (error) {
     if (/unique/i.test(error instanceof Error ? error.message : String(error))) return { ok: false, error: '用户名已存在' };
     throw error;

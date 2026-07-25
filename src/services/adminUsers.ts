@@ -84,6 +84,11 @@ export async function changeOwnUsername(currentPassword: string, username: strin
   await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-username', currentPassword, username }) });
 }
 
+export async function changeOwnCredentials(currentPassword: string, username: string, newPassword: string): Promise<string> {
+  const data = await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-credentials', currentPassword, username, newPassword }) });
+  return String(data.username || username);
+}
+
 export async function saveManagedRole(input: { id?: string; name: string; description: string; permissions: string[] }): Promise<ManagedRole[]> {
   const data = await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'roles', action: 'save', ...input }) });
   return data.roles || [];

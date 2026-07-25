@@ -6,6 +6,7 @@ import {
   authSql,
   canAccessClass,
   canAccessGrade,
+  changeOwnCredentials,
   changeOwnPassword,
   changeOwnUsername,
   ensureAuthTables,
@@ -107,6 +108,12 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
   const sql = authSql();
   const body = req.body ?? {};
   const action = text(body.action, 40);
+  if (req.method === 'POST' && action === 'change-own-credentials') {
+    const result = await changeOwnCredentials(actor.id, String(body.currentPassword ?? ''), String(body.username ?? ''), String(body.newPassword ?? ''));
+    if (!result.ok) return res.status(400).json(result);
+    await writeAudit(actor, 'user.credentials.change', 'user', String(actor.id), { from: result.oldUsername, to: result.username, passwordChanged: Boolean(body.newPassword) });
+    return res.json({ ok: true, username: result.username, message: 'Credentials changed. Please sign in again.' });
+  }
   if (req.method === 'POST' && action === 'change-own-password') {
     const result = await changeOwnPassword(actor.id, String(body.currentPassword ?? ''), String(body.newPassword ?? ''));
     if (!result.ok) return res.status(400).json(result);
@@ -247,7 +254,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
   try {
     await ensureAuthTables();
-    const ownAccountChange = req.method === 'POST' && text(req.body?.resource, 30) === 'users' && ['change-own-password', 'change-own-username'].includes(text(req.body?.action, 40));
+    const ownAccountChange = req.method === 'POST' && text(req.body?.resource, 30) === 'users' && ['change-own-password', 'change-own-username', 'change-own-credentials'].includes(text(req.body?.action, 40));
     const actor = await requireActor(req, res, undefined, ownAccountChange);
     if (!actor) return;
     const resource = text(req.method === 'GET' ? req.query?.resource : req.body?.resource, 30) || 'users';
