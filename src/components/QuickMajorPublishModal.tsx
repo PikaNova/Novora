@@ -44,6 +44,7 @@ const DELAYS = [
 ];
 const DURATIONS = [30, 45, 60, 90, 120];
 const TIME_STEP_MS = 5 * 60_000;
+const OTHER_SUBJECT = SUBJECTS[SUBJECTS.length - 1];
 
 function roundUpToFiveMinutes(time: number) {
   return Math.ceil(time / TIME_STEP_MS) * TIME_STEP_MS;
@@ -56,6 +57,11 @@ function localInputValue(time: number) {
 
 function displayTime(value: string) {
   return value ? value.replace("T", " ") : "未设置";
+}
+
+function isFiveMinuteAligned(value: string) {
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time % TIME_STEP_MS === 0;
 }
 
 export default function QuickMajorPublishModal({
@@ -78,6 +84,7 @@ export default function QuickMajorPublishModal({
     useState<string[]>(initialGradeIds);
   const [schoolWide, setSchoolWide] = useState(false);
   const [subject, setSubject] = useState("");
+  const [customSubject, setCustomSubject] = useState("");
   const [delayMinutes, setDelayMinutes] = useState(0);
   const [customStart, setCustomStart] = useState("");
   const [useCustomStart, setUseCustomStart] = useState(false);
@@ -95,6 +102,12 @@ export default function QuickMajorPublishModal({
   const previewEndTime = Number.isFinite(new Date(startTime).getTime())
     ? localInputValue(new Date(startTime).getTime() + finalDuration * 60_000)
     : "";
+  const usesFiveMinuteTicks =
+    Boolean(previewEndTime) &&
+    isFiveMinuteAligned(startTime) &&
+    isFiveMinuteAligned(previewEndTime);
+  const finalSubject =
+    subject === OTHER_SUBJECT ? customSubject.trim() : subject;
   const effectiveTargetGradeIds = schoolWide ? [] : targetGradeIds;
   const conflicts = useMemo(() => {
     const start = new Date(startTime).getTime();
@@ -132,7 +145,7 @@ export default function QuickMajorPublishModal({
       }
     }
     if (step === 2) {
-      if (!subject) {
+      if (!finalSubject) {
         setError("请选择考试科目。");
         return;
       }
@@ -154,7 +167,7 @@ export default function QuickMajorPublishModal({
     onPublish({
       name: name.trim(),
       targetGradeIds: effectiveTargetGradeIds,
-      subject,
+      subject: finalSubject,
       startTime,
       durationMinutes: finalDuration,
       priorityOverSchedule,
@@ -283,6 +296,19 @@ export default function QuickMajorPublishModal({
                   </button>
                 ))}
               </div>
+              {subject === OTHER_SUBJECT && (
+                <label>
+                  自定义科目名称
+                  <input
+                    className="admin-input"
+                    value={customSubject}
+                    onChange={(event) => setCustomSubject(event.target.value)}
+                    placeholder="例如：信息技术"
+                    maxLength={40}
+                    autoFocus
+                  />
+                </label>
+              )}
             </div>
             <div className="quick-major-modal__section">
               <strong>开始方式</strong>
@@ -356,9 +382,14 @@ export default function QuickMajorPublishModal({
               <Clock3 aria-hidden="true" />
               <div>
                 <span>考试预览</span>
-                <strong>{subject || "请先选择考试科目"}</strong>
+                <strong>{finalSubject || "请先选择考试科目"}</strong>
                 <p>{previewEndTime ? `${displayTime(startTime)} - ${displayTime(previewEndTime)}` : "请选择有效的开始时间"}</p>
-                <small>{finalDuration} 分钟{useCustomStart || delayMinutes > 0 ? " · 已按 5 分钟刻度安排" : " · 立即开始"}</small>
+                <small>
+                  {finalDuration} 分钟
+                  {usesFiveMinuteTicks
+                    ? " · 已按 5 分钟刻度安排"
+                    : " · 含自定义时间"}
+                </small>
               </div>
             </section>
           </div>
@@ -379,7 +410,7 @@ export default function QuickMajorPublishModal({
               </span>
               <strong>{name}</strong>
               <p>
-                {subject} · {displayTime(startTime)} 开始 · {finalDuration} 分钟
+                {finalSubject} · {displayTime(startTime)} 开始 · {finalDuration} 分钟
               </p>
             </section>
             <section
