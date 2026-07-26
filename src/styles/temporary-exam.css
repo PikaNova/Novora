@@ -3,3 +3,7 @@
 
 /* The same action remains available in the top-right quick menu on phones. */
 @media(max-width:700px){.temp-exam-fab{display:none}}
+
+/* Keep the full-screen quick action readable without blocking the attribution below it. */
+.temp-exam-fab{background:transparent;box-shadow:none;backdrop-filter:none}
+.temp-exam-fab:hover,.temp-exam-fab:focus-visible{background:rgba(29,79,114,.28)}

@@ -50,6 +50,7 @@ type PreviewOcc = {
   conflict?: { majorName: string; majorStartTime: string; majorEndTime: string; scope: string };
 };
 function fmtDT(iso?: string) { return iso ? iso.slice(0, 16).replace('T', ' ') : '—'; }
+function lastLabelSegment(label: string): string { const parts = label.split(' · '); return parts[parts.length - 1] || label; }
 
 function makeItemId() { return genWeeklyItemId(); }
 function padHM(v: string) { const [h = '0', m = '0'] = v.split(':'); return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`; }
@@ -120,7 +121,7 @@ export default function WeeklyPanel({
   const [printOpen, setPrintOpen] = useState(false);
   const [printPickerOpen, setPrintPickerOpen] = useState(false);
   const [printClassIds, setPrintClassIds] = useState<string[]>([]);
-  const pickerOptions = useMemo<ClassPickerOption[]>(() => classOptions.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: item.label.split(' · ')[0] || '未知年级', className: item.label.split(' · ').at(-1) || item.label })), [classOptions]);
+  const pickerOptions = useMemo<ClassPickerOption[]>(() => classOptions.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: item.label.split(' · ')[0] || '未知年级', className: lastLabelSegment(item.label) })), [classOptions]);
   const planPickerOptions = useMemo<ClassPickerOption[]>(() => weeklyPlans.map(plan => {
     const target = classOptions.find(item => item.id === plan.classId);
     const [gradeName = '未知年级', className = '未知班级'] = target?.label.split(' · ') ?? [];
@@ -467,8 +468,9 @@ export default function WeeklyPanel({
     const copies = copyModal.targetClassIds.map((classId, offset) => {
       const target = classOptions.find(item => item.id === classId)!;
       const idMap = new Map(source.items.map(item => [item.id, makeItemId()]));
-      const sourceClassName = classOptions.find(item => item.id === source.classId)?.label.split(' · ').at(-1) || '';
-      const targetClassName = target.label.split(' · ').at(-1) || target.label;
+      const sourceClass = classOptions.find(item => item.id === source.classId);
+      const sourceClassName = sourceClass ? lastLabelSegment(sourceClass.label) : '';
+      const targetClassName = lastLabelSegment(target.label);
       const targetName = sourceClassName && copyName.includes(sourceClassName) ? copyName.replace(sourceClassName, targetClassName) : `${targetClassName} · ${copyName}`;
       return { ...source, id: genWeeklyPlanId(), gradeId: target.gradeId, classId, name: targetName, enabled: true, order: weeklyPlans.length + offset, items: source.items.map((item, index) => ({ ...item, id: idMap.get(item.id)!, order: index })), overrides: source.overrides.filter(item => idMap.has(item.sourceItemId)).map(item => ({ ...item, sourceItemId: idMap.get(item.sourceItemId)!, id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date) })) };
     });

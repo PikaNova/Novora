@@ -5,9 +5,9 @@
 /* 大屏数据同步：独立于五套设计的轻量操作入口，不遮挡各设计顶栏。 */
 .exam-corner-stack{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:40;display:flex;flex-direction:column;align-items:flex-start;gap:7px;max-width:min(260px,calc(100vw - 24px));pointer-events:none}
 .exam-sync-action { position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:5px; font:500 12px/1.2 system-ui,sans-serif; pointer-events:none; }
-.exam-sync-action__button { pointer-events:auto; display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:7px 10px; border:1px solid rgba(255,255,255,.2); border-radius:999px; color:#eaf3ff; background:rgba(10,18,32,.78); box-shadow:0 4px 16px rgba(0,0,0,.24); backdrop-filter:blur(10px); font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
+.exam-sync-action__button { pointer-events:auto; display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:7px 10px; border:1px solid rgba(255,255,255,.2); border-radius:999px; color:#eaf3ff; background:transparent; box-shadow:none; backdrop-filter:none; font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
 .exam-sync-action__button svg{width:15px;height:15px}.exam-sync-action__button .is-spinning{animation:exam-sync-spin .8s linear infinite}@keyframes exam-sync-spin{to{transform:rotate(360deg)}}
-.exam-sync-action__button:hover { background:rgba(29,76,119,.92); }
+.exam-sync-action__button:hover,.exam-sync-action__button:focus-visible { background:rgba(29,76,119,.28); }
 .exam-sync-action__button:disabled { opacity:.7; cursor:wait; }
 .exam-sync-action__status { max-width:220px; padding:3px 7px; border-radius:6px; color:rgba(235,243,255,.82); background:rgba(0,0,0,.32); opacity:.45; transition:opacity .2s; }
 .exam-sync-action:hover .exam-sync-action__status, .exam-sync-action.has-pending .exam-sync-action__status, .exam-sync-action.is-offline .exam-sync-action__status, .exam-sync-action.is-error .exam-sync-action__status { opacity:1; }
