@@ -17,6 +17,9 @@ export type Mode = "datetime" | "date" | "time"
 // 呈现密度：auto 自动探测；compact 桌面浮层；sheet 手机抽屉；panel 一体机大面板
 export type Density = "auto" | "compact" | "sheet" | "panel"
 
+// compact desktop popover placement. Mobile sheet mode is unaffected.
+export type CompactPlacement = "below" | "right"
+
 export type PreviewTone = "primary" | "dim" | "warn"
 
 export interface PreviewItem {
@@ -72,4 +75,5 @@ export interface DateTimePickerProps {
   weekday?: WeekdayConfig
   preview?: PreviewConfig | false
   anchorRect?: AnchorRect // compact 浮层定位锚点
+  compactPlacement?: CompactPlacement
 }

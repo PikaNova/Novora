@@ -9,13 +9,29 @@ import {
 import type { MajorExam } from "../types";
 import type { WeeklyPlan } from "../types/exam";
 import type { SchoolClass, SchoolGrade } from "../types/school";
-import type { AdminUserContext } from "../services/examService";
+import {
+  fetchExamsFromServer,
+  type AdminUserContext,
+  type ExamPayload,
+} from "../services/examService";
 import {
   fetchDeviceBindings,
   type DeviceBindingInfo,
 } from "../services/classBinding";
+import { fetchAuditLogs, type AuditLog } from "../services/adminUsers";
 
 const ONLINE_MS = 90_000;
+type OverviewDetail = "online" | "majors" | "database" | "attention";
+
+function formatDetailTime(value: number) {
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
+function cloudChangeLabel(log: AuditLog) {
+  if (log.action === "exam-data.update") return "同步了考试、班级或系统设置改动";
+  if (log.action === "database.reset") return "执行了数据重置";
+  return log.action;
+}
 
 interface Props {
   user: AdminUserContext;
@@ -41,15 +57,23 @@ export default function OverviewPanel({
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [deviceError, setDeviceError] = useState("");
   const [now, setNow] = useState(Date.now());
-  const [onlineOpen, setOnlineOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState<OverviewDetail | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const [cloudSnapshot, setCloudSnapshot] = useState<ExamPayload | null>(null);
+  const liveGrades = cloudSnapshot?.grades ?? grades;
+  const liveClasses = cloudSnapshot?.classes ?? classes;
+  const liveMajors = cloudSnapshot?.majors ?? majors;
+  const liveWeeklyPlans = cloudSnapshot?.weeklyPlans ?? weeklyPlans;
   const scope = useMemo(() => {
     if (
       user.permissions.includes("*") ||
       user.scopes.some((item) => item.type === "all")
     )
       return {
-        gradeIds: new Set(grades.map((item) => item.id)),
-        classIds: new Set(classes.map((item) => item.id)),
+        gradeIds: new Set(liveGrades.map((item) => item.id)),
+        classIds: new Set(liveClasses.map((item) => item.id)),
       };
     const gradeIds = new Set(
       user.scopes
@@ -61,11 +85,11 @@ export default function OverviewPanel({
         .filter((item) => item.type === "class")
         .map((item) => item.classId),
     );
-    classes.forEach((item) => {
+    liveClasses.forEach((item) => {
       if (gradeIds.has(item.gradeId)) classIds.add(item.id);
     });
     return { gradeIds, classIds };
-  }, [classes, grades, user.permissions, user.scopes]);
+  }, [liveClasses, liveGrades, user.permissions, user.scopes]);
 
   const loadDevices = useCallback(async () => {
     try {
@@ -81,12 +105,17 @@ export default function OverviewPanel({
     }
   }, [scope]);
 
+  const loadCloudOverview = useCallback(async () => {
+    const remote = await fetchExamsFromServer();
+    if (remote) setCloudSnapshot(remote);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     const refresh = async () => {
       if (alive) {
         setNow(Date.now());
-        await loadDevices();
+        await Promise.all([loadDevices(), loadCloudOverview()]);
       }
     };
     void refresh();
@@ -95,9 +124,9 @@ export default function OverviewPanel({
       alive = false;
       window.clearInterval(timer);
     };
-  }, [loadDevices]);
+  }, [loadCloudOverview, loadDevices]);
 
-  const activeMajors = majors.filter(
+  const activeMajors = liveMajors.filter(
     (major) =>
       major.items.some(
         (item) => item.enabled && new Date(item.endTime).getTime() >= now,
@@ -105,7 +134,7 @@ export default function OverviewPanel({
       (!major.targetGradeIds?.length ||
         major.targetGradeIds.some((id) => scope.gradeIds.has(id))),
   );
-  const scopedPlans = weeklyPlans.filter((plan) =>
+  const scopedPlans = liveWeeklyPlans.filter((plan) =>
     scope.classIds.has(plan.classId),
   );
   const onlineDevices = devices.filter(
@@ -151,6 +180,48 @@ export default function OverviewPanel({
     devices.filter((item) => item.revoked).length +
     (deviceError ? 1 : 0) +
     majorConflicts.length;
+  const canReadAudit =
+    user.permissions.includes("*") || user.permissions.includes("audit.read");
+  const cloudChangeLogs = auditLogs
+    .filter(
+      (item) =>
+        item.action === "exam-data.update" || item.action === "database.reset",
+    )
+    .slice(0, 12);
+  const detailTitle =
+    detailOpen === "online"
+      ? "在线设备"
+      : detailOpen === "majors"
+        ? "待执行大型考试"
+        : detailOpen === "database"
+          ? "数据库状态"
+          : "需要关注";
+
+  const loadAuditLogs = useCallback(async () => {
+    if (!canReadAudit) return;
+    setAuditLoading(true);
+    setAuditError("");
+    try {
+      setAuditLogs(await fetchAuditLogs());
+    } catch (error) {
+      setAuditError(
+        error instanceof Error ? error.message : "云端变更记录读取失败",
+      );
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [canReadAudit]);
+
+  useEffect(() => {
+    if (detailOpen !== "database" || !canReadAudit) return;
+    void loadAuditLogs();
+    const timer = window.setInterval(() => void loadAuditLogs(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [canReadAudit, detailOpen, loadAuditLogs]);
+
+  const openDetail = (detail: OverviewDetail) => {
+    setDetailOpen(detail);
+  };
 
   return (
     <main className="overview-panel">
@@ -179,7 +250,7 @@ export default function OverviewPanel({
         <button
           type="button"
           className="overview-grid__action"
-          onClick={() => setOnlineOpen(true)}
+          onClick={() => openDetail("online")}
         >
           <MonitorCheck />
           <span>在线设备</span>
@@ -188,23 +259,35 @@ export default function OverviewPanel({
             共 {devices.length} 台 · {runningDevices.length} 台考试中
           </small>
         </button>
-        <article>
+        <button
+          type="button"
+          className="overview-grid__action"
+          onClick={() => openDetail("majors")}
+        >
           <CalendarClock />
           <span>待执行大型考试</span>
           <strong>{activeMajors.length}</strong>
           <small>
             {scopedPlans.filter((item) => item.enabled).length} 个启用周测计划
           </small>
-        </article>
-        <article>
+        </button>
+        <button
+          type="button"
+          className="overview-grid__action"
+          onClick={() => openDetail("database")}
+        >
           <Database />
           <span>数据库状态</span>
           <strong>{deviceError ? "连接异常" : "连接正常"}</strong>
           <small>
             {scope.gradeIds.size} 个年级 · {scope.classIds.size} 个班级
           </small>
-        </article>
-        <article>
+        </button>
+        <button
+          type="button"
+          className="overview-grid__action"
+          onClick={() => openDetail("attention")}
+        >
           <AlertTriangle />
           <span>需要关注</span>
           <strong>{attentionCount}</strong>
@@ -214,7 +297,7 @@ export default function OverviewPanel({
                 ? `${majorConflicts.length} 组大型考试时间冲突`
                 : "同步与设备状态正常")}
           </small>
-        </article>
+        </button>
       </div>
       <section className="overview-section">
         <h3>正在进行</h3>
@@ -225,7 +308,7 @@ export default function OverviewPanel({
                 <strong>{item.currentSubject || "考试"}</strong>
                 <span>
                   {item.currentExam || "当前考试"} ·{" "}
-                  {classes.find((value) => value.id === item.classId)?.name ||
+                  {liveClasses.find((value) => value.id === item.classId)?.name ||
                     "未识别班级"}
                 </span>
                 <code>{item.instanceId}</code>
@@ -249,38 +332,38 @@ export default function OverviewPanel({
           </div>
         </section>
       )}
-      {onlineOpen && (
+      {detailOpen && (
         <div
           className="overview-device-drawer"
           role="dialog"
           aria-modal="true"
-          aria-label="在线设备"
+          aria-label={detailTitle}
         >
           <button
             className="overview-device-drawer__backdrop"
             aria-label="关闭"
-            onClick={() => setOnlineOpen(false)}
+            onClick={() => setDetailOpen(null)}
           />
           <aside>
             <header>
               <div>
                 <span>当前授权范围</span>
-                <h3>在线设备</h3>
+                <h3>{detailTitle}</h3>
               </div>
               <button
                 className="admin-btn"
-                onClick={() => setOnlineOpen(false)}
+                onClick={() => setDetailOpen(null)}
                 aria-label="关闭"
               >
                 <X size={17} />
               </button>
             </header>
             <div className="overview-device-drawer__list">
-              {onlineDevices.length ? (
+              {detailOpen === "online" && (onlineDevices.length ? (
                 onlineDevices.map((device) => (
                   <article key={device.instanceId}>
                     <strong>
-                      {classes.find((item) => item.id === device.classId)
+                      {liveClasses.find((item) => item.id === device.classId)
                         ?.name || "未绑定班级"}
                     </strong>
                     <span>
@@ -299,12 +382,64 @@ export default function OverviewPanel({
                 ))
               ) : (
                 <p>暂无在线设备。</p>
+              ))}
+              {detailOpen === "majors" && (activeMajors.length ? (
+                activeMajors.map((major) => {
+                  const enabledItems = major.items.filter((item) => item.enabled);
+                  const nextItem = enabledItems
+                    .filter((item) => new Date(item.endTime).getTime() >= now)
+                    .sort((left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime())[0];
+                  return (
+                    <article key={major.id}>
+                      <strong>{major.name}</strong>
+                      <span>{enabledItems.length} 个启用科目 {nextItem ? `· 下一场 ${nextItem.name}` : "· 全部已结束"}</span>
+                      <small>{nextItem ? `开始时间：${formatDetailTime(new Date(nextItem.startTime).getTime())}` : "请在大型考试模块查看完整安排"}</small>
+                    </article>
+                  );
+                })
+              ) : (
+                <p>当前授权范围内暂无待执行的大型考试。</p>
+              ))}
+              {detailOpen === "database" && (
+                <>
+                  <article>
+                    <strong>{deviceError ? "连接异常" : "连接正常"}</strong>
+                    <span>{syncLabel}</span>
+                    <small>{scope.gradeIds.size} 个年级 · {scope.classIds.size} 个班级</small>
+                  </article>
+                  {canReadAudit ? (
+                    auditLoading ? <p>正在读取最近同步到云端的改动…</p> : auditError ? <p>{auditError}</p> : cloudChangeLogs.length ? cloudChangeLogs.map((log) => (
+                      <article key={log.id}>
+                        <strong>{cloudChangeLabel(log)}</strong>
+                        <span>{log.username || "系统"} · {formatDetailTime(log.createdAt)}</span>
+                        <small>{log.detail && typeof log.detail === "object" ? JSON.stringify(log.detail) : "云端数据已更新"}</small>
+                      </article>
+                    )) : <p>暂未找到考试、班级或设置的云端改动记录。</p>
+                  ) : (
+                    <p>当前账户无权查看云端改动记录。</p>
+                  )}
+                </>
+              )}
+              {detailOpen === "attention" && (
+                attentionCount ? (
+                  <>
+                    {deviceError && <article><strong>同步或设备状态读取异常</strong><span>{deviceError}</span></article>}
+                    {devices.filter((item) => item.revoked).map((device) => (
+                      <article key={device.instanceId}><strong>已移除设备</strong><span>{device.instanceId}</span><small>该设备需要重新绑定后才能继续同步。</small></article>
+                    ))}
+                    {[...new Set(majorConflicts)].map((label) => (
+                      <article key={label}><strong>大型考试时间冲突</strong><span>{label}</span><small>请核对考试时间与适用范围。</small></article>
+                    ))}
+                  </>
+                ) : <p>当前没有需要处理的问题。</p>
               )}
             </div>
             <footer>
-              <a className="admin-btn" href="/admin?tab=devices">
-                进入设备管理
-              </a>
+              {detailOpen === "online" || detailOpen === "attention" ? (
+                <a className="admin-btn" href="/admin?tab=devices">进入设备管理</a>
+              ) : detailOpen === "majors" ? (
+                <a className="admin-btn" href="/admin?tab=major">进入大型考试</a>
+              ) : null}
             </footer>
           </aside>
         </div>

@@ -71,6 +71,9 @@ export default function QuickMajorPublishModal({
   const [name, setName] = useState(
     `临时统一考试 · ${new Date().toLocaleDateString("zh-CN")}`,
   );
+  const [examDate, setExamDate] = useState(() =>
+    localInputValue(Date.now()).slice(0, 10),
+  );
   const [targetGradeIds, setTargetGradeIds] =
     useState<string[]>(initialGradeIds);
   const [schoolWide, setSchoolWide] = useState(false);
@@ -197,6 +200,26 @@ export default function QuickMajorPublishModal({
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
+            <label className="admin-label">
+              考试日期
+              <DateTimeField
+                className="admin-date-time-field"
+                value={examDate}
+                onChange={(value) => {
+                  setExamDate(value);
+                  setUseCustomStart(true);
+                  setCustomStart(
+                    (current) => `${value}T${current?.slice(11, 16) || "08:00"}`,
+                  );
+                }}
+                mode="date"
+                title="选择考试日期"
+                showFieldPreview={false}
+              />
+              <span className="admin-field-hint">
+                选择日期后，请在下一步设置该日期的具体开始时间。
+              </span>
+            </label>
             <div className="quick-major-modal__section">
               <strong>{lockedClassName ? "适用班级" : "适用年级"}</strong>
               <p>
@@ -263,6 +286,7 @@ export default function QuickMajorPublishModal({
             </div>
             <div className="quick-major-modal__section">
               <strong>开始方式</strong>
+              <p>考试日期：{examDate}</p>
               <div className="quick-major-choice-grid">
                 {DELAYS.map((option) => (
                   <button

@@ -227,11 +227,15 @@ export default function WeeklyPanel({
         const target = classOptions.find((item) => item.id === plan.classId);
         const [gradeName = "未知年级", className = "未知班级"] =
           target?.label.split(" · ") ?? [];
+        const trimmedPlanName = plan.name.trim();
+        const planDetail = trimmedPlanName.startsWith(className)
+          ? trimmedPlanName.slice(className.length).replace(/^[\s·-]+/u, "") || trimmedPlanName
+          : trimmedPlanName;
         return {
           id: plan.id,
           gradeId: plan.gradeId,
           gradeName,
-          className: `${className} · ${plan.name}（${plan.items.length} 条）`,
+          className: `${className} · ${planDetail}（${plan.items.length} 条）`,
         };
       }),
     [classOptions, weeklyPlans],
@@ -330,7 +334,7 @@ export default function WeeklyPanel({
     }));
   }, [activePlan, scheduleMode, majorItems, majorName, weeklyConflictPolicy]);
 
-  const calendarDays = useMemo(() => {
+  const calendarWeeks = useMemo(() => {
     const today = getShanghaiDateKey(Date.now());
     const first = addDaysToDateKey(today, -(isoWeekdayOfDateKey(today) - 1));
     const allDays = Array.from({ length: 14 }, (_, index) => {
@@ -357,9 +361,10 @@ export default function WeeklyPanel({
     const showSunday = allDays.some(
       (day) => day.weekday === 7 && day.entries.length > 0,
     );
-    return allDays.filter(
-      (day) =>
-        day.weekday <= 5 || (day.weekday === 6 ? showSaturday : showSunday),
+    const visibleDay = (day: (typeof allDays)[number]) =>
+      day.weekday <= 5 || (day.weekday === 6 ? showSaturday : showSunday);
+    return [0, 1].map((weekIndex) =>
+      allDays.slice(weekIndex * 7, weekIndex * 7 + 7).filter(visibleDay),
     );
   }, [preview, activePlan]);
   const printSchedules = useMemo<PrintScheduleDocument[]>(
@@ -1712,64 +1717,73 @@ export default function WeeklyPanel({
             role="grid"
             aria-label="未来两周周测日历"
           >
-            {calendarDays.map((day) => (
-              <section
-                className={`weekly-calendar__day${day.entries.length ? " has-events" : ""}${day.officialHoliday || day.manuallyExcluded ? " is-holiday" : ""}`}
-                key={day.date}
-                role="gridcell"
+            {calendarWeeks.map((week, weekIndex) => (
+              <div
+                className="weekly-calendar__week"
+                key={`week-${weekIndex}`}
+                role="row"
+                style={{ gridTemplateColumns: `repeat(${week.length}, minmax(112px, 1fr))` }}
               >
-                <header>
-                  <strong>
-                    {WEEKDAY_LABEL[day.weekday]}
-                    {day.weekType ? ` · ${day.weekType.toUpperCase()}周` : ""}
-                  </strong>
-                  <span>{day.date.slice(5)}</span>
-                </header>
-                <div className="weekly-calendar__events">
-                  {(day.officialHoliday || day.manuallyExcluded) && (
-                    <span className="weekly-calendar__holiday">
-                      {day.officialHoliday || "已排除"}
-                    </span>
-                  )}
-                  {day.entries.length === 0 ? (
-                    <span className="weekly-calendar__empty">
-                      {day.officialHoliday || day.manuallyExcluded
-                        ? "周测已暂停"
-                        : "无安排"}
-                    </span>
-                  ) : (
-                    day.entries.map((entry) => (
-                      <article
-                        className={`weekly-calendar__event${entry.suppressed ? " is-suppressed" : ""}${entry.forced ? " is-forced" : ""}`}
-                        key={`${entry.date}-${entry.weeklyItemId}`}
-                      >
-                        <button
-                          className="weekly-calendar__event-main"
-                          onClick={() =>
-                            entry.suppressed
-                              ? setConflictTarget(entry)
-                              : openReschedule(entry)
-                          }
-                          title={entry.message || "点击临时调整"}
-                        >
-                          <b>{entry.name}</b>
-                          <span>
-                            {entry.startTime}–{entry.endTime}
-                          </span>
-                        </button>
-                        <button
-                          className="weekly-calendar__remove"
-                          aria-label={`取消 ${entry.name}`}
-                          title="取消本次"
-                          onClick={() => void cancelOccurrence(entry)}
-                        >
-                          ×
-                        </button>
-                      </article>
-                    ))
-                  )}
-                </div>
-              </section>
+                {week.map((day) => (
+                  <section
+                    className={`weekly-calendar__day${day.entries.length ? " has-events" : ""}${day.officialHoliday || day.manuallyExcluded ? " is-holiday" : ""}`}
+                    key={day.date}
+                    role="gridcell"
+                  >
+                    <header>
+                      <strong>
+                        {WEEKDAY_LABEL[day.weekday]}
+                        {day.weekType ? ` · ${day.weekType.toUpperCase()}周` : ""}
+                      </strong>
+                      <span>{day.date.slice(5)}</span>
+                    </header>
+                    <div className="weekly-calendar__events">
+                      {(day.officialHoliday || day.manuallyExcluded) && (
+                        <span className="weekly-calendar__holiday">
+                          {day.officialHoliday || "已排除"}
+                        </span>
+                      )}
+                      {day.entries.length === 0 ? (
+                        <span className="weekly-calendar__empty">
+                          {day.officialHoliday || day.manuallyExcluded
+                            ? "周测已暂停"
+                            : "无安排"}
+                        </span>
+                      ) : (
+                        day.entries.map((entry) => (
+                          <article
+                            className={`weekly-calendar__event${entry.suppressed ? " is-suppressed" : ""}${entry.forced ? " is-forced" : ""}`}
+                            key={`${entry.date}-${entry.weeklyItemId}`}
+                          >
+                            <button
+                              className="weekly-calendar__event-main"
+                              onClick={() =>
+                                entry.suppressed
+                                  ? setConflictTarget(entry)
+                                  : openReschedule(entry)
+                              }
+                              title={entry.message || "点击临时调整"}
+                            >
+                              <b>{entry.name}</b>
+                              <span>
+                                {entry.startTime}–{entry.endTime}
+                              </span>
+                            </button>
+                            <button
+                              className="weekly-calendar__remove"
+                              aria-label={`取消 ${entry.name}`}
+                              title="取消本次"
+                              onClick={() => void cancelOccurrence(entry)}
+                            >
+                              ×
+                            </button>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                ))}
+              </div>
             ))}
           </div>
         </div>

@@ -2,7 +2,7 @@ import { useRef, useState } from "react"
 import { DateTimePicker } from "./DateTimePicker"
 import { SelectionPreview } from "./SelectionPreview"
 import { parseNaive, partsToNaive, partsToNaiveDate, formatDateCN, weekdayCN, pad2 } from "./utils"
-import type { AnchorRect, DateTimeParts, Density, Mode, PreviewConfig, WeekdayConfig } from "./types"
+import type { AnchorRect, CompactPlacement, DateTimeParts, Density, Mode, PreviewConfig, WeekdayConfig } from "./types"
 import "./DateTimeField.css"
 
 export interface DateTimeFieldProps {
@@ -26,6 +26,7 @@ export interface DateTimeFieldProps {
   theme?: "auto" | "light" | "dark"
   validate?: (v: DateTimeParts) => string | null
   showFieldPreview?: boolean // 框下实时预览，默认开
+  compactPlacement?: CompactPlacement
 }
 
 function nowParts(): DateTimeParts {
@@ -126,6 +127,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
           preview={preview}
           validate={props.validate}
           anchorRect={rect}
+          compactPlacement={props.compactPlacement}
           onChange={(v) => setDraftPreview(v)}
           onConfirm={(v) => {
             setOpen(false)

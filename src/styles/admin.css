@@ -231,7 +231,8 @@
 .weekly-list-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .weekly-calendar-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;padding:2px 0 8px;scrollbar-gutter:stable;touch-action:pan-x pan-y}
 .weekly-calendar-scroll:focus-visible{outline:2px solid #3498db;outline-offset:3px}
-.weekly-calendar { display:grid; grid-template-columns:repeat(7,minmax(112px,1fr)); gap:8px; min-width:820px; padding-bottom:6px; }
+.weekly-calendar { display:grid; gap:8px; min-width:0; padding-bottom:6px; }
+.weekly-calendar__week { display:grid; gap:8px; min-width:0; }
 .weekly-calendar__day { min-height:148px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.035); border-radius:8px; padding:8px; overflow:hidden; }
 .weekly-calendar__day.has-events { border-color:rgba(52,152,219,.35); }
 .weekly-calendar__day>header { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:7px; font-size:12px; }
@@ -250,13 +251,14 @@
 .weekly-calendar__remove:hover { opacity:1; background:rgba(220,53,69,.16); }
 
 @media (max-width:900px) {
-  .weekly-calendar { grid-template-columns:repeat(7,116px); }
+  .weekly-calendar__week { min-width:580px; }
 }
 @media (max-width:600px) {
   .weekly-list-actions{width:100%;margin-left:0;justify-content:stretch}
   .weekly-list-actions .admin-btn{flex:1 1 132px;min-height:44px;white-space:normal}
   .weekly-calendar-scroll{margin-inline:-2px;padding-bottom:12px;scroll-snap-type:x proximity}
-  .weekly-calendar { grid-template-columns:repeat(7,108px); gap:6px; min-width:792px; }
+  .weekly-calendar { gap:6px; }
+  .weekly-calendar__week { gap:6px; min-width:540px; }
   .weekly-calendar__day { min-height:132px; padding:7px; scroll-snap-align:start; }
   .weekly-calendar__event-main { padding:6px 5px; }
   .weekly-calendar__remove{width:30px;min-height:36px}

@@ -38,6 +38,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
     weekday,
     preview,
     anchorRect,
+    compactPlacement = "below",
   } = props
 
   const density = resolveDensity(props.density)
@@ -84,9 +85,21 @@ export function DateTimePicker(props: DateTimePickerProps) {
 
       const edge = 8
       panel.style.maxHeight = `${Math.max(240, window.innerHeight - edge * 2)}px`
-      const panelHeight = panel.getBoundingClientRect().height
-      const preferredTop = anchorRect.top + anchorRect.height + edge
+      const { height: panelHeight, width: panelWidth } = panel.getBoundingClientRect()
+      const right = anchorRect.left + anchorRect.width
+      const rightSpace = window.innerWidth - right - edge
+      const leftSpace = anchorRect.left - edge
+      const preferredLeft = compactPlacement === "right"
+        ? rightSpace >= panelWidth || rightSpace >= leftSpace
+          ? right + edge
+          : anchorRect.left - panelWidth - edge
+        : anchorRect.left
+      const preferredTop = compactPlacement === "right"
+        ? anchorRect.top + anchorRect.height / 2 - panelHeight / 2
+        : anchorRect.top + anchorRect.height + edge
       const maxTop = Math.max(edge, window.innerHeight - panelHeight - edge)
+      const maxLeft = Math.max(edge, window.innerWidth - panelWidth - edge)
+      panel.style.left = `${Math.max(edge, Math.min(preferredLeft, maxLeft))}px`
       panel.style.top = `${Math.max(edge, Math.min(preferredTop, maxTop))}px`
     }
 
@@ -97,7 +110,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
       window.cancelAnimationFrame(frame)
       window.removeEventListener("resize", placePanel)
     }
-  }, [anchorRect, density, draft.month, draft.year, error, field, fine])
+  }, [anchorRect, compactPlacement, density, draft.month, draft.year, error, field, fine])
 
   function apply(next: DateTimeParts, adv?: Field) {
     const w = next.weekday
@@ -280,8 +293,12 @@ export function DateTimePicker(props: DateTimePickerProps) {
       ? {
           position: "absolute",
           width: pw,
-          left: Math.min(Math.max(8, anchorRect.left), vw - pw - 8),
-          top: anchorRect.top + anchorRect.height + 8,
+          left: compactPlacement === "right"
+            ? anchorRect.left + anchorRect.width + 8
+            : Math.min(Math.max(8, anchorRect.left), vw - pw - 8),
+          top: compactPlacement === "right"
+            ? anchorRect.top + anchorRect.height / 2
+            : anchorRect.top + anchorRect.height + 8,
         }
       : undefined
 

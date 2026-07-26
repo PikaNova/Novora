@@ -2443,6 +2443,7 @@ export default function AdminPage() {
                           minuteStep={5}
                           title="选择开始时间"
                           showFieldPreview={false}
+                          compactPlacement="right"
                         />
                       </label>
                       <label className="admin-label">
@@ -2461,6 +2462,7 @@ export default function AdminPage() {
                           minuteStep={5}
                           title="选择结束时间"
                           showFieldPreview={false}
+                          compactPlacement="right"
                         />
                         {editing.startTime && editing.endTime && (
                           <span className="admin-duration-hint">
