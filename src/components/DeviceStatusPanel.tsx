@@ -411,7 +411,7 @@ export default function DeviceStatusPanel({
                   className={`device-status__row${removed ? " is-revoked" : ""}`}
                   key={item.key}
                 >
-                  <div className="device-status__instance">
+                  <div className={`device-status__instance${canRevoke ? " is-selectable" : ""}`}>
                     {canRevoke && (
                       <input
                         type="checkbox"

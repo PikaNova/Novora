@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { TapButton } from "./TapButton"
@@ -73,15 +73,31 @@ export function DateTimePicker(props: DateTimePickerProps) {
     panelRef.current?.focus()
   }, [])
 
-  // compact 浮层：若下方空间不足则翻到锚点上方
-  useEffect(() => {
+  // Keep compact popovers inside the viewport. A tall calendar can no longer
+  // extend past the bottom of a modal or the browser window.
+  useLayoutEffect(() => {
     if (density !== "compact" || !anchorRect || !panelRef.current) return
-    const ph = panelRef.current.getBoundingClientRect().height
-    const below = anchorRect.top + anchorRect.height + 8
-    if (below + ph > window.innerHeight - 8 && anchorRect.top - ph - 8 > 8) {
-      panelRef.current.style.top = anchorRect.top - ph - 8 + "px"
+
+    const placePanel = () => {
+      const panel = panelRef.current
+      if (!panel) return
+
+      const edge = 8
+      panel.style.maxHeight = `${Math.max(240, window.innerHeight - edge * 2)}px`
+      const panelHeight = panel.getBoundingClientRect().height
+      const preferredTop = anchorRect.top + anchorRect.height + edge
+      const maxTop = Math.max(edge, window.innerHeight - panelHeight - edge)
+      panel.style.top = `${Math.max(edge, Math.min(preferredTop, maxTop))}px`
     }
-  })
+
+    placePanel()
+    const frame = window.requestAnimationFrame(placePanel)
+    window.addEventListener("resize", placePanel)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener("resize", placePanel)
+    }
+  }, [anchorRect, density, draft.month, draft.year, error, field, fine])
 
   function apply(next: DateTimeParts, adv?: Field) {
     const w = next.weekday
@@ -258,7 +274,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
   }
 
   const vw = typeof window !== "undefined" ? window.innerWidth : 360
-  const pw = Math.min(360, vw - 16)
+  const pw = Math.min(320, vw - 16)
   const panelStyle: CSSProperties | undefined =
     density === "compact" && anchorRect
       ? {
