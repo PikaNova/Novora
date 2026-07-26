@@ -489,3 +489,13 @@
   .device-status__toolbar{display:flex;flex-direction:column;align-items:stretch}
   .device-status__toolbar>label,.device-status__toolbar>.device-status__class-filter{width:100%}
 }
+
+.weekly-import-modal{max-height:calc(100dvh - 48px);overflow:auto}
+.weekly-import-modal__steps{display:flex;align-items:center;gap:8px;margin:-4px 0 14px;color:rgba(235,244,250,.48);font-size:11px;font-weight:700}
+.weekly-import-modal__steps span{display:inline-flex;align-items:center;min-height:26px;padding:0 9px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.03)}
+.weekly-import-modal__steps .is-current{border-color:rgba(78,170,229,.62);background:rgba(52,152,219,.14);color:#d8f1ff}
+.weekly-import-modal__steps .is-done{color:#9bd6b6}
+.weekly-import-modal__textarea{min-height:190px;resize:vertical}
+.weekly-import-modal__summary{display:grid;gap:3px;margin:0 0 12px;padding:11px 12px;border:1px solid rgba(70,163,222,.28);border-radius:7px;background:rgba(50,137,192,.09)}
+.weekly-import-modal__summary strong{font-size:14px;color:#edf7fc}.weekly-import-modal__summary span{color:rgba(220,239,250,.68);font-size:12px}
+@media(max-width:600px){.weekly-import-modal{max-height:calc(100dvh - 24px)}.weekly-import-modal__steps{margin-bottom:12px}.weekly-import-modal__steps span{flex:1;justify-content:center;padding:0 6px}.weekly-import-modal__textarea{min-height:160px}.weekly-import-modal .admin-modal__actions{gap:7px}.weekly-import-modal .admin-modal__actions .admin-btn{min-width:0;padding-inline:10px}}

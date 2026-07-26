@@ -332,6 +332,7 @@ export default function DeviceStatusPanel({
             options={pickerOptions}
             selectedIds={classFilters}
             onChange={setClassFilters}
+            showSearch={false}
           />
         </details>
       </div>

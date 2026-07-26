@@ -185,6 +185,11 @@ export default function WeeklyPanel({
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
   const [importClassIds, setImportClassIds] = useState<string[]>([]);
+  const [importStep, setImportStep] = useState<"paste" | "targets">("paste");
+  const [importSummary, setImportSummary] = useState<{
+    itemCount: number;
+    planName?: string;
+  } | null>(null);
   const [exceptionsOpen, setExceptionsOpen] = useState(false);
   const [newExcludeDate, setNewExcludeDate] = useState("");
   const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
@@ -895,6 +900,53 @@ export default function WeeklyPanel({
     onSavePlans(plans, activePlan.id, selectedClassId, true);
   }
 
+  function closeImport(clearText = false) {
+    setImportOpen(false);
+    setImportError("");
+    setImportClassIds([]);
+    setImportStep("paste");
+    setImportSummary(null);
+    if (clearText) setImportText("");
+  }
+
+  function validateImportJson() {
+    setImportError("");
+    try {
+      const source = JSON.parse(importText);
+      const importedPlan =
+        source?.plan && typeof source.plan === "object" ? source.plan : source;
+      const list = Array.isArray(importedPlan)
+        ? importedPlan
+        : importedPlan?.items;
+      if (!Array.isArray(list)) {
+        throw new Error("JSON 必须是周测数组，或包含 items 数组");
+      }
+      const invalidIndex = list.findIndex((raw: unknown) => {
+        const item = raw as Record<string, unknown>;
+        return (
+          !item?.name ||
+          !HM_RE.test(String(item.startTime ?? "")) ||
+          !HM_RE.test(String(item.endTime ?? ""))
+        );
+      });
+      if (invalidIndex >= 0) {
+        throw new Error(
+          `第 ${invalidIndex + 1} 项需要有效的 name、startTime 和 endTime`,
+        );
+      }
+      setImportSummary({
+        itemCount: list.length,
+        planName:
+          typeof importedPlan?.name === "string"
+            ? importedPlan.name
+            : undefined,
+      });
+      setImportStep("targets");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "JSON 格式错误");
+    }
+  }
+
   function importJson() {
     setImportError("");
     try {
@@ -947,8 +999,7 @@ export default function WeeklyPanel({
           true,
           nextActive,
         );
-        setImportText("");
-        setImportOpen(false);
+        closeImport(true);
         notify("success", `已向 ${importedPlans.length} 个班级导入独立计划。`);
         return;
       }
@@ -1013,8 +1064,7 @@ export default function WeeklyPanel({
           : plan,
       );
       onSavePlans(plans, activePlan.id, selectedClassId, true);
-      setImportText("");
-      setImportOpen(false);
+      closeImport(true);
       notify("success", `已向 ${targets.length} 个班级导入周测项目。`);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : "JSON 格式错误");
@@ -1481,7 +1531,11 @@ export default function WeeklyPanel({
             <button
               className="admin-btn"
               onClick={() => {
-                setImportClassIds([selectedClassId]);
+                setImportText("");
+                setImportError("");
+                setImportSummary(null);
+                setImportStep("paste");
+                setImportClassIds(selectedClassId ? [selectedClassId] : []);
                 setImportOpen(true);
               }}
             >
@@ -1966,59 +2020,77 @@ export default function WeeklyPanel({
       {importOpen && (
         <div
           className="admin-modal-overlay"
-          {...backdropProps(() => setImportOpen(false))}
+          {...backdropProps(() => closeImport())}
         >
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide weekly-import-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="admin-modal__title">导入周测 JSON</h2>
-            <p className="admin-modal__body">
-              旧版 items
-              数据会覆盖当前周测列表；新版整份计划备份会创建一个独立的新计划，并保留
-              A/B 周、例外和节假日设置。
-            </p>
-            <AiImportGuide
-              kind="weekly"
-              context={`${classOptions.find((item) => item.id === selectedClassId)?.label || selectedClassName}，计划“${activePlan.name}”`}
-            />
-            {allowBatchApply && (
-              <div className="admin-label">
-                导入到班级
-                <ClassMultiPicker
-                  options={pickerOptions}
-                  gradeId={selectedGradeId}
-                  selectedIds={importClassIds}
-                  onChange={setImportClassIds}
-                />
-              </div>
-            )}
-            {importError && <div className="admin-error">{importError}</div>}
-            <textarea
-              className="admin-textarea"
-              rows={11}
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder='{"items":[{"name":"周测","weekday":1,"startTime":"19:00","endTime":"20:00","enabled":true}]}'
-            />
-            <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={importJson}
-              >
-                校验并导入到 {importClassIds.length || 1} 个班级
-              </button>
-              <button
-                className="admin-btn"
-                onClick={() => {
-                  setImportOpen(false);
-                  setImportError("");
-                  setImportClassIds([]);
-                }}
-              >
-                取消
-              </button>
+            <div className="weekly-import-modal__steps" aria-label="导入步骤">
+              <span className={importStep === "paste" ? "is-current" : "is-done"}>1. 粘贴 JSON</span>
+              <span className={importStep === "targets" ? "is-current" : ""}>2. 选择班级</span>
             </div>
+            {importStep === "paste" ? (
+              <>
+                <h2 className="admin-modal__title">导入周测 JSON</h2>
+                <p className="admin-modal__body">
+                  先粘贴 JSON 并校验内容，下一步再选择应用班级。
+                </p>
+                <AiImportGuide
+                  kind="weekly"
+                  context={`${classOptions.find((item) => item.id === selectedClassId)?.label || selectedClassName}，计划“${activePlan.name}”`}
+                />
+                {importError && <div className="admin-error">{importError}</div>}
+                <textarea
+                  className="admin-textarea weekly-import-modal__textarea"
+                  rows={9}
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder='{"items":[{"name":"周测","weekday":1,"startTime":"19:00","endTime":"20:00","enabled":true}]}'
+                />
+                <div className="admin-modal__actions">
+                  <button className="admin-btn admin-btn--primary" onClick={validateImportJson}>
+                    校验 JSON，下一步
+                  </button>
+                  <button className="admin-btn" onClick={() => closeImport()}>
+                    取消
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="admin-modal__title">选择应用班级</h2>
+                <div className="weekly-import-modal__summary">
+                  <strong>{importSummary?.planName || "周测 JSON"}</strong>
+                  <span>已识别 {importSummary?.itemCount ?? 0} 项周测安排</span>
+                </div>
+                {allowBatchApply ? (
+                  <div className="admin-label">
+                    应用到班级
+                    <ClassMultiPicker
+                      options={pickerOptions}
+                      gradeId={selectedGradeId}
+                      selectedIds={importClassIds}
+                      onChange={setImportClassIds}
+                    />
+                  </div>
+                ) : (
+                  <p className="admin-modal__body">将应用到当前班级：{selectedClassName}</p>
+                )}
+                {importError && <div className="admin-error">{importError}</div>}
+                <div className="admin-modal__actions">
+                  <button className="admin-btn" onClick={() => setImportStep("paste")}>
+                    上一步
+                  </button>
+                  <button className="admin-btn admin-btn--primary" onClick={importJson}>
+                    确认导入到 {importClassIds.length || 1} 个班级
+                  </button>
+                  <button className="admin-btn" onClick={() => closeImport()}>
+                    取消
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

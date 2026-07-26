@@ -9,7 +9,7 @@
 .welcome-exam-banner__info strong{font-size:clamp(1.2rem,3vw,1.6rem);}
 .welcome-exam-banner__info span{font-size:0.85rem;font-weight:600;}
 .welcome-exam-banner__time{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:0.78rem;opacity:0.6;flex-shrink:0;}
-.welcome-exam-banner__count{font-family:var(--font-region-numeric);font-size:clamp(1.15rem,3vw,1.75rem)!important;font-weight:750!important;font-variant-numeric:tabular-nums;letter-spacing:.02em;}
+.welcome-exam-banner__count{font-family:var(--font-region-numeric);font-size:clamp(1.15rem,3vw,1.75rem)!important;font-weight:750!important;font-variant-numeric:tabular-nums;letter-spacing:.02em;}.welcome-exam-banner__count.is-status{font-family:var(--font-region-content);font-variant-numeric:normal}
 .welcome-exam-banner__eyebrow,.welcome-exam-banner__count small{font-family:var(--font-region-navigation)}.welcome-exam-banner__info strong{font-family:var(--font-region-content)}
 .welcome-idle-hint{font-size:0.75rem;opacity:0.38;margin:0;letter-spacing:0.03em;}
 .welcome-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;width:100%;max-width:720px;}
