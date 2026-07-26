@@ -32,6 +32,15 @@
 .tdp-grid.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
 .tdp-grid.cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}
 .tdp-grid.cols-7{grid-template-columns:repeat(7,minmax(0,1fr))}
+.tdp-hour-periods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--tdp-gap);margin-bottom:var(--tdp-gap)}
+.tdp-hour-period.tdp-btn{display:grid;min-width:0;min-height:42px;gap:1px;padding:5px 2px;font-size:14px}
+.tdp-hour-period small{color:inherit;opacity:.62;font-size:10px;font-variant-numeric:tabular-nums}
+.tdp-hour-grid .tdp-btn{min-height:48px}
+.tdp-minute-custom.tdp-btn{font-size:13px;white-space:nowrap}
+.tdp-custom-minute{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:var(--tdp-gap);margin-top:12px;padding:10px;border:1px solid var(--tdp-border);border-radius:var(--tdp-radius);background:var(--tdp-surface)}
+.tdp-custom-minute label{display:grid;gap:5px;color:var(--tdp-text-dim);font-size:12px}
+.tdp-custom-minute input{width:100%;min-height:38px;box-sizing:border-box;padding:0 9px;border:1px solid var(--tdp-border);border-radius:8px;background:var(--tdp-canvas);color:var(--tdp-text);font:inherit;font-size:16px;font-variant-numeric:tabular-nums}
+.tdp-custom-minute__apply.tdp-btn{min-height:38px;padding:0 14px;background:var(--tdp-accent);border-color:var(--tdp-accent);color:#fff}
 .tdp-blank{min-height:var(--tdp-target)}
 .tdp-nav-row{display:flex;align-items:center;gap:var(--tdp-gap)}
 .tdp-nav-row .tdp-grid{flex:1;min-width:0}
@@ -63,6 +72,12 @@
 .tdp-root[data-density="compact"] .tdp-footer{gap:10px;margin-top:12px}
 .tdp-root[data-density="compact"] .tdp-footer .tdp-btn{min-height:36px;font-size:14px}
 .tdp-root[data-density="compact"] .tdp-fine.tdp-btn{min-height:34px;margin-top:8px;font-size:12px}
+.tdp-root[data-density="compact"] .tdp-hour-period.tdp-btn{min-height:32px;font-size:11px}
+.tdp-root[data-density="compact"] .tdp-hour-period small{font-size:9px}
+.tdp-root[data-density="compact"] .tdp-hour-grid .tdp-btn{min-height:36px}
+.tdp-root[data-density="compact"] .tdp-custom-minute{margin-top:8px;padding:8px}
+.tdp-root[data-density="compact"] .tdp-custom-minute input{min-height:32px;font-size:14px}
+.tdp-root[data-density="compact"] .tdp-custom-minute__apply.tdp-btn{min-height:32px;padding:0 10px}
 .tdp-root[data-density="sheet"]{align-items:flex-end;padding:0;--tdp-target:44px;--tdp-gap:6px}
 .tdp-root[data-density="sheet"] .tdp-panel{max-width:none;padding:16px 12px calc(12px + env(safe-area-inset-bottom,0px));border-radius:18px 18px 0 0;border-bottom:none;max-height:88vh}
 .tdp-root[data-density="sheet"] .tdp-footer{gap:18px;margin-top:18px}

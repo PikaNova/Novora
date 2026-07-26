@@ -9,6 +9,12 @@ import type { DateTimeParts, Field, DateTimePickerProps } from "./types"
 import "./DateTimePicker.css"
 
 const NEXT: Partial<Record<Field, Field>> = { year: "month", month: "day" }
+const HOUR_PERIODS = [
+  { label: "凌晨", range: "00-05", start: 0 },
+  { label: "上午", range: "06-11", start: 6 },
+  { label: "下午", range: "12-17", start: 12 },
+  { label: "晚上", range: "18-23", start: 18 },
+]
 
 function segmentsFor(mode: string, weekdayEnabled: boolean): Field[] {
   if (mode === "date") return ["year", "month", "day"]
@@ -54,7 +60,9 @@ export function DateTimePicker(props: DateTimePickerProps) {
     initialField && segs.indexOf(initialField) >= 0 ? initialField : segs[mode === "datetime" ? 2 : 0],
   )
   const [yearCenter, setYearCenter] = useState(draft.year)
-  const [fine, setFine] = useState(false)
+  const [hourPeriod, setHourPeriod] = useState(() => Math.floor(draft.hour / 6))
+  const [customMinuteOpen, setCustomMinuteOpen] = useState(false)
+  const [customMinute, setCustomMinute] = useState(String(draft.minute))
   const [error, setError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
@@ -73,6 +81,23 @@ export function DateTimePicker(props: DateTimePickerProps) {
   useEffect(() => {
     panelRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    setHourPeriod(Math.floor(draft.hour / 6))
+  }, [draft.hour])
+
+  function dismissAfterPointerAction(callback: () => void) {
+    // Closing a portal during pointerup can retarget the browser's trailing
+    // click to the control underneath it. Consume that one compatibility click.
+    const blockTrailingClick = (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      document.removeEventListener("click", blockTrailingClick, true)
+    }
+    document.addEventListener("click", blockTrailingClick, true)
+    window.setTimeout(() => document.removeEventListener("click", blockTrailingClick, true), 300)
+    callback()
+  }
 
   // Keep compact popovers inside the viewport. A tall calendar can no longer
   // extend past the bottom of a modal or the browser window.
@@ -110,7 +135,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
       window.cancelAnimationFrame(frame)
       window.removeEventListener("resize", placePanel)
     }
-  }, [anchorRect, compactPlacement, density, draft.month, draft.year, error, field, fine])
+  }, [anchorRect, compactPlacement, customMinuteOpen, density, draft.month, draft.year, error, field, hourPeriod])
 
   function apply(next: DateTimeParts, adv?: Field) {
     const w = next.weekday
@@ -121,6 +146,16 @@ export function DateTimePicker(props: DateTimePickerProps) {
     setDraft(c)
   }
   const patch = (p: Partial<DateTimeParts>, adv?: Field) => apply({ ...draft, ...p }, adv)
+
+  function applyCustomMinute() {
+    const minute = Number(customMinute)
+    if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+      setError("请输入 0 到 59 的分钟数")
+      return
+    }
+    setCustomMinuteOpen(false)
+    patch({ minute })
+  }
 
   function shiftMonth(delta: number) {
     const m0 = draft.month - 1 + delta
@@ -244,43 +279,90 @@ export function DateTimePicker(props: DateTimePickerProps) {
       )
     }
     if (field === "hour") {
-      const hours: number[] = []
-      for (let h = Math.max(0, hourRange[0]); h <= Math.min(23, hourRange[1]); h++) hours.push(h)
+      const period = HOUR_PERIODS[hourPeriod] || HOUR_PERIODS[0]
+      const hours = Array.from({ length: 6 }, (_, index) => period.start + index)
+        .filter((hour) => hour >= hourRange[0] && hour <= hourRange[1])
       return (
-        <div className="tdp-grid cols-6">
-          {hours.map((h) => (
-            <TapButton key={h} selected={h === draft.hour} onTap={() => patch({ hour: h })}>
-              {pad2(h)}
-            </TapButton>
-          ))}
-        </div>
+        <>
+          <div className="tdp-hour-periods" aria-label="选择时段">
+            {HOUR_PERIODS.map((item, index) => {
+              const available = item.start + 5 >= hourRange[0] && item.start <= hourRange[1]
+              return (
+                <TapButton
+                  key={item.start}
+                  className="tdp-hour-period"
+                  selected={hourPeriod === index}
+                  disabled={!available}
+                  onTap={() => setHourPeriod(index)}
+                >
+                  <span>{item.label}</span>
+                  <small>{item.range}</small>
+                </TapButton>
+              )
+            })}
+          </div>
+          <div className="tdp-grid cols-3 tdp-hour-grid">
+            {hours.map((hour) => (
+              <TapButton key={hour} selected={hour === draft.hour} onTap={() => patch({ hour })}>
+                {pad2(hour)}
+              </TapButton>
+            ))}
+          </div>
+        </>
       )
     }
     // minute
     const list: number[] = []
-    if (fine) {
-      const base = Math.floor(draft.minute / minuteStep) * minuteStep
-      for (let f = base; f < Math.min(base + minuteStep, 60); f++) list.push(f)
-    } else {
-      for (let m = 0; m < 60; m += minuteStep) list.push(m)
-    }
-    if (list.indexOf(draft.minute) === -1) {
-      list.push(draft.minute)
-      list.sort((a, b) => a - b)
-    }
+    for (let m = 0; m < 60; m += minuteStep) list.push(m)
+    const customMinuteActive = draft.minute % minuteStep !== 0
     return (
       <>
         <div className="tdp-grid cols-6">
           {list.map((v) => (
-            <TapButton key={v} selected={v === draft.minute} onTap={() => patch({ minute: v })}>
+            <TapButton
+              key={v}
+              selected={v === draft.minute}
+              onTap={() => {
+                setCustomMinuteOpen(false)
+                patch({ minute: v })
+              }}
+            >
               {pad2(v)}
             </TapButton>
           ))}
+          {minuteStep > 1 && (
+            <TapButton
+              className="tdp-minute-custom"
+              selected={customMinuteOpen || customMinuteActive}
+              onTap={() => {
+                setCustomMinute(String(draft.minute))
+                setCustomMinuteOpen(true)
+              }}
+            >
+              自定义
+            </TapButton>
+          )}
         </div>
-        {minuteStep > 1 && (
-          <TapButton className="tdp-fine" onTap={() => setFine(!fine)}>
-            {fine ? "← 回到 " + minuteStep + " 分钟粒度" : "精确到 1 分钟"}
-          </TapButton>
+        {customMinuteOpen && (
+          <div className="tdp-custom-minute">
+            <label>
+              自定义分钟
+              <input
+                type="number"
+                min="0"
+                max="59"
+                inputMode="numeric"
+                value={customMinute}
+                onChange={(event) => setCustomMinute(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") applyCustomMinute()
+                }}
+              />
+            </label>
+            <TapButton className="tdp-custom-minute__apply" onTap={applyCustomMinute}>
+              应用
+            </TapButton>
+          </div>
         )}
       </>
     )
@@ -310,7 +392,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
       data-theme={theme}
       data-density={density}
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget) onCancel()
+        if (e.target === e.currentTarget) dismissAfterPointerAction(onCancel)
       }}
     >
       <div
@@ -331,7 +413,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
                 ariaLabel={s.k + " " + s.t}
                 onTap={() => {
                   setField(s.k)
-                  setFine(false)
+                  setCustomMinuteOpen(false)
                   setError(null)
                 }}
               >
@@ -372,7 +454,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
         )}
         <div className="tdp-body">{renderBody()}</div>
         <div className="tdp-footer">
-          <TapButton className="tdp-cancel" onTap={onCancel}>
+          <TapButton className="tdp-cancel" onTap={() => dismissAfterPointerAction(onCancel)}>
             {cancelLabel || "取消"}
           </TapButton>
           <TapButton
@@ -383,7 +465,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
                 setError(msg)
                 return
               }
-              onConfirm(draft)
+              dismissAfterPointerAction(() => onConfirm(draft))
             }}
           >
             {confirmLabel || "确定"}

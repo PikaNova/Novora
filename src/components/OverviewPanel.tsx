@@ -22,6 +22,14 @@ import { fetchAuditLogs, type AuditLog } from "../services/adminUsers";
 
 const ONLINE_MS = 90_000;
 type OverviewDetail = "online" | "majors" | "database" | "attention";
+const HIGH_RISK_ACTIONS = new Set([
+  "database.reset",
+  "device.revoke",
+  "user.delete",
+  "user.password.reset",
+  "user.credentials.change",
+  "role.delete",
+]);
 
 function formatDetailTime(value: number) {
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
@@ -31,6 +39,18 @@ function cloudChangeLabel(log: AuditLog) {
   if (log.action === "exam-data.update") return "同步了考试、班级或系统设置改动";
   if (log.action === "database.reset") return "执行了数据重置";
   return log.action;
+}
+
+function highRiskLabel(log: AuditLog) {
+  const labels: Record<string, string> = {
+    "database.reset": "重置了数据库数据",
+    "device.revoke": "撤销了设备绑定",
+    "user.delete": "删除了管理账户",
+    "user.password.reset": "重置了管理账户密码",
+    "user.credentials.change": "修改了账户凭据",
+    "role.delete": "删除了用户角色",
+  };
+  return labels[log.action] || log.action;
 }
 
 interface Props {
@@ -176,10 +196,6 @@ export default function OverviewPanel({
       })
       .map((right) => `${left.major.name} / ${right.major.name}`),
   );
-  const attentionCount =
-    devices.filter((item) => item.revoked).length +
-    (deviceError ? 1 : 0) +
-    majorConflicts.length;
   const canReadAudit =
     user.permissions.includes("*") || user.permissions.includes("audit.read");
   const cloudChangeLogs = auditLogs
@@ -188,6 +204,15 @@ export default function OverviewPanel({
         item.action === "exam-data.update" || item.action === "database.reset",
     )
     .slice(0, 12);
+  const highRiskLogs = auditLogs
+    .filter((item) => HIGH_RISK_ACTIONS.has(item.action))
+    .slice(0, 12);
+  const activeErrorCount =
+    (deviceError ? 1 : 0) +
+    (auditError ? 1 : 0) +
+    devices.filter((item) => item.revoked).length +
+    majorConflicts.length;
+  const riskCount = highRiskLogs.length + activeErrorCount;
   const detailTitle =
     detailOpen === "online"
       ? "在线设备"
@@ -195,7 +220,7 @@ export default function OverviewPanel({
         ? "待执行大型考试"
         : detailOpen === "database"
           ? "数据库状态"
-          : "需要关注";
+          : "最近高风险操作";
 
   const loadAuditLogs = useCallback(async () => {
     if (!canReadAudit) return;
@@ -213,11 +238,11 @@ export default function OverviewPanel({
   }, [canReadAudit]);
 
   useEffect(() => {
-    if (detailOpen !== "database" || !canReadAudit) return;
+    if (!canReadAudit) return;
     void loadAuditLogs();
     const timer = window.setInterval(() => void loadAuditLogs(), 10_000);
     return () => window.clearInterval(timer);
-  }, [canReadAudit, detailOpen, loadAuditLogs]);
+  }, [canReadAudit, loadAuditLogs]);
 
   const openDetail = (detail: OverviewDetail) => {
     setDetailOpen(detail);
@@ -289,13 +314,14 @@ export default function OverviewPanel({
           onClick={() => openDetail("attention")}
         >
           <AlertTriangle />
-          <span>需要关注</span>
-          <strong>{attentionCount}</strong>
+          <span>最近高风险操作</span>
+          <strong>{riskCount}</strong>
           <small>
-            {deviceError ||
-              (majorConflicts.length
-                ? `${majorConflicts.length} 组大型考试时间冲突`
-                : "同步与设备状态正常")}
+            {activeErrorCount
+              ? "存在同步、设备或排期异常"
+              : highRiskLogs.length
+                ? `${highRiskLogs.length} 条近期操作记录`
+                : "暂无高风险操作"}
           </small>
         </button>
       </div>
@@ -421,17 +447,35 @@ export default function OverviewPanel({
                 </>
               )}
               {detailOpen === "attention" && (
-                attentionCount ? (
+                riskCount || auditLoading ? (
                   <>
-                    {deviceError && <article><strong>同步或设备状态读取异常</strong><span>{deviceError}</span></article>}
-                    {devices.filter((item) => item.revoked).map((device) => (
-                      <article key={device.instanceId}><strong>已移除设备</strong><span>{device.instanceId}</span><small>该设备需要重新绑定后才能继续同步。</small></article>
-                    ))}
-                    {[...new Set(majorConflicts)].map((label) => (
-                      <article key={label}><strong>大型考试时间冲突</strong><span>{label}</span><small>请核对考试时间与适用范围。</small></article>
-                    ))}
+                    {(deviceError || auditError || devices.some((item) => item.revoked) || majorConflicts.length > 0) && (
+                      <div className="overview-device-drawer__group">
+                        <strong>错误提醒</strong>
+                        {deviceError && <article><strong>同步或设备状态读取异常</strong><span>{deviceError}</span></article>}
+                        {auditError && <article><strong>云端审计日志读取异常</strong><span>{auditError}</span></article>}
+                        {devices.filter((item) => item.revoked).map((device) => (
+                          <article key={device.instanceId}><strong>设备已被撤销</strong><span>{device.instanceId}</span><small>该设备需要重新绑定后才能继续同步。</small></article>
+                        ))}
+                        {[...new Set(majorConflicts)].map((label) => (
+                          <article key={label}><strong>大型考试时间冲突</strong><span>{label}</span><small>请核对考试时间与适用范围。</small></article>
+                        ))}
+                      </div>
+                    )}
+                    <div className="overview-device-drawer__group">
+                      <strong>近期高风险操作</strong>
+                      {auditLoading && !highRiskLogs.length ? <p>正在读取云端操作记录…</p> : highRiskLogs.length ? highRiskLogs.map((log) => (
+                        <article key={log.id}>
+                          <strong>{highRiskLabel(log)}</strong>
+                          <span>{log.username || "系统"} · {formatDetailTime(log.createdAt)}</span>
+                          <small>{log.detail && typeof log.detail === "object" ? JSON.stringify(log.detail) : log.resourceId || log.resourceType}</small>
+                        </article>
+                      )) : <p>暂无近期高风险操作。</p>}
+                    </div>
                   </>
-                ) : <p>当前没有需要处理的问题。</p>
+                ) : (
+                  <p>当前没有错误提醒或高风险操作。</p>
+                )
               )}
             </div>
             <footer>
