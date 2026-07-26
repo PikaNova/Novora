@@ -39,6 +39,8 @@
 .tdp-time-wheel__list::-webkit-scrollbar:horizontal{display:none;height:0}
 .tdp-time-wheel__list button{box-sizing:border-box;max-width:100%}
 .tdp-blank{min-height:var(--tdp-target)}
+.tdp-time-wheel__list{overflow:clip auto!important;contain:layout paint}
+.tdp-time-wheel__list button.is-selected{transform:none}
 .tdp-nav-row{display:flex;align-items:center;gap:var(--tdp-gap)}
 .tdp-nav-row .tdp-grid{flex:1;min-width:0}
 .tdp-nav.tdp-btn{flex:0 0 auto;font-size:24px;line-height:1;color:var(--tdp-text-dim)}

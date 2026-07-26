@@ -34,6 +34,10 @@ const TimeWheel = forwardRef<HTMLDivElement, TimeWheelProps>(function TimeWheel(
         ref={ref}
         aria-label={`选择${label}`}
         onScroll={(event) => {
+          // Some Chromium builds still expose a horizontal scrollbar when a
+          // selected wheel item has visual overflow. Keep this control purely
+          // vertical even for a two-finger trackpad gesture.
+          if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0
           const index = Math.max(0, Math.min(values.length - 1, Math.round(event.currentTarget.scrollTop / 48)))
           const next = values[index]
           if (next !== value) onChange(next)
