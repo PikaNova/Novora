@@ -1,13 +1,15 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
-import type { SchoolGrade } from "../types/school";
+import type { SchoolClass, SchoolGrade } from "../types/school";
 import { DateTimeField } from "./touch-datetime-picker";
+import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import SubjectIcon from "./SubjectIcon";
 
 export interface QuickMajorPublishInput {
   name: string;
   targetGradeIds: string[];
+  targetClassIds: string[];
   subject: string;
   startTime: string;
   durationMinutes: number;
@@ -16,9 +18,11 @@ export interface QuickMajorPublishInput {
 
 interface Props {
   grades: SchoolGrade[];
+  classes: SchoolClass[];
   initialGradeIds: string[];
   allowSchoolWide: boolean;
   lockedClassName?: string;
+  lockedClassId?: string;
   majors: MajorExam[];
   onClose: () => void;
   onPublish: (input: QuickMajorPublishInput) => void;
@@ -43,7 +47,7 @@ const DELAYS = [
   { label: "15 分钟后", minutes: 15 },
   { label: "30 分钟后", minutes: 30 },
 ];
-const DURATIONS = [30, 45, 60, 90, 120, 150];
+const DURATIONS = [45, 60, 75, 90, 120, 150];
 const TIME_STEP_MS = 5 * 60_000;
 const OTHER_SUBJECT = SUBJECTS[SUBJECTS.length - 1];
 
@@ -67,11 +71,36 @@ function formatDuration(minutes: number) {
   return `${hours} 小时${rest ? ` ${rest} 分钟` : ""}`;
 }
 
+function splitClock(value: string) {
+  const [hour = "0", minute = "0"] = value.split(":");
+  return {
+    hour: Math.max(0, Math.min(23, Number(hour) || 0)),
+    minute: Math.max(0, Math.min(59, Number(minute) || 0)),
+  };
+}
+
+function clockAfter(value: string, duration: number) {
+  const { hour, minute } = splitClock(value);
+  const total = (hour * 60 + minute + duration) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function clockDuration(startValue: string, endValue: string) {
+  const start = splitClock(startValue);
+  const end = splitClock(endValue);
+  const startMinutes = start.hour * 60 + start.minute;
+  let endMinutes = end.hour * 60 + end.minute;
+  if (endMinutes <= startMinutes) endMinutes += 24 * 60;
+  return endMinutes - startMinutes;
+}
+
 export default function QuickMajorPublishModal({
   grades,
+  classes,
   initialGradeIds,
   allowSchoolWide,
   lockedClassName,
+  lockedClassId,
   majors,
   onClose,
   onPublish,
@@ -85,6 +114,9 @@ export default function QuickMajorPublishModal({
   );
   const [targetGradeIds, setTargetGradeIds] =
     useState<string[]>(initialGradeIds);
+  const [targetClassIds, setTargetClassIds] = useState<string[]>(
+    lockedClassId ? [lockedClassId] : [],
+  );
   const [schoolWide, setSchoolWide] = useState(false);
   const [subject, setSubject] = useState("");
   const [customSubject, setCustomSubject] = useState("");
@@ -94,23 +126,71 @@ export default function QuickMajorPublishModal({
   const [customStartTime, setCustomStartTime] = useState("08:00");
   const [useCustomStart, setUseCustomStart] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState(60);
-  const [customDuration, setCustomDuration] = useState("");
-  const [customDurationMode, setCustomDurationMode] = useState(false);
+  const [timeFlowOpen, setTimeFlowOpen] = useState(false);
+  const [timeFlowTarget, setTimeFlowTarget] = useState<"start" | "end">("start");
+  const [timeFlowStart, setTimeFlowStart] = useState("08:00");
+  const [timeFlowEnd, setTimeFlowEnd] = useState("09:00");
+  const hourRef = useRef<HTMLDivElement | null>(null);
+  const minuteRef = useRef<HTMLDivElement | null>(null);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
 
   const startTime = useCustomStart
     ? `${examDate}T${customStartTime}`
     : localInputValue(delayMinutes === 0 ? Date.now() : roundUpToFiveMinutes(Date.now() + delayMinutes * 60_000));
-  const finalDuration = customDurationMode
-    ? Math.max(5, Math.min(720, Math.round((Number(customDuration) || durationMinutes) / 5) * 5))
-    : durationMinutes;
+  const finalDuration = durationMinutes;
   const previewEndTime = Number.isFinite(new Date(startTime).getTime())
     ? localInputValue(new Date(startTime).getTime() + finalDuration * 60_000)
     : "";
   const finalSubject =
     subject === OTHER_SUBJECT ? customSubject.trim() : subject;
   const effectiveTargetGradeIds = schoolWide ? [] : targetGradeIds;
+  const effectiveTargetClassIds = schoolWide
+    ? []
+    : lockedClassId
+      ? [lockedClassId]
+      : targetClassIds;
+  const classOptions = useMemo<ClassPickerOption[]>(() => {
+    const gradeNames = new Map(grades.map((grade) => [grade.id, grade.name]));
+    return classes
+      .filter((item) => item.enabled && targetGradeIds.includes(item.gradeId))
+      .map((item) => ({
+        id: item.id,
+        gradeId: item.gradeId,
+        gradeName: gradeNames.get(item.gradeId) ?? "未分配年级",
+        className: item.name,
+      }));
+  }, [classes, grades, targetGradeIds]);
+  const activeClock = splitClock(timeFlowTarget === "start" ? timeFlowStart : timeFlowEnd);
+
+  useEffect(() => {
+    if (!timeFlowOpen) return;
+    requestAnimationFrame(() => {
+      if (hourRef.current) hourRef.current.scrollTop = activeClock.hour * 48;
+      if (minuteRef.current) minuteRef.current.scrollTop = activeClock.minute * 48;
+    });
+  }, [timeFlowOpen, timeFlowTarget]);
+
+  const setActiveClockPart = (part: "hour" | "minute", value: number) => {
+    const current = splitClock(timeFlowTarget === "start" ? timeFlowStart : timeFlowEnd);
+    const next = `${String(part === "hour" ? value : current.hour).padStart(2, "0")}:${String(part === "minute" ? value : current.minute).padStart(2, "0")}`;
+    if (timeFlowTarget === "start") setTimeFlowStart(next);
+    else setTimeFlowEnd(next);
+  };
+
+  const openTimeFlow = () => {
+    setTimeFlowStart(customStartTime);
+    setTimeFlowEnd(clockAfter(customStartTime, durationMinutes));
+    setTimeFlowTarget("start");
+    setTimeFlowOpen(true);
+  };
+
+  const confirmTimeFlow = () => {
+    setCustomStartTime(timeFlowStart);
+    setDurationMinutes(clockDuration(timeFlowStart, timeFlowEnd));
+    setUseCustomStart(true);
+    setTimeFlowOpen(false);
+  };
   const conflicts = useMemo(() => {
     const start = new Date(startTime).getTime();
     const end = start + finalDuration * 60_000;
@@ -122,8 +202,12 @@ export default function QuickMajorPublishModal({
         !effectiveTargetGradeIds.length ||
         !major.targetGradeIds?.length ||
         major.targetGradeIds.some((id) => effectiveTargetGradeIds.includes(id));
+      const classApplies =
+        !effectiveTargetClassIds.length ||
+        !major.targetClassIds?.length ||
+        major.targetClassIds.some((id) => effectiveTargetClassIds.includes(id));
       return (
-        applies &&
+        applies && classApplies &&
         major.items.some(
           (item) =>
             item.enabled &&
@@ -132,7 +216,7 @@ export default function QuickMajorPublishModal({
         )
       );
     });
-  }, [effectiveTargetGradeIds, finalDuration, majors, startTime]);
+  }, [effectiveTargetClassIds, effectiveTargetGradeIds, finalDuration, majors, startTime]);
 
   const next = () => {
     setError("");
@@ -169,6 +253,7 @@ export default function QuickMajorPublishModal({
     onPublish({
       name: name.trim(),
       targetGradeIds: effectiveTargetGradeIds,
+      targetClassIds: effectiveTargetClassIds,
       subject: finalSubject,
       startTime,
       durationMinutes: finalDuration,
@@ -248,7 +333,10 @@ export default function QuickMajorPublishModal({
                     <button
                       type="button"
                       className={`quick-major-choice${schoolWide ? " is-selected" : ""}`}
-                      onClick={() => setSchoolWide((value) => !value)}
+                      onClick={() => {
+                        setSchoolWide((value) => !value);
+                        setTargetClassIds([]);
+                      }}
                     >
                       全校统一<span>所有年级</span>
                     </button>
@@ -262,16 +350,33 @@ export default function QuickMajorPublishModal({
                         onClick={() => {
                           setSchoolWide(false);
                           setTargetGradeIds((ids) =>
-                            ids.includes(grade.id)
-                              ? ids.filter((id) => id !== grade.id)
-                              : [...ids, grade.id],
+                            ids.includes(grade.id) ? ids.filter((id) => id !== grade.id) : [...ids, grade.id],
                           );
+                          if (targetGradeIds.includes(grade.id)) {
+                            const removedClassIds = new Set(classes.filter((item) => item.gradeId === grade.id).map((item) => item.id));
+                            setTargetClassIds((ids) => ids.filter((id) => !removedClassIds.has(id)));
+                          }
                         }}
                       >
                         {grade.name}
                       </button>
                     ))}
                   </div>
+                  {!schoolWide && targetGradeIds.length > 0 && (
+                    <div className="quick-major-class-targets">
+                      <div>
+                        <strong>指定班级（可选）</strong>
+                        <span>{targetClassIds.length ? `仅下发到已选的 ${targetClassIds.length} 个班级` : "未勾选时下发到所选年级的全部班级"}</span>
+                      </div>
+                      <ClassMultiPicker
+                        options={classOptions}
+                        selectedIds={targetClassIds}
+                        onChange={setTargetClassIds}
+                        noun="班级"
+                        emptyText="所选年级暂无可用班级"
+                      />
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -329,68 +434,17 @@ export default function QuickMajorPublishModal({
                 <button
                   type="button"
                   className={`quick-major-choice${useCustomStart ? " is-selected" : ""}`}
-                  onClick={() => setUseCustomStart(true)}
+                  onClick={openTimeFlow}
                 >
                   指定时间
                 </button>
               </div>
               {useCustomStart && (
-                <DateTimeField
-                  className="admin-date-time-field"
-                  value={customStartTime}
-                  onChange={setCustomStartTime}
-                  mode="time"
-                  title="选择开始时间"
-                  showFieldPreview={false}
-                />
-              )}
-            </div>
-            <div className="quick-major-modal__section">
-              <strong>考试时长</strong>
-              <div className="quick-major-choice-grid">
-                {DURATIONS.map((value) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={`quick-major-choice${!customDuration && durationMinutes === value ? " is-selected" : ""}`}
-                    onClick={() => {
-                      setCustomDurationMode(false);
-                      setCustomDuration("");
-                      setDurationMinutes(value);
-                    }}
-                  >
-                    {formatDuration(value)}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className={`quick-major-choice${customDurationMode ? " is-selected" : ""}`}
-                  onClick={() => {
-                    setCustomDurationMode(true);
-                    setCustomDuration((current) => current || String(durationMinutes));
-                  }}
-                >
-                  自定义时长
+                <button type="button" className="quick-major-time-trigger" onClick={openTimeFlow}>
+                  <span>已设置考试时间</span>
+                  <strong>{customStartTime} - {clockAfter(customStartTime, durationMinutes)}</strong>
+                  <small>{formatDuration(durationMinutes)}，点击可同时修改开始与结束时间</small>
                 </button>
-              </div>
-              {customDurationMode && (
-                <div className="quick-major-custom-duration-editor">
-                  <label>
-                    自定义时长（分钟）
-                    <input
-                      className="admin-input"
-                      type="number"
-                      min="5"
-                      max="720"
-                      step="5"
-                      value={customDuration}
-                      onChange={(event) => setCustomDuration(event.target.value)}
-                      placeholder="5 - 720"
-                      autoFocus
-                    />
-                  </label>
-                  <span>{formatDuration(finalDuration)}</span>
-                </div>
               )}
             </div>
             <section className="quick-major-live-preview" aria-live="polite">
@@ -413,12 +467,17 @@ export default function QuickMajorPublishModal({
               <span>
                 {schoolWide
                   ? "全校统一"
-                  : grades
+                  : effectiveTargetClassIds.length
+                    ? classes
+                        .filter((item) => effectiveTargetClassIds.includes(item.id))
+                        .map((item) => `${grades.find((grade) => grade.id === item.gradeId)?.name ?? ""}${item.name}`)
+                        .join("、")
+                    : grades
                       .filter((grade) =>
                         effectiveTargetGradeIds.includes(grade.id),
                       )
                       .map((grade) => grade.name)
-                      .join("、")}
+                      .join("、") + "全部班级"}
               </span>
               <strong>{name}</strong>
               <p>
@@ -487,6 +546,38 @@ export default function QuickMajorPublishModal({
             </button>
           )}
         </div>
+        {timeFlowOpen && (
+          <div className="admin-modal-overlay quick-major-time-overlay" role="presentation" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+            <div className="admin-modal admin-major-time-flow quick-major-time-flow" role="dialog" aria-modal="true" aria-label="设置考试开始与结束时间">
+              <div className="admin-major-time-flow__head">
+                <div><h3 className="admin-modal__title">设置考试时间</h3><p>开始和结束时间在此一次完成</p></div>
+                <button type="button" className="admin-btn" onClick={() => setTimeFlowOpen(false)}>取消</button>
+              </div>
+              <div className="quick-major-time-switch">
+                {(["start", "end"] as const).map((target) => (
+                  <button type="button" key={target} className={timeFlowTarget === target ? "is-selected" : ""} onClick={() => setTimeFlowTarget(target)}>
+                    <span>{target === "start" ? "开始时间" : "结束时间"}</span>
+                    <strong>{target === "start" ? timeFlowStart : timeFlowEnd}</strong>
+                  </button>
+                ))}
+              </div>
+              <div className="admin-major-duration-presets">
+                <span>常用时长</span>
+                <div>{DURATIONS.map((value) => <button type="button" key={value} className={clockDuration(timeFlowStart, timeFlowEnd) === value ? "is-selected" : ""} onClick={() => { setTimeFlowEnd(clockAfter(timeFlowStart, value)); setTimeFlowTarget("end"); }}>{formatDuration(value)}</button>)}</div>
+              </div>
+              <section className="admin-major-time-flow__manual">
+                <div className="admin-major-time-flow__manual-head"><div><strong>调整{timeFlowTarget === "start" ? "开始" : "结束"}时间</strong><span>上下滚动小时和分钟</span></div></div>
+                <div className="admin-major-time-wheel">
+                  <div className="admin-major-time-wheel__column"><span>时</span><div ref={hourRef} className="admin-major-time-wheel__list" onScroll={(event) => setActiveClockPart("hour", Math.max(0, Math.min(23, Math.round(event.currentTarget.scrollTop / 48))))}>{Array.from({ length: 24 }, (_, value) => <button type="button" key={value} className={activeClock.hour === value ? "is-selected" : ""} onClick={() => setActiveClockPart("hour", value)}>{String(value).padStart(2, "0")}</button>)}</div></div>
+                  <span className="admin-major-time-wheel__separator">:</span>
+                  <div className="admin-major-time-wheel__column"><span>分</span><div ref={minuteRef} className="admin-major-time-wheel__list" onScroll={(event) => setActiveClockPart("minute", Math.max(0, Math.min(59, Math.round(event.currentTarget.scrollTop / 48))))}>{Array.from({ length: 60 }, (_, value) => <button type="button" key={value} className={activeClock.minute === value ? "is-selected" : ""} onClick={() => setActiveClockPart("minute", value)}>{String(value).padStart(2, "0")}</button>)}</div></div>
+                </div>
+              </section>
+              <section className="admin-major-exam-summary"><span>考试预览</span><strong>{finalSubject || "待选择科目"}</strong><p>{examDate} · {timeFlowStart} - {timeFlowEnd} · {formatDuration(clockDuration(timeFlowStart, timeFlowEnd))}</p></section>
+              <div className="admin-modal__actions"><button type="button" className="admin-btn" onClick={() => setTimeFlowOpen(false)}>取消</button><button type="button" className="admin-btn admin-btn--primary" onClick={confirmTimeFlow}>确认时间</button></div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

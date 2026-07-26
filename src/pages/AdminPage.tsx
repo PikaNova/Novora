@@ -1538,10 +1538,7 @@ export default function AdminPage() {
       ],
       order: majors.length,
       targetGradeIds: input.targetGradeIds,
-      targetClassIds:
-        adminUser?.roleId === "class_admin" && selectedClassId
-          ? [selectedClassId]
-          : [],
+      targetClassIds: input.targetClassIds,
       source: "quick",
       temporary: true,
       priorityOverSchedule: input.priorityOverSchedule,
@@ -2985,12 +2982,16 @@ export default function AdminPage() {
       {quickMajorOpen && (
         <QuickMajorPublishModal
           grades={visibleGrades}
+          classes={visibleClasses}
           initialGradeIds={selectedGradeId ? [selectedGradeId] : []}
           allowSchoolWide={hasAllScope}
           lockedClassName={
             adminUser.roleId === "class_admin"
               ? visibleClasses.find((item) => item.id === selectedClassId)?.name
               : undefined
+          }
+          lockedClassId={
+            adminUser.roleId === "class_admin" ? selectedClassId : undefined
           }
           majors={visibleMajors}
           onClose={() => setQuickMajorOpen(false)}
