@@ -89,7 +89,9 @@ export default function QuickMajorPublishModal({
   const [subject, setSubject] = useState("");
   const [customSubject, setCustomSubject] = useState("");
   const [delayMinutes, setDelayMinutes] = useState(0);
-  const [customStart, setCustomStart] = useState("");
+  // The date is chosen in step 1. The follow-up picker deliberately owns only
+  // the time portion, matching weekly-plan editing and avoiding a second date.
+  const [customStartTime, setCustomStartTime] = useState("08:00");
   const [useCustomStart, setUseCustomStart] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [customDuration, setCustomDuration] = useState("");
@@ -97,7 +99,7 @@ export default function QuickMajorPublishModal({
   const [error, setError] = useState("");
 
   const startTime = useCustomStart
-    ? customStart
+    ? `${examDate}T${customStartTime}`
     : localInputValue(delayMinutes === 0 ? Date.now() : roundUpToFiveMinutes(Date.now() + delayMinutes * 60_000));
   const finalDuration = customDuration
     ? Math.max(5, Math.min(720, Math.round((Number(customDuration) || durationMinutes) / 5) * 5))
@@ -219,10 +221,6 @@ export default function QuickMajorPublishModal({
                 value={examDate}
                 onChange={(value) => {
                   setExamDate(value);
-                  setUseCustomStart(true);
-                  setCustomStart(
-                    (current) => `${value}T${current?.slice(11, 16) || "08:00"}`,
-                  );
                 }}
                 mode="date"
                 title="选择考试日期"
@@ -338,9 +336,9 @@ export default function QuickMajorPublishModal({
               {useCustomStart && (
                 <DateTimeField
                   className="admin-date-time-field"
-                  value={customStart}
-                  onChange={setCustomStart}
-                  mode="datetime"
+                  value={customStartTime}
+                  onChange={setCustomStartTime}
+                  mode="time"
                   title="选择开始时间"
                   showFieldPreview={false}
                 />
