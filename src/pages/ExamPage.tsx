@@ -386,13 +386,17 @@ function BoundExamPage() {
           hasPendingSync={hasPendingSync}
           onRefresh={() => { void refreshExamData(true); }}
         />
-        {schoolName && (
-          <div className="exam-school-name" title={schoolName}>
-            <School aria-hidden="true" />
-            <span>{schoolName}</span>
-          </div>
-        )}
-        <BrandMark compact className="exam-brand-mark" />
+      </div>
+      <div className="exam-context-bar" aria-label="看板信息">
+        <div className="exam-context-bar__identity">
+          {schoolName && (
+            <div className="exam-school-name" title={schoolName}>
+              <School aria-hidden="true" />
+              <span>{schoolName}</span>
+            </div>
+          )}
+          <BrandMark compact className="exam-brand-mark" />
+        </div>
         {raw.currentExam && <div className="exam-subject-badge"><SubjectIcon subject={raw.currentExam.name} size={17} /><span>{raw.currentExam.name}</span></div>}
       </div>
       <ExamAnnouncementOverlay
