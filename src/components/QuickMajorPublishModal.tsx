@@ -95,13 +95,14 @@ export default function QuickMajorPublishModal({
   const [useCustomStart, setUseCustomStart] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [customDuration, setCustomDuration] = useState("");
+  const [customDurationMode, setCustomDurationMode] = useState(false);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
 
   const startTime = useCustomStart
     ? `${examDate}T${customStartTime}`
     : localInputValue(delayMinutes === 0 ? Date.now() : roundUpToFiveMinutes(Date.now() + delayMinutes * 60_000));
-  const finalDuration = customDuration
+  const finalDuration = customDurationMode
     ? Math.max(5, Math.min(720, Math.round((Number(customDuration) || durationMinutes) / 5) * 5))
     : durationMinutes;
   const previewEndTime = Number.isFinite(new Date(startTime).getTime())
@@ -353,6 +354,7 @@ export default function QuickMajorPublishModal({
                     key={value}
                     className={`quick-major-choice${!customDuration && durationMinutes === value ? " is-selected" : ""}`}
                     onClick={() => {
+                      setCustomDurationMode(false);
                       setCustomDuration("");
                       setDurationMinutes(value);
                     }}
@@ -360,20 +362,36 @@ export default function QuickMajorPublishModal({
                     {formatDuration(value)}
                   </button>
                 ))}
-                <label className="quick-major-custom-duration">
-                  自定义
-                  <input
-                    className="admin-input"
-                    type="number"
-                    min="5"
-                    max="720"
-                    step="5"
-                    value={customDuration}
-                    onChange={(event) => setCustomDuration(event.target.value)}
-                    placeholder="分钟"
-                  />
-                </label>
+                <button
+                  type="button"
+                  className={`quick-major-choice${customDurationMode ? " is-selected" : ""}`}
+                  onClick={() => {
+                    setCustomDurationMode(true);
+                    setCustomDuration((current) => current || String(durationMinutes));
+                  }}
+                >
+                  自定义时长
+                </button>
               </div>
+              {customDurationMode && (
+                <div className="quick-major-custom-duration-editor">
+                  <label>
+                    自定义时长（分钟）
+                    <input
+                      className="admin-input"
+                      type="number"
+                      min="5"
+                      max="720"
+                      step="5"
+                      value={customDuration}
+                      onChange={(event) => setCustomDuration(event.target.value)}
+                      placeholder="5 - 720"
+                      autoFocus
+                    />
+                  </label>
+                  <span>{formatDuration(finalDuration)}</span>
+                </div>
+              )}
             </div>
             <section className="quick-major-live-preview" aria-live="polite">
               <Clock3 aria-hidden="true" />

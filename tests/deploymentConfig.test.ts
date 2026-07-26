@@ -23,7 +23,7 @@ test('deployment config supplies security and PWA revalidation headers', async (
 
 test('service worker uses the current shell cache and removes stale Novora caches', async () => {
   const worker = await readFile('public/service-worker.js', 'utf8');
-  assert.match(worker, /novora-shell-v2\.7\.5/);
+  assert.match(worker, /novora-shell-v2\.7\.6/);
   assert.match(worker, /novora-runtime-v2\.6\.0/);
   assert.match(worker, /key\.startsWith\('novora-shell-'\)/);
   assert.match(worker, /key\.startsWith\('novora-runtime-'\)/);

@@ -126,7 +126,9 @@ export function DateTimePicker(props: DateTimePickerProps) {
       if (minuteWheelRef.current) minuteWheelRef.current.scrollTop = minuteIndex * 48
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [field, hourValues, minuteValues, draft.hour, draft.minute])
+    // Reposition only on entry. Updating scrollTop while a user drags the
+    // wheel cancels touch inertia and makes the picker appear to freeze.
+  }, [field, hourValues, minuteValues])
 
   function dismissAfterPointerAction(callback: () => void) {
     // Closing a portal during pointerup can retarget the browser's trailing

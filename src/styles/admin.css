@@ -519,6 +519,9 @@
 .weekly-import-modal__steps span{display:inline-flex;align-items:center;min-height:26px;padding:0 9px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.03)}
 .weekly-import-modal__steps .is-current{border-color:rgba(78,170,229,.62);background:rgba(52,152,219,.14);color:#d8f1ff}
 .weekly-import-modal__steps .is-done{color:#9bd6b6}
+.quick-major-custom-duration-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;padding:11px 12px;border:1px solid rgba(52,152,219,.38);border-radius:8px;background:rgba(52,152,219,.08)}
+.quick-major-custom-duration-editor label{display:grid;gap:7px;font-size:13px;color:rgba(240,246,250,.86)}.quick-major-custom-duration-editor .admin-input{width:100%;min-height:42px;box-sizing:border-box}.quick-major-custom-duration-editor>span{padding-bottom:11px;color:#9bd8ff;font-size:13px;font-weight:700;white-space:nowrap}
+@media(max-width:600px){.quick-major-custom-duration-editor{grid-template-columns:1fr;gap:7px}.quick-major-custom-duration-editor>span{padding-bottom:0}}
 .weekly-import-modal__textarea{min-height:190px;resize:vertical}
 .weekly-import-modal__summary{display:grid;gap:3px;margin:0 0 12px;padding:11px 12px;border:1px solid rgba(70,163,222,.28);border-radius:7px;background:rgba(50,137,192,.09)}
 .weekly-import-modal__summary strong{font-size:14px;color:#edf7fc}.weekly-import-modal__summary span{color:rgba(220,239,250,.68);font-size:12px}
