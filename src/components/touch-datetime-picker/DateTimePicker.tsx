@@ -125,7 +125,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
       if (timeWheelRef.current) timeWheelRef.current.scrollTop = index * 48
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [draft.hour, draft.minute, field, hourValues, minuteValues])
+  }, [field])
 
   function dismissAfterPointerAction(callback: () => void) {
     // Closing a portal during pointerup can retarget the browser's trailing
