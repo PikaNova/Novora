@@ -292,7 +292,11 @@ export default function AdminPage() {
   );
   const [editing, setEditing] = useState<EditItem | null>(null);
   const [customSubjectActive, setCustomSubjectActive] = useState(false);
-  const [endPickerSignal, setEndPickerSignal] = useState(0);
+  const [majorTimeFlowOpen, setMajorTimeFlowOpen] = useState(false);
+  const [majorTimeFlowInitialEnd, setMajorTimeFlowInitialEnd] = useState("");
+  const [majorManualTimeOpen, setMajorManualTimeOpen] = useState(false);
+  const majorHourWheelRef = useRef<HTMLDivElement | null>(null);
+  const majorMinuteWheelRef = useRef<HTMLDivElement | null>(null);
   const [editError, setEditError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ExamItem | null>(null);
   const [lastDeletedExam, setLastDeletedExam] = useState<{
@@ -1597,6 +1601,61 @@ export default function AdminPage() {
     );
   };
 
+  const openMajorTimeFlow = () => {
+    if (!editing?.startTime) return;
+    setMajorTimeFlowInitialEnd(editing.endTime);
+    setMajorManualTimeOpen(false);
+    setMajorTimeFlowOpen(true);
+  };
+
+  const cancelMajorTimeFlow = () => {
+    setEditing((value) =>
+      value ? { ...value, endTime: majorTimeFlowInitialEnd } : value,
+    );
+    setMajorManualTimeOpen(false);
+    setMajorTimeFlowOpen(false);
+  };
+
+  const getMajorEndParts = () => {
+    const fallback = fmtLocal(editing?.startTime || "");
+    const [date = "", time = "00:00"] = fmtLocal(editing?.endTime || "")
+      .split(" ");
+    const [fallbackDate = ""] = fallback.split(" ");
+    const [hourText = "0", minuteText = "0"] = time.split(":");
+    return {
+      date: date || fallbackDate,
+      hour: Math.max(0, Math.min(23, Number(hourText) || 0)),
+      minute: Math.max(0, Math.min(59, Number(minuteText) || 0)),
+    };
+  };
+
+  const setMajorEndParts = (next: Partial<ReturnType<typeof getMajorEndParts>>) => {
+    const current = getMajorEndParts();
+    const date = next.date ?? current.date;
+    const hour = next.hour ?? current.hour;
+    const minute = next.minute ?? current.minute;
+    if (!date) return;
+    setLongDurationConfirmed(false);
+    setEditing((value) =>
+      value
+        ? {
+            ...value,
+            endTime: `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+          }
+        : value,
+    );
+  };
+
+  useEffect(() => {
+    if (!majorTimeFlowOpen || !majorManualTimeOpen) return;
+    const { hour, minute } = getMajorEndParts();
+    const frame = window.requestAnimationFrame(() => {
+      if (majorHourWheelRef.current) majorHourWheelRef.current.scrollTop = hour * 48;
+      if (majorMinuteWheelRef.current) majorMinuteWheelRef.current.scrollTop = minute * 48;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [majorManualTimeOpen, majorTimeFlowOpen]);
+
   const commitEdit = async () => {
     if (!editing) return;
     if (!editing.name.trim()) {
@@ -1877,6 +1936,7 @@ export default function AdminPage() {
       : 0;
   const isLongEdit =
     Number.isFinite(editDurationMs) && editDurationMs > 6 * 60 * 60 * 1000;
+  const majorEndParts = getMajorEndParts();
   const activeMajorScopeLabel = activeMajor.targetClassIds?.length
     ? `指定 ${activeMajor.targetClassIds.length} 个班级`
     : activeMajor.targetGradeIds?.length
@@ -2466,18 +2526,21 @@ export default function AdminPage() {
                             setLongDurationConfirmed(false);
                             const startTime = toISO(value);
                             const start = new Date(startTime).getTime();
+                            const currentEnd = new Date(editing.endTime).getTime();
+                            const endTime = Number.isFinite(currentEnd) && currentEnd > start
+                              ? editing.endTime
+                              : toISO(toLocalInput(start + 60 * 60_000));
                             setEditing((p) => {
                               if (!p) return p;
-                              const currentEnd = new Date(p.endTime).getTime();
                               return {
                                 ...p,
                                 startTime,
-                                endTime: Number.isFinite(currentEnd) && currentEnd > start
-                                  ? p.endTime
-                                  : toISO(toLocalInput(start + 60 * 60_000)),
+                                endTime,
                               };
                             });
-                            setEndPickerSignal((signal) => signal + 1);
+                            setMajorTimeFlowInitialEnd(endTime);
+                            setMajorManualTimeOpen(false);
+                            setMajorTimeFlowOpen(true);
                           }}
                           mode="datetime"
                           minuteStep={5}
@@ -2486,49 +2549,18 @@ export default function AdminPage() {
                           compactPlacement="right"
                         />
                       </label>
-                      <label className="admin-label">
-                        结束时间
-                        <DateTimeField
-                          className="admin-date-time-field"
-                          value={fmtLocal(editing.endTime)}
-                          onChange={(value) => {
-                            setLongDurationConfirmed(false);
-                            setEditing(
-                              (p) =>
-                                p && { ...p, endTime: toISO(value) },
-                            );
-                          }}
-                          mode="datetime"
-                          minuteStep={5}
-                          title="选择结束时间"
-                          showFieldPreview={false}
-                          compactPlacement="right"
-                          initialField="hour"
-                          openSignal={endPickerSignal}
-                        />
-                        {editing.startTime && editing.endTime && (
-                          <span className="admin-duration-hint">
-                            历时 {duration(editing.startTime, editing.endTime)}
-                          </span>
-                        )}
-                      </label>
-                      {editing.startTime && (
-                        <section className="admin-major-duration-presets" aria-label="常用考试时长">
-                          <span>推荐考试时长</span>
-                          <div>
-                            {MAJOR_DURATION_PRESETS.map((minutes) => {
-                              const selected = editing.endTime && Math.round((new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime()) / 60_000) === minutes;
-                              return <button type="button" key={minutes} className={selected ? "is-selected" : ""} onClick={() => applyMajorDuration(minutes)}>{minutes} 分钟</button>;
-                            })}
-                          </div>
-                        </section>
-                      )}
-                      {editing.name && editing.startTime && editing.endTime && (
-                        <div className="admin-major-exam-summary">
-                          <SubjectIcon subject={editing.name} size={18} />
-                          <span><strong>{editing.name}</strong>{fmtLocal(editing.startTime)} 至 {fmtLocal(editing.endTime)} · {duration(editing.startTime, editing.endTime)}</span>
-                        </div>
-                      )}
+                      <div className="admin-major-endtime">
+                        <span>结束时间</span>
+                        <button
+                          type="button"
+                          className="admin-major-endtime__trigger"
+                          disabled={!editing.startTime}
+                          onClick={openMajorTimeFlow}
+                        >
+                          <strong>{editing.endTime ? fmtLocal(editing.endTime) : "设置结束时间"}</strong>
+                          <small>{editing.startTime && editing.endTime ? `历时 ${duration(editing.startTime, editing.endTime) || "请调整"}` : "请先选择开始时间"}</small>
+                        </button>
+                      </div>
                       {isLongEdit && (
                         <label className="admin-long-duration">
                           <input
@@ -2563,6 +2595,7 @@ export default function AdminPage() {
                         <button
                           className="admin-btn admin-btn--ghost"
                           onClick={() => {
+                            setMajorTimeFlowOpen(false);
                             setEditing(null);
                             setCustomSubjectActive(false);
                             setEditError("");
@@ -2580,7 +2613,8 @@ export default function AdminPage() {
                     onClick={() => {
                       setLongDurationConfirmed(false);
                       setCustomSubjectActive(false);
-                      setEndPickerSignal(0);
+                      setMajorTimeFlowOpen(false);
+                      setMajorTimeFlowInitialEnd("");
                       setEditing({
                         name: "",
                         startTime: "",
@@ -3408,6 +3442,139 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {majorTimeFlowOpen && editing && (
+        <div className="admin-modal-overlay" role="presentation">
+          <section
+            className="admin-modal admin-modal--wide admin-major-time-flow"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="major-time-flow-title"
+          >
+            <div className="admin-major-time-flow__head">
+              <div>
+                <h2 id="major-time-flow-title" className="admin-modal__title">
+                  设置结束时间
+                </h2>
+                <p>开始：{fmtLocal(editing.startTime)}</p>
+              </div>
+              <button className="admin-btn admin-btn--ghost" onClick={cancelMajorTimeFlow}>
+                取消
+              </button>
+            </div>
+            <section className="admin-major-duration-presets" aria-label="常用考试时长">
+              <span>常用考试时长</span>
+              <div>
+                {MAJOR_DURATION_PRESETS.map((minutes) => {
+                  const selected = editing.endTime && Math.round((new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime()) / 60_000) === minutes;
+                  return (
+                    <button
+                      type="button"
+                      key={minutes}
+                      className={selected ? "is-selected" : ""}
+                      onClick={() => applyMajorDuration(minutes)}
+                    >
+                      {minutes} 分钟
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+            <div className="admin-major-time-flow__manual-head">
+              <div>
+                <strong>手动调整结束时间</strong>
+                <span>可精确设置到任意分钟</span>
+              </div>
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={() => setMajorManualTimeOpen((value) => !value)}
+                aria-expanded={majorManualTimeOpen}
+              >
+                {majorManualTimeOpen ? "收起滚轮" : "手动设置"}
+              </button>
+            </div>
+            {majorManualTimeOpen && (
+              <section className="admin-major-time-flow__manual">
+                <div className="admin-major-time-wheel" aria-label="结束时间滚轮">
+                  <div className="admin-major-time-wheel__column">
+                    <span>时</span>
+                    <div
+                      className="admin-major-time-wheel__list"
+                      ref={majorHourWheelRef}
+                      onScroll={(event) => setMajorEndParts({ hour: Math.round(event.currentTarget.scrollTop / 48) })}
+                    >
+                      {Array.from({ length: 24 }, (_, hour) => (
+                        <button
+                          type="button"
+                          key={hour}
+                          className={majorEndParts.hour === hour ? "is-selected" : ""}
+                          onClick={() => setMajorEndParts({ hour })}
+                        >
+                          {String(hour).padStart(2, "0")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <span className="admin-major-time-wheel__separator">:</span>
+                  <div className="admin-major-time-wheel__column">
+                    <span>分</span>
+                    <div
+                      className="admin-major-time-wheel__list"
+                      ref={majorMinuteWheelRef}
+                      onScroll={(event) => setMajorEndParts({ minute: Math.round(event.currentTarget.scrollTop / 48) })}
+                    >
+                      {Array.from({ length: 60 }, (_, minute) => (
+                        <button
+                          type="button"
+                          key={minute}
+                          className={majorEndParts.minute === minute ? "is-selected" : ""}
+                          onClick={() => setMajorEndParts({ minute })}
+                        >
+                          {String(minute).padStart(2, "0")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <label className="admin-label admin-major-time-flow__date">
+                  结束日期
+                  <DateTimeField
+                    className="admin-date-time-field"
+                    value={majorEndParts.date}
+                    onChange={(value) => setMajorEndParts({ date: value })}
+                    mode="date"
+                    title="选择结束日期"
+                    showFieldPreview={false}
+                    compactPlacement="right"
+                  />
+                  <small>默认与开始日期相同；仅跨天考试时需要更改。</small>
+                </label>
+              </section>
+            )}
+            {editing.name && editing.startTime && editing.endTime && (
+              <div className="admin-major-exam-summary">
+                <SubjectIcon subject={editing.name} size={18} />
+                <span>
+                  <strong>{editing.name}</strong>
+                  {fmtLocal(editing.startTime)} 至 {fmtLocal(editing.endTime)} · {duration(editing.startTime, editing.endTime) || "请将结束时间设为开始时间之后"}
+                </span>
+              </div>
+            )}
+            <div className="admin-modal__actions">
+              <button className="admin-btn" onClick={cancelMajorTimeFlow}>取消</button>
+              <button
+                className="admin-btn admin-btn--primary"
+                onClick={() => {
+                  setMajorManualTimeOpen(false);
+                  setMajorTimeFlowOpen(false);
+                }}
+              >
+                确认时间
+              </button>
+            </div>
+          </section>
         </div>
       )}
       {can("initialization.run") && (
