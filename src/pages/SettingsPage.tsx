@@ -27,6 +27,7 @@ import { renderMarkdown } from "../utils/renderMarkdown";
 import AnnouncementList from "../components/AnnouncementList";
 import HelpTip from "../components/HelpTip";
 import InlineSelect from "../components/InlineSelect";
+import { DateTimeField } from "../components/touch-datetime-picker";
 import readmeRaw from "../../README.md?raw";
 import {
   adminCan,
@@ -892,14 +893,14 @@ export default function SettingsPage() {
                       交替推算。修改日期会立即反映到日历预览。
                     </HelpTip>
                   </label>
-                  <input
-                    className="set-input"
-                    type="date"
+                  <DateTimeField
+                    className="set-date-time-field"
                     disabled={!canEditWeekly || calendarSaving}
                     value={calendarPlan.anchorDate}
-                    onChange={(event) =>
-                      void saveCalendarPlan({ anchorDate: event.target.value })
-                    }
+                    onChange={(value) => void saveCalendarPlan({ anchorDate: value })}
+                    mode="date"
+                    title="选择学期开始日期"
+                    showFieldPreview={false}
                   />
                 </div>
                 <div className="set-row">

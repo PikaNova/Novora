@@ -20,6 +20,7 @@ import { notify } from "../services/notify";
 import { getAppSettings } from "../utils/appSettings";
 import { classDisplayName } from "../utils/classSettings";
 import { confirmDialog } from "../services/appDialog";
+import { DateTimeField } from "./touch-datetime-picker";
 
 const COMMON_SUBJECTS = [
   "语文",
@@ -360,24 +361,25 @@ export default function TemporaryExamLauncher({
                         <div className="temp-specific-time">
                           <label>
                             <span>日期</span>
-                            <input
-                              type="date"
+                            <DateTimeField
+                              className="admin-date-time-field"
                               value={specificDate}
-                              min={dateKey(Date.now())}
-                              onChange={(event) =>
-                                setSpecificDate(event.target.value)
-                              }
+                              onChange={setSpecificDate}
+                              mode="date"
+                              title="选择考试日期"
+                              showFieldPreview={false}
                             />
                           </label>
                           <label>
                             <span>时间</span>
-                            <input
-                              type="time"
-                              step="300"
+                            <DateTimeField
+                              className="admin-date-time-field"
                               value={specificTime}
-                              onChange={(event) =>
-                                setSpecificTime(normalizeTimeToFiveMinutes(event.target.value))
-                              }
+                              onChange={(value) => setSpecificTime(normalizeTimeToFiveMinutes(value))}
+                              mode="time"
+                              minuteStep={5}
+                              title="选择考试开始时间"
+                              showFieldPreview={false}
                             />
                           </label>
                         </div>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Watermark from "../components/Watermark";
+import { DateTimeField } from "../components/touch-datetime-picker";
 import type {
   ExamItem,
   MajorExam,
@@ -2110,8 +2111,8 @@ export default function AdminPage() {
           adminTab !== "users" && (
             <>
               <label className="admin-tabbar__mode">
-                <span>
-                  运行模式{" "}
+                <span className="admin-tabbar__mode-label">
+                  <span>运行模式</span>
                   <HelpTip title="运行模式">
                     仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。
                   </HelpTip>
@@ -2428,32 +2429,38 @@ export default function AdminPage() {
                       </label>
                       <label className="admin-label">
                         开始时间
-                        <input
-                          className="admin-input"
-                          type="datetime-local"
+                        <DateTimeField
+                          className="admin-date-time-field"
                           value={fmtLocal(editing.startTime)}
-                          onChange={(e) => {
+                          onChange={(value) => {
                             setLongDurationConfirmed(false);
                             setEditing(
                               (p) =>
-                                p && { ...p, startTime: toISO(e.target.value) },
+                                p && { ...p, startTime: toISO(value) },
                             );
                           }}
+                          mode="datetime"
+                          minuteStep={5}
+                          title="选择开始时间"
+                          showFieldPreview={false}
                         />
                       </label>
                       <label className="admin-label">
                         结束时间
-                        <input
-                          className="admin-input"
-                          type="datetime-local"
+                        <DateTimeField
+                          className="admin-date-time-field"
                           value={fmtLocal(editing.endTime)}
-                          onChange={(e) => {
+                          onChange={(value) => {
                             setLongDurationConfirmed(false);
                             setEditing(
                               (p) =>
-                                p && { ...p, endTime: toISO(e.target.value) },
+                                p && { ...p, endTime: toISO(value) },
                             );
                           }}
+                          mode="datetime"
+                          minuteStep={5}
+                          title="选择结束时间"
+                          showFieldPreview={false}
                         />
                         {editing.startTime && editing.endTime && (
                           <span className="admin-duration-hint">

@@ -1,5 +1,5 @@
-const CACHE = 'novora-shell-v2.5.6';
-const RUNTIME = 'novora-runtime-v2.5.6';
+const CACHE = 'novora-shell-v2.6.0';
+const RUNTIME = 'novora-runtime-v2.6.0';
 // Keep installation light. Fonts are cached after a design actually requests them.
 const CORE = ['/', '/index.html', '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512-rounded.png', '/manifest.webmanifest', '/fonts/exam-numeric-subset.ttf', '/fonts/source-han-sc-standard-subset.woff2'];
 

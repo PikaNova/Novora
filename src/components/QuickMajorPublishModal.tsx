@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolGrade } from "../types/school";
+import { DateTimeField } from "./touch-datetime-picker";
 
 export interface QuickMajorPublishInput {
   name: string;
@@ -285,12 +286,14 @@ export default function QuickMajorPublishModal({
                 </button>
               </div>
               {useCustomStart && (
-                <input
-                  className="admin-input"
-                  type="datetime-local"
-                  step="300"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={customStart}
-                  onChange={(event) => setCustomStart(event.target.value)}
+                  onChange={setCustomStart}
+                  mode="datetime"
+                  minuteStep={5}
+                  title="选择开始时间"
+                  showFieldPreview={false}
                 />
               )}
             </div>

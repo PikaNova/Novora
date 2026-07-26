@@ -450,6 +450,7 @@ export default function UserManagementPanel({
   const [resetError, setResetError] = useState("");
   const [batchDeleteMode, setBatchDeleteMode] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [batchDeleteGradeId, setBatchDeleteGradeId] = useState("");
 
   const load = async () => {
     if (!canReadUsers || current?.mustChangePassword) {
@@ -861,6 +862,18 @@ export default function UserManagementPanel({
     }
   };
   const removableUsers = users.filter((user) => user.id !== current?.id);
+  const batchDeleteUsers = useMemo(
+    () =>
+      batchDeleteGradeId
+        ? removableUsers.filter((user) =>
+            user.scopes.some(
+              (scope) =>
+                scope.type !== "all" && scope.gradeId === batchDeleteGradeId,
+            ),
+          )
+        : removableUsers,
+    [batchDeleteGradeId, removableUsers],
+  );
   const removeSelectedUsers = async () => {
     const targets = removableUsers.filter((user) => selectedUserIds.includes(user.id));
     if (!targets.length) return;
@@ -1067,6 +1080,7 @@ export default function UserManagementPanel({
               onClick={() => {
                 setBatchDeleteMode((value) => !value);
                 setSelectedUserIds([]);
+                setBatchDeleteGradeId("");
               }}
             >
               {batchDeleteMode ? "退出批量删除" : "批量删除账户"}
@@ -1155,11 +1169,26 @@ export default function UserManagementPanel({
           </div>
           {batchDeleteMode && (
             <div className="user-management__batch-delete">
+              <InlineSelect
+                className="admin-input user-management__batch-grade-filter"
+                value={batchDeleteGradeId}
+                onChange={(value) => {
+                  setBatchDeleteGradeId(value);
+                  setSelectedUserIds([]);
+                }}
+                options={[
+                  { value: "", label: "全部年级" },
+                  ...visibleGrades.map((grade) => ({
+                    value: grade.id,
+                    label: grade.name,
+                  })),
+                ]}
+              />
               <label>
                 <input
                   type="checkbox"
-                  checked={removableUsers.length > 0 && removableUsers.every((user) => selectedUserIds.includes(user.id))}
-                  onChange={(event) => setSelectedUserIds(event.target.checked ? removableUsers.map((user) => user.id) : [])}
+                  checked={batchDeleteUsers.length > 0 && batchDeleteUsers.every((user) => selectedUserIds.includes(user.id))}
+                  onChange={(event) => setSelectedUserIds(event.target.checked ? batchDeleteUsers.map((user) => user.id) : [])}
                 />
                 选择当前可删除账号
               </label>
@@ -1170,9 +1199,11 @@ export default function UserManagementPanel({
             </div>
           )}
           <div className="user-management__list">
-            {users.map((user) => (
+            {batchDeleteMode && batchDeleteUsers.length === 0 ? (
+              <div className="admin-empty"><p>当前年级没有可批量删除的账号。</p></div>
+            ) : (batchDeleteMode ? batchDeleteUsers : users).map((user) => (
               <article
-                className={`user-management__row${user.status === "disabled" ? " is-disabled" : ""}`}
+                className={`user-management__row${user.status === "disabled" ? " is-disabled" : ""}${batchDeleteMode ? " is-batch" : ""}`}
                 key={user.id}
               >
                 {batchDeleteMode && user.id !== current?.id && (

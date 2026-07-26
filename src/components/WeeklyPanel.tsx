@@ -38,6 +38,7 @@ import { notify } from "../services/notify";
 import AiImportGuide from "./AiImportGuide";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
+import { DateTimeField } from "./touch-datetime-picker";
 import { CalendarDays, CircleHelp } from "lucide-react";
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
@@ -1196,24 +1197,24 @@ export default function WeeklyPanel({
             </label>
             <label className="admin-label">
               生效日期
-              <input
-                className="admin-input"
-                type="date"
+              <DateTimeField
+                className="admin-date-time-field"
                 value={planModal.activeFrom}
-                onChange={(e) =>
-                  setPlanModal((p) => p && { ...p, activeFrom: e.target.value })
-                }
+                onChange={(value) => setPlanModal((p) => p && { ...p, activeFrom: value })}
+                mode="date"
+                title="选择生效日期"
+                showFieldPreview={false}
               />
             </label>
             <label className="admin-label">
               学期开始日期（A 周锚点）
-              <input
-                className="admin-input"
-                type="date"
+              <DateTimeField
+                className="admin-date-time-field"
                 value={planModal.anchorDate}
-                onChange={(e) =>
-                  setPlanModal((p) => p && { ...p, anchorDate: e.target.value })
-                }
+                onChange={(value) => setPlanModal((p) => p && { ...p, anchorDate: value })}
+                mode="date"
+                title="选择学期开始日期"
+                showFieldPreview={false}
               />
             </label>
             <label className="admin-label">
@@ -1245,15 +1246,13 @@ export default function WeeklyPanel({
             {!planModal.forever && (
               <label className="admin-label">
                 结束日期
-                <input
-                  className="admin-input"
-                  type="date"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={planModal.activeUntil}
-                  onChange={(e) =>
-                    setPlanModal(
-                      (p) => p && { ...p, activeUntil: e.target.value },
-                    )
-                  }
+                  onChange={(value) => setPlanModal((p) => p && { ...p, activeUntil: value })}
+                  mode="date"
+                  title="选择结束日期"
+                  showFieldPreview={false}
                 />
               </label>
             )}
@@ -1861,24 +1860,26 @@ export default function WeeklyPanel({
               )}
               <label className="admin-label">
                 开始时间
-                <input
-                  className="admin-input"
-                  type="time"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={editing.startTime}
-                  onChange={(e) =>
-                    setEditing((p) => p && { ...p, startTime: e.target.value })
-                  }
+                  onChange={(value) => setEditing((p) => p && { ...p, startTime: value })}
+                  mode="time"
+                  minuteStep={5}
+                  title="选择开始时间"
+                  showFieldPreview={false}
                 />
               </label>
               <label className="admin-label">
                 结束时间
-                <input
-                  className="admin-input"
-                  type="time"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={editing.endTime}
-                  onChange={(e) =>
-                    setEditing((p) => p && { ...p, endTime: e.target.value })
-                  }
+                  onChange={(value) => setEditing((p) => p && { ...p, endTime: value })}
+                  mode="time"
+                  minuteStep={5}
+                  title="选择结束时间"
+                  showFieldPreview={false}
                 />
               </label>
               <label className="admin-toggle-label">
@@ -2172,11 +2173,13 @@ export default function WeeklyPanel({
             <div className="admin-form">
               <label className="admin-label">
                 添加整日排除
-                <input
-                  className="admin-input"
-                  type="date"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={newExcludeDate}
-                  onChange={(e) => setNewExcludeDate(e.target.value)}
+                  onChange={setNewExcludeDate}
+                  mode="date"
+                  title="选择排除日期"
+                  showFieldPreview={false}
                 />
               </label>
               <button
@@ -2425,41 +2428,37 @@ export default function WeeklyPanel({
               </label>
               <label className="admin-label">
                 调整至日期
-                <input
-                  className="admin-input"
-                  type="date"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={rescheduleTarget.date}
-                  onChange={(e) =>
-                    setRescheduleTarget(
-                      (p) => p && { ...p, date: e.target.value },
-                    )
-                  }
+                  onChange={(value) => setRescheduleTarget((p) => p && { ...p, date: value })}
+                  mode="date"
+                  title="选择调整日期"
+                  showFieldPreview={false}
                 />
               </label>
               <label className="admin-label">
                 开始时间
-                <input
-                  className="admin-input"
-                  type="time"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={rescheduleTarget.startTime}
-                  onChange={(e) =>
-                    setRescheduleTarget(
-                      (p) => p && { ...p, startTime: e.target.value },
-                    )
-                  }
+                  onChange={(value) => setRescheduleTarget((p) => p && { ...p, startTime: value })}
+                  mode="time"
+                  minuteStep={5}
+                  title="选择开始时间"
+                  showFieldPreview={false}
                 />
               </label>
               <label className="admin-label">
                 结束时间
-                <input
-                  className="admin-input"
-                  type="time"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={rescheduleTarget.endTime}
-                  onChange={(e) =>
-                    setRescheduleTarget(
-                      (p) => p && { ...p, endTime: e.target.value },
-                    )
-                  }
+                  onChange={(value) => setRescheduleTarget((p) => p && { ...p, endTime: value })}
+                  mode="time"
+                  minuteStep={5}
+                  title="选择结束时间"
+                  showFieldPreview={false}
                 />
               </label>
               <p className="admin-major-card__hint">
