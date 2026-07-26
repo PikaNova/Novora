@@ -29,7 +29,7 @@ import TemporaryExamLauncher from '../components/TemporaryExamLauncher';
 import ExamQuickMenu from '../components/ExamQuickMenu';
 import { TEMPORARY_EXAM_EVENT } from '../services/temporaryExam';
 import { getResolvedSchedule } from '../utils/appSchedule';
-import { LogOut, Maximize } from 'lucide-react';
+import { AlertTriangle, LogOut, Maximize, X } from 'lucide-react';
 
 interface RawState {
   currentExam: ExamItem | null;
@@ -263,8 +263,10 @@ function BoundExamPage() {
   }, []);
 
   // 全屏展示：顶栏按钮手动切换 + 无操作 1 分钟自动进入。
-  const { isFullscreen, enter: enterFullscreen, exit: exitFullscreen, toggle: toggleFullscreen } = useFullscreen();
+  const { isFullscreen, enter: enterFullscreen, exit: exitFullscreen } = useFullscreen();
   const [fsPromptOpen, setFsPromptOpen] = useState(false);
+  const [fullscreenExitHintOpen, setFullscreenExitHintOpen] = useState(false);
+  const fullscreenExitHintTimer = useRef<number | null>(null);
   const isMobile = useIsMobile();
   const [mobileNoticeDismissed, setMobileNoticeDismissed] = useState(false);
   // 退出全屏入口仅在“考试结束后 15 分钟内”弹出，超时自动隐藏。
@@ -316,6 +318,40 @@ function BoundExamPage() {
     void enterFullscreen().catch(() => {});
   }, [enterFullscreen]);
 
+  const dismissFullscreenExitHint = useCallback(() => {
+    setFullscreenExitHintOpen(false);
+    if (fullscreenExitHintTimer.current != null) {
+      window.clearTimeout(fullscreenExitHintTimer.current);
+      fullscreenExitHintTimer.current = null;
+    }
+  }, []);
+
+  const exitFullscreenWithBrowserGuidance = useCallback(async () => {
+    await exitFullscreen();
+    // A web page can leave only the Fullscreen API. Browser-level full screen
+    // (such as Chrome F11/menu full screen) must still be dismissed by Chrome.
+    setFullscreenExitHintOpen(true);
+    if (fullscreenExitHintTimer.current != null)
+      window.clearTimeout(fullscreenExitHintTimer.current);
+    fullscreenExitHintTimer.current = window.setTimeout(() => {
+      setFullscreenExitHintOpen(false);
+      fullscreenExitHintTimer.current = null;
+    }, 6500);
+  }, [exitFullscreen]);
+
+  const toggleFullscreenWithGuidance = useCallback(() => {
+    if (isFullscreen) {
+      void exitFullscreenWithBrowserGuidance().catch(() => {});
+      return;
+    }
+    void enterFullscreen().catch(() => setFsPromptOpen(true));
+  }, [enterFullscreen, exitFullscreenWithBrowserGuidance, isFullscreen]);
+
+  useEffect(() => () => {
+    if (fullscreenExitHintTimer.current != null)
+      window.clearTimeout(fullscreenExitHintTimer.current);
+  }, []);
+
   return (
     <div className="exam-root">
       <TemporaryExamLauncher formalItems={getResolvedSchedule(nowTick).activeItems} externalOpen={temporaryOpen} onExternalHandled={() => setTemporaryOpen(false)} />
@@ -327,9 +363,16 @@ function BoundExamPage() {
         onOpenAnnouncements={openAnnouncements}
         onSwitchDesign={() => setSwitcherOpen(true)}
         isFullscreen={isFullscreen}
-        onToggleFullscreen={() => { void toggleFullscreen(); }}
+        onToggleFullscreen={toggleFullscreenWithGuidance}
       /></Suspense>
       <Watermark exam />
+      {fullscreenExitHintOpen && (
+        <div className="exam-fullscreen-exit-hint" role="status">
+          <AlertTriangle aria-hidden="true" />
+          <span>已退出看板全屏。若画面仍全屏，请按 F11 或使用浏览器菜单退出。</span>
+          <button type="button" aria-label="关闭提示" onClick={dismissFullscreenExitHint}><X aria-hidden="true" /></button>
+        </div>
+      )}
       <div className="exam-corner-stack">
         <ExamSyncAction
           state={examDataSyncState}
@@ -363,7 +406,7 @@ function BoundExamPage() {
           <button
             type="button"
             className="exam-ended-exit__btn"
-            onClick={() => { void exitFullscreen(); }}
+            onClick={() => { void exitFullscreenWithBrowserGuidance().catch(() => {}); }}
           ><LogOut aria-hidden="true" />退出全屏</button>
         </div>
       )}

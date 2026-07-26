@@ -33,6 +33,11 @@
 .tdp-grid.cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}
 .tdp-grid.cols-7{grid-template-columns:repeat(7,minmax(0,1fr))}
 .tdp-time-wheels{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr);align-items:end;gap:8px}.tdp-time-wheels__colon{align-self:center;padding-top:24px;color:var(--tdp-accent);font-size:28px;font-weight:700;line-height:1;text-align:center}.tdp-time-wheel{display:grid;gap:6px;min-width:0}.tdp-time-wheel__label{color:rgba(223,239,248,.62);font-size:.75rem;text-align:center}.tdp-time-wheel__list{position:relative;height:240px;overflow-y:auto;overscroll-behavior:contain;padding:96px 0;scroll-snap-type:y mandatory;scrollbar-width:thin;border-block:1px solid rgba(91,184,232,.24);background:linear-gradient(to bottom,rgba(11,20,27,.34),rgba(52,152,219,.1) 40%,rgba(52,152,219,.1) 60%,rgba(11,20,27,.34))}.tdp-time-wheel__list::-webkit-scrollbar{width:5px}.tdp-time-wheel__list::-webkit-scrollbar-thumb{border-radius:5px;background:rgba(126,205,245,.45)}.tdp-time-wheel__list button{display:block;width:100%;height:48px;padding:0;border:0;background:transparent;color:rgba(224,238,246,.46);font:600 1rem/1 var(--font-region-content,system-ui);font-variant-numeric:tabular-nums;cursor:pointer;scroll-snap-align:center;transition:color .14s,transform .14s,background .14s}.tdp-time-wheel__list button:hover{color:#dff5ff;background:rgba(52,152,219,.12)}.tdp-time-wheel__list button.is-selected{color:#effaff;background:rgba(52,152,219,.26);outline:1px solid rgba(117,205,247,.48);transform:scale(1.08)}
+.tdp-panel{overflow-x:hidden;overscroll-behavior:contain}
+.tdp-time-wheels{width:100%;max-width:100%;overflow:hidden}
+.tdp-time-wheel__list{box-sizing:border-box;width:100%;max-width:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;overscroll-behavior-x:none;touch-action:pan-y;scrollbar-gutter:stable}
+.tdp-time-wheel__list::-webkit-scrollbar:horizontal{display:none;height:0}
+.tdp-time-wheel__list button{box-sizing:border-box;max-width:100%}
 .tdp-blank{min-height:var(--tdp-target)}
 .tdp-nav-row{display:flex;align-items:center;gap:var(--tdp-gap)}
 .tdp-nav-row .tdp-grid{flex:1;min-width:0}
