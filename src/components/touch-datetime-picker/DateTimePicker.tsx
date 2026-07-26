@@ -181,6 +181,19 @@ export function DateTimePicker(props: DateTimePickerProps) {
     readoutDefs.push({ k: "minute", t: pad2(draft.minute) })
   }
 
+  const nextField = (() => {
+    const index = segs.indexOf(field)
+    return index >= 0 ? segs[index + 1] : undefined
+  })()
+
+  function advanceField() {
+    if (!nextField) return false
+    setField(nextField)
+    setCustomMinuteOpen(false)
+    setError(null)
+    return true
+  }
+
   function renderBody(): ReactNode {
     if (field === "weekday") {
       const labels = weekStartsOn === 1 ? MON : SUN
@@ -412,6 +425,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
                 className={"tdp-seg" + (field === s.k ? " is-active" : "")}
                 ariaLabel={s.k + " " + s.t}
                 onTap={() => {
+                  if (field === s.k && advanceField()) return
                   setField(s.k)
                   setCustomMinuteOpen(false)
                   setError(null)
@@ -460,6 +474,11 @@ export function DateTimePicker(props: DateTimePickerProps) {
           <TapButton
             className="tdp-ok"
             onTap={() => {
+              if (customMinuteOpen) {
+                applyCustomMinute()
+                return
+              }
+              if (advanceField()) return
               const msg = validate ? validate(draft) : null
               if (msg) {
                 setError(msg)
@@ -468,7 +487,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
               dismissAfterPointerAction(() => onConfirm(draft))
             }}
           >
-            {confirmLabel || "确定"}
+            {customMinuteOpen ? "应用分钟" : nextField ? "下一步" : confirmLabel || "确定"}
           </TapButton>
         </div>
       </div>
