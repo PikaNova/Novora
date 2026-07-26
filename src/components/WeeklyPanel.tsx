@@ -103,6 +103,30 @@ function lastLabelSegment(label: string): string {
   return parts[parts.length - 1] || label;
 }
 
+function weeklyPlanDetailName(
+  planName: string,
+  gradeName: string,
+  className: string,
+): string {
+  const original = planName.trim();
+  let detail = original;
+  const prefixes = [`${gradeName} · ${className}`, className].filter(Boolean);
+
+  // Older copied plans may already contain their grade/class prefix. Strip
+  // every repeated prefix because the picker renders ownership separately.
+  for (let pass = 0; pass < 4; pass += 1) {
+    const prefix = prefixes.find((candidate) => {
+      if (!detail.startsWith(candidate)) return false;
+      const remainder = detail.slice(candidate.length);
+      return /^[\s·\-—_/]+/u.test(remainder);
+    });
+    if (!prefix) break;
+    detail = detail.slice(prefix.length).replace(/^[\s·\-—_/]+/u, "").trim();
+  }
+
+  return detail || original;
+}
+
 function makeItemId() {
   return genWeeklyItemId();
 }
@@ -248,10 +272,11 @@ export default function WeeklyPanel({
         const target = classOptions.find((item) => item.id === plan.classId);
         const [gradeName = "未知年级", className = "未知班级"] =
           target?.label.split(" · ") ?? [];
-        const trimmedPlanName = plan.name.trim();
-        const planDetail = trimmedPlanName.startsWith(className)
-          ? trimmedPlanName.slice(className.length).replace(/^[\s·-]+/u, "") || trimmedPlanName
-          : trimmedPlanName;
+        const planDetail = weeklyPlanDetailName(
+          plan.name,
+          gradeName,
+          className,
+        );
         return {
           id: plan.id,
           gradeId: plan.gradeId,
@@ -2576,10 +2601,22 @@ export default function WeeklyPanel({
                       a.name.localeCompare(b.name, "zh-CN")
                     );
                   })
-                  .map((plan) => ({
-                    value: plan.id,
-                    label: `${classOptions.find((item) => item.id === plan.classId)?.label} · ${plan.name}`,
-                  }))}
+                  .map((plan) => {
+                    const target = classOptions.find(
+                      (item) => item.id === plan.classId,
+                    );
+                    const [gradeName = "未知年级", className = "未知班级"] =
+                      target?.label.split(" · ") ?? [];
+                    const detail = weeklyPlanDetailName(
+                      plan.name,
+                      gradeName,
+                      className,
+                    );
+                    return {
+                      value: plan.id,
+                      label: `${gradeName} · ${className} · ${detail}`,
+                    };
+                  })}
               />
             </label>
             <label className="admin-label">

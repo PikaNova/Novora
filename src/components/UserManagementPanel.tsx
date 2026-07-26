@@ -1224,11 +1224,11 @@ export default function UserManagementPanel({
                   </strong>
                   <code>@{user.username}</code>
                 </div>
-                <div>
+                <div className="user-management__scope-cell">
                   <span className="user-management__role">{user.roleName}</span>
                   <small>{scopeText(user, grades, classes)}</small>
                 </div>
-                <div>
+                <div className="user-management__status-cell">
                   <small>
                     {user.status === "active" ? "已启用" : "已停用"} ·{" "}
                     {fmt(user.lastLoginAt)}

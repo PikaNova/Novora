@@ -14,6 +14,7 @@ export interface PrintScheduleEntry {
   endTime: string;
   suppressed?: boolean;
   note?: string;
+  kind?: 'major' | 'weekly' | 'temporary';
 }
 export interface PrintScheduleDocument { entries: PrintScheduleEntry[]; gradeName: string; className: string; }
 
@@ -46,7 +47,7 @@ type Props = {
   gradeName: string;
   className: string;
   onClose: () => void;
-  mode?: 'weekly' | 'major';
+  mode?: 'weekly' | 'major' | 'combined';
   title?: string;
   schedules?: PrintScheduleDocument[];
 };
@@ -92,7 +93,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   }, []);
   const fontCss = (id: FontKey) => FONT_OPTIONS.find(item => item.id === id)?.css || FONT_OPTIONS[1].css;
   const periodText = mode === 'major' ? (dateRange.length ? `${dateRange[0]} 至 ${dateRange[dateRange.length - 1]}` : '尚未添加科目') : `${weekStart} 至 ${weekEnd}`;
-  const sheetTitle = mode === 'major' ? `${title || '大型考试'} · 考试安排` : 'Novora · 班级周测考试安排';
+  const sheetTitle = mode === 'major' ? `${title || '大型考试'} · 考试安排` : mode === 'combined' ? 'Novora · 班级考试安排' : 'Novora · 班级周测考试安排';
   const sheetStyle = { '--schedule-title-font': fontCss(titleFont), '--schedule-body-font': fontCss(bodyFont), '--schedule-numeric-font': fontCss(numericFont) } as React.CSSProperties;
 
   const downloadPdf = async () => {
@@ -125,7 +126,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
       }
       const firstDocument = documents[0];
-      const fileTitle = mode === 'major' ? (title || '大型考试') : documents.length > 1 ? `${firstDocument.gradeName}-${documents.length}个班级-周测` : `${firstDocument.gradeName}-${firstDocument.className}-周测`;
+      const fileTitle = mode === 'major' ? (title || '大型考试') : mode === 'combined' ? `${firstDocument.gradeName}-${firstDocument.className}` : documents.length > 1 ? `${firstDocument.gradeName}-${documents.length}个班级-周测` : `${firstDocument.gradeName}-${firstDocument.className}-周测`;
       pdf.save(`${safeFileName(fileTitle)}-考试安排-${getShanghaiDateKey(Date.now())}.pdf`);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : 'PDF 生成失败，请重试');
@@ -136,7 +137,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
 
   return createPortal(<div className="schedule-preview" role="dialog" aria-modal="true" aria-label="A4 考试安排预览">
     <header className="schedule-preview__toolbar">
-      <div className="schedule-preview__period">{mode === 'weekly' && <button title="上一周" aria-label="上一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, -7))}><ChevronLeft /></button>}<strong>{periodText}</strong>{mode === 'weekly' && <button title="下一周" aria-label="下一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, 7))}><ChevronRight /></button>}</div>
+      <div className="schedule-preview__period">{mode !== 'major' && <button title="上一周" aria-label="上一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, -7))}><ChevronLeft /></button>}<strong>{periodText}</strong>{mode !== 'major' && <button title="下一周" aria-label="下一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, 7))}><ChevronRight /></button>}</div>
       <div className="schedule-preview__fonts"><label>标题<InlineSelect value={titleFont} onChange={value => setTitleFont(value as FontKey)} options={FONT_OPTIONS.map(font => ({ value: font.id, label: font.label }))} /></label><label>正文<InlineSelect value={bodyFont} onChange={value => setBodyFont(value as FontKey)} options={FONT_OPTIONS.map(font => ({ value: font.id, label: font.label }))} /></label><label>时间数字<InlineSelect value={numericFont} onChange={value => setNumericFont(value as FontKey)} options={FONT_OPTIONS.map(font => ({ value: font.id, label: font.label }))} /></label></div>
       <div className="schedule-preview__actions">{exportError && <span className="schedule-preview__error" role="alert">{exportError}</span>}<button disabled={exporting} onClick={() => void downloadPdf()}><Download />{exporting ? '正在生成 PDF' : '下载 PDF'}</button><button title="关闭预览" aria-label="关闭预览" onClick={onClose}><X /></button></div>
     </header>

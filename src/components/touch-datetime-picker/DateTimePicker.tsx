@@ -33,6 +33,10 @@ const TimeWheel = forwardRef<HTMLDivElement, TimeWheelProps>(function TimeWheel(
         className="tdp-time-wheel__list"
         ref={ref}
         aria-label={`选择${label}`}
+        onWheel={(event) => {
+          event.stopPropagation()
+          if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault()
+        }}
         onScroll={(event) => {
           // Some Chromium builds still expose a horizontal scrollbar when a
           // selected wheel item has visual overflow. Keep this control purely

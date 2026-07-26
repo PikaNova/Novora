@@ -14,13 +14,14 @@ type Props = {
   showSearch?: boolean;
   emptyText?: string;
   noun?: string;
+  selectionSummary?: string;
 };
 
 const naturalSort = (left: ClassPickerOption, right: ClassPickerOption) =>
   left.gradeName.localeCompare(right.gradeName, 'zh-CN', { numeric: true })
   || left.className.localeCompare(right.className, 'zh-CN', { numeric: true });
 
-export default function ClassMultiPicker({ options, selectedIds, onChange, gradeId, disabled = false, single = false, showSearch = true, emptyText = '暂无可选择的班级', noun = '班级' }: Props) {
+export default function ClassMultiPicker({ options, selectedIds, onChange, gradeId, disabled = false, single = false, showSearch = true, emptyText = '暂无可选择的班级', noun = '班级', selectionSummary }: Props) {
   const [query, setQuery] = useState('');
   const visible = useMemo(() => options
     .filter(item => !gradeId || item.gradeId === gradeId)
@@ -33,10 +34,11 @@ export default function ClassMultiPicker({ options, selectedIds, onChange, grade
 
   return <div className={`class-picker${disabled ? ' is-disabled' : ''}`}>
     {(showSearch || !single) && <div className={`class-picker__toolbar${showSearch ? '' : ' is-actions-only'}`}>
+      {!showSearch && !single && <span className="class-picker__toolbar-summary">{selectionSummary || `已选择 ${selectedIds.length} 个${noun}`}</span>}
       {showSearch && <label><Search aria-hidden="true" /><input value={query} disabled={disabled} onChange={event => setQuery(event.target.value)} placeholder={`搜索年级或${noun}`} /></label>}
       {!single && <><button type="button" disabled={disabled || !visibleIds.length} onClick={() => onChange(allVisibleSelected ? selectedIds.filter(id => !visibleIds.includes(id)) : [...new Set([...selectedIds, ...visibleIds])])}>{allVisibleSelected ? '取消当前结果' : '全选当前结果'}</button><button type="button" disabled={disabled || !selectedIds.length} onClick={() => onChange([])}>清空</button></>}
     </div>}
-    {!single && <div className="class-picker__count">已选择 {selectedIds.length} 个{noun}</div>}
+    {!single && showSearch && <div className="class-picker__count">已选择 {selectedIds.length} 个{noun}</div>}
     <div className="class-picker__groups">
       {!visible.length && <p>{emptyText}</p>}
       {groups.map(group => {

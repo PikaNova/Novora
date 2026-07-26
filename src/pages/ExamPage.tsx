@@ -29,7 +29,7 @@ import TemporaryExamLauncher from '../components/TemporaryExamLauncher';
 import ExamQuickMenu from '../components/ExamQuickMenu';
 import { TEMPORARY_EXAM_EVENT } from '../services/temporaryExam';
 import { getResolvedSchedule } from '../utils/appSchedule';
-import { AlertTriangle, LogOut, Maximize, X } from 'lucide-react';
+import { AlertTriangle, LogOut, Maximize, School, X } from 'lucide-react';
 
 interface RawState {
   currentExam: ExamItem | null;
@@ -130,6 +130,10 @@ function BoundExamPage() {
   const [designId, setDesign] = useState<string>(() => getDesignId());
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [alerts, setAlerts] = useState<AlertsSettings>(() => getAppSettings().alerts);
+  const [schoolName, setSchoolName] = useState<string>(() => {
+    const initialization = getAppSettings().exam.initialization;
+    return initialization.schoolFullName || initialization.schoolName || '';
+  });
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -144,6 +148,8 @@ function BoundExamPage() {
     onUpdate: ({ items: newItems, title: newTitle, alerts: newAlerts }) => {
       setItems(getResolvedExamItems()); if (newTitle) setTitle(newTitle);
       if (newAlerts) setAlerts(newAlerts);
+      const initialization = getAppSettings().exam.initialization;
+      setSchoolName(initialization.schoolFullName || initialization.schoolName || '');
     },
   });
   useEffect(() => {
@@ -380,6 +386,12 @@ function BoundExamPage() {
           hasPendingSync={hasPendingSync}
           onRefresh={() => { void refreshExamData(true); }}
         />
+        {schoolName && (
+          <div className="exam-school-name" title={schoolName}>
+            <School aria-hidden="true" />
+            <span>{schoolName}</span>
+          </div>
+        )}
         <BrandMark compact className="exam-brand-mark" />
         {raw.currentExam && <div className="exam-subject-badge"><SubjectIcon subject={raw.currentExam.name} size={17} /><span>{raw.currentExam.name}</span></div>}
       </div>

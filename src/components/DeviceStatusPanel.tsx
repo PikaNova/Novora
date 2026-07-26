@@ -353,6 +353,11 @@ export default function DeviceStatusPanel({
             selectedIds={classFilters}
             onChange={setClassFilters}
             showSearch={false}
+            selectionSummary={
+              classFilters.length
+                ? `已筛选 ${classFilters.length} 个班级`
+                : "当前显示全部班级"
+            }
           />
         </details>
       </div>

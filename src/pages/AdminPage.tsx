@@ -618,6 +618,16 @@ export default function AdminPage() {
   ]);
 
   const changeSelectedGrade = (gradeId: string) => {
+    if (gradeId === selectedGradeId) return;
+    if (editing) {
+      const subject = editing.name.trim() || "未命名分考试";
+      notify(
+        "warning",
+        `“${subject}”仍在编辑中，请先确认并保存，或取消本次编辑后再切换年级。`,
+        "请先保存分考试",
+      );
+      return;
+    }
     if (gradeId && !visibleGrades.some((grade) => grade.id === gradeId)) return;
     setSelectedGradeId(gradeId);
     setSelectedClassId("");
