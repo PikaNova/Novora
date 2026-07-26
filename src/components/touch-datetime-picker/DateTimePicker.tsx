@@ -93,7 +93,8 @@ export function DateTimePicker(props: DateTimePickerProps) {
   const [yearCenter, setYearCenter] = useState(draft.year)
   const [error, setError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const timeWheelRef = useRef<HTMLDivElement | null>(null)
+  const hourWheelRef = useRef<HTMLDivElement | null>(null)
+  const minuteWheelRef = useRef<HTMLDivElement | null>(null)
   const hourValues = useMemo(
     () => Array.from({ length: 24 }, (_, hour) => hour).filter((hour) => hour >= hourRange[0] && hour <= hourRange[1]),
     [hourRange[0], hourRange[1]],
@@ -118,14 +119,14 @@ export function DateTimePicker(props: DateTimePickerProps) {
 
   useEffect(() => {
     if (field !== "hour" && field !== "minute") return
-    const values = field === "hour" ? hourValues : minuteValues
-    const selected = field === "hour" ? draft.hour : draft.minute
-    const index = Math.max(0, values.indexOf(selected))
+    const hourIndex = Math.max(0, hourValues.indexOf(draft.hour))
+    const minuteIndex = Math.max(0, minuteValues.indexOf(draft.minute))
     const frame = window.requestAnimationFrame(() => {
-      if (timeWheelRef.current) timeWheelRef.current.scrollTop = index * 48
+      if (hourWheelRef.current) hourWheelRef.current.scrollTop = hourIndex * 48
+      if (minuteWheelRef.current) minuteWheelRef.current.scrollTop = minuteIndex * 48
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [field])
+  }, [field, hourValues, minuteValues, draft.hour, draft.minute])
 
   function dismissAfterPointerAction(callback: () => void) {
     // Closing a portal during pointerup can retarget the browser's trailing
@@ -210,7 +211,9 @@ export function DateTimePicker(props: DateTimePickerProps) {
     readoutDefs.push({ k: "minute", t: pad2(draft.minute) })
   }
 
+  const isTimeSelection = field === "hour" || field === "minute"
   const nextField = (() => {
+    if (isTimeSelection) return undefined
     const index = segs.indexOf(field)
     return index >= 0 ? segs[index + 1] : undefined
   })()
@@ -319,26 +322,34 @@ export function DateTimePicker(props: DateTimePickerProps) {
         </>
       )
     }
-    if (field === "hour") {
+    if (isTimeSelection) {
       return (
-        <TimeWheel
-          ref={timeWheelRef}
-          label="小时"
-          values={hourValues}
-          value={draft.hour}
-          onChange={(hour) => patch({ hour })}
-        />
+        <div className="tdp-time-wheels" aria-label="选择小时和分钟">
+          <TimeWheel
+            ref={hourWheelRef}
+            label="时"
+            values={hourValues}
+            value={draft.hour}
+            onChange={(hour) => {
+              setField("hour")
+              patch({ hour })
+            }}
+          />
+          <span className="tdp-time-wheels__colon" aria-hidden="true">:</span>
+          <TimeWheel
+            ref={minuteWheelRef}
+            label="分"
+            values={minuteValues}
+            value={draft.minute}
+            onChange={(minute) => {
+              setField("minute")
+              patch({ minute })
+            }}
+          />
+        </div>
       )
     }
-    return (
-      <TimeWheel
-        ref={timeWheelRef}
-        label="分钟"
-        values={minuteValues}
-        value={draft.minute}
-        onChange={(minute) => patch({ minute })}
-      />
-    )
+    return null
   }
 
   const vw = typeof window !== "undefined" ? window.innerWidth : 360
