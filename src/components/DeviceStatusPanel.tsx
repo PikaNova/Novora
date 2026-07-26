@@ -155,6 +155,26 @@ export default function DeviceStatusPanel({
   const groupOnline = (item: DeviceGroup) =>
     dashboardOnline(item) ||
     item.plugins.some((plugin) => pluginOnline(plugin) || viewerOnline(plugin));
+  const groupLastSeenAt = (item: DeviceGroup) =>
+    Math.max(
+      item.dashboard?.lastSeenAt || 0,
+      ...item.plugins.flatMap((plugin) => [
+        plugin.pluginLastSeenAt,
+        plugin.viewerLastSeenAt,
+      ]),
+    );
+  const orderedFiltered = useMemo(
+    () =>
+      [...filtered].sort((a, b) => {
+        const aOnline = groupOnline(a);
+        const bOnline = groupOnline(b);
+        if (aOnline !== bOnline) return aOnline ? -1 : 1;
+        const recentFirst = groupLastSeenAt(b) - groupLastSeenAt(a);
+        if (recentFirst !== 0) return recentFirst;
+        return (a.instanceId || a.key).localeCompare(b.instanceId || b.key, "zh-CN");
+      }),
+    [filtered, now],
+  );
   const onlineCount = groups.filter(groupOnline).length;
 
   const remove = async (item: DeviceGroup) => {
@@ -390,19 +410,13 @@ export default function DeviceStatusPanel({
             <span>操作</span>
           </div>
           <div className="device-status__list">
-            {filtered.map((item) => {
+            {orderedFiltered.map((item) => {
               const dashboard = item.dashboard;
               const temporary =
                 !!dashboard &&
                 (dashboard.currentExam.includes("临时考试") ||
                   dashboard.status === "temporary-paused");
-              const lastSeenAt = Math.max(
-                dashboard?.lastSeenAt || 0,
-                ...item.plugins.flatMap((plugin) => [
-                  plugin.pluginLastSeenAt,
-                  plugin.viewerLastSeenAt,
-                ]),
-              );
+              const lastSeenAt = groupLastSeenAt(item);
               const removed =
                 dashboard?.revoked === true &&
                 item.plugins.every((plugin) => !plugin.paired);
