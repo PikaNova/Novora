@@ -211,7 +211,11 @@ function validateMutation(actor: AdminActor, current: ReturnType<typeof examPayl
     || current.title !== String(body.title ?? '')
     || current.activeMajorId !== String(body.activeMajorId ?? '');
   if (majorChanged) {
-    if (majorDiff.added.length) { const denied = need('major.create', '新建大型考试'); if (denied) return denied; }
+    if (majorDiff.added.length) {
+      const onlyQuick = majorDiff.added.every((major: any) => major?.source === 'quick' && major?.temporary === true && Array.isArray(major?.targetClassIds) && major.targetClassIds.length > 0);
+      const denied = onlyQuick ? need('major.quick_create', '快速发布班级考试') : need('major.create', '新建大型考试');
+      if (denied) return denied;
+    }
     if (majorDiff.removed.length || itemDiff.removed.length) { const denied = need('major.delete', '删除考试'); if (denied) return denied; }
     if (majorDiff.updated.length || itemDiff.added.length || itemDiff.updated.length || current.title !== String(body.title ?? '') || current.activeMajorId !== String(body.activeMajorId ?? '')) { const denied = need('major.edit', '大型考试'); if (denied) return denied; }
     const classes = new Map((nextClasses as any[]).map(item => [String(item?.id ?? ''), item]));

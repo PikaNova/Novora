@@ -27,11 +27,12 @@ type UserDraft = { id?: number; username: string; displayName: string; password:
 type RoleDraft = { id?: string; name: string; description: string; permissions: string[] };
 type PasswordDraft = { current: string; username: string; next: string; confirm: string };
 type BatchUserDraft = { prefix: string; password: string; classIds: string[] };
+type BatchCredential = { displayName: string; username: string; password: string; gradeName: string; className: string };
 type RoleLevel = 'none' | 'read' | 'manage';
 
 const ROLE_MODULES: Array<{ id: string; label: string; read: string[]; manage: string[] }> = [
   { id: 'overview', label: '运行总览', read: ['overview.read'], manage: [] },
-  { id: 'major', label: '大型考试', read: ['major.read', 'major.export'], manage: ['major.create', 'major.edit', 'major.delete', 'major.import'] },
+  { id: 'major', label: '大型考试', read: ['major.read', 'major.export'], manage: ['major.create', 'major.quick_create', 'major.edit', 'major.delete', 'major.import'] },
   { id: 'weekly', label: '周测安排', read: ['weekly.read', 'weekly.export'], manage: ['weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import'] },
   { id: 'school', label: '年级与班级', read: ['school.read'], manage: ['school.grade_manage', 'school.class_manage'] },
   { id: 'device', label: '设备管理', read: ['device.read'], manage: ['device.bind', 'device.revoke'] },
@@ -52,6 +53,7 @@ const PERMISSION_META: Record<string, { label: string; description: string }> = 
   'overview.read': { label: '查看管理概览', description: '进入管理后台并查看基础运行状态。' },
   'major.read': { label: '查看大型考试', description: '查看授权范围内的大型考试及科目安排。' },
   'major.create': { label: '新建大型考试', description: '创建新的大型考试计划。' },
+  'major.quick_create': { label: '快速发布班级考试', description: '为授权班级快速发布一场临时考试，不可发布全校或年级统一考试。' },
   'major.edit': { label: '编辑大型考试', description: '修改考试名称、适用年级和科目时间。' },
   'major.delete': { label: '删除大型考试', description: '删除已有大型考试计划。' },
   'major.import': { label: '导入大型考试', description: '通过 JSON 批量导入考试安排。' },
@@ -142,6 +144,7 @@ export default function UserManagementPanel({ grades, classes, currentUser, forc
   const [message, setMessage] = useState('');
   const [userDraft, setUserDraft] = useState<UserDraft | null>(null);
   const [batchUserDraft, setBatchUserDraft] = useState<BatchUserDraft | null>(null);
+  const [batchCredentials, setBatchCredentials] = useState<BatchCredential[] | null>(null);
   const [userErrors, setUserErrors] = useState<Record<string, string>>({});
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
   const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
@@ -206,7 +209,7 @@ export default function UserManagementPanel({ grades, classes, currentUser, forc
     if (batchUserDraft.password.length < 8) { setMessage('批量账号初始密码至少需要 8 位。'); return; }
     if (!delegableRoles.some(role => role.id === 'class_admin')) { setMessage('当前账号不能下发班级管理员角色。'); return; }
     setBusy(true); setMessage('');
-    let completed = 0; let latest = users;
+    let completed = 0; let latest = users; const created: BatchCredential[] = [];
     try {
       for (const classId of batchUserDraft.classIds) {
         const schoolClass = classes.find(item => item.id === classId)!;
@@ -214,11 +217,19 @@ export default function UserManagementPanel({ grades, classes, currentUser, forc
         const suffix = String(classes.filter(item => item.gradeId === schoolClass.gradeId).findIndex(item => item.id === classId) + 1).padStart(2, '0');
         const gradeIndex = String(grades.findIndex(item => item.id === schoolClass.gradeId) + 1);
         latest = await saveManagedUser({ action: 'create', username: `${batchUserDraft.prefix}_g${gradeIndex}c${suffix}`, displayName: `${grade?.name ?? ''}${schoolClass.name}管理员`, password: batchUserDraft.password, roleId: 'class_admin', status: 'active', scopes: [{ type: 'class', gradeId: schoolClass.gradeId, classId }] });
+        created.push({ displayName: `${grade?.name ?? ''}${schoolClass.name}管理员`, username: `${batchUserDraft.prefix}_g${gradeIndex}c${suffix}`, password: batchUserDraft.password, gradeName: grade?.name ?? '', className: schoolClass.name });
         completed += 1;
       }
-      setUsers(latest); setBatchUserDraft(null); setMessage(`已创建 ${completed} 个班级管理员账号，首次登录均需设置自己的用户名和新密码。`);
+      setUsers(latest); setBatchUserDraft(null); setBatchCredentials(created); setMessage(`已创建 ${completed} 个班级管理员账号，首次登录均需设置自己的用户名和新密码。`);
     } catch (error) { setUsers(latest); setMessage(`已创建 ${completed} 个账号，随后停止：${error instanceof Error ? error.message : '创建失败'}`); }
     finally { setBusy(false); }
+  };
+  const exportBatchCredentials = () => {
+    if (!batchCredentials?.length) return;
+    const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const rows = [['管理员', '用户名', '初始密码', '年级', '班级', '首次登录要求'], ...batchCredentials.map(item => [item.displayName, item.username, item.password, item.gradeName, item.className, '修改用户名和密码'])];
+    const file = new Blob([`\uFEFF${rows.map(row => row.map(quote).join(',')).join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(file); const link = document.createElement('a'); link.href = url; link.download = `Novora-班级管理员初始账号-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
   };
   const submitRole = async () => {
     if (!roleDraft) return;
@@ -285,6 +296,7 @@ export default function UserManagementPanel({ grades, classes, currentUser, forc
 
   return <main className="user-management">
     {batchUserDraft && <div className="admin-modal-overlay"><div className="admin-modal admin-modal--wide" onClick={event => event.stopPropagation()}><h2 className="admin-modal__title">批量添加班级管理员</h2><p className="admin-modal__body">每个班级创建一个独立账号，用户名按“前缀 + 年级序号 + 班级序号”生成。</p><div className="user-editor__grid"><label className="admin-label">账号前缀<input className="admin-input" value={batchUserDraft.prefix} onChange={event => setBatchUserDraft(value => value && ({ ...value, prefix: event.target.value }))} placeholder="class_admin" /></label><label className="admin-label">统一初始密码<input className="admin-input" type="password" value={batchUserDraft.password} onChange={event => setBatchUserDraft(value => value && ({ ...value, password: event.target.value }))} placeholder="至少 8 位，首次登录后必须修改" /></label></div><div className="admin-label">创建账号的班级<ClassMultiPicker options={classPickerOptions} selectedIds={batchUserDraft.classIds} onChange={ids => setBatchUserDraft(value => value && ({ ...value, classIds: ids }))} /></div><p className="admin-major-card__hint">示例：class_admin_g1c01。若用户名已存在，已成功创建的账号会保留，并明确提示停止位置。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" disabled={busy || !batchUserDraft.classIds.length} onClick={() => void submitBatchUsers()}>{busy ? '正在创建…' : `创建 ${batchUserDraft.classIds.length} 个账号`}</button><button className="admin-btn" disabled={busy} onClick={() => setBatchUserDraft(null)}>取消</button></div></div></div>}
+    {batchCredentials && <div className="admin-modal-overlay"><div className="admin-modal admin-modal--wide" onClick={event => event.stopPropagation()}><h2 className="admin-modal__title">批量账号已创建</h2><p className="admin-modal__body">初始密码仅在当前页面显示。请使用受控渠道分发，关闭此窗口后不能再次导出明文密码。</p><div className="user-management__batch-credentials">{batchCredentials.map(item => <div key={item.username}><strong>{item.displayName}</strong><code>{item.username}</code><code>{item.password}</code><small>{item.gradeName} · {item.className}</small></div>)}</div><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={exportBatchCredentials}>导出 CSV</button><button className="admin-btn" onClick={() => setBatchCredentials(null)}>我已妥善保存</button></div></div></div>}
     <div className="device-status__heading user-management__heading">
       <div><h2>{canReadUsers ? '用户与权限' : '我的账户'}</h2><p>{canReadUsers ? '为不同管理员分配可编辑内容和年级、班级范围。所有限制均由服务端再次校验。' : '管理当前账号的登录用户名和密码。'}</p></div>
       <div className="user-management__heading-actions"><button className="admin-btn" onClick={() => { setUsernameDraft({ currentPassword: '', username: current?.username ?? '' }); setUsernameOpen(true); }}>修改用户名</button><button className="admin-btn" onClick={() => setPasswordOpen(true)}>修改密码</button>{section === 'users' && canCreateUser && <><button className="admin-btn" onClick={() => setBatchUserDraft({ prefix: 'class_admin', password: '', classIds: [] })}>批量添加班级管理员</button><button className="admin-btn admin-btn--primary" onClick={beginCreateUser}>添加用户</button></>}{section === 'roles' && canManageRoles && <button className="admin-btn admin-btn--primary" onClick={() => setRoleDraft({ name: '', description: '', permissions: [] })}>新建角色</button>}</div>

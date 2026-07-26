@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
 import { getClassBindingInstanceId } from '../services/classBinding';
 import { getAppSettings } from '../utils/appSettings';
 import { addDaysToDateKey, getShanghaiDateKey, isoWeekdayOfDateKey } from '../utils/weeklySchedule';
+import InlineSelect from './InlineSelect';
 
 export interface PrintScheduleEntry {
   date: string;
@@ -135,7 +136,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   return createPortal(<div className="schedule-preview" role="dialog" aria-modal="true" aria-label="A4 考试安排预览">
     <header className="schedule-preview__toolbar">
       <div className="schedule-preview__period">{mode === 'weekly' && <button title="上一周" aria-label="上一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, -7))}><ChevronLeft /></button>}<strong>{periodText}</strong>{mode === 'weekly' && <button title="下一周" aria-label="下一周" onClick={() => setWeekStart(value => addDaysToDateKey(value, 7))}><ChevronRight /></button>}</div>
-      <div className="schedule-preview__fonts"><label>标题<select value={titleFont} onChange={event => setTitleFont(event.target.value as FontKey)}>{FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label><label>正文<select value={bodyFont} onChange={event => setBodyFont(event.target.value as FontKey)}>{FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label><label>时间数字<select value={numericFont} onChange={event => setNumericFont(event.target.value as FontKey)}>{FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label></div>
+      <div className="schedule-preview__fonts"><label>标题<InlineSelect value={titleFont} onChange={value => setTitleFont(value as FontKey)} options={FONT_OPTIONS.map(font => ({ value: font.id, label: font.label }))} /></label><label>正文<InlineSelect value={bodyFont} onChange={value => setBodyFont(value as FontKey)} options={FONT_OPTIONS.map(font => ({ value: font.id, label: font.label }))} /></label><label>时间数字<InlineSelect value={numericFont} onChange={value => setNumericFont(value as FontKey)} options={FONT_OPTIONS.map(font => ({ value: font.id, label: font.label }))} /></label></div>
       <div className="schedule-preview__actions">{exportError && <span className="schedule-preview__error" role="alert">{exportError}</span>}<button disabled={exporting} onClick={() => void downloadPdf()}><Download />{exporting ? '正在生成 PDF' : '下载 PDF'}</button><button title="关闭预览" aria-label="关闭预览" onClick={onClose}><X /></button></div>
     </header>
     <main className="schedule-preview__stage">

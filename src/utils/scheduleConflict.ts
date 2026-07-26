@@ -169,7 +169,7 @@ export interface ResolveScheduleInput {
   scheduleMode: ScheduleMode;
   activeMajorId: string | null;
   activeWeeklyPlanId: string | null;
-  majors: Array<{ id: string; name: string; items: ExamItem[]; targetGradeIds?: string[]; targetClassIds?: string[] }>;
+  majors: Array<{ id: string; name: string; items: ExamItem[]; targetGradeIds?: string[]; targetClassIds?: string[]; temporary?: boolean; priorityOverSchedule?: boolean }>;
   weeklyPlans: Array<Parameters<typeof resolveWeeklyOccurrences>[0]>;
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   selectedGradeId?: string;
@@ -194,11 +194,14 @@ export function resolveEffectiveSchedule(
     return gradeApplies && classApplies;
   });
   const candidates = applicableMajors.flatMap(major => {
-    const priority = major.targetClassIds?.length ? 2 : major.targetGradeIds?.length ? 1 : 0;
-    return major.items.filter(item => item.enabled).map(item => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, scopePriority: priority }));
+    const scopePriority = major.targetClassIds?.length ? 2 : major.targetGradeIds?.length ? 1 : 0;
+    // 高优先级临时统一考试只在时间重叠时覆盖其他大型考试。
+    const priorityRank = scopePriority + (major.temporary && major.priorityOverSchedule ? 10 : 0);
+    return major.items.filter(item => item.enabled).map(item => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, priorityRank }));
   });
-  // 同时存在全校、年级和班级安排时，仅在实际时间重叠处使用更具体的安排。
-  const majorItems = sortExamItemsByTime(candidates.filter(item => !candidates.some(other => other.scopePriority > item.scopePriority && isTimeOverlap(parseZonedTime(item.startTime), parseZonedTime(item.endTime), parseZonedTime(other.startTime), parseZonedTime(other.endTime)))).map(({ scopePriority: _scopePriority, ...item }) => item));
+  // 同时存在全校、年级和班级安排时，仅在实际时间重叠处使用更具体的安排；
+  // 被明确设为高优先级的临时统一考试会得到更高的 priorityRank。
+  const majorItems = sortExamItemsByTime(candidates.filter(item => !candidates.some(other => other.priorityRank > item.priorityRank && isTimeOverlap(parseZonedTime(item.startTime), parseZonedTime(item.endTime), parseZonedTime(other.startTime), parseZonedTime(other.endTime)))).map(({ priorityRank: _priorityRank, ...item }) => item));
 
   const classPlanId = selectedClassId
     ? data.activeWeeklyPlanIdByClassId?.[selectedClassId]

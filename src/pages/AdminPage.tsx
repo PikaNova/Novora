@@ -24,6 +24,8 @@ import AiImportGuide from '../components/AiImportGuide';
 import AccessDenied from '../components/AccessDenied';
 import SchedulePrintPreview from '../components/SchedulePrintPreview';
 import BrandMark from '../components/BrandMark';
+import QuickMajorPublishModal, { type QuickMajorPublishInput } from '../components/QuickMajorPublishModal';
+import InlineSelect from '../components/InlineSelect';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
 import { confirmDialog } from '../services/appDialog';
@@ -45,6 +47,10 @@ function fmtAnnTime(ms: number) {
 function makeId() { return `exam_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 function fmtLocal(iso: string) { return iso?.replace('T', ' ')?.slice(0, 16) ?? ''; }
 function toISO(value: string) { return value.replace(' ', 'T').trim(); }
+function toLocalInput(time: number) {
+  const date = new Date(time - new Date().getTimezoneOffset() * 60_000);
+  return date.toISOString().slice(0, 16);
+}
 function duration(start: string, end: string) {
   const ms = new Date(end).getTime() - new Date(start).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return '';
@@ -148,6 +154,7 @@ export default function AdminPage() {
   const [majorError, setMajorError] = useState('');
   const [deleteMajorOpen, setDeleteMajorOpen] = useState(false);
   const [majorPrintOpen, setMajorPrintOpen] = useState(false);
+  const [quickMajorOpen, setQuickMajorOpen] = useState(false);
   const [editingMajorIdByGrade, setEditingMajorIdByGrade] = useState<Record<string, string>>({});
   const [sync, setSync] = useState<SyncState>('loading');
   const [cloudReadConfirmed, setCloudReadConfirmed] = useState(false);
@@ -694,6 +701,45 @@ export default function AdminPage() {
     commit(ms, nextActiveId, true);
     setDeleteMajorOpen(false);
   };
+  const publishQuickMajor = (input: QuickMajorPublishInput) => {
+    const start = new Date(input.startTime).getTime();
+    if (!Number.isFinite(start)) { notify('error', '开始时间无效，请重新设置。', '无法发布'); return; }
+    const now = Date.now();
+    const quick: MajorExam = {
+      id: genMajorId(),
+      name: input.name,
+      items: [{ id: makeId(), name: input.subject, startTime: input.startTime, endTime: toLocalInput(start + input.durationMinutes * 60_000), enabled: true, order: 0 }],
+      order: majors.length,
+      targetGradeIds: input.targetGradeIds,
+      targetClassIds: adminUser?.roleId === 'class_admin' && selectedClassId ? [selectedClassId] : [],
+      source: 'quick',
+      temporary: true,
+      priorityOverSchedule: input.priorityOverSchedule,
+      createdAt: now,
+      createdBy: adminUser?.id,
+      endedAt: null,
+    };
+    const next = [...majors, quick];
+    setEditingMajorId(quick.id);
+    if (selectedGradeId && input.targetGradeIds.includes(selectedGradeId)) setEditingMajorIdByGrade(value => ({ ...value, [selectedGradeId]: quick.id }));
+    commit(next, activeMajorId, true);
+    setQuickMajorOpen(false);
+    notify('success', `已下发「${quick.name}」，看板将在下一次同步时收到安排。`, '统一考试已发布');
+  };
+  const updateQuickMajor = (id: string, patch: Partial<MajorExam>, successMessage: string) => {
+    const next = majors.map(major => major.id === id ? { ...major, ...patch } : major);
+    commit(next, activeMajorId, true);
+    notify('success', successMessage, '临时统一考试已更新');
+  };
+  const extendQuickMajor = (major: MajorExam) => updateQuickMajor(major.id, {
+    items: major.items.map(item => ({ ...item, endTime: toLocalInput(new Date(item.endTime).getTime() + 5 * 60_000) })),
+  }, `「${major.name}」已延长 5 分钟。`);
+  const endQuickMajor = (major: MajorExam) => updateQuickMajor(major.id, {
+    endedAt: Date.now(), items: major.items.map(item => ({ ...item, enabled: false })),
+  }, `「${major.name}」已提前结束。`);
+  const promoteQuickMajor = (major: MajorExam) => updateQuickMajor(major.id, {
+    source: 'regular', temporary: false, priorityOverSchedule: false,
+  }, `「${major.name}」已转存为正式大型考试。`);
 
   // ===== 分考试：添加 / 编辑 / 启用 / 删除 / 排序 =====
   const commitEdit = async () => {
@@ -783,6 +829,7 @@ export default function AdminPage() {
 
   const syncMeta = SYNC_META[sync];
   const can = (permission: string) => adminCan(permission, adminUser);
+  const canQuickPublish = can('major.create') || can('major.quick_create');
   const openMyAccount = () => {
     setDeniedModule('');
     navigate('/admin?tab=users&account=1');
@@ -802,6 +849,7 @@ export default function AdminPage() {
     : activeMajor.targetGradeIds?.length
       ? activeMajor.targetGradeIds.map(id => grades.find(grade => grade.id === id)?.name || id).join('、')
       : '全校';
+  const quickScopedMajors = orderedScopedMajors.filter(major => major.temporary && !major.endedAt && major.items.some(item => item.enabled && new Date(item.endTime).getTime() >= Date.now()));
 
   return <div className="admin-page">
     <Watermark />
@@ -812,8 +860,8 @@ export default function AdminPage() {
         <span className={`admin-cloud ${syncMeta.cls}`} title={online ? '云服务在线' : '当前离线'}>
           <span className="admin-cloud__dot" />{syncMeta.label}
         </span>
-        <div className="admin-header__quick-actions">{can('alerts.read') && <button className="admin-btn admin-btn--primary" onClick={() => setAlertsOpen(true)}>提醒{alerts.enabled ? '' : '（停用）'}</button>}{can('settings.read') && <button className="admin-btn" onClick={() => navigate('/settings')}>系统设置</button>}</div>
-        <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 700px)').matches) { const width = Math.min(280, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: rect.bottom + 8, left: window.innerWidth - width - 14, width, maxHeight: `calc(100dvh - ${rect.bottom + 24}px)` }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="menu">更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle} role="menu"><button onClick={() => { navigate('/admin?tab=users&account=1'); setAdminTab('users'); setMoreOpen(false); }}>我的账户</button>{adminUser.roleId === 'grade_admin' && can('user.create') && <button onClick={() => { navigate('/admin?tab=users&batch=1'); setAdminTab('users'); setMoreOpen(false); }}>批量添加班级管理员</button>}<button onClick={() => { setAnnounceOpen(true); setMoreOpen(false); }}>查看公告</button>{can('alerts.read') && <button className="admin-more__mobile-only" onClick={() => { setAlertsOpen(true); setMoreOpen(false); }}>提醒管理{alerts.enabled ? '' : '（已停用）'}</button>}{can('settings.read') && <button className="admin-more__mobile-only" onClick={() => { navigate('/settings'); setMoreOpen(false); }}>系统设置</button>}{can('initialization.run') && (!initialization.completedAt || grades.length === 0 || classes.length === 0) && <button onClick={() => { setWizardOpen(true); setMoreOpen(false); }}>首次初始化</button>}{adminTab === 'major' && can('major.import') && <button onClick={openMajorImport}>导入大型考试 JSON</button>}{adminTab === 'major' && can('major.export') && <button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button>}<button className="is-danger" onClick={() => { logoutAdmin(); navigate('/login?next=/admin', { replace: true }); }}>退出登录</button></div>}</div>
+        <div className="admin-header__quick-actions">{canQuickPublish && <button className="admin-btn admin-btn--primary" onClick={() => setQuickMajorOpen(true)}>{adminUser.roleId === 'class_admin' ? '快速发布班级考试' : '快速发布统一考试'}</button>}{can('alerts.read') && <button className="admin-btn admin-btn--primary" onClick={() => setAlertsOpen(true)}>提醒{alerts.enabled ? '' : '（停用）'}</button>}{can('settings.read') && <button className="admin-btn" onClick={() => navigate('/settings')}>系统设置</button>}</div>
+        <div className="admin-more"><button ref={moreTriggerRef} className="admin-btn admin-more__trigger" onClick={() => { if (moreOpen) { setMoreOpen(false); return; } const rect = moreTriggerRef.current?.getBoundingClientRect(); if (rect && window.matchMedia('(max-width: 700px)').matches) { const width = Math.min(280, window.innerWidth - 28); setMoreMenuStyle({ position: 'fixed', top: rect.bottom + 8, left: window.innerWidth - width - 14, width, maxHeight: `calc(100dvh - ${rect.bottom + 24}px)` }); } else setMoreMenuStyle({}); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="menu">更多</button>{moreOpen && <div className="admin-more__menu" style={moreMenuStyle} role="menu"><button onClick={() => { navigate('/admin?tab=users&account=1'); setAdminTab('users'); setMoreOpen(false); }}>我的账户</button>{can('major.create') && <button className="admin-more__mobile-only" onClick={() => { setQuickMajorOpen(true); setMoreOpen(false); }}>快速发布统一考试</button>}{adminUser.roleId === 'grade_admin' && can('user.create') && <button onClick={() => { navigate('/admin?tab=users&batch=1'); setAdminTab('users'); setMoreOpen(false); }}>批量添加班级管理员</button>}<button onClick={() => { setAnnounceOpen(true); setMoreOpen(false); }}>查看公告</button>{can('alerts.read') && <button className="admin-more__mobile-only" onClick={() => { setAlertsOpen(true); setMoreOpen(false); }}>提醒管理{alerts.enabled ? '' : '（已停用）'}</button>}{can('settings.read') && <button className="admin-more__mobile-only" onClick={() => { navigate('/settings'); setMoreOpen(false); }}>系统设置</button>}{can('initialization.run') && (!initialization.completedAt || grades.length === 0 || classes.length === 0) && <button onClick={() => { setWizardOpen(true); setMoreOpen(false); }}>首次初始化</button>}{adminTab === 'major' && can('major.import') && <button onClick={openMajorImport}>导入大型考试 JSON</button>}{adminTab === 'major' && can('major.export') && <button onClick={() => { exportJson(); setMoreOpen(false); }}>导出大型考试 JSON</button>}<button className="is-danger" onClick={() => { logoutAdmin(); navigate('/login?next=/admin', { replace: true }); }}>退出登录</button></div>}</div>
       </div>
     </header>
     <div className={`admin-tabbar${adminTab === 'major' || adminTab === 'weekly' ? ' has-context' : ''}`}>
@@ -822,27 +870,19 @@ export default function AdminPage() {
       </div>
       {adminTab !== 'overview' && adminTab !== 'devices' && adminTab !== 'classes' && adminTab !== 'users' && <>
       <label className="admin-tabbar__mode"><span>运行模式 <HelpTip title="运行模式">仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。</HelpTip></span>
-        <select className="admin-input" value={scheduleMode} onChange={e => handleScheduleModeChange(e.target.value as ScheduleMode)} disabled={!can('schedule.mode_edit')}>
-          <option value="major-only">仅大型考试</option>
-          <option value="weekly-only">仅周测</option>
-          <option value="automatic">自动（大型考试优先，自动避让周测）</option>
-        </select>
+        <InlineSelect className="admin-input" value={scheduleMode} onChange={value => handleScheduleModeChange(value as ScheduleMode)} disabled={!can('schedule.mode_edit')} options={[{ value: 'major-only', label: '仅大型考试' }, { value: 'weekly-only', label: '仅周测' }, { value: 'automatic', label: '自动（大型考试优先，自动避让周测）' }]} />
       </label>
       <label className="admin-tabbar__mode">年级
-        <select className="admin-input" value={selectedGradeId} onChange={e => changeSelectedGrade(e.target.value)}>
-          <option value="">请选择年级</option>{visibleGrades.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        <InlineSelect className="admin-input" value={selectedGradeId} placeholder="请选择年级" onChange={changeSelectedGrade} options={[{ value: '', label: '请选择年级' }, ...visibleGrades.map(item => ({ value: item.id, label: item.name }))]} />
       </label>
       {adminTab === 'weekly' && <label className="admin-tabbar__mode">班级
-        <select className="admin-input" value={selectedClassId} onChange={e => changeSelectedClass(e.target.value)} disabled={!selectedGradeId}>
-          <option value="">请选择班级</option>{visibleClasses.filter(item => item.gradeId === selectedGradeId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        <InlineSelect className="admin-input" value={selectedClassId} placeholder="请选择班级" onChange={changeSelectedClass} disabled={!selectedGradeId} options={[{ value: '', label: '请选择班级' }, ...visibleClasses.filter(item => item.gradeId === selectedGradeId).map(item => ({ value: item.id, label: item.name }))]} />
       </label>}
       </>}
     </div>
     <div className={`admin-body${(['overview', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ? ' admin-body--wide' : ''}`}>
       {adminTab === 'overview' ? (
-        <OverviewPanel user={adminUser} grades={visibleGrades} classes={visibleClasses} majors={visibleMajors} weeklyPlans={visibleWeeklyPlans} syncLabel={syncMeta.label} online={online} />
+        <OverviewPanel user={adminUser} grades={visibleGrades} classes={visibleClasses} majors={visibleMajors} weeklyPlans={visibleWeeklyPlans} syncLabel={syncMeta.label} online={online} onQuickPublish={canQuickPublish ? () => setQuickMajorOpen(true) : undefined} />
       ) : adminTab === 'weekly' ? (
         <fieldset className="admin-permission-fieldset" disabled={!can('weekly.edit')}><WeeklyPanel
           weeklyPlans={visibleWeeklyPlans}
@@ -880,18 +920,19 @@ export default function AdminPage() {
           {orderedScopedMajors.length > 0 && (
             <label className="admin-major-card__switch">
               <span className="admin-major-card__switch-k">切换考试</span>
-              <select className="admin-input admin-major-select" value={activeMajor.id} onChange={e => switchMajor(e.target.value)} disabled={orderedScopedMajors.length === 1}>
-                {orderedScopedMajors.map(m => <option key={m.id} value={m.id}>{m.name}（{m.items.length} 科）{!m.targetGradeIds?.length ? ' · 全校统一' : ''}</option>)}
-              </select>
+              <InlineSelect className="admin-input admin-major-select" value={activeMajor.id} onChange={switchMajor} disabled={orderedScopedMajors.length === 1} options={orderedScopedMajors.map(m => ({ value: m.id, label: `${m.name}（${m.items.length} 科）${!m.targetGradeIds?.length ? ' · 全校统一' : ''}` }))} />
             </label>
           )}
           <div className="admin-major-card__btns">
+            {canQuickPublish && <button className="admin-btn admin-btn--primary" onClick={() => setQuickMajorOpen(true)}>快速发布</button>}
             {can('major.create') && <button className="admin-btn admin-btn--primary" onClick={() => { setMajorModal({ mode: 'add', name: '', targetGradeIds: selectedGradeId ? [selectedGradeId] : [] }); setMajorError(''); }}>+ 新建</button>}
             {hasScopedMajor && can('major.edit') && <button className="admin-btn" onClick={() => { setMajorModal({ mode: 'rename', name: activeMajor.name, targetGradeIds: activeMajor.targetGradeIds || [] }); setMajorError(''); }}>设置</button>}
             {hasScopedMajor && can('major.delete') && <button className="admin-btn admin-btn--danger" onClick={() => setDeleteMajorOpen(true)} disabled={majors.length <= 1}>删除</button>}
           </div>
           <p className="admin-major-card__hint">切换年级只改变后台管理内容；大屏始终按设备绑定班级所属年级自动匹配适用考试。</p>
         </div>
+
+        {quickScopedMajors.length > 0 && <section className="quick-major-running"><div className="quick-major-running__head"><strong>临时统一考试</strong><span>{quickScopedMajors.length} 场</span></div>{quickScopedMajors.map(major => { const item = major.items.find(value => value.enabled); const running = item && phase(item) === 'ongoing'; return <article key={major.id}><div><strong>{major.name}</strong><small>{item ? `${item.name} · ${fmtLocal(item.startTime)} - ${fmtLocal(item.endTime)}` : '已结束'}{major.priorityOverSchedule ? ' · 优先覆盖' : ''}</small></div><span className={running ? 'is-running' : ''}>{running ? '进行中' : '待开始'}</span>{can('major.edit') && <div className="quick-major-running__actions"><button className="admin-item-btn" onClick={() => extendQuickMajor(major)}>延长 5 分钟</button><button className="admin-item-btn admin-item-btn--delete" onClick={() => endQuickMajor(major)}>提前结束</button><button className="admin-item-btn" onClick={() => promoteQuickMajor(major)}>转正式</button></div>}</article>; })}</section>}
 
         {hasScopedMajor && can('major.edit') && (editing ? <div className="admin-form-card">
           <h2 className="admin-form-card__title">{editing.id ? '编辑分考试' : '添加分考试'}</h2>
@@ -925,7 +966,8 @@ export default function AdminPage() {
       {ADMIN_NAV.filter(item => item.id === 'users' || can(item.permission)).map(item => <button key={item.id} className={adminTab === item.id ? 'is-active' : ''} onClick={() => item.id === 'users' ? openMyAccount() : selectAdminTab(item)} aria-current={adminTab === item.id ? 'page' : undefined}><span aria-hidden="true"><ModuleIcon module={item.id} size={18} /></span><small>{item.id === 'users' ? '我的账户' : item.mobileLabel}</small></button>)}
     </nav>
     {gradeAdminSetupPromptOpen && <div className="admin-modal-overlay"><div className="admin-modal" onClick={event => event.stopPropagation()}><h2 className="admin-modal__title">快速添加班级管理员</h2><p className="admin-modal__body">这是该年级管理员账号首次登录。可为授权年级下的各班创建班级管理员账号，让每位管理员只维护自己的班级。</p><p className="admin-major-card__hint">可管理范围：{visibleGrades.map(grade => grade.name).join('、') || '当前授权年级'}。创建账号时选择“班级管理员”角色，并勾选对应班级。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={() => { clearGradeAdminSetupPrompt(); setGradeAdminSetupPromptOpen(false); setAdminTab('users'); }}>前往添加账号</button><button className="admin-btn" onClick={() => { clearGradeAdminSetupPrompt(); setGradeAdminSetupPromptOpen(false); }}>稍后处理</button></div></div></div>}
-    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.next === 'import' ? '先填写考试标题' : majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorModal.next === 'import' && <p className="admin-modal__body">当前年级还没有大型考试。请先填写本次考试的标题，创建后将自动生成使用该标题的 AI 识图提示词。</p>}{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip><select className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : 'all'} onChange={e => setMajorModal(p => p && ({ ...p, targetGradeIds: e.target.value === 'all' ? [] : [e.target.value] }))}>{hasAllScope && <option value="all">全校统一</option>}{visibleGrades.map(grade => <option key={grade.id} value={grade.id}>{grade.name}</option>)}</select></label><p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>{majorModal.next === 'import' ? '创建并继续导入' : '确认'}</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
+    {majorModal && <div className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">{majorModal.next === 'import' ? '先填写考试标题' : majorModal.mode === 'add' ? '新建大型考试' : '大型考试设置'}</h2>{majorModal.next === 'import' && <p className="admin-modal__body">当前年级还没有大型考试。请先填写本次考试的标题，创建后将自动生成使用该标题的 AI 识图提示词。</p>}{majorError && <div className="admin-error">{majorError}</div>}<label className="admin-label">名称<input className="admin-input" autoFocus value={majorModal.name} onChange={e => setMajorModal(p => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" /></label><label className="admin-label">适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip><InlineSelect className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : 'all'} onChange={value => setMajorModal(p => p && ({ ...p, targetGradeIds: value === 'all' ? [] : [value] }))} options={[...(hasAllScope ? [{ value: 'all', label: '全校统一' }] : []), ...visibleGrades.map(grade => ({ value: grade.id, label: grade.name }))]} /></label><p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--primary" onClick={commitMajorModal}>{majorModal.next === 'import' ? '创建并继续导入' : '确认'}</button><button className="admin-btn" onClick={() => { setMajorModal(null); setMajorError(''); }}>取消</button></div></div></div>}
+    {quickMajorOpen && <QuickMajorPublishModal grades={visibleGrades} initialGradeIds={selectedGradeId ? [selectedGradeId] : []} allowSchoolWide={hasAllScope} lockedClassName={adminUser.roleId === 'class_admin' ? visibleClasses.find(item => item.id === selectedClassId)?.name : undefined} majors={visibleMajors} onClose={() => setQuickMajorOpen(false)} onPublish={publishQuickMajor} />}
     {majorPrintOpen && <SchedulePrintPreview mode="major" title={activeMajor.name} entries={items.filter(item => item.enabled).map(item => ({ date: item.startTime.slice(0, 10), name: item.name, startTime: item.startTime.slice(11, 16), endTime: item.endTime.slice(11, 16), note: STATUS[phase(item)].label }))} gradeName={grades.find(grade => grade.id === selectedGradeId)?.name || activeMajorScopeLabel} className="全年级" onClose={() => setMajorPrintOpen(false)} />}
     {deleteMajorOpen && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteMajorOpen(false))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">删除大型考试</h2><p className="admin-modal__body">确定删除「{activeMajor.name}」及其全部 {items.length} 项分考试？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={removeMajor}>删除</button><button className="admin-btn" onClick={() => setDeleteMajorOpen(false)}>取消</button></div></div></div>}
     {deleteTarget && <div className="admin-modal-overlay" {...backdropProps(() => setDeleteTarget(null))}><div className="admin-modal" onClick={e => e.stopPropagation()}><h2 className="admin-modal__title">确认删除</h2><p className="admin-modal__body">确定删除「{deleteTarget.name}」？此操作无法撤销。</p><div className="admin-modal__actions"><button className="admin-btn admin-btn--danger" onClick={() => remove(deleteTarget)}>删除</button><button className="admin-btn" onClick={() => setDeleteTarget(null)}>取消</button></div></div></div>}
@@ -986,17 +1028,13 @@ export default function AdminPage() {
                 </div>
                 <div className="admin-alert-card__row">
                   <label>触发
-                    <select className="admin-input" value={c.anchor} onChange={e => updateCustomReminder(c.id, { anchor: e.target.value as CustomReminder['anchor'] })}>
-                      {ANCHOR_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    <InlineSelect className="admin-input" value={c.anchor} onChange={value => updateCustomReminder(c.id, { anchor: value as CustomReminder['anchor'] })} options={ANCHOR_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
                   </label>
                   <label>分钟
                     <input className="admin-input" type="number" min={0} max={600} value={c.offsetMin} onChange={e => updateCustomReminder(c.id, { offsetMin: Math.max(0, Number(e.target.value) || 0) })} />
                   </label>
                   <label>配色
-                    <select className="admin-input" value={c.tone} onChange={e => updateCustomReminder(c.id, { tone: e.target.value as AlertState })}>
-                      {TONE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    <InlineSelect className="admin-input" value={c.tone} onChange={value => updateCustomReminder(c.id, { tone: value as AlertState })} options={TONE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
                   </label>
                 </div>
                 <div className="admin-alert-card__fields">

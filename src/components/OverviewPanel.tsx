@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, Database, MonitorCheck } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Database, MonitorCheck, X } from 'lucide-react';
 import type { MajorExam } from '../types';
 import type { WeeklyPlan } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
@@ -16,12 +16,14 @@ interface Props {
   weeklyPlans: WeeklyPlan[];
   syncLabel: string;
   online: boolean;
+  onQuickPublish?: () => void;
 }
 
-export default function OverviewPanel({ user, grades, classes, majors, weeklyPlans, syncLabel, online }: Props) {
+export default function OverviewPanel({ user, grades, classes, majors, weeklyPlans, syncLabel, online, onQuickPublish }: Props) {
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [deviceError, setDeviceError] = useState('');
   const [now, setNow] = useState(Date.now());
+  const [onlineOpen, setOnlineOpen] = useState(false);
   const scope = useMemo(() => {
     if (user.permissions.includes('*') || user.scopes.some(item => item.type === 'all')) return { gradeIds: new Set(grades.map(item => item.id)), classIds: new Set(classes.map(item => item.id)) };
     const gradeIds = new Set(user.scopes.filter(item => item.type === 'grade').map(item => item.gradeId));
@@ -62,14 +64,15 @@ export default function OverviewPanel({ user, grades, classes, majors, weeklyPla
   const attentionCount = devices.filter(item => item.revoked).length + (deviceError ? 1 : 0) + majorConflicts.length;
 
   return <main className="overview-panel">
-    <div className="overview-panel__head"><div><span>项目运行情况</span><h2>{user.roleId === 'super_admin' ? '全校运行总览' : '管理年级运行总览'}</h2></div><strong className={online ? 'is-ok' : 'is-warn'}>{syncLabel}</strong></div>
+    <div className="overview-panel__head"><div><span>项目运行情况</span><h2>{user.roleId === 'super_admin' ? '全校运行总览' : '管理年级运行总览'}</h2></div><div className="overview-panel__actions">{onQuickPublish && <button className="admin-btn admin-btn--primary" onClick={onQuickPublish}>快速发布统一考试</button>}<strong className={online ? 'is-ok' : 'is-warn'}>{syncLabel}</strong></div></div>
     <div className="overview-grid">
-      <article><MonitorCheck /><span>在线设备</span><strong>{onlineDevices.length}</strong><small>共 {devices.length} 台 · {runningDevices.length} 台考试中</small></article>
+      <button type="button" className="overview-grid__action" onClick={() => setOnlineOpen(true)}><MonitorCheck /><span>在线设备</span><strong>{onlineDevices.length}</strong><small>共 {devices.length} 台 · {runningDevices.length} 台考试中</small></button>
       <article><CalendarClock /><span>待执行大型考试</span><strong>{activeMajors.length}</strong><small>{scopedPlans.filter(item => item.enabled).length} 个启用周测计划</small></article>
       <article><Database /><span>数据库状态</span><strong>{deviceError ? '连接异常' : '连接正常'}</strong><small>{scope.gradeIds.size} 个年级 · {scope.classIds.size} 个班级</small></article>
       <article><AlertTriangle /><span>需要关注</span><strong>{attentionCount}</strong><small>{deviceError || (majorConflicts.length ? `${majorConflicts.length} 组大型考试时间冲突` : '同步与设备状态正常')}</small></article>
     </div>
     <section className="overview-section"><h3>正在进行</h3>{runningDevices.length ? <div className="overview-running">{runningDevices.map(item => <div key={item.instanceId}><strong>{item.currentSubject || '考试'}</strong><span>{item.currentExam || '当前考试'} · {classes.find(value => value.id === item.classId)?.name || '未识别班级'}</span><code>{item.instanceId}</code></div>)}</div> : <p>当前管理范围内没有正在考试的设备。</p>}</section>
     {majorConflicts.length > 0 && <section className="overview-section"><h3>大型考试冲突</h3><div className="overview-running">{[...new Set(majorConflicts)].map(label => <div key={label}><strong>{label}</strong><span>适用范围和考试时间存在重叠，请在大型考试模块核对。</span></div>)}</div></section>}
+    {onlineOpen && <div className="overview-device-drawer" role="dialog" aria-modal="true" aria-label="在线设备"><button className="overview-device-drawer__backdrop" aria-label="关闭" onClick={() => setOnlineOpen(false)} /><aside><header><div><span>当前授权范围</span><h3>在线设备</h3></div><button className="admin-btn" onClick={() => setOnlineOpen(false)} aria-label="关闭"><X size={17} /></button></header><div className="overview-device-drawer__list">{onlineDevices.length ? onlineDevices.map(device => <article key={device.instanceId}><strong>{classes.find(item => item.id === device.classId)?.name || '未绑定班级'}</strong><span>{device.status === 'exam-running' ? `${device.currentExam} · ${device.currentSubject}` : '在线待命'}</span><code title={device.instanceId}>{device.instanceId}</code><small>最近心跳：{new Date(device.lastSeenAt).toLocaleString('zh-CN', { hour12: false })}</small></article>) : <p>暂无在线设备。</p>}</div><footer><a className="admin-btn" href="/admin?tab=devices">进入设备管理</a></footer></aside></div>}
   </main>;
 }

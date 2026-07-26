@@ -229,6 +229,12 @@ export function normalizeExam(raw: unknown): ExamSettings {
       order: typeof m.order === 'number' ? m.order : i,
       targetGradeIds: Array.isArray(m.targetGradeIds) ? m.targetGradeIds.map(String).filter(Boolean) : [],
       targetClassIds: Array.isArray(m.targetClassIds) ? m.targetClassIds.map(String).filter(Boolean) : [],
+      source: m.source === 'quick' ? 'quick' as const : 'regular' as const,
+      temporary: m.temporary === true || m.source === 'quick',
+      priorityOverSchedule: m.priorityOverSchedule === true,
+      createdAt: Number.isFinite(m.createdAt) ? Number(m.createdAt) : undefined,
+      createdBy: Number.isFinite(m.createdBy) ? Number(m.createdBy) : undefined,
+      endedAt: Number.isFinite(m.endedAt) ? Number(m.endedAt) : null,
     }))
     .sort((a, b) => a.order - b.order)
     .map((m, i) => ({ ...m, order: i }));

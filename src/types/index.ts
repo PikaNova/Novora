@@ -26,6 +26,15 @@ export interface MajorExam {
   targetGradeIds?: string[];
   /** 适用班级；为空表示所选年级下全部班级。 */
   targetClassIds?: string[];
+  /** regular 为常规考试；quick 为后台临时下发的统一考试。 */
+  source?: 'regular' | 'quick';
+  /** 临时统一考试结束后仍保留记录，便于后台追溯或转存为正式考试。 */
+  temporary?: boolean;
+  /** 仅临时统一考试可用：在同一时间段优先展示本次安排。 */
+  priorityOverSchedule?: boolean;
+  createdAt?: number;
+  createdBy?: number;
+  endedAt?: number | null;
 }
 
 /** 六种内置提醒状态（与设计思路文档一一对应）。 */
