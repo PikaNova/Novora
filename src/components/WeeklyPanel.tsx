@@ -52,6 +52,10 @@ const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   7: "周日",
 };
 const WEEKDAY_ORDER: IsoWeekday[] = [1, 2, 3, 4, 5, 6, 7];
+const COMMON_WEEKLY_SUBJECTS = [
+  "语文", "数学", "英语", "物理", "化学", "生物", "政治", "历史", "地理", "信息技术", "体育", "音乐", "美术",
+];
+const CUSTOM_WEEKLY_SUBJECT = "__custom_weekly_subject__";
 const SCOPE_LABEL: Record<WeeklyConflictPolicy["scope"], string> = {
   "time-overlap": "仅实际时间重叠时暂停周测",
   "whole-day": "大型考试当天暂停全部周测（推荐）",
@@ -180,6 +184,7 @@ export default function WeeklyPanel({
   const [deletePlanOpen, setDeletePlanOpen] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [editing, setEditing] = useState<ItemEdit | null>(null);
+  const [customWeeklySubjectActive, setCustomWeeklySubjectActive] = useState(false);
   const [editError, setEditError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<WeeklyExamItem | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1564,6 +1569,7 @@ export default function WeeklyPanel({
             <button
               className="admin-btn admin-btn--primary"
               onClick={() => {
+                setCustomWeeklySubjectActive(false);
                 setEditing({
                   name: "",
                   weekday: 1,
@@ -1673,6 +1679,7 @@ export default function WeeklyPanel({
                           <button
                             className="admin-item-btn"
                             onClick={() => {
+                              setCustomWeeklySubjectActive(false);
                               setEditing({ ...item });
                               setEditError("");
                             }}
@@ -1882,15 +1889,26 @@ export default function WeeklyPanel({
             <div className="admin-form">
               <label className="admin-label">
                 名称
-                <input
-                  className="admin-input"
-                  autoFocus
-                  value={editing.name}
-                  onChange={(e) =>
-                    setEditing((p) => p && { ...p, name: e.target.value })
-                  }
-                  placeholder="如：周测 / 晚自习测验"
+                <InlineSelect
+                  className="admin-major-subject-select"
+                  ariaLabel="选择周测科目"
+                  value={customWeeklySubjectActive || (editing.name && !COMMON_WEEKLY_SUBJECTS.includes(editing.name)) ? CUSTOM_WEEKLY_SUBJECT : editing.name}
+                  placeholder="选择常用科目"
+                  options={[
+                    { value: "", label: "选择常用科目" },
+                    ...COMMON_WEEKLY_SUBJECTS.map((subject) => ({ value: subject, label: <><SubjectIcon subject={subject} size={16} />{subject}</> })),
+                    { value: CUSTOM_WEEKLY_SUBJECT, label: <><SubjectIcon subject="其他" size={16} />其他 / 自定义</> },
+                  ]}
+                  onChange={(value) => {
+                    if (value === CUSTOM_WEEKLY_SUBJECT) {
+                      setCustomWeeklySubjectActive(true);
+                      return;
+                    }
+                    setCustomWeeklySubjectActive(false);
+                    setEditing((p) => p && { ...p, name: value });
+                  }}
                 />
+                {(customWeeklySubjectActive || (editing.name && !COMMON_WEEKLY_SUBJECTS.includes(editing.name))) && <input className="admin-input" autoFocus value={editing.name} onChange={(e) => setEditing((p) => p && { ...p, name: e.target.value })} placeholder="填写自定义科目名称" maxLength={40} />}
               </label>
               <label className="admin-label">
                 星期
@@ -1996,6 +2014,7 @@ export default function WeeklyPanel({
                   className="admin-btn admin-btn--ghost"
                   onClick={() => {
                     setEditing(null);
+                    setCustomWeeklySubjectActive(false);
                     setEditError("");
                   }}
                 >

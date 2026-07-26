@@ -4,7 +4,7 @@ import { createPortal } from "react-dom"
 import { TapButton } from "./TapButton"
 import { SelectionPreview } from "./SelectionPreview"
 import { resolveDensity } from "./useDensity"
-import { clampParts, daysInMonth, pad2, defaultPresets, MON, SUN } from "./utils"
+import { clampParts, daysInMonth, pad2, MON, SUN } from "./utils"
 import type { DateTimeParts, Field, DateTimePickerProps } from "./types"
 import "./DateTimePicker.css"
 
@@ -57,7 +57,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
     return d
   })
   const [field, setField] = useState<Field>(
-    initialField && segs.indexOf(initialField) >= 0 ? initialField : segs[mode === "datetime" ? 2 : 0],
+    initialField && segs.indexOf(initialField) >= 0 ? initialField : mode === "date" ? "day" : segs[mode === "datetime" ? 2 : 0],
   )
   const [yearCenter, setYearCenter] = useState(draft.year)
   const [hourPeriod, setHourPeriod] = useState(() => Math.floor(draft.hour / 6))
@@ -165,8 +165,6 @@ export function DateTimePicker(props: DateTimePickerProps) {
     setYearCenter(y)
     patch({ year: y, month: m })
   }
-
-  const activePresets = presets === false || mode === "time" ? [] : presets || defaultPresets
 
   const readoutDefs: { k: Field; t: string; u?: string; colon?: boolean }[] = []
   if (weekdayEnabled)
@@ -444,26 +442,6 @@ export function DateTimePicker(props: DateTimePickerProps) {
         {error && (
           <div className="tdp-error" role="alert">
             {"⚠ " + error}
-          </div>
-        )}
-        {activePresets.length > 0 && (
-          <div className="tdp-presets">
-            {activePresets.map((p, i) => (
-              <TapButton
-                key={i}
-                className="tdp-preset"
-                onTap={() => {
-                  const w = draft.weekday
-                  const nv = clampParts(p.resolve(new Date(), draft))
-                  if (typeof w === "number") nv.weekday = w
-                  setYearCenter(nv.year)
-                  setError(null)
-                  setDraft(nv)
-                }}
-              >
-                {p.label}
-              </TapButton>
-            ))}
           </div>
         )}
         <div className="tdp-body">{renderBody()}</div>

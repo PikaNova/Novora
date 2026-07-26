@@ -1,8 +1,8 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { DateTimePicker } from "./DateTimePicker"
 import { SelectionPreview } from "./SelectionPreview"
 import { parseNaive, partsToNaive, partsToNaiveDate, formatDateCN, weekdayCN, pad2 } from "./utils"
-import type { AnchorRect, CompactPlacement, DateTimeParts, Density, Mode, PreviewConfig, WeekdayConfig } from "./types"
+import type { AnchorRect, CompactPlacement, DateTimeParts, Density, Field, Mode, PreviewConfig, WeekdayConfig } from "./types"
 import "./DateTimeField.css"
 
 export interface DateTimeFieldProps {
@@ -27,6 +27,8 @@ export interface DateTimeFieldProps {
   validate?: (v: DateTimeParts) => string | null
   showFieldPreview?: boolean // 框下实时预览，默认开
   compactPlacement?: CompactPlacement
+  initialField?: Field
+  openSignal?: number
 }
 
 function nowParts(): DateTimeParts {
@@ -68,6 +70,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
     className,
     preview,
     showFieldPreview = true,
+    openSignal,
   } = props
 
   const parsed = parseFieldValue(value, mode)
@@ -75,6 +78,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
   const [draftPreview, setDraftPreview] = useState<DateTimeParts | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
   const [rect, setRect] = useState<AnchorRect | undefined>(undefined)
+  const lastOpenSignal = useRef<number | undefined>(undefined)
 
   const display = parsed ? fieldText(parsed, mode) : ""
   const previewValue = draftPreview ?? parsed
@@ -86,6 +90,12 @@ export function DateTimeField(props: DateTimeFieldProps) {
     setDraftPreview(parsed ?? nowParts())
     setOpen(true)
   }
+
+  useEffect(() => {
+    if (!openSignal || lastOpenSignal.current === openSignal || disabled) return
+    lastOpenSignal.current = openSignal
+    openPicker()
+  }, [disabled, openSignal, parsed])
 
   return (
     <div className={className}>
@@ -128,6 +138,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
           validate={props.validate}
           anchorRect={rect}
           compactPlacement={props.compactPlacement}
+          initialField={props.initialField}
           onChange={(v) => setDraftPreview(v)}
           onConfirm={(v) => {
             setOpen(false)

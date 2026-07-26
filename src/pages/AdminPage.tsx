@@ -129,6 +129,11 @@ const STATUS = {
   ongoing: { label: "进行中", color: "#27ae60", bg: "rgba(39,174,96,.15)" },
   ended: { label: "已结束", color: "#6c757d", bg: "rgba(108,117,125,.15)" },
 };
+const COMMON_EXAM_SUBJECTS = [
+  "语文", "数学", "英语", "物理", "化学", "生物", "政治", "历史", "地理", "信息技术", "体育", "音乐", "美术",
+];
+const CUSTOM_SUBJECT_VALUE = "__custom_subject__";
+const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120];
 
 // 云服务同步状态
 type SyncState = "loading" | "saving" | "saved" | "offline" | "error";
@@ -286,6 +291,8 @@ export default function AdminPage() {
     getAdminUser(),
   );
   const [editing, setEditing] = useState<EditItem | null>(null);
+  const [customSubjectActive, setCustomSubjectActive] = useState(false);
+  const [endPickerSignal, setEndPickerSignal] = useState(0);
   const [editError, setEditError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ExamItem | null>(null);
   const [lastDeletedExam, setLastDeletedExam] = useState<{
@@ -1578,6 +1585,18 @@ export default function AdminPage() {
     );
 
   // ===== 分考试：添加 / 编辑 / 启用 / 删除 / 排序 =====
+  const applyMajorDuration = (minutes: number) => {
+    if (!editing?.startTime) return;
+    const start = new Date(editing.startTime).getTime();
+    if (!Number.isFinite(start)) return;
+    setLongDurationConfirmed(false);
+    setEditing((value) =>
+      value
+        ? { ...value, endTime: toISO(toLocalInput(start + minutes * 60_000)) }
+        : value,
+    );
+  };
+
   const commitEdit = async () => {
     if (!editing) return;
     if (!editing.name.trim()) {
@@ -2417,16 +2436,26 @@ export default function AdminPage() {
                     <div className="admin-form">
                       <label className="admin-label">
                         科目名称
-                        <input
-                          className="admin-input"
-                          value={editing.name}
-                          onChange={(e) =>
-                            setEditing(
-                              (p) => p && { ...p, name: e.target.value },
-                            )
-                          }
-                          placeholder="如：语文"
+                        <InlineSelect
+                          className="admin-major-subject-select"
+                          ariaLabel="选择考试科目"
+                          value={customSubjectActive || (editing.name && !COMMON_EXAM_SUBJECTS.includes(editing.name)) ? CUSTOM_SUBJECT_VALUE : editing.name}
+                          placeholder="选择常用科目"
+                          options={[
+                            { value: "", label: "选择常用科目" },
+                            ...COMMON_EXAM_SUBJECTS.map((subject) => ({ value: subject, label: <><SubjectIcon subject={subject} size={16} />{subject}</> })),
+                            { value: CUSTOM_SUBJECT_VALUE, label: <><SubjectIcon subject="其他" size={16} />其他 / 自定义</> },
+                          ]}
+                          onChange={(value) => {
+                            if (value === CUSTOM_SUBJECT_VALUE) {
+                              setCustomSubjectActive(true);
+                              return;
+                            }
+                            setCustomSubjectActive(false);
+                            setEditing((p) => p && { ...p, name: value });
+                          }}
                         />
+                        {(customSubjectActive || (editing.name && !COMMON_EXAM_SUBJECTS.includes(editing.name))) && <input className="admin-input" value={editing.name} onChange={(e) => setEditing((p) => p && { ...p, name: e.target.value })} placeholder="填写自定义科目名称" maxLength={40} autoFocus />}
                       </label>
                       <label className="admin-label">
                         开始时间
@@ -2435,10 +2464,20 @@ export default function AdminPage() {
                           value={fmtLocal(editing.startTime)}
                           onChange={(value) => {
                             setLongDurationConfirmed(false);
-                            setEditing(
-                              (p) =>
-                                p && { ...p, startTime: toISO(value) },
-                            );
+                            const startTime = toISO(value);
+                            const start = new Date(startTime).getTime();
+                            setEditing((p) => {
+                              if (!p) return p;
+                              const currentEnd = new Date(p.endTime).getTime();
+                              return {
+                                ...p,
+                                startTime,
+                                endTime: Number.isFinite(currentEnd) && currentEnd > start
+                                  ? p.endTime
+                                  : toISO(toLocalInput(start + 60 * 60_000)),
+                              };
+                            });
+                            setEndPickerSignal((signal) => signal + 1);
                           }}
                           mode="datetime"
                           minuteStep={5}
@@ -2464,6 +2503,8 @@ export default function AdminPage() {
                           title="选择结束时间"
                           showFieldPreview={false}
                           compactPlacement="right"
+                          initialField="hour"
+                          openSignal={endPickerSignal}
                         />
                         {editing.startTime && editing.endTime && (
                           <span className="admin-duration-hint">
@@ -2471,6 +2512,23 @@ export default function AdminPage() {
                           </span>
                         )}
                       </label>
+                      {editing.startTime && (
+                        <section className="admin-major-duration-presets" aria-label="常用考试时长">
+                          <span>推荐考试时长</span>
+                          <div>
+                            {MAJOR_DURATION_PRESETS.map((minutes) => {
+                              const selected = editing.endTime && Math.round((new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime()) / 60_000) === minutes;
+                              return <button type="button" key={minutes} className={selected ? "is-selected" : ""} onClick={() => applyMajorDuration(minutes)}>{minutes} 分钟</button>;
+                            })}
+                          </div>
+                        </section>
+                      )}
+                      {editing.name && editing.startTime && editing.endTime && (
+                        <div className="admin-major-exam-summary">
+                          <SubjectIcon subject={editing.name} size={18} />
+                          <span><strong>{editing.name}</strong>{fmtLocal(editing.startTime)} 至 {fmtLocal(editing.endTime)} · {duration(editing.startTime, editing.endTime)}</span>
+                        </div>
+                      )}
                       {isLongEdit && (
                         <label className="admin-long-duration">
                           <input
@@ -2506,6 +2564,7 @@ export default function AdminPage() {
                           className="admin-btn admin-btn--ghost"
                           onClick={() => {
                             setEditing(null);
+                            setCustomSubjectActive(false);
                             setEditError("");
                           }}
                         >
@@ -2520,6 +2579,8 @@ export default function AdminPage() {
                     style={{ width: "100%" }}
                     onClick={() => {
                       setLongDurationConfirmed(false);
+                      setCustomSubjectActive(false);
+                      setEndPickerSignal(0);
                       setEditing({
                         name: "",
                         startTime: "",
@@ -2664,6 +2725,7 @@ export default function AdminPage() {
                               className="admin-item-btn"
                               onClick={() => {
                                 setLongDurationConfirmed(false);
+                                setCustomSubjectActive(false);
                                 setEditing({ ...item });
                               }}
                             >
