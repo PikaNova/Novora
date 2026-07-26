@@ -34,7 +34,7 @@ const COMMON_SUBJECTS = [
   "历史",
   "地理",
 ];
-const DURATION_PRESETS = [30, 45, 60, 90, 120];
+const DURATION_PRESETS = [30, 45, 60, 90, 120, 150];
 const DELAY_PRESETS = [5, 10, 15, 30];
 const isoLocal = (value: number) =>
   new Date(value - new Date(value).getTimezoneOffset() * 60_000)
@@ -55,11 +55,11 @@ const formatDateTime = (value: number) =>
   });
 const roundUpToFiveMinutes = (value: number) => Math.ceil(value / 300_000) * 300_000;
 const nextFiveMinutes = () => roundUpToFiveMinutes(Date.now() + 5 * 60_000);
-const normalizeTimeToFiveMinutes = (value: string) => {
-  const [hours, minutes] = value.split(":").map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
-  const total = Math.min(1_435, Math.ceil((hours * 60 + minutes) / 5) * 5);
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+const formatDuration = (minutes: number) => {
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} 小时${rest ? ` ${rest} 分钟` : ""}`;
 };
 
 export default function TemporaryExamLauncher({
@@ -376,9 +376,8 @@ export default function TemporaryExamLauncher({
                             <DateTimeField
                               className="admin-date-time-field"
                               value={specificTime}
-                              onChange={(value) => setSpecificTime(normalizeTimeToFiveMinutes(value))}
+                              onChange={setSpecificTime}
                               mode="time"
-                              minuteStep={5}
                               title="选择考试开始时间"
                               showFieldPreview={false}
                             />
@@ -394,7 +393,7 @@ export default function TemporaryExamLauncher({
                               className={duration === value ? "is-active" : ""}
                               onClick={() => setDuration(value)}
                             >
-                              {value} 分钟
+                              {formatDuration(value)}
                             </button>
                           ))}
                           <label

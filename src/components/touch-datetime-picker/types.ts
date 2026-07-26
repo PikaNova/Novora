@@ -61,7 +61,6 @@ export interface DateTimePickerProps {
   mode?: Mode
   density?: Density
   hourRange?: [number, number]
-  minuteStep?: number
   yearRange?: [number, number]
   presets?: Preset[] | false
   weekStartsOn?: 0 | 1

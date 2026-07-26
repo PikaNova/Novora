@@ -118,6 +118,12 @@ function duration(start: string, end: string) {
     ? `${Math.floor(minutes / 60)}h${minutes % 60 ? `${minutes % 60}m` : ""}`
     : `${minutes}m`;
 }
+function formatDurationPreset(minutes: number) {
+  if (minutes < 60) return `${minutes}分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours}小时${rest ? `${rest}分钟` : ""}`;
+}
 function phase(item: ExamItem): "waiting" | "ongoing" | "ended" {
   const now = Date.now();
   if (now < new Date(item.startTime).getTime()) return "waiting";
@@ -133,7 +139,7 @@ const COMMON_EXAM_SUBJECTS = [
   "语文", "数学", "英语", "物理", "化学", "生物", "政治", "历史", "地理", "信息技术", "体育", "音乐", "美术",
 ];
 const CUSTOM_SUBJECT_VALUE = "__custom_subject__";
-const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120];
+const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 
 // 云服务同步状态
 type SyncState = "loading" | "saving" | "saved" | "offline" | "error";
@@ -3518,7 +3524,7 @@ export default function AdminPage() {
                         className={selected ? "is-selected" : ""}
                         onClick={() => applyMajorDuration(minutes)}
                       >
-                        {minutes} 分钟
+                      {formatDurationPreset(minutes)}
                       </button>
                     );
                   })}

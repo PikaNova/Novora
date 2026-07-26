@@ -18,7 +18,6 @@ export interface DateTimeFieldProps {
   className?: string
   title?: string
   hourRange?: [number, number]
-  minuteStep?: number
   yearRange?: [number, number]
   weekStartsOn?: 0 | 1
   weekday?: WeekdayConfig
@@ -120,7 +119,6 @@ export function DateTimeField(props: DateTimeFieldProps) {
           theme={props.theme}
           title={props.title}
           hourRange={props.hourRange}
-          minuteStep={props.minuteStep}
           yearRange={props.yearRange}
           weekStartsOn={props.weekStartsOn}
           weekday={props.weekday}

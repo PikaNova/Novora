@@ -1953,7 +1953,6 @@ export default function WeeklyPanel({
                   value={editing.startTime}
                   onChange={(value) => setEditing((p) => p && { ...p, startTime: value })}
                   mode="time"
-                  minuteStep={5}
                   title="选择开始时间"
                   showFieldPreview={false}
                 />
@@ -1965,7 +1964,6 @@ export default function WeeklyPanel({
                   value={editing.endTime}
                   onChange={(value) => setEditing((p) => p && { ...p, endTime: value })}
                   mode="time"
-                  minuteStep={5}
                   title="选择结束时间"
                   showFieldPreview={false}
                 />
@@ -2551,7 +2549,6 @@ export default function WeeklyPanel({
                   value={rescheduleTarget.startTime}
                   onChange={(value) => setRescheduleTarget((p) => p && { ...p, startTime: value })}
                   mode="time"
-                  minuteStep={5}
                   title="选择开始时间"
                   showFieldPreview={false}
                 />
@@ -2563,7 +2560,6 @@ export default function WeeklyPanel({
                   value={rescheduleTarget.endTime}
                   onChange={(value) => setRescheduleTarget((p) => p && { ...p, endTime: value })}
                   mode="time"
-                  minuteStep={5}
                   title="选择结束时间"
                   showFieldPreview={false}
                 />

@@ -43,7 +43,7 @@ const DELAYS = [
   { label: "15 分钟后", minutes: 15 },
   { label: "30 分钟后", minutes: 30 },
 ];
-const DURATIONS = [30, 45, 60, 90, 120];
+const DURATIONS = [30, 45, 60, 90, 120, 150];
 const TIME_STEP_MS = 5 * 60_000;
 const OTHER_SUBJECT = SUBJECTS[SUBJECTS.length - 1];
 
@@ -60,9 +60,11 @@ function displayTime(value: string) {
   return value ? value.replace("T", " ") : "未设置";
 }
 
-function isFiveMinuteAligned(value: string) {
-  const time = new Date(value).getTime();
-  return Number.isFinite(time) && time % TIME_STEP_MS === 0;
+function formatDuration(minutes: number) {
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} 小时${rest ? ` ${rest} 分钟` : ""}`;
 }
 
 export default function QuickMajorPublishModal({
@@ -103,10 +105,6 @@ export default function QuickMajorPublishModal({
   const previewEndTime = Number.isFinite(new Date(startTime).getTime())
     ? localInputValue(new Date(startTime).getTime() + finalDuration * 60_000)
     : "";
-  const usesFiveMinuteTicks =
-    Boolean(previewEndTime) &&
-    isFiveMinuteAligned(startTime) &&
-    isFiveMinuteAligned(previewEndTime);
   const finalSubject =
     subject === OTHER_SUBJECT ? customSubject.trim() : subject;
   const effectiveTargetGradeIds = schoolWide ? [] : targetGradeIds;
@@ -343,7 +341,6 @@ export default function QuickMajorPublishModal({
                   value={customStart}
                   onChange={setCustomStart}
                   mode="datetime"
-                  minuteStep={5}
                   title="选择开始时间"
                   showFieldPreview={false}
                 />
@@ -362,7 +359,7 @@ export default function QuickMajorPublishModal({
                       setDurationMinutes(value);
                     }}
                   >
-                    {value} 分钟
+                    {formatDuration(value)}
                   </button>
                 ))}
                 <label className="quick-major-custom-duration">
@@ -387,10 +384,7 @@ export default function QuickMajorPublishModal({
                 <strong>{finalSubject || "请先选择考试科目"}</strong>
                 <p>{previewEndTime ? `${displayTime(startTime)} - ${displayTime(previewEndTime)}` : "请选择有效的开始时间"}</p>
                 <small>
-                  {finalDuration} 分钟
-                  {usesFiveMinuteTicks
-                    ? " · 已按 5 分钟刻度安排"
-                    : " · 含自定义时间"}
+                  {formatDuration(finalDuration)} · 使用滚轮时间设置
                 </small>
               </div>
             </section>
@@ -412,7 +406,7 @@ export default function QuickMajorPublishModal({
               </span>
               <strong>{name}</strong>
               <p>
-                {finalSubject} · {displayTime(startTime)} 开始 · {finalDuration} 分钟
+                {finalSubject} · {displayTime(startTime)} 开始 · {formatDuration(finalDuration)}
               </p>
             </section>
             <section
