@@ -1,0 +1,5 @@
+.subject-icon{display:inline-block;flex:none;vertical-align:middle}
+.quick-major-subjects button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.temp-subject-grid button>span{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.schedule-event__subject{display:flex;align-items:center;gap:2mm}
+.schedule-event__subject .subject-icon{color:#1c5d85}

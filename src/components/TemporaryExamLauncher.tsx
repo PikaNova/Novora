@@ -21,6 +21,7 @@ import { getAppSettings } from "../utils/appSettings";
 import { classDisplayName } from "../utils/classSettings";
 import { confirmDialog } from "../services/appDialog";
 import { DateTimeField } from "./touch-datetime-picker";
+import SubjectIcon from "./SubjectIcon";
 
 const COMMON_SUBJECTS = [
   "语文",
@@ -281,7 +282,7 @@ export default function TemporaryExamLauncher({
                             }
                             onClick={() => chooseSubject(item)}
                           >
-                            <span>{item}</span>
+                            <span><SubjectIcon subject={item} size={17} />{item}</span>
                             {!customSubjectOpen && subject === item && (
                               <Check />
                             )}
@@ -294,7 +295,7 @@ export default function TemporaryExamLauncher({
                             setSubject("");
                           }}
                         >
-                          其他科目
+                          <span><SubjectIcon subject="其他" size={17} />其他科目</span>
                         </button>
                       </div>
                       {customSubjectOpen && (

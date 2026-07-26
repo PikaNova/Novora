@@ -8,6 +8,7 @@ import './styles/schedule-print.css';
 import './styles/notice.css';
 import './styles/app-dialog.css';
 import './styles/temporary-exam.css';
+import './styles/subject-icons.css';
 import './styles/brand.css';
 import { startTimeSyncManager } from './utils/timeSync';
 import { registerPwa } from './services/pwa';

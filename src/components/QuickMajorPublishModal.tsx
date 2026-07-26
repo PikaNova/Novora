@@ -3,6 +3,7 @@ import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolGrade } from "../types/school";
 import { DateTimeField } from "./touch-datetime-picker";
+import SubjectIcon from "./SubjectIcon";
 
 export interface QuickMajorPublishInput {
   name: string;
@@ -292,7 +293,8 @@ export default function QuickMajorPublishModal({
                     className={subject === value ? "is-selected" : ""}
                     onClick={() => setSubject(value)}
                   >
-                    {value}
+                    <SubjectIcon subject={value} size={16} />
+                    <span>{value}</span>
                   </button>
                 ))}
               </div>

@@ -30,6 +30,7 @@ import {
   OFFICIAL_HOLIDAYS,
 } from "../data/officialHolidays";
 import HelpTip from "./HelpTip";
+import SubjectIcon from "./SubjectIcon";
 import SchedulePrintPreview, {
   type PrintScheduleDocument,
 } from "./SchedulePrintPreview";
@@ -1627,6 +1628,7 @@ export default function WeeklyPanel({
                         <div className="admin-item__info">
                           <div className="admin-item__name-row">
                             <span className="admin-item__name">
+                              <SubjectIcon subject={item.name} size={16} />
                               {item.name}
                             </span>
                             {activePlan.weekMode === "ab" && (

@@ -15,6 +15,7 @@ import ExamAlertOverlay from '../components/ExamAlertOverlay';
 import ExamSyncAction from '../components/ExamSyncAction';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
+import SubjectIcon from '../components/SubjectIcon';
 import { getDesign, isMobileReadyDesign } from '../designs/registry';
 import { getDesignId, setDesignId } from '../utils/designPref';
 import DesignSwitcher from '../components/DesignSwitcher';
@@ -337,6 +338,7 @@ function BoundExamPage() {
           onRefresh={() => { void refreshExamData(true); }}
         />
         <BrandMark compact className="exam-brand-mark" />
+        {raw.currentExam && <div className="exam-subject-badge"><SubjectIcon subject={raw.currentExam.name} size={17} /><span>{raw.currentExam.name}</span></div>}
       </div>
       <ExamAnnouncementOverlay
         open={announcementsOpen}

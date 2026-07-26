@@ -58,6 +58,7 @@ import InitializationWizard, {
 import UserManagementPanel from "../components/UserManagementPanel";
 import HelpTip from "../components/HelpTip";
 import ModuleIcon from "../components/ModuleIcon";
+import SubjectIcon from "../components/SubjectIcon";
 import OverviewPanel from "../components/OverviewPanel";
 import AiImportGuide from "../components/AiImportGuide";
 import AccessDenied from "../components/AccessDenied";
@@ -2609,6 +2610,7 @@ export default function AdminPage() {
                         <div className="admin-item__info">
                           <div className="admin-item__name-row">
                             <span className="admin-item__name">
+                              <SubjectIcon subject={item.name} size={16} />
                               {item.name}
                             </span>
                             <span
