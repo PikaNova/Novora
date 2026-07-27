@@ -35,7 +35,7 @@ const COMMON_SUBJECTS = [
   "历史",
   "地理",
 ];
-const DURATION_PRESETS = [30, 45, 60, 90, 120, 150];
+const DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 const DELAY_PRESETS = [5, 10, 15, 30];
 const isoLocal = (value: number) =>
   new Date(value - new Date(value).getTimezoneOffset() * 60_000)
@@ -54,6 +54,12 @@ const formatDateTime = (value: number) =>
     minute: "2-digit",
     hour12: false,
   });
+const formatDuration = (minutes: number) => {
+  if (minutes < 60) return `${minutes}分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${hours}小时${remainder ? `${remainder}分钟` : ""}`;
+};
 const roundUpToFiveMinutes = (value: number) => Math.ceil(value / 300_000) * 300_000;
 const nextFiveMinutes = () => roundUpToFiveMinutes(Date.now() + 5 * 60_000);
 export default function TemporaryExamLauncher({
@@ -375,6 +381,28 @@ export default function TemporaryExamLauncher({
                           指定时间
                         </button>
                       </fieldset>
+                      {mode === "now" && (
+                        <div className="temp-preset temp-duration-presets">
+                          <span>常用考试时长</span>
+                          <div>
+                            {DURATION_PRESETS.map((value) => (
+                              <button
+                                type="button"
+                                key={value}
+                                className={duration === value ? "is-active" : ""}
+                                aria-pressed={duration === value}
+                                onClick={() => {
+                                  setDuration(value);
+                                  setCrossDayConfirmed(false);
+                                }}
+                              >
+                                {formatDuration(value)}
+                              </button>
+                            ))}
+                          </div>
+                          <small>以当前时间开始，并按所选时长自动计算结束时间。</small>
+                        </div>
+                      )}
                       {mode === "delay" && (
                         <div className="temp-preset">
                           <span>延迟时间</span>
