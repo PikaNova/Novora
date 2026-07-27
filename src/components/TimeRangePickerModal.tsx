@@ -117,6 +117,11 @@ export default function TimeRangePickerModal({
   const anchorElementRef = useRef<HTMLElement | null>(null);
   const initialRangeRef = useRef({ startValue, endValue, endNextDay: initialCrossDay });
   const previewChangeRef = useRef(onPreviewChange);
+  const previewReadyRef = useRef(false);
+  const previewReadyFrameRef = useRef<number | null>(null);
+  const wheelSyncingRef = useRef(false);
+  const wheelSyncFrameRef = useRef<number | null>(null);
+  const wheelChangeFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     previewChangeRef.current = onPreviewChange;
@@ -179,19 +184,30 @@ export default function TimeRangePickerModal({
   }, [crossDayEnabled, mode, open, step]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previewReadyRef.current = false;
+      return;
+    }
     const start = startValue || (mode === "time" ? "08:00" : `${today()}T08:00`);
     const end = endValue || addMinutes(start, 60, mode);
+    previewReadyRef.current = false;
     initialRangeRef.current = { startValue: start, endValue: end, endNextDay: initialCrossDay };
     setDraftStart(start);
     setDraftEnd(end);
     setCrossDayEnabled(initialCrossDay);
     setTarget("start");
     setStep("start");
+    previewReadyFrameRef.current = window.requestAnimationFrame(() => {
+      previewReadyRef.current = true;
+      previewChangeRef.current?.(start, end, initialCrossDay);
+    });
+    return () => {
+      if (previewReadyFrameRef.current !== null) window.cancelAnimationFrame(previewReadyFrameRef.current);
+    };
   }, [open]);
 
   useEffect(() => {
-    if (open) previewChangeRef.current?.(draftStart, draftEnd, crossDayEnabled);
+    if (open && previewReadyRef.current) previewChangeRef.current?.(draftStart, draftEnd, crossDayEnabled);
   }, [crossDayEnabled, draftEnd, draftStart, open]);
 
   const activeParts = splitValue(target === "start" ? draftStart : draftEnd, mode, splitValue(draftStart, mode).date);
@@ -215,21 +231,40 @@ export default function TimeRangePickerModal({
   const requiresCrossDay = mode === "datetime" ? datesDiffer : rawDuration <= 0;
 
   useEffect(() => {
-    if (!open) return;
-    requestAnimationFrame(() => {
+    if (!open || (step !== "start" && step !== "end")) return;
+    wheelSyncingRef.current = true;
+    const frame = requestAnimationFrame(() => {
       if (hourRef.current) hourRef.current.scrollTop = activeParts.hour * ITEM_HEIGHT;
       if (minuteRef.current) minuteRef.current.scrollTop = activeParts.minute * ITEM_HEIGHT;
+      wheelSyncFrameRef.current = requestAnimationFrame(() => {
+        wheelSyncingRef.current = false;
+      });
     });
-  }, [open, target]);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (wheelSyncFrameRef.current !== null) cancelAnimationFrame(wheelSyncFrameRef.current);
+    };
+  }, [open, step, target]);
 
   if (!open) return null;
 
   const updatePart = (part: "hour" | "minute", value: number) => {
     const currentValue = target === "start" ? draftStart : draftEnd;
     const parts = splitValue(currentValue, mode, splitValue(draftStart, mode).date);
+    if (parts[part] === value) return;
     const next = serialize({ ...parts, [part]: value }, mode);
     if (target === "start") setDraftStart(next);
     else setDraftEnd(next);
+  };
+
+  const handleWheelScroll = (part: "hour" | "minute", element: HTMLDivElement) => {
+    if (element.scrollLeft) element.scrollLeft = 0;
+    if (wheelSyncingRef.current) return;
+    if (wheelChangeFrameRef.current !== null) cancelAnimationFrame(wheelChangeFrameRef.current);
+    wheelChangeFrameRef.current = requestAnimationFrame(() => {
+      const maximum = part === "hour" ? 23 : 59;
+      updatePart(part, Math.max(0, Math.min(maximum, Math.round(element.scrollTop / ITEM_HEIGHT))));
+    });
   };
 
   const updateDate = (date: string) => {
@@ -309,9 +344,9 @@ export default function TimeRangePickerModal({
         {(step === "start" || step === "end") && <section className="time-range-wheel-panel">
           <div><strong>设置{target === "start" ? "开始" : "结束"}时间</strong><span>上下滚动小时和分钟</span></div>
           <div className="time-range-wheels">
-            <div className="time-range-wheel"><span>时</span><div ref={hourRef} onWheel={(event) => { event.stopPropagation(); if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault(); }} onScroll={(event) => { if (event.currentTarget.scrollLeft) event.currentTarget.scrollLeft = 0; updatePart("hour", Math.max(0, Math.min(23, Math.round(event.currentTarget.scrollTop / ITEM_HEIGHT)))); }}>{HOURS.map((hour) => <button type="button" key={hour} className={activeParts.hour === hour ? "is-selected" : ""} onClick={() => updatePart("hour", hour)}>{pad(hour)}</button>)}</div></div>
+            <div className="time-range-wheel"><span>时</span><div ref={hourRef} onWheel={(event) => { event.stopPropagation(); if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault(); }} onScroll={(event) => handleWheelScroll("hour", event.currentTarget)}>{HOURS.map((hour) => <button type="button" key={hour} className={activeParts.hour === hour ? "is-selected" : ""} onClick={() => updatePart("hour", hour)}>{pad(hour)}</button>)}</div></div>
             <b>:</b>
-            <div className="time-range-wheel"><span>分</span><div ref={minuteRef} onWheel={(event) => { event.stopPropagation(); if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault(); }} onScroll={(event) => { if (event.currentTarget.scrollLeft) event.currentTarget.scrollLeft = 0; updatePart("minute", Math.max(0, Math.min(59, Math.round(event.currentTarget.scrollTop / ITEM_HEIGHT)))); }}>{MINUTES.map((minute) => <button type="button" key={minute} className={activeParts.minute === minute ? "is-selected" : ""} onClick={() => updatePart("minute", minute)}>{pad(minute)}</button>)}</div></div>
+            <div className="time-range-wheel"><span>分</span><div ref={minuteRef} onWheel={(event) => { event.stopPropagation(); if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault(); }} onScroll={(event) => handleWheelScroll("minute", event.currentTarget)}>{MINUTES.map((minute) => <button type="button" key={minute} className={activeParts.minute === minute ? "is-selected" : ""} onClick={() => updatePart("minute", minute)}>{pad(minute)}</button>)}</div></div>
           </div>
         </section>
         }
