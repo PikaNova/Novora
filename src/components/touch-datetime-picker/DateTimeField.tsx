@@ -67,6 +67,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
     className,
     preview,
     showFieldPreview = true,
+    compactPlacement = "right",
   } = props
 
   const parsed = parseFieldValue(value, mode)
@@ -125,7 +126,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
           preview={preview}
           validate={props.validate}
           anchorRect={rect}
-          compactPlacement={props.compactPlacement}
+          compactPlacement={compactPlacement}
           onChange={(v) => setDraftPreview(v)}
           onConfirm={(v) => {
             setOpen(false)

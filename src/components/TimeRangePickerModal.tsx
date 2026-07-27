@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Clock3 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { DateTimeField } from "./touch-datetime-picker";
 import "../styles/time-range-picker.css";
 
 type RangeMode = "time" | "datetime";
+type RangeStep = "start" | "duration" | "end";
 
 interface Props {
   open: boolean;
@@ -102,34 +103,53 @@ export default function TimeRangePickerModal({
   onConfirm,
 }: Props) {
   const [target, setTarget] = useState<"start" | "end">("start");
+  const [step, setStep] = useState<RangeStep>("start");
   const [draftStart, setDraftStart] = useState(startValue);
   const [draftEnd, setDraftEnd] = useState(endValue);
   const [crossDayEnabled, setCrossDayEnabled] = useState(initialCrossDay);
   const hourRef = useRef<HTMLDivElement | null>(null);
   const minuteRef = useRef<HTMLDivElement | null>(null);
   const modalRef = useRef<HTMLElement | null>(null);
+  const anchorElementRef = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      anchorElementRef.current = null;
+      return;
+    }
+    const activeElement = document.activeElement;
+    anchorElementRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
+  }, [open]);
 
   useLayoutEffect(() => {
     if (!open || !modalRef.current || window.innerWidth <= 620) return;
     const modal = modalRef.current;
-    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const anchorElement = activeElement && activeElement !== document.body ? activeElement : null;
 
     const placeModal = () => {
       const edge = 10;
       const gap = 8;
-      const anchor = anchorElement?.getBoundingClientRect();
+      const anchor = anchorElementRef.current?.getBoundingClientRect();
       const { width, height } = modal.getBoundingClientRect();
       let left = (window.innerWidth - width) / 2;
       let top = (window.innerHeight - height) / 2;
 
       if (anchor) {
+        const rightSpace = window.innerWidth - anchor.right - edge;
+        const leftSpace = anchor.left - edge;
         const belowSpace = window.innerHeight - anchor.bottom - edge;
         const aboveSpace = anchor.top - edge;
-        left = anchor.left + width <= window.innerWidth - edge ? anchor.left : anchor.right - width;
-        top = belowSpace >= height || belowSpace >= aboveSpace
-          ? anchor.bottom + gap
-          : anchor.top - height - gap;
+        if (rightSpace >= width + gap || rightSpace >= leftSpace) {
+          left = anchor.right + gap;
+          top = anchor.top + anchor.height / 2 - height / 2;
+        } else if (leftSpace >= width + gap) {
+          left = anchor.left - width - gap;
+          top = anchor.top + anchor.height / 2 - height / 2;
+        } else {
+          left = anchor.left + width <= window.innerWidth - edge ? anchor.left : anchor.right - width;
+          top = belowSpace >= height || belowSpace >= aboveSpace
+            ? anchor.bottom + gap
+            : anchor.top - height - gap;
+        }
       }
 
       modal.style.transform = "none";
@@ -146,7 +166,7 @@ export default function TimeRangePickerModal({
       window.removeEventListener("resize", placeModal);
       window.removeEventListener("scroll", placeModal, true);
     };
-  }, [open]);
+  }, [crossDayEnabled, mode, open, step]);
 
   useEffect(() => {
     if (!open) return;
@@ -155,6 +175,7 @@ export default function TimeRangePickerModal({
     setDraftEnd(endValue || addMinutes(start, 60, mode));
     setCrossDayEnabled(initialCrossDay);
     setTarget("start");
+    setStep("start");
   }, [endValue, initialCrossDay, mode, open, startValue]);
 
   const activeParts = splitValue(target === "start" ? draftStart : draftEnd, mode, splitValue(draftStart, mode).date);
@@ -175,6 +196,7 @@ export default function TimeRangePickerModal({
         : rawDuration <= 0
           ? "结束时间必须晚于开始时间；如需跨日，请先启用跨日考试。"
           : "请重新确认开始日期、结束日期和时间。";
+  const requiresCrossDay = mode === "datetime" ? datesDiffer : rawDuration <= 0;
 
   useEffect(() => {
     if (!open) return;
@@ -207,36 +229,47 @@ export default function TimeRangePickerModal({
     return mode === "time" ? `${pad(parts.hour)}:${pad(parts.minute)}` : `${parts.date} ${pad(parts.hour)}:${pad(parts.minute)}`;
   };
 
-  return (
+  const applyPreset = (minutes: number) => {
+    const nextEnd = addMinutes(draftStart, minutes, mode);
+    const start = splitValue(draftStart, mode);
+    const end = splitValue(nextEnd, mode, start.date);
+    const crossesDay = mode === "datetime"
+      ? end.date !== start.date
+      : start.hour * 60 + start.minute + minutes >= 1440;
+    setDraftEnd(nextEnd);
+    setCrossDayEnabled(crossesDay);
+  };
+
+  const content = (
     <div className="time-range-overlay" role="presentation" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <section ref={modalRef} className="time-range-modal" role="dialog" aria-modal="true" aria-label={title}>
         <header className="time-range-head">
-          <div><h2>{title}</h2><p>{description}</p></div>
+          <div><h2>{title}</h2><p>步骤 {step === "start" ? "1" : step === "duration" ? "2" : "3"} / 3</p></div>
           <button type="button" onClick={onCancel}>取消</button>
         </header>
 
-        <div className="time-range-switch">
-          {(["start", "end"] as const).map((value) => (
-            <button type="button" key={value} className={target === value ? "is-selected" : ""} onClick={() => setTarget(value)}>
-              <span>{value === "start" ? "开始时间" : "结束时间"}</span>
-              <strong>{display(value === "start" ? draftStart : draftEnd)}</strong>
-            </button>
-          ))}
-        </div>
-
-        {mode === "datetime" && (
+        {step === "start" && mode === "datetime" && (
           <label className="time-range-date">
-            <span>{target === "start" ? "开始日期" : "结束日期"}</span>
-            <DateTimeField value={activeParts.date} onChange={updateDate} mode="date" title={`选择${target === "start" ? "开始" : "结束"}日期`} showFieldPreview={false} />
+            <span>开始日期</span>
+            <DateTimeField value={splitValue(draftStart, mode).date} onChange={updateDate} mode="date" title="选择开始日期" showFieldPreview={false} />
           </label>
         )}
 
-        <section className="time-range-presets" aria-label="常用考试时长">
-          <span>常用时长</span>
-          <div>{presets.map((minutes) => <button type="button" key={minutes} className={validRange && duration === minutes ? "is-selected" : ""} onClick={() => { setDraftEnd(addMinutes(draftStart, minutes, mode)); setCrossDayEnabled(false); setTarget("end"); }}>{formatDuration(minutes)}</button>)}</div>
-        </section>
+        {step === "end" && mode === "datetime" && (
+          <label className="time-range-date">
+            <span>结束日期</span>
+            <DateTimeField value={splitValue(draftEnd, mode, startDate).date} onChange={updateDate} mode="date" title="选择结束日期" showFieldPreview={false} />
+          </label>
+        )}
 
-        {allowCrossDay && (
+        {step === "duration" && (
+          <section className="time-range-presets" aria-label="常用考试时长">
+            <span>从 {display(draftStart)} 开始，选择考试时长</span>
+            <div>{presets.map((minutes) => <button type="button" key={minutes} className={validRange && duration === minutes ? "is-selected" : ""} onClick={() => applyPreset(minutes)}>{formatDuration(minutes)}</button>)}</div>
+          </section>
+        )}
+
+        {allowCrossDay && (step === "end" || (step === "duration" && requiresCrossDay)) && (
           <section className={`time-range-cross-day${crossDayEnabled ? " is-enabled" : ""}`}>
             <label>
               <input type="checkbox" checked={crossDayEnabled} onChange={(event) => setCrossDayEnabled(event.target.checked)} />
@@ -251,23 +284,26 @@ export default function TimeRangePickerModal({
           </section>
         )}
 
-        <section className="time-range-wheel-panel">
-          <div><strong>调整{target === "start" ? "开始" : "结束"}时间</strong><span>上下滚动小时和分钟</span></div>
+        {(step === "start" || step === "end") && <section className="time-range-wheel-panel">
+          <div><strong>设置{target === "start" ? "开始" : "结束"}时间</strong><span>上下滚动小时和分钟</span></div>
           <div className="time-range-wheels">
             <div className="time-range-wheel"><span>时</span><div ref={hourRef} onWheel={(event) => { event.stopPropagation(); if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault(); }} onScroll={(event) => { if (event.currentTarget.scrollLeft) event.currentTarget.scrollLeft = 0; updatePart("hour", Math.max(0, Math.min(23, Math.round(event.currentTarget.scrollTop / ITEM_HEIGHT)))); }}>{HOURS.map((hour) => <button type="button" key={hour} className={activeParts.hour === hour ? "is-selected" : ""} onClick={() => updatePart("hour", hour)}>{pad(hour)}</button>)}</div></div>
             <b>:</b>
             <div className="time-range-wheel"><span>分</span><div ref={minuteRef} onWheel={(event) => { event.stopPropagation(); if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault(); }} onScroll={(event) => { if (event.currentTarget.scrollLeft) event.currentTarget.scrollLeft = 0; updatePart("minute", Math.max(0, Math.min(59, Math.round(event.currentTarget.scrollTop / ITEM_HEIGHT)))); }}>{MINUTES.map((minute) => <button type="button" key={minute} className={activeParts.minute === minute ? "is-selected" : ""} onClick={() => updatePart("minute", minute)}>{pad(minute)}</button>)}</div></div>
           </div>
         </section>
+        }
 
-        {!validRange && <div className="time-range-error" role="alert">{rangeError}</div>}
-        <section className={`time-range-summary${!validRange ? " is-error" : ""}`}>
-          <Clock3 aria-hidden="true" />
-          <div><span>考试预览</span><strong>{subject}</strong><p>{contextLabel ? `${contextLabel} · ` : ""}{display(draftStart)} - {display(draftEnd)} · {validRange ? `${formatDuration(duration)}${crossDayEnabled ? " · 跨日" : ""}` : "时间范围无效"}</p></div>
-        </section>
+        {step === "duration" && <button type="button" className="time-range-custom-end" onClick={() => { setTarget("end"); setStep("end"); }}>自定义结束时间</button>}
 
-        <footer><button type="button" onClick={onCancel}>取消</button><button type="button" className="is-primary" aria-disabled={!validRange} onClick={() => { if (validRange) onConfirm(draftStart, draftEnd, crossDayEnabled); }}>确认时间</button></footer>
+        {step !== "start" && !validRange && <div className="time-range-error" role="alert">{rangeError}</div>}
+
+        <footer>
+          {step === "start" ? <button type="button" onClick={onCancel}>取消</button> : <button type="button" onClick={() => { setTarget("start"); setStep(step === "end" ? "duration" : "start"); }}>上一步</button>}
+          {step === "start" ? <button type="button" className="is-primary" onClick={() => setStep("duration")}>选择时长</button> : <button type="button" className="is-primary" aria-disabled={!validRange} onClick={() => { if (validRange) onConfirm(draftStart, draftEnd, crossDayEnabled); }}>确认时间</button>}
+        </footer>
       </section>
     </div>
   );
+  return typeof document === "undefined" ? content : createPortal(content, document.body);
 }
