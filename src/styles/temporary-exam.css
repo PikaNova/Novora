@@ -7,3 +7,4 @@
 /* Keep the full-screen quick action readable without blocking the attribution below it. */
 .temp-exam-fab{background:transparent;box-shadow:none;backdrop-filter:none}
 .temp-exam-fab:hover,.temp-exam-fab:focus-visible{background:rgba(29,79,114,.28)}
+.temp-time-setting{display:grid;gap:7px}.temp-time-setting>span{color:#aab5be;font-size:12px}.temp-time-setting>button{display:grid;gap:4px;width:100%;padding:12px;border:1px solid #3d9fd355;border-radius:7px;background:#2684b51a;color:#edf8ff;text-align:left;cursor:pointer}.temp-time-setting>button strong{font-size:14px;font-variant-numeric:tabular-nums}.temp-time-setting>button small{color:#91a5b2;font-size:11px}

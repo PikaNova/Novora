@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { ExamItem } from "../types";
 import type {
   ScheduleMode,
@@ -41,6 +41,7 @@ import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
 import { DateTimeField } from "./touch-datetime-picker";
 import { CalendarDays, CircleHelp } from "lucide-react";
+import TimeRangePickerModal from "./TimeRangePickerModal";
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   1: "周一",
@@ -56,8 +57,6 @@ const COMMON_WEEKLY_SUBJECTS = [
   "语文", "数学", "英语", "物理", "化学", "生物", "政治", "历史", "地理", "信息技术", "体育", "音乐", "美术",
 ];
 const CUSTOM_WEEKLY_SUBJECT = "__custom_weekly_subject__";
-const TIME_WHEEL_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-const TIME_WHEEL_MINUTES = Array.from({ length: 60 }, (_, minute) => minute);
 const SCOPE_LABEL: Record<WeeklyConflictPolicy["scope"], string> = {
   "time-overlap": "仅实际时间重叠时暂停周测",
   "whole-day": "大型考试当天暂停全部周测（推荐）",
@@ -133,13 +132,6 @@ function makeItemId() {
 function padHM(v: string) {
   const [h = "0", m = "0"] = v.split(":");
   return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
-}
-function splitTimeParts(value: string) {
-  const [hourText = "0", minuteText = "0"] = value.split(":");
-  return {
-    hour: Math.max(0, Math.min(23, Number(hourText) || 0)),
-    minute: Math.max(0, Math.min(59, Number(minuteText) || 0)),
-  };
 }
 function sortWeeklyItems(list: WeeklyExamItem[]): WeeklyExamItem[] {
   return [...list]
@@ -220,11 +212,8 @@ export default function WeeklyPanel({
   const [customWeeklySubjectActive, setCustomWeeklySubjectActive] = useState(false);
   const [editError, setEditError] = useState("");
   const [weeklyTimeFlowOpen, setWeeklyTimeFlowOpen] = useState(false);
-  const [weeklyTimeFlowStage, setWeeklyTimeFlowStage] = useState<"start" | "end">("start");
   const [weeklyTimeFlowInitialStart, setWeeklyTimeFlowInitialStart] = useState("");
   const [weeklyTimeFlowInitialEnd, setWeeklyTimeFlowInitialEnd] = useState("");
-  const weeklyHourWheelRef = useRef<HTMLDivElement | null>(null);
-  const weeklyMinuteWheelRef = useRef<HTMLDivElement | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WeeklyExamItem | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -246,6 +235,7 @@ export default function WeeklyPanel({
     endTime: string;
   } | null>(null);
   const [rescheduleError, setRescheduleError] = useState("");
+  const [rescheduleTimeOpen, setRescheduleTimeOpen] = useState(false);
   const [copyModal, setCopyModal] = useState<{
     sourcePlanId: string;
     targetClassIds: string[];
@@ -298,31 +288,10 @@ export default function WeeklyPanel({
     | null
   >(null);
 
-  const weeklyStartParts = splitTimeParts(editing?.startTime || "19:00");
-  const weeklyEndParts = splitTimeParts(editing?.endTime || "20:00");
-  const weeklyTimeParts = weeklyTimeFlowStage === "start"
-    ? weeklyStartParts
-    : weeklyEndParts;
-
-  const setWeeklyTimeParts = (next: Partial<{ hour: number; minute: number }>) => {
-    const current = weeklyTimeFlowStage === "start" ? weeklyStartParts : weeklyEndParts;
-    const hour = next.hour ?? current.hour;
-    const minute = next.minute ?? current.minute;
-    const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-    setEditing((item) =>
-      item
-        ? weeklyTimeFlowStage === "start"
-          ? { ...item, startTime: value }
-          : { ...item, endTime: value }
-        : item,
-    );
-  };
-
-  const openWeeklyTimeFlow = (stage: "start" | "end") => {
+  const openWeeklyTimeFlow = () => {
     if (!editing) return;
     setWeeklyTimeFlowInitialStart(editing.startTime);
     setWeeklyTimeFlowInitialEnd(editing.endTime);
-    setWeeklyTimeFlowStage(stage);
     setWeeklyTimeFlowOpen(true);
   };
 
@@ -331,22 +300,13 @@ export default function WeeklyPanel({
       item
         ? {
             ...item,
-            startTime: weeklyTimeFlowStage === "start" ? weeklyTimeFlowInitialStart : item.startTime,
+            startTime: weeklyTimeFlowInitialStart,
             endTime: weeklyTimeFlowInitialEnd,
           }
         : item,
     );
     setWeeklyTimeFlowOpen(false);
   };
-
-  useEffect(() => {
-    if (!weeklyTimeFlowOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      if (weeklyHourWheelRef.current) weeklyHourWheelRef.current.scrollTop = weeklyTimeParts.hour * 48;
-      if (weeklyMinuteWheelRef.current) weeklyMinuteWheelRef.current.scrollTop = weeklyTimeParts.minute * 48;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [weeklyTimeFlowOpen, weeklyTimeFlowStage]);
 
   const openNewPlan = () => {
     const today = getShanghaiDateKey(Date.now());
@@ -760,7 +720,7 @@ export default function WeeklyPanel({
     const start = padHM(editing.startTime);
     const end = padHM(editing.endTime);
     if (!editing.endNextDay && end <= start) {
-      setEditError("结束时间必须晚于开始时间（跨日请勾选“跨日结束”）");
+      setEditError("结束时间必须晚于开始时间；跨日安排请在“时间设置”中直接选择次日时间。");
       return;
     }
     let nextItems: WeeklyExamItem[];
@@ -2039,41 +1999,17 @@ export default function WeeklyPanel({
                   />
                 </label>
               )}
-              <div className="admin-major-endtime">
-                <span>开始时间</span>
+              <div className="admin-major-endtime weekly-time-setting">
+                <span>时间设置</span>
                 <button
                   type="button"
                   className="admin-major-endtime__trigger"
-                  onClick={() => openWeeklyTimeFlow("start")}
+                  onClick={openWeeklyTimeFlow}
                 >
-                  <strong>{editing.startTime || "设置开始时间"}</strong>
-                  <small>点击调整小时和分钟</small>
+                  <strong>{editing.startTime || "--:--"} - {editing.endTime || "--:--"}</strong>
+                  <small>在同一界面设置开始、结束时间和常用时长</small>
                 </button>
               </div>
-              <div className="admin-major-endtime">
-                <span>结束时间</span>
-                <button
-                  type="button"
-                  className="admin-major-endtime__trigger"
-                  disabled={!editing.startTime}
-                  onClick={() => openWeeklyTimeFlow("end")}
-                >
-                  <strong>{editing.endTime || "设置结束时间"}</strong>
-                  <small>{editing.startTime && editing.endTime ? `${editing.startTime} 至 ${editing.endTime}` : "请先设置开始时间"}</small>
-                </button>
-              </div>
-              <label className="admin-toggle-label">
-                <input
-                  type="checkbox"
-                  checked={!!editing.endNextDay}
-                  onChange={(e) =>
-                    setEditing(
-                      (p) => p && { ...p, endNextDay: e.target.checked },
-                    )
-                  }
-                />
-                跨日结束（结束时间落在次日）
-              </label>
               <label className="admin-label">
                 地点 / 备注（可选）
                 <input
@@ -2118,99 +2054,18 @@ export default function WeeklyPanel({
           </div>
         </div>
       )}
-      {weeklyTimeFlowOpen && editing && (
-        <div className="admin-modal-overlay" role="presentation">
-          <section
-            className="admin-modal admin-modal--wide admin-major-time-flow"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="weekly-time-flow-title"
-          >
-            <div className="admin-major-time-flow__head">
-              <div>
-                <h2 id="weekly-time-flow-title" className="admin-modal__title">
-                  {weeklyTimeFlowStage === "start" ? "设置开始时间" : "设置结束时间"}
-                </h2>
-                <p>
-                  {weeklyTimeFlowStage === "start"
-                    ? "选择小时和分钟后继续设置结束时间"
-                    : `开始：${editing.startTime}`}
-                </p>
-              </div>
-              <button className="admin-btn admin-btn--ghost" onClick={cancelWeeklyTimeFlow}>
-                取消
-              </button>
-            </div>
-            <section className="admin-major-time-flow__manual">
-              <div className="admin-major-time-wheel" aria-label="周测时间滚轮">
-                <div className="admin-major-time-wheel__column">
-                  <span>时</span>
-                  <div
-                    className="admin-major-time-wheel__list"
-                    ref={weeklyHourWheelRef}
-                    onScroll={(event) => setWeeklyTimeParts({ hour: Math.round(event.currentTarget.scrollTop / 48) })}
-                  >
-                    {TIME_WHEEL_HOURS.map((hour) => (
-                      <button
-                        type="button"
-                        key={hour}
-                        className={weeklyTimeParts.hour === hour ? "is-selected" : ""}
-                        onClick={() => setWeeklyTimeParts({ hour })}
-                      >
-                        {String(hour).padStart(2, "0")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <span className="admin-major-time-wheel__separator">:</span>
-                <div className="admin-major-time-wheel__column">
-                  <span>分</span>
-                  <div
-                    className="admin-major-time-wheel__list"
-                    ref={weeklyMinuteWheelRef}
-                    onScroll={(event) => setWeeklyTimeParts({ minute: Math.round(event.currentTarget.scrollTop / 48) })}
-                  >
-                    {TIME_WHEEL_MINUTES.map((minute) => (
-                      <button
-                        type="button"
-                        key={minute}
-                        className={weeklyTimeParts.minute === minute ? "is-selected" : ""}
-                        onClick={() => setWeeklyTimeParts({ minute })}
-                      >
-                        {String(minute).padStart(2, "0")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-            <div className="admin-major-exam-summary">
-              <SubjectIcon subject={editing.name || "其他"} size={18} />
-              <span>
-                <strong>{editing.name || "周测"}</strong>
-                {WEEKDAY_LABEL[editing.weekday]} · {editing.startTime} 至 {editing.endTime}
-                {editing.endNextDay ? "（次日结束）" : ""}
-              </span>
-            </div>
-            <div className="admin-modal__actions">
-              <button className="admin-btn" onClick={cancelWeeklyTimeFlow}>取消</button>
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={() => {
-                  if (weeklyTimeFlowStage === "start") {
-                    setWeeklyTimeFlowInitialEnd(editing.endTime);
-                    setWeeklyTimeFlowStage("end");
-                    return;
-                  }
-                  setWeeklyTimeFlowOpen(false);
-                }}
-              >
-                {weeklyTimeFlowStage === "start" ? "继续设置结束时间" : "确认时间"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+      {editing && <TimeRangePickerModal
+        open={weeklyTimeFlowOpen}
+        startValue={editing.startTime}
+        endValue={editing.endTime}
+        subject={editing.name || "周测"}
+        contextLabel={WEEKDAY_LABEL[editing.weekday]}
+        onCancel={cancelWeeklyTimeFlow}
+        onConfirm={(startTime, endTime, endNextDay) => {
+          setEditing((item) => item ? { ...item, startTime, endTime, endNextDay } : item);
+          setWeeklyTimeFlowOpen(false);
+        }}
+      />}
       {deleteTarget && (
         <div
           className="admin-modal-overlay"
@@ -2742,28 +2597,13 @@ export default function WeeklyPanel({
                   showFieldPreview={false}
                 />
               </label>
-              <label className="admin-label">
-                开始时间
-                <DateTimeField
-                  className="admin-date-time-field"
-                  value={rescheduleTarget.startTime}
-                  onChange={(value) => setRescheduleTarget((p) => p && { ...p, startTime: value })}
-                  mode="time"
-                  title="选择开始时间"
-                  showFieldPreview={false}
-                />
-              </label>
-              <label className="admin-label">
-                结束时间
-                <DateTimeField
-                  className="admin-date-time-field"
-                  value={rescheduleTarget.endTime}
-                  onChange={(value) => setRescheduleTarget((p) => p && { ...p, endTime: value })}
-                  mode="time"
-                  title="选择结束时间"
-                  showFieldPreview={false}
-                />
-              </label>
+              <div className="admin-major-endtime">
+                <span>时间设置</span>
+                <button type="button" className="admin-major-endtime__trigger" onClick={() => setRescheduleTimeOpen(true)}>
+                  <strong>{rescheduleTarget.startTime} - {rescheduleTarget.endTime}</strong>
+                  <small>一次设置本次调课的开始与结束时间</small>
+                </button>
+              </div>
               <p className="admin-major-card__hint">
                 仅调整这一次实例，不影响周期规则本身。
               </p>
@@ -2788,6 +2628,18 @@ export default function WeeklyPanel({
           </div>
         </div>
       )}
+      {rescheduleTarget && <TimeRangePickerModal
+        open={rescheduleTimeOpen}
+        startValue={rescheduleTarget.startTime}
+        endValue={rescheduleTarget.endTime}
+        subject={rescheduleTarget.name || "临时调课"}
+        contextLabel={rescheduleTarget.date}
+        onCancel={() => setRescheduleTimeOpen(false)}
+        onConfirm={(startTime, endTime) => {
+          setRescheduleTarget((value) => value ? { ...value, startTime, endTime } : value);
+          setRescheduleTimeOpen(false);
+        }}
+      />}
       {printPickerOpen && (
         <div
           className="admin-modal-overlay"

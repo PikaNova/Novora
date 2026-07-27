@@ -22,6 +22,7 @@ import { classDisplayName } from "../utils/classSettings";
 import { confirmDialog } from "../services/appDialog";
 import { DateTimeField } from "./touch-datetime-picker";
 import SubjectIcon from "./SubjectIcon";
+import TimeRangePickerModal from "./TimeRangePickerModal";
 
 const COMMON_SUBJECTS = [
   "语文",
@@ -55,13 +56,6 @@ const formatDateTime = (value: number) =>
   });
 const roundUpToFiveMinutes = (value: number) => Math.ceil(value / 300_000) * 300_000;
 const nextFiveMinutes = () => roundUpToFiveMinutes(Date.now() + 5 * 60_000);
-const formatDuration = (minutes: number) => {
-  if (minutes < 60) return `${minutes} 分钟`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `${hours} 小时${rest ? ` ${rest} 分钟` : ""}`;
-};
-
 export default function TemporaryExamLauncher({
   formalItems,
   externalOpen = false,
@@ -92,6 +86,7 @@ export default function TemporaryExamLauncher({
   const [specificTime, setSpecificTime] = useState(() =>
     timeKey(nextFiveMinutes()),
   );
+  const [timeRangeOpen, setTimeRangeOpen] = useState(false);
   const [priority, setPriority] = useState(false);
   const shouldOpen = open || externalOpen;
   const finalSubject = customSubjectOpen ? customSubject.trim() : subject;
@@ -319,7 +314,7 @@ export default function TemporaryExamLauncher({
                       <div className="temp-exam-step__head">
                         <span>第二步</span>
                         <h3>设置考试时间</h3>
-                        <p>先选择开始方式，再设置考试时长。</p>
+                        <p>开始方式与具体时间分开设置，避免误操作。</p>
                       </div>
                       <fieldset className="temp-mode-grid">
                         <legend>开始方式</legend>
@@ -371,53 +366,14 @@ export default function TemporaryExamLauncher({
                               showFieldPreview={false}
                             />
                           </label>
-                          <label>
-                            <span>时间</span>
-                            <DateTimeField
-                              className="admin-date-time-field"
-                              value={specificTime}
-                              onChange={setSpecificTime}
-                              mode="time"
-                              title="选择考试开始时间"
-                              showFieldPreview={false}
-                            />
-                          </label>
                         </div>
                       )}
-                      <div className="temp-preset">
-                        <span>考试时长</span>
-                        <div>
-                          {DURATION_PRESETS.map((value) => (
-                            <button
-                              key={value}
-                              className={duration === value ? "is-active" : ""}
-                              onClick={() => setDuration(value)}
-                            >
-                              {formatDuration(value)}
-                            </button>
-                          ))}
-                          <label
-                            className={
-                              !DURATION_PRESETS.includes(duration)
-                                ? "is-active"
-                                : ""
-                            }
-                          >
-                            <input
-                              type="number"
-                              min="5"
-                              max="480"
-                              step="5"
-                              value={duration}
-                              onChange={(event) =>
-                                setDuration(
-                                  Math.max(5, Math.min(480, Math.ceil((Number(event.target.value) || 5) / 5) * 5)),
-                                )
-                              }
-                            />
-                            <span>自定义</span>
-                          </label>
-                        </div>
+                      <div className="temp-time-setting">
+                        <span>时间设置</span>
+                        <button type="button" onClick={() => setTimeRangeOpen(true)}>
+                          <strong>{formatDateTime(startMs)} - {new Date(endMs).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</strong>
+                          <small>一次设置开始时间、结束时间和常用时长</small>
+                        </button>
                       </div>
                       <div className="temp-time-summary">
                         <Clock3 />
@@ -535,6 +491,26 @@ export default function TemporaryExamLauncher({
           </section>
         </div>
       )}
+      <TimeRangePickerModal
+        open={timeRangeOpen}
+        startValue={timeKey(startMs)}
+        endValue={timeKey(endMs)}
+        subject={finalSubject || "临时考试"}
+        contextLabel={dateKey(startMs)}
+        presets={DURATION_PRESETS}
+        onCancel={() => setTimeRangeOpen(false)}
+        onConfirm={(startTime, endTime, endNextDay) => {
+          const [startHour, startMinute] = startTime.split(":").map(Number);
+          const [endHour, endMinute] = endTime.split(":").map(Number);
+          let nextDuration = endHour * 60 + endMinute - startHour * 60 - startMinute;
+          if (endNextDay || nextDuration <= 0) nextDuration += 1440;
+          setSpecificDate(dateKey(startMs));
+          setSpecificTime(startTime);
+          setDuration(nextDuration);
+          setMode("specific");
+          setTimeRangeOpen(false);
+        }}
+      />
     </>
   );
 }
