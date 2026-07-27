@@ -163,17 +163,31 @@ export function DateTimePicker(props: DateTimePickerProps) {
       const edge = 8
       panel.style.maxHeight = `${Math.max(240, window.innerHeight - edge * 2)}px`
       const { height: panelHeight, width: panelWidth } = panel.getBoundingClientRect()
-      const right = anchorRect.left + anchorRect.width
-      const rightSpace = window.innerWidth - right - edge
+      const anchorRight = anchorRect.left + anchorRect.width
+      const anchorBottom = anchorRect.top + anchorRect.height
+      const rightSpace = window.innerWidth - anchorRight - edge
       const leftSpace = anchorRect.left - edge
-      const preferredLeft = compactPlacement === "right"
-        ? rightSpace >= panelWidth || rightSpace >= leftSpace
-          ? right + edge
+      const belowSpace = window.innerHeight - anchorBottom - edge
+      const aboveSpace = anchorRect.top - edge
+
+      let preferredLeft: number
+      let preferredTop: number
+      if (compactPlacement === "right") {
+        preferredLeft = rightSpace >= panelWidth || rightSpace >= leftSpace
+          ? anchorRight + edge
           : anchorRect.left - panelWidth - edge
-        : anchorRect.left
-      const preferredTop = compactPlacement === "right"
-        ? anchorRect.top + anchorRect.height / 2 - panelHeight / 2
-        : anchorRect.top + anchorRect.height + edge
+        preferredTop = anchorRect.top + anchorRect.height / 2 - panelHeight / 2
+      } else {
+        // Match native browser popovers: open below the field, flip above when
+        // that side cannot contain the panel, and align the far edge near the
+        // right side of the viewport.
+        preferredLeft = anchorRect.left + panelWidth <= window.innerWidth - edge
+          ? anchorRect.left
+          : anchorRight - panelWidth
+        preferredTop = belowSpace >= panelHeight || belowSpace >= aboveSpace
+          ? anchorBottom + edge
+          : anchorRect.top - panelHeight - edge
+      }
       const maxTop = Math.max(edge, window.innerHeight - panelHeight - edge)
       const maxLeft = Math.max(edge, window.innerWidth - panelWidth - edge)
       panel.style.left = `${Math.max(edge, Math.min(preferredLeft, maxLeft))}px`
@@ -363,11 +377,12 @@ export function DateTimePicker(props: DateTimePickerProps) {
   }
 
   const vw = typeof window !== "undefined" ? window.innerWidth : 360
-  const pw = Math.min(320, vw - 16)
+  const targetPanelWidth = mode === "time" ? 268 : mode === "date" ? 312 : 320
+  const pw = Math.min(targetPanelWidth, vw - 16)
   const panelStyle: CSSProperties | undefined =
     density === "compact" && anchorRect
       ? {
-          position: "absolute",
+          position: "fixed",
           width: pw,
           left: compactPlacement === "right"
             ? anchorRect.left + anchorRect.width + 8
@@ -385,6 +400,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
       className="tdp-root"
       data-theme={theme}
       data-density={density}
+      data-mode={mode}
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) dismissAfterPointerAction(onCancel)
       }}

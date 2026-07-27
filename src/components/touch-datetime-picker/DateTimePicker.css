@@ -51,26 +51,28 @@
 .tdp-footer .tdp-btn{min-height:56px;font-size:18px}
 .tdp-cancel.tdp-btn{flex:1;background:transparent;color:var(--tdp-text-dim)}
 .tdp-ok.tdp-btn{flex:1.6;background:var(--tdp-accent);border-color:var(--tdp-accent);color:#fff;font-weight:600}
-.tdp-root[data-density="compact"]{display:block;padding:0;background:transparent;--tdp-target:32px;--tdp-gap:5px;--tdp-radius:8px}
-.tdp-root[data-density="compact"] .tdp-panel{width:min(320px,calc(100vw - 16px));max-width:none;max-height:calc(100vh - 16px);padding:12px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:14px}
-.tdp-root[data-density="compact"] .tdp-title{margin-bottom:8px;font-size:12px}
+.tdp-root[data-density="compact"]{display:block;padding:0;background:transparent;--tdp-target:30px;--tdp-gap:4px;--tdp-radius:7px}
+.tdp-root[data-density="compact"] .tdp-panel{width:min(320px,calc(100vw - 16px));max-width:none;max-height:calc(100vh - 16px);padding:10px;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.22);font-size:13px}
+.tdp-root[data-density="compact"][data-mode="time"] .tdp-panel{width:min(268px,calc(100vw - 16px))}
+.tdp-root[data-density="compact"][data-mode="date"] .tdp-panel{width:min(312px,calc(100vw - 16px))}
+.tdp-root[data-density="compact"] .tdp-title{margin-bottom:6px;font-size:12px}
 .tdp-root[data-density="compact"] .tdp-btn{font-size:14px}
 .tdp-root[data-density="compact"] .tdp-readout{gap:1px}
-.tdp-root[data-density="compact"] .tdp-seg.tdp-btn{padding:3px 6px;font-size:18px}
+.tdp-root[data-density="compact"] .tdp-seg.tdp-btn{padding:2px 5px;font-size:17px}
 .tdp-root[data-density="compact"] .tdp-unit{font-size:12px;padding-right:2px}
-.tdp-root[data-density="compact"] .tdp-preview{gap:4px 8px;margin-bottom:8px;min-height:18px}
+.tdp-root[data-density="compact"] .tdp-preview{gap:4px 8px;margin-bottom:6px;min-height:16px}
 .tdp-root[data-density="compact"] .tdp-preview-chip{font-size:12px}
 .tdp-root[data-density="compact"] .tdp-preview-chip.tone-primary{font-size:13px}
 .tdp-root[data-density="compact"] .tdp-presets{margin-bottom:10px;padding-bottom:2px}
 .tdp-root[data-density="compact"] .tdp-preset.tdp-btn{min-height:32px;padding:0 10px;font-size:12px}
 .tdp-root[data-density="compact"] .tdp-body{min-height:0}
-.tdp-root[data-density="compact"] .tdp-month-bar{margin-bottom:8px}
+.tdp-root[data-density="compact"] .tdp-month-bar{margin-bottom:6px}
 .tdp-root[data-density="compact"] .tdp-month-label{font-size:14px}
 .tdp-root[data-density="compact"] .tdp-dow{margin-bottom:5px;font-size:12px}
-.tdp-root[data-density="compact"] .tdp-footer{gap:10px;margin-top:12px}
-.tdp-root[data-density="compact"] .tdp-footer .tdp-btn{min-height:36px;font-size:14px}
+.tdp-root[data-density="compact"] .tdp-footer{gap:8px;margin-top:8px}
+.tdp-root[data-density="compact"] .tdp-footer .tdp-btn{min-height:32px;font-size:13px}
 .tdp-root[data-density="compact"] .tdp-fine.tdp-btn{min-height:34px;margin-top:8px;font-size:12px}
-.tdp-root[data-density="compact"] .tdp-time-wheels{grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr);gap:4px}.tdp-root[data-density="compact"] .tdp-time-wheels__colon{padding-top:20px;font-size:22px}.tdp-root[data-density="compact"] .tdp-time-wheel__list{height:216px;padding-block:84px}.tdp-root[data-density="compact"] .tdp-time-wheel__list button{height:48px;font-size:1.04rem}
+.tdp-root[data-density="compact"] .tdp-time-wheels{grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);gap:4px}.tdp-root[data-density="compact"] .tdp-time-wheels__colon{padding-top:18px;font-size:20px}.tdp-root[data-density="compact"] .tdp-time-wheel__list{height:168px;padding-block:60px}.tdp-root[data-density="compact"] .tdp-time-wheel__list button{height:48px;font-size:.98rem}
 .tdp-root[data-density="sheet"]{align-items:flex-end;padding:0;--tdp-target:44px;--tdp-gap:6px}
 .tdp-root[data-density="sheet"] .tdp-panel{max-width:none;padding:16px 12px calc(12px + env(safe-area-inset-bottom,0px));border-radius:18px 18px 0 0;border-bottom:none;max-height:88vh}
 .tdp-root[data-density="sheet"] .tdp-footer{gap:18px;margin-top:18px}
