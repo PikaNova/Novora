@@ -115,8 +115,8 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
           logging: false,
           scale: 2,
           useCORS: true,
-          width: sheet.scrollWidth,
-          height: sheet.scrollHeight,
+          width: sheet.offsetWidth,
+          height: sheet.offsetHeight,
           windowWidth: 1200,
           windowHeight: 1600,
           scrollX: 0,
@@ -159,7 +159,7 @@ type ScheduleSheetProps = {
 };
 
 const ScheduleSheet = React.forwardRef<HTMLElement, ScheduleSheetProps>(function ScheduleSheet({ visible, groups, schoolName, sheetTitle, gradeName, className, periodText, instanceId, exportedAt, sheetStyle, exportMode = false }, ref) {
-  return <article ref={ref} className={`schedule-sheet${visible.length > 12 ? ' is-dense' : ''}${exportMode ? ' schedule-sheet--export' : ''}`} style={sheetStyle}>
+  return <article ref={ref} className={`schedule-sheet${visible.length > 10 ? ' is-dense' : ''}${exportMode ? ' schedule-sheet--export' : ''}`} style={sheetStyle}>
     <header className="schedule-sheet__head"><img src="/icon-512-rounded.png" alt="Novora 图标" /><div><span>{schoolName}</span><h1>{sheetTitle}</h1></div></header>
     <dl className="schedule-sheet__meta"><div><dt>适用范围</dt><dd>{gradeName}{className && className !== '全年级' ? ` · ${className}` : ' · 全年级'}</dd></div><div><dt>安排日期</dt><dd>{periodText}</dd></div><div><dt>设备实例号</dt><dd>{instanceId}</dd></div><div><dt>导出时间</dt><dd>{exportedAt}</dd></div></dl>
     {groups.length ? <div className="schedule-sheet__days">{groups.map(group => <section className="schedule-day" key={group.date} style={{ '--schedule-day-min-height': `${Math.max(66, group.entries.length * 68 + 14)}px` } as React.CSSProperties}><header className="schedule-day__date"><strong>{group.date.slice(5).replace('-', ' / ')}</strong><span>{WEEKDAYS[isoWeekdayOfDateKey(group.date)]}</span></header><div className="schedule-day__events">{group.entries.map((item, index) => <article className="schedule-event" key={`${item.date}-${item.name}-${item.startTime}-${index}`}><time>{item.startTime}<i>至</i>{item.endTime}</time><div><strong className="schedule-event__subject"><SubjectIcon subject={item.name} size={15} />{item.name}</strong>{item.note && <span>{item.note}</span>}</div></article>)}</div></section>)}</div> : <div className="schedule-sheet__empty"><strong>当前日期范围内暂无考试安排</strong><span>请返回管理后台添加考试后重新预览。</span></div>}
