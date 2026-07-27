@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Clock3 } from "lucide-react";
 import { DateTimeField } from "./touch-datetime-picker";
 import "../styles/time-range-picker.css";
@@ -107,6 +107,46 @@ export default function TimeRangePickerModal({
   const [crossDayEnabled, setCrossDayEnabled] = useState(initialCrossDay);
   const hourRef = useRef<HTMLDivElement | null>(null);
   const minuteRef = useRef<HTMLDivElement | null>(null);
+  const modalRef = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !modalRef.current || window.innerWidth <= 620) return;
+    const modal = modalRef.current;
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const anchorElement = activeElement && activeElement !== document.body ? activeElement : null;
+
+    const placeModal = () => {
+      const edge = 10;
+      const gap = 8;
+      const anchor = anchorElement?.getBoundingClientRect();
+      const { width, height } = modal.getBoundingClientRect();
+      let left = (window.innerWidth - width) / 2;
+      let top = (window.innerHeight - height) / 2;
+
+      if (anchor) {
+        const belowSpace = window.innerHeight - anchor.bottom - edge;
+        const aboveSpace = anchor.top - edge;
+        left = anchor.left + width <= window.innerWidth - edge ? anchor.left : anchor.right - width;
+        top = belowSpace >= height || belowSpace >= aboveSpace
+          ? anchor.bottom + gap
+          : anchor.top - height - gap;
+      }
+
+      modal.style.transform = "none";
+      modal.style.left = `${Math.max(edge, Math.min(left, window.innerWidth - width - edge))}px`;
+      modal.style.top = `${Math.max(edge, Math.min(top, window.innerHeight - height - edge))}px`;
+    };
+
+    placeModal();
+    const frame = window.requestAnimationFrame(placeModal);
+    window.addEventListener("resize", placeModal);
+    window.addEventListener("scroll", placeModal, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", placeModal);
+      window.removeEventListener("scroll", placeModal, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -169,7 +209,7 @@ export default function TimeRangePickerModal({
 
   return (
     <div className="time-range-overlay" role="presentation" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-      <section className="time-range-modal" role="dialog" aria-modal="true" aria-label={title}>
+      <section ref={modalRef} className="time-range-modal" role="dialog" aria-modal="true" aria-label={title}>
         <header className="time-range-head">
           <div><h2>{title}</h2><p>{description}</p></div>
           <button type="button" onClick={onCancel}>取消</button>
