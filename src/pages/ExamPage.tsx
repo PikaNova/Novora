@@ -379,14 +379,6 @@ function BoundExamPage() {
           <button type="button" aria-label="关闭提示" onClick={dismissFullscreenExitHint}><X aria-hidden="true" /></button>
         </div>
       )}
-      <div className="exam-corner-stack">
-        <ExamSyncAction
-          state={examDataSyncState}
-          lastSyncAt={examDataLastSyncAt}
-          hasPendingSync={hasPendingSync}
-          onRefresh={() => { void refreshExamData(true); }}
-        />
-      </div>
       <div className="exam-context-bar" aria-label="看板信息">
         <div className="exam-context-bar__identity">
           {schoolName && (
@@ -395,9 +387,17 @@ function BoundExamPage() {
               <span>{schoolName}</span>
             </div>
           )}
-          <BrandMark compact className="exam-brand-mark" />
         </div>
-        {raw.currentExam && <div className="exam-subject-badge"><SubjectIcon subject={raw.currentExam.name} size={17} /><span>{raw.currentExam.name}</span></div>}
+        <BrandMark compact className="exam-brand-mark" />
+        <div className="exam-context-bar__status">
+          {raw.currentExam && <div className="exam-subject-badge"><SubjectIcon subject={raw.currentExam.name} size={17} /><span>{raw.currentExam.name}</span></div>}
+          <ExamSyncAction
+            state={examDataSyncState}
+            lastSyncAt={examDataLastSyncAt}
+            hasPendingSync={hasPendingSync}
+            onRefresh={() => { void refreshExamData(true); }}
+          />
+        </div>
       </div>
       <ExamAnnouncementOverlay
         open={announcementsOpen}
