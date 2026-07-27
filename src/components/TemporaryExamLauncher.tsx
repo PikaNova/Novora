@@ -87,6 +87,7 @@ export default function TemporaryExamLauncher({
     timeKey(nextFiveMinutes()),
   );
   const [timeRangeOpen, setTimeRangeOpen] = useState(false);
+  const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [priority, setPriority] = useState(false);
   const shouldOpen = open || externalOpen;
   const finalSubject = customSubjectOpen ? customSubject.trim() : subject;
@@ -110,6 +111,7 @@ export default function TemporaryExamLauncher({
   const close = () => {
     setOpen(false);
     setStep(0);
+    setCrossDayConfirmed(false);
     onExternalHandled?.();
   };
   const chooseSubject = (value: string) => {
@@ -126,15 +128,23 @@ export default function TemporaryExamLauncher({
       step === 1 &&
       (!Number.isFinite(startMs) ||
         startMs < Date.now() - 60_000 ||
-        duration < 5)
+        duration < 5 ||
+        (dateKey(startMs) !== dateKey(endMs) && !crossDayConfirmed))
     ) {
-      notify("error", "请检查开始时间和考试时长。");
+      notify("error", dateKey(startMs) !== dateKey(endMs) && !crossDayConfirmed
+        ? "本场考试会跨日，请在时间设置中勾选启用跨日考试。"
+        : "请检查开始时间和考试时长。");
       return;
     }
     setStep((value) => Math.min(2, value + 1));
   };
   const create = async () => {
-    if (!finalSubject || !Number.isFinite(startMs) || endMs <= startMs) {
+    if (
+      !finalSubject ||
+      !Number.isFinite(startMs) ||
+      endMs <= startMs ||
+      (dateKey(startMs) !== dateKey(endMs) && !crossDayConfirmed)
+    ) {
       notify("error", "临时考试信息不完整，请返回检查。");
       return;
     }
@@ -320,19 +330,19 @@ export default function TemporaryExamLauncher({
                         <legend>开始方式</legend>
                         <button
                           className={mode === "now" ? "is-active" : ""}
-                          onClick={() => setMode("now")}
+                          onClick={() => { setMode("now"); setCrossDayConfirmed(false); }}
                         >
                           立即开始
                         </button>
                         <button
                           className={mode === "delay" ? "is-active" : ""}
-                          onClick={() => setMode("delay")}
+                          onClick={() => { setMode("delay"); setCrossDayConfirmed(false); }}
                         >
                           稍后开始
                         </button>
                         <button
                           className={mode === "specific" ? "is-active" : ""}
-                          onClick={() => setMode("specific")}
+                          onClick={() => { setMode("specific"); setCrossDayConfirmed(false); }}
                         >
                           指定时间
                         </button>
@@ -345,7 +355,7 @@ export default function TemporaryExamLauncher({
                               <button
                                 key={value}
                                 className={delay === value ? "is-active" : ""}
-                                onClick={() => setDelay(value)}
+                                onClick={() => { setDelay(value); setCrossDayConfirmed(false); }}
                               >
                                 {value} 分钟后
                               </button>
@@ -360,7 +370,7 @@ export default function TemporaryExamLauncher({
                             <DateTimeField
                               className="admin-date-time-field"
                               value={specificDate}
-                              onChange={setSpecificDate}
+                              onChange={(value) => { setSpecificDate(value); setCrossDayConfirmed(false); }}
                               mode="date"
                               title="选择考试日期"
                               showFieldPreview={false}
@@ -371,7 +381,7 @@ export default function TemporaryExamLauncher({
                       <div className="temp-time-setting">
                         <span>时间设置</span>
                         <button type="button" onClick={() => setTimeRangeOpen(true)}>
-                          <strong>{formatDateTime(startMs)} - {new Date(endMs).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</strong>
+                          <strong>{formatDateTime(startMs)} - {formatDateTime(endMs)}</strong>
                           <small>一次设置开始时间、结束时间和常用时长</small>
                         </button>
                       </div>
@@ -381,11 +391,7 @@ export default function TemporaryExamLauncher({
                           <span>预计时间</span>
                           <strong>
                             {formatDateTime(startMs)} -{" "}
-                            {new Date(endMs).toLocaleTimeString("zh-CN", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              hour12: false,
-                            })}
+                            {formatDateTime(endMs)}
                           </strong>
                         </div>
                       </div>
@@ -402,11 +408,7 @@ export default function TemporaryExamLauncher({
                         <strong>{finalSubject}</strong>
                         <span>
                           {formatDateTime(startMs)} -{" "}
-                          {new Date(endMs).toLocaleTimeString("zh-CN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: false,
-                          })}
+                          {formatDateTime(endMs)}
                         </span>
                         <small>{boundClass || "当前设备尚未绑定班级"}</small>
                       </div>
@@ -498,6 +500,7 @@ export default function TemporaryExamLauncher({
         subject={finalSubject || "临时考试"}
         contextLabel={dateKey(startMs)}
         presets={DURATION_PRESETS}
+        initialCrossDay={crossDayConfirmed}
         onCancel={() => setTimeRangeOpen(false)}
         onConfirm={(startTime, endTime, endNextDay) => {
           const [startHour, startMinute] = startTime.split(":").map(Number);
@@ -507,6 +510,7 @@ export default function TemporaryExamLauncher({
           setSpecificDate(dateKey(startMs));
           setSpecificTime(startTime);
           setDuration(nextDuration);
+          setCrossDayConfirmed(endNextDay);
           setMode("specific");
           setTimeRangeOpen(false);
         }}

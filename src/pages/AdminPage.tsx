@@ -3386,6 +3386,7 @@ export default function AdminPage() {
         endValue={editing.endTime}
         subject={editing.name || "分考试"}
         presets={MAJOR_DURATION_PRESETS}
+        initialCrossDay={editing.startTime.slice(0, 10) !== editing.endTime.slice(0, 10)}
         onCancel={cancelMajorTimeFlow}
         onConfirm={(startTime, endTime) => {
           setLongDurationConfirmed(false);

@@ -118,6 +118,7 @@ export default function QuickMajorPublishModal({
   const [customStartTime, setCustomStartTime] = useState("08:00");
   const [useCustomStart, setUseCustomStart] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState(60);
+  const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [timeFlowOpen, setTimeFlowOpen] = useState(false);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
@@ -199,6 +200,10 @@ export default function QuickMajorPublishModal({
         setError("请设置有效的开始时间。");
         return;
       }
+      if (startTime.slice(0, 10) !== previewEndTime.slice(0, 10) && !crossDayConfirmed) {
+        setError("本场考试会跨日，请进入“时间设置”并勾选启用跨日考试。");
+        return;
+      }
     }
     setStep((value) => Math.min(3, value + 1) as 1 | 2 | 3);
   };
@@ -267,6 +272,7 @@ export default function QuickMajorPublishModal({
                 value={examDate}
                 onChange={(value) => {
                   setExamDate(value);
+                  setCrossDayConfirmed(false);
                 }}
                 mode="date"
                 title="选择考试日期"
@@ -386,6 +392,7 @@ export default function QuickMajorPublishModal({
                     onClick={() => {
                       setUseCustomStart(false);
                       setDelayMinutes(option.minutes);
+                      setCrossDayConfirmed(false);
                     }}
                   >
                     {option.label}
@@ -518,6 +525,7 @@ export default function QuickMajorPublishModal({
           subject={finalSubject || "待选择科目"}
           contextLabel={examDate}
           presets={DURATIONS}
+          initialCrossDay={crossDayConfirmed}
           onCancel={() => setTimeFlowOpen(false)}
           onConfirm={(nextStart, nextEnd, endNextDay) => {
             const start = splitClock(nextStart);
@@ -526,6 +534,7 @@ export default function QuickMajorPublishModal({
             if (endNextDay || minutes <= 0) minutes += 24 * 60;
             setCustomStartTime(nextStart);
             setDurationMinutes(minutes);
+            setCrossDayConfirmed(endNextDay);
             setUseCustomStart(true);
             setTimeFlowOpen(false);
           }}

@@ -15,6 +15,8 @@ interface Props {
   subject?: string;
   contextLabel?: string;
   presets?: number[];
+  allowCrossDay?: boolean;
+  initialCrossDay?: boolean;
   onCancel: () => void;
   onConfirm: (startValue: string, endValue: string, endNextDay: boolean) => void;
 }
@@ -63,7 +65,7 @@ function addMinutes(value: string, minutes: number, mode: RangeMode) {
   return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
 }
 
-function rangeDuration(startValue: string, endValue: string, mode: RangeMode) {
+function rawRangeDuration(startValue: string, endValue: string, mode: RangeMode) {
   if (mode === "datetime") {
     const duration = Math.round((new Date(endValue).getTime() - new Date(startValue).getTime()) / 60_000);
     return Number.isFinite(duration) ? duration : 0;
@@ -71,9 +73,17 @@ function rangeDuration(startValue: string, endValue: string, mode: RangeMode) {
   const start = splitValue(startValue, mode);
   const end = splitValue(endValue, mode);
   const startMinutes = start.hour * 60 + start.minute;
-  let endMinutes = end.hour * 60 + end.minute;
-  if (endMinutes <= startMinutes) endMinutes += 1440;
-  return endMinutes - startMinutes;
+  return end.hour * 60 + end.minute - startMinutes;
+}
+
+function nextDateLabel(value?: string) {
+  const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const weekdayIndex = value ? weekdays.indexOf(value) : -1;
+  if (weekdayIndex >= 0) return weekdays[(weekdayIndex + 1) % weekdays.length];
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "次日";
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + 1);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 export default function TimeRangePickerModal({
@@ -86,12 +96,15 @@ export default function TimeRangePickerModal({
   subject = "考试",
   contextLabel,
   presets = [45, 60, 75, 90, 120, 150],
+  allowCrossDay = true,
+  initialCrossDay = false,
   onCancel,
   onConfirm,
 }: Props) {
   const [target, setTarget] = useState<"start" | "end">("start");
   const [draftStart, setDraftStart] = useState(startValue);
   const [draftEnd, setDraftEnd] = useState(endValue);
+  const [crossDayEnabled, setCrossDayEnabled] = useState(initialCrossDay);
   const hourRef = useRef<HTMLDivElement | null>(null);
   const minuteRef = useRef<HTMLDivElement | null>(null);
 
@@ -100,11 +113,28 @@ export default function TimeRangePickerModal({
     const start = startValue || (mode === "time" ? "08:00" : `${today()}T08:00`);
     setDraftStart(start);
     setDraftEnd(endValue || addMinutes(start, 60, mode));
+    setCrossDayEnabled(initialCrossDay);
     setTarget("start");
-  }, [endValue, mode, open, startValue]);
+  }, [endValue, initialCrossDay, mode, open, startValue]);
 
   const activeParts = splitValue(target === "start" ? draftStart : draftEnd, mode, splitValue(draftStart, mode).date);
-  const duration = useMemo(() => rangeDuration(draftStart, draftEnd, mode), [draftEnd, draftStart, mode]);
+  const rawDuration = useMemo(() => rawRangeDuration(draftStart, draftEnd, mode), [draftEnd, draftStart, mode]);
+  const startDate = splitValue(draftStart, mode).date;
+  const endDate = splitValue(draftEnd, mode, startDate).date;
+  const datesDiffer = mode === "datetime" && startDate !== endDate;
+  const duration = mode === "time" && crossDayEnabled ? rawDuration + 1440 : rawDuration;
+  const validRange = duration > 0 && (mode === "time"
+    ? crossDayEnabled || rawDuration > 0
+    : crossDayEnabled ? endDate > startDate : !datesDiffer);
+  const rangeError = validRange
+    ? ""
+    : mode === "datetime" && datesDiffer && !crossDayEnabled
+      ? "开始和结束日期不同，请先勾选“启用跨日考试”。"
+      : crossDayEnabled && mode === "datetime" && !datesDiffer
+        ? "已启用跨日考试，请将结束日期设置为开始日期之后。"
+        : rawDuration <= 0
+          ? "结束时间必须晚于开始时间；如需跨日，请先启用跨日考试。"
+          : "请重新确认开始日期、结束日期和时间。";
 
   useEffect(() => {
     if (!open) return;
@@ -163,8 +193,23 @@ export default function TimeRangePickerModal({
 
         <section className="time-range-presets" aria-label="常用考试时长">
           <span>常用时长</span>
-          <div>{presets.map((minutes) => <button type="button" key={minutes} className={duration === minutes ? "is-selected" : ""} onClick={() => { setDraftEnd(addMinutes(draftStart, minutes, mode)); setTarget("end"); }}>{formatDuration(minutes)}</button>)}</div>
+          <div>{presets.map((minutes) => <button type="button" key={minutes} className={validRange && duration === minutes ? "is-selected" : ""} onClick={() => { setDraftEnd(addMinutes(draftStart, minutes, mode)); setCrossDayEnabled(false); setTarget("end"); }}>{formatDuration(minutes)}</button>)}</div>
         </section>
+
+        {allowCrossDay && (
+          <section className={`time-range-cross-day${crossDayEnabled ? " is-enabled" : ""}`}>
+            <label>
+              <input type="checkbox" checked={crossDayEnabled} onChange={(event) => setCrossDayEnabled(event.target.checked)} />
+              <span><strong>启用跨日考试</strong><small>仅当考试确实在次日结束时启用</small></span>
+            </label>
+            {crossDayEnabled && (
+              <div className="time-range-cross-day__dates">
+                <span><small>开始日期</small><strong>{mode === "datetime" ? startDate : contextLabel || "当天"}</strong></span>
+                <span><small>结束日期</small><strong>{mode === "datetime" ? endDate : nextDateLabel(contextLabel)}</strong></span>
+              </div>
+            )}
+          </section>
+        )}
 
         <section className="time-range-wheel-panel">
           <div><strong>调整{target === "start" ? "开始" : "结束"}时间</strong><span>上下滚动小时和分钟</span></div>
@@ -175,12 +220,13 @@ export default function TimeRangePickerModal({
           </div>
         </section>
 
-        <section className={`time-range-summary${duration <= 0 ? " is-error" : ""}`}>
+        {!validRange && <div className="time-range-error" role="alert">{rangeError}</div>}
+        <section className={`time-range-summary${!validRange ? " is-error" : ""}`}>
           <Clock3 aria-hidden="true" />
-          <div><span>考试预览</span><strong>{subject}</strong><p>{contextLabel ? `${contextLabel} · ` : ""}{display(draftStart)} - {display(draftEnd)} · {duration > 0 ? formatDuration(duration) : "结束时间需晚于开始时间"}</p></div>
+          <div><span>考试预览</span><strong>{subject}</strong><p>{contextLabel ? `${contextLabel} · ` : ""}{display(draftStart)} - {display(draftEnd)} · {validRange ? `${formatDuration(duration)}${crossDayEnabled ? " · 跨日" : ""}` : "时间范围无效"}</p></div>
         </section>
 
-        <footer><button type="button" onClick={onCancel}>取消</button><button type="button" className="is-primary" disabled={duration <= 0 || duration > 1440} onClick={() => onConfirm(draftStart, draftEnd, mode === "time" && splitValue(draftEnd, mode).hour * 60 + splitValue(draftEnd, mode).minute <= splitValue(draftStart, mode).hour * 60 + splitValue(draftStart, mode).minute)}>确认时间</button></footer>
+        <footer><button type="button" onClick={onCancel}>取消</button><button type="button" className="is-primary" aria-disabled={!validRange} onClick={() => { if (validRange) onConfirm(draftStart, draftEnd, crossDayEnabled); }}>确认时间</button></footer>
       </section>
     </div>
   );

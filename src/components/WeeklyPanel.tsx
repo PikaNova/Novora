@@ -720,7 +720,7 @@ export default function WeeklyPanel({
     const start = padHM(editing.startTime);
     const end = padHM(editing.endTime);
     if (!editing.endNextDay && end <= start) {
-      setEditError("结束时间必须晚于开始时间；跨日安排请在“时间设置”中直接选择次日时间。");
+      setEditError("结束时间必须晚于开始时间；跨日安排请在“时间设置”中勾选启用跨日考试。");
       return;
     }
     let nextItems: WeeklyExamItem[];
@@ -910,6 +910,10 @@ export default function WeeklyPanel({
     }
     if (!HM_RE.test(startTime) || !HM_RE.test(endTime)) {
       setRescheduleError("请输入正确的时间（HH:mm）");
+      return;
+    }
+    if (padHM(endTime) <= padHM(startTime)) {
+      setRescheduleError("结束时间必须晚于开始时间，请重新选择。");
       return;
     }
     upsertOverride({
@@ -2060,6 +2064,7 @@ export default function WeeklyPanel({
         endValue={editing.endTime}
         subject={editing.name || "周测"}
         contextLabel={WEEKDAY_LABEL[editing.weekday]}
+        initialCrossDay={!!editing.endNextDay}
         onCancel={cancelWeeklyTimeFlow}
         onConfirm={(startTime, endTime, endNextDay) => {
           setEditing((item) => item ? { ...item, startTime, endTime, endNextDay } : item);
@@ -2634,6 +2639,7 @@ export default function WeeklyPanel({
         endValue={rescheduleTarget.endTime}
         subject={rescheduleTarget.name || "临时调课"}
         contextLabel={rescheduleTarget.date}
+        allowCrossDay={false}
         onCancel={() => setRescheduleTimeOpen(false)}
         onConfirm={(startTime, endTime) => {
           setRescheduleTarget((value) => value ? { ...value, startTime, endTime } : value);
