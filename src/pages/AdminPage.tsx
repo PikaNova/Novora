@@ -3387,6 +3387,12 @@ export default function AdminPage() {
         subject={editing.name || "分考试"}
         presets={MAJOR_DURATION_PRESETS}
         initialCrossDay={editing.startTime.slice(0, 10) !== editing.endTime.slice(0, 10)}
+        onPreviewChange={(startTime, endTime) => {
+          setEditing((value) => value ? { ...value, startTime, endTime } : value);
+        }}
+        onPreviewCancel={(startTime, endTime) => {
+          setEditing((value) => value ? { ...value, startTime, endTime } : value);
+        }}
         onCancel={cancelMajorTimeFlow}
         onConfirm={(startTime, endTime) => {
           setLongDurationConfirmed(false);

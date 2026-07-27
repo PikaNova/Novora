@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolClass, SchoolGrade } from "../types/school";
@@ -120,6 +120,7 @@ export default function QuickMajorPublishModal({
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [timeFlowOpen, setTimeFlowOpen] = useState(false);
+  const timeFlowSnapshotRef = useRef<null | { customStartTime: string; durationMinutes: number; crossDayConfirmed: boolean; useCustomStart: boolean }>(null);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
 
@@ -150,7 +151,28 @@ export default function QuickMajorPublishModal({
       }));
   }, [classes, grades, targetGradeIds]);
   const openTimeFlow = () => {
+    timeFlowSnapshotRef.current = { customStartTime, durationMinutes, crossDayConfirmed, useCustomStart };
     setTimeFlowOpen(true);
+  };
+  const cancelTimeFlow = () => {
+    const snapshot = timeFlowSnapshotRef.current;
+    if (snapshot) {
+      setCustomStartTime(snapshot.customStartTime);
+      setDurationMinutes(snapshot.durationMinutes);
+      setCrossDayConfirmed(snapshot.crossDayConfirmed);
+      setUseCustomStart(snapshot.useCustomStart);
+    }
+    setTimeFlowOpen(false);
+  };
+  const applyTimeFlowDraft = (nextStart: string, nextEnd: string, endNextDay: boolean) => {
+    const start = splitClock(nextStart);
+    const end = splitClock(nextEnd);
+    let minutes = end.hour * 60 + end.minute - start.hour * 60 - start.minute;
+    if (endNextDay || minutes <= 0) minutes += 24 * 60;
+    setCustomStartTime(nextStart);
+    setDurationMinutes(minutes);
+    setCrossDayConfirmed(endNextDay);
+    setUseCustomStart(true);
   };
   const conflicts = useMemo(() => {
     const start = new Date(startTime).getTime();
@@ -526,16 +548,10 @@ export default function QuickMajorPublishModal({
           contextLabel={examDate}
           presets={DURATIONS}
           initialCrossDay={crossDayConfirmed}
-          onCancel={() => setTimeFlowOpen(false)}
+          onPreviewChange={applyTimeFlowDraft}
+          onCancel={cancelTimeFlow}
           onConfirm={(nextStart, nextEnd, endNextDay) => {
-            const start = splitClock(nextStart);
-            const end = splitClock(nextEnd);
-            let minutes = end.hour * 60 + end.minute - start.hour * 60 - start.minute;
-            if (endNextDay || minutes <= 0) minutes += 24 * 60;
-            setCustomStartTime(nextStart);
-            setDurationMinutes(minutes);
-            setCrossDayConfirmed(endNextDay);
-            setUseCustomStart(true);
+            applyTimeFlowDraft(nextStart, nextEnd, endNextDay);
             setTimeFlowOpen(false);
           }}
         />

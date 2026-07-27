@@ -74,6 +74,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
   const [open, setOpen] = useState(false)
   const [draftPreview, setDraftPreview] = useState<DateTimeParts | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
+  const openedValueRef = useRef(value)
   const [rect, setRect] = useState<AnchorRect | undefined>(undefined)
 
   const display = parsed ? fieldText(parsed, mode) : ""
@@ -83,6 +84,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
     if (disabled) return
     const r = btnRef.current?.getBoundingClientRect()
     if (r) setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
+    openedValueRef.current = value
     setDraftPreview(parsed ?? nowParts())
     setOpen(true)
   }
@@ -127,7 +129,10 @@ export function DateTimeField(props: DateTimeFieldProps) {
           validate={props.validate}
           anchorRect={rect}
           compactPlacement={compactPlacement}
-          onChange={(v) => setDraftPreview(v)}
+          onChange={(v) => {
+            setDraftPreview(v)
+            onChange(serializeFieldValue(v, mode))
+          }}
           onConfirm={(v) => {
             setOpen(false)
             setDraftPreview(v)
@@ -136,6 +141,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
           onCancel={() => {
             setOpen(false)
             setDraftPreview(parsed)
+            onChange(openedValueRef.current)
           }}
         />
       )}

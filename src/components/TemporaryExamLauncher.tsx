@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronLeft,
@@ -87,6 +87,7 @@ export default function TemporaryExamLauncher({
     timeKey(nextFiveMinutes()),
   );
   const [timeRangeOpen, setTimeRangeOpen] = useState(false);
+  const timeRangeSnapshotRef = useRef<null | { mode: "now" | "delay" | "specific"; delay: number; duration: number; specificDate: string; specificTime: string; crossDayConfirmed: boolean }>(null);
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [priority, setPriority] = useState(false);
   const shouldOpen = open || externalOpen;
@@ -98,6 +99,33 @@ export default function TemporaryExamLauncher({
         ? roundUpToFiveMinutes(Date.now() + delay * 60_000)
         : parseLocal(specificDate, specificTime);
   const endMs = startMs + Math.max(5, duration) * 60_000;
+  const openTimeRange = () => {
+    timeRangeSnapshotRef.current = { mode, delay, duration, specificDate, specificTime, crossDayConfirmed };
+    setTimeRangeOpen(true);
+  };
+  const cancelTimeRange = () => {
+    const snapshot = timeRangeSnapshotRef.current;
+    if (snapshot) {
+      setMode(snapshot.mode);
+      setDelay(snapshot.delay);
+      setDuration(snapshot.duration);
+      setSpecificDate(snapshot.specificDate);
+      setSpecificTime(snapshot.specificTime);
+      setCrossDayConfirmed(snapshot.crossDayConfirmed);
+    }
+    setTimeRangeOpen(false);
+  };
+  const applyTimeRangeDraft = (startTime: string, endTime: string, endNextDay: boolean) => {
+    const [startHour, startMinute] = startTime.split(":").map(Number);
+    const [endHour, endMinute] = endTime.split(":").map(Number);
+    let nextDuration = endHour * 60 + endMinute - startHour * 60 - startMinute;
+    if (endNextDay || nextDuration <= 0) nextDuration += 1440;
+    setSpecificDate(dateKey(startMs));
+    setSpecificTime(startTime);
+    setDuration(nextDuration);
+    setCrossDayConfirmed(endNextDay);
+    setMode("specific");
+  };
   const conflicts = useMemo(
     () =>
       formalItems.filter(
@@ -380,7 +408,7 @@ export default function TemporaryExamLauncher({
                       )}
                       <div className="temp-time-setting">
                         <span>时间设置</span>
-                        <button type="button" onClick={() => setTimeRangeOpen(true)}>
+                        <button type="button" onClick={openTimeRange}>
                           <strong>{formatDateTime(startMs)} - {formatDateTime(endMs)}</strong>
                           <small>一次设置开始时间、结束时间和常用时长</small>
                         </button>
@@ -501,17 +529,10 @@ export default function TemporaryExamLauncher({
         contextLabel={dateKey(startMs)}
         presets={DURATION_PRESETS}
         initialCrossDay={crossDayConfirmed}
-        onCancel={() => setTimeRangeOpen(false)}
+        onPreviewChange={applyTimeRangeDraft}
+        onCancel={cancelTimeRange}
         onConfirm={(startTime, endTime, endNextDay) => {
-          const [startHour, startMinute] = startTime.split(":").map(Number);
-          const [endHour, endMinute] = endTime.split(":").map(Number);
-          let nextDuration = endHour * 60 + endMinute - startHour * 60 - startMinute;
-          if (endNextDay || nextDuration <= 0) nextDuration += 1440;
-          setSpecificDate(dateKey(startMs));
-          setSpecificTime(startTime);
-          setDuration(nextDuration);
-          setCrossDayConfirmed(endNextDay);
-          setMode("specific");
+          applyTimeRangeDraft(startTime, endTime, endNextDay);
           setTimeRangeOpen(false);
         }}
       />

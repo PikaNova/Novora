@@ -18,6 +18,8 @@ interface Props {
   presets?: number[];
   allowCrossDay?: boolean;
   initialCrossDay?: boolean;
+  onPreviewChange?: (startValue: string, endValue: string, endNextDay: boolean) => void;
+  onPreviewCancel?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onCancel: () => void;
   onConfirm: (startValue: string, endValue: string, endNextDay: boolean) => void;
 }
@@ -99,6 +101,8 @@ export default function TimeRangePickerModal({
   presets = [45, 60, 75, 90, 120, 150],
   allowCrossDay = true,
   initialCrossDay = false,
+  onPreviewChange,
+  onPreviewCancel,
   onCancel,
   onConfirm,
 }: Props) {
@@ -111,6 +115,12 @@ export default function TimeRangePickerModal({
   const minuteRef = useRef<HTMLDivElement | null>(null);
   const modalRef = useRef<HTMLElement | null>(null);
   const anchorElementRef = useRef<HTMLElement | null>(null);
+  const initialRangeRef = useRef({ startValue, endValue, endNextDay: initialCrossDay });
+  const previewChangeRef = useRef(onPreviewChange);
+
+  useEffect(() => {
+    previewChangeRef.current = onPreviewChange;
+  }, [onPreviewChange]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -171,12 +181,18 @@ export default function TimeRangePickerModal({
   useEffect(() => {
     if (!open) return;
     const start = startValue || (mode === "time" ? "08:00" : `${today()}T08:00`);
+    const end = endValue || addMinutes(start, 60, mode);
+    initialRangeRef.current = { startValue: start, endValue: end, endNextDay: initialCrossDay };
     setDraftStart(start);
-    setDraftEnd(endValue || addMinutes(start, 60, mode));
+    setDraftEnd(end);
     setCrossDayEnabled(initialCrossDay);
     setTarget("start");
     setStep("start");
-  }, [endValue, initialCrossDay, mode, open, startValue]);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) previewChangeRef.current?.(draftStart, draftEnd, crossDayEnabled);
+  }, [crossDayEnabled, draftEnd, draftStart, open]);
 
   const activeParts = splitValue(target === "start" ? draftStart : draftEnd, mode, splitValue(draftStart, mode).date);
   const rawDuration = useMemo(() => rawRangeDuration(draftStart, draftEnd, mode), [draftEnd, draftStart, mode]);
@@ -240,12 +256,18 @@ export default function TimeRangePickerModal({
     setCrossDayEnabled(crossesDay);
   };
 
+  const cancelAndRevert = () => {
+    const initial = initialRangeRef.current;
+    onPreviewCancel?.(initial.startValue, initial.endValue, initial.endNextDay);
+    onCancel();
+  };
+
   const content = (
     <div className="time-range-overlay" role="presentation" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <section ref={modalRef} className="time-range-modal" role="dialog" aria-modal="true" aria-label={title}>
         <header className="time-range-head">
           <div><h2>{title}</h2><p>步骤 {step === "start" ? "1" : step === "duration" ? "2" : "3"} / 3</p></div>
-          <button type="button" onClick={onCancel}>取消</button>
+          <button type="button" onClick={cancelAndRevert}>取消</button>
         </header>
 
         {step === "start" && mode === "datetime" && (
@@ -299,7 +321,7 @@ export default function TimeRangePickerModal({
         {step !== "start" && !validRange && <div className="time-range-error" role="alert">{rangeError}</div>}
 
         <footer>
-          {step === "start" ? <button type="button" onClick={onCancel}>取消</button> : <button type="button" onClick={() => { setTarget("start"); setStep(step === "end" ? "duration" : "start"); }}>上一步</button>}
+          {step === "start" ? <button type="button" onClick={cancelAndRevert}>取消</button> : <button type="button" onClick={() => { setTarget("start"); setStep(step === "end" ? "duration" : "start"); }}>上一步</button>}
           {step === "start" ? <button type="button" className="is-primary" onClick={() => setStep("duration")}>选择时长</button> : <button type="button" className="is-primary" aria-disabled={!validRange} onClick={() => { if (validRange) onConfirm(draftStart, draftEnd, crossDayEnabled); }}>确认时间</button>}
         </footer>
       </section>

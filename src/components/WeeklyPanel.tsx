@@ -2065,6 +2065,12 @@ export default function WeeklyPanel({
         subject={editing.name || "周测"}
         contextLabel={WEEKDAY_LABEL[editing.weekday]}
         initialCrossDay={!!editing.endNextDay}
+        onPreviewChange={(startTime, endTime, endNextDay) => {
+          setEditing((item) => item ? { ...item, startTime, endTime, endNextDay } : item);
+        }}
+        onPreviewCancel={(startTime, endTime, endNextDay) => {
+          setEditing((item) => item ? { ...item, startTime, endTime, endNextDay } : item);
+        }}
         onCancel={cancelWeeklyTimeFlow}
         onConfirm={(startTime, endTime, endNextDay) => {
           setEditing((item) => item ? { ...item, startTime, endTime, endNextDay } : item);
@@ -2640,6 +2646,12 @@ export default function WeeklyPanel({
         subject={rescheduleTarget.name || "临时调课"}
         contextLabel={rescheduleTarget.date}
         allowCrossDay={false}
+        onPreviewChange={(startTime, endTime) => {
+          setRescheduleTarget((value) => value ? { ...value, startTime, endTime } : value);
+        }}
+        onPreviewCancel={(startTime, endTime) => {
+          setRescheduleTarget((value) => value ? { ...value, startTime, endTime } : value);
+        }}
         onCancel={() => setRescheduleTimeOpen(false)}
         onConfirm={(startTime, endTime) => {
           setRescheduleTarget((value) => value ? { ...value, startTime, endTime } : value);
