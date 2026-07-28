@@ -55,6 +55,9 @@ export default function DeviceStatusPanel({
   const [query, setQuery] = useState("");
   const [gradeFilter, setGradeFilter] = useState("*");
   const [classFilters, setClassFilters] = useState<string[]>([]);
+  const [deviceCategory, setDeviceCategory] = useState<"active" | "removed">(
+    "active",
+  );
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
   const { grades, classes } = getAppSettings().exam;
@@ -147,6 +150,20 @@ export default function DeviceStatusPanel({
     [classFilters, classes, gradeFilter, grades, groups, query],
   );
 
+  const isRemovedGroup = (item: DeviceGroup) =>
+    item.dashboard?.revoked === true &&
+    item.plugins.every((plugin) => !plugin.paired);
+  const activeFiltered = useMemo(
+    () => filtered.filter((item) => !isRemovedGroup(item)),
+    [filtered],
+  );
+  const removedFiltered = useMemo(
+    () => filtered.filter(isRemovedGroup),
+    [filtered],
+  );
+  const categoryFiltered =
+    deviceCategory === "removed" ? removedFiltered : activeFiltered;
+
   const dashboardOnline = (item: DeviceGroup) =>
     !!item.dashboard &&
     !item.dashboard.revoked &&
@@ -168,7 +185,7 @@ export default function DeviceStatusPanel({
     );
   const orderedFiltered = useMemo(
     () =>
-      [...filtered].sort((a, b) => {
+      [...categoryFiltered].sort((a, b) => {
         const aOnline = groupOnline(a);
         const bOnline = groupOnline(b);
         if (aOnline !== bOnline) return aOnline ? -1 : 1;
@@ -176,7 +193,7 @@ export default function DeviceStatusPanel({
         if (recentFirst !== 0) return recentFirst;
         return (a.instanceId || a.key).localeCompare(b.instanceId || b.key, "zh-CN");
       }),
-    [filtered, now],
+    [categoryFiltered, now],
   );
   const onlineCount = groups.filter(groupOnline).length;
 
@@ -365,14 +382,34 @@ export default function DeviceStatusPanel({
           />
         </details>
       </div>
-      {canRevoke && (
+      <div className="device-status__categories" role="tablist" aria-label="设备分类">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={deviceCategory === "active"}
+          className={deviceCategory === "active" ? "is-active" : ""}
+          onClick={() => setDeviceCategory("active")}
+        >
+          有效设备 <span>{activeFiltered.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={deviceCategory === "removed"}
+          className={deviceCategory === "removed" ? "is-active" : ""}
+          onClick={() => setDeviceCategory("removed")}
+        >
+          已删除设备 <span>{removedFiltered.length}</span>
+        </button>
+      </div>
+      {canRevoke && deviceCategory === "active" && (
         <div className="device-status__batch">
           <label>
             <input
               type="checkbox"
               checked={
-                filtered.length > 0 &&
-                filtered.every((item) => selectedKeys.includes(item.key))
+                activeFiltered.length > 0 &&
+                activeFiltered.every((item) => selectedKeys.includes(item.key))
               }
               onChange={(event) =>
                 setSelectedKeys(
@@ -380,11 +417,11 @@ export default function DeviceStatusPanel({
                     ? [
                         ...new Set([
                           ...selectedKeys,
-                          ...filtered.map((item) => item.key),
+                          ...activeFiltered.map((item) => item.key),
                         ]),
                       ]
                     : selectedKeys.filter(
-                        (key) => !filtered.some((item) => item.key === key),
+                        (key) => !activeFiltered.some((item) => item.key === key),
                       ),
                 )
               }
@@ -405,12 +442,12 @@ export default function DeviceStatusPanel({
       {loading && (
         <div className="device-status__loading">正在读取设备状态…</div>
       )}
-      {!loading && filtered.length === 0 && (
+      {!loading && categoryFiltered.length === 0 && (
         <div className="admin-empty">
-          <p>暂无符合条件的设备</p>
+          <p>{deviceCategory === "removed" ? "暂无已删除设备" : "暂无符合条件的有效设备"}</p>
         </div>
       )}
-      {filtered.length > 0 && (
+      {categoryFiltered.length > 0 && (
         <div className="device-status__table">
           <div className="device-status__table-head">
             <span>设备与班级</span>
@@ -426,17 +463,15 @@ export default function DeviceStatusPanel({
                 (dashboard.currentExam.includes("临时考试") ||
                   dashboard.status === "temporary-paused");
               const lastSeenAt = groupLastSeenAt(item);
-              const removed =
-                dashboard?.revoked === true &&
-                item.plugins.every((plugin) => !plugin.paired);
+              const removed = isRemovedGroup(item);
               const isDashboardOnline = dashboardOnline(item);
               return (
                 <div
                   className={`device-status__row${removed ? " is-revoked" : ""}`}
                   key={item.key}
                 >
-                  <div className={`device-status__instance${canRevoke ? " is-selectable" : ""}`}>
-                    {canRevoke && (
+                  <div className={`device-status__instance${canRevoke && !removed ? " is-selectable" : ""}`}>
+                    {canRevoke && !removed && (
                       <input
                         type="checkbox"
                         checked={selectedKeys.includes(item.key)}
