@@ -197,6 +197,9 @@ export default function SettingsPage() {
   const [anns, setAnns] = useState<Announcement[]>([]);
   const [annLoading, setAnnLoading] = useState(true);
   const initialExam = useMemo(() => getAppSettings().exam, []);
+  const schoolDesignRule = initialExam.designPolicy.rules.find(
+    (rule) => rule.scope === "school",
+  );
   const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(
     initialExam.weeklyPlans,
   );
@@ -362,6 +365,13 @@ export default function SettingsPage() {
   };
 
   const patchDesign = (id: string) => {
+    if (schoolDesignRule) {
+      notify(
+        "warning",
+        "全校设计正在生效，请先由管理员在设备管理中删除全校设计。",
+      );
+      return;
+    }
     setDesignId(id);
     setDesign(id);
   };
@@ -1118,16 +1128,35 @@ export default function SettingsPage() {
           </div>
           <div className="set-row">
             <label className="set-label">默认大屏设计风格</label>
-            <InlineSelect
-              className="set-input"
-              disabled={!canEditSettings}
-              value={designId}
-              onChange={patchDesign}
-              options={DESIGNS.map((d) => ({ value: d.id, label: d.name }))}
-            />
+            {schoolDesignRule ? (
+              <button
+                type="button"
+                className="set-input set-input--locked"
+                onClick={() =>
+                  notify(
+                    "warning",
+                    "全校设计正在生效，请先由管理员在设备管理中删除全校设计。",
+                  )
+                }
+              >
+                {DESIGNS.find((item) => item.id === schoolDesignRule.designId)
+                  ?.name ?? schoolDesignRule.designId}
+                {" · 全校固定"}
+              </button>
+            ) : (
+              <InlineSelect
+                className="set-input"
+                disabled={!canEditSettings}
+                value={designId}
+                onChange={patchDesign}
+                options={DESIGNS.map((d) => ({ value: d.id, label: d.name }))}
+              />
+            )}
           </div>
           <p className="set-note">
-            也可在大屏右上角“切换风格”里实时预览切换；此处设置作为本机默认。
+            {schoolDesignRule
+              ? "全校设计覆盖年级、班级、设备和本地设计，删除全校规则后才可修改。"
+              : "也可在大屏右上角“切换风格”里实时预览切换；此处设置作为本机默认。"}
           </p>
           <div className="set-row">
             <label className="set-label">动效模式</label>

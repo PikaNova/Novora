@@ -2338,7 +2338,7 @@ export default function AdminPage() {
             canManageClasses={can("school.class_manage")}
           />
         ) : adminTab === "devices" ? (
-          <DeviceStatusPanel canRevoke={can("device.revoke")} canEditDesign={hasAllScope && can("settings.edit")} />
+          <DeviceStatusPanel canRevoke={can("device.revoke")} canBind={can("device.bind")} canEditDesign={hasAllScope && can("settings.edit")} />
         ) : adminTab === "users" ? (
           <UserManagementPanel
             grades={visibleGrades}

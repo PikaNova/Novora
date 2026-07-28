@@ -10,7 +10,7 @@ import ClassMultiPicker from '../components/ClassMultiPicker';
 import type { ExamItem } from '../types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import { APP_SETTINGS_CHANGED_EVENT, APP_SETTINGS_KEY } from '../utils/appSettings';
-import { cacheDeviceBinding, fetchOccupiedClassIds, getCachedDeviceBinding, getClassBindingInstanceId, hasConfirmedDevicePurpose, markClassChoiceConfirmed, markDevicePurposeConfirmed, saveDeviceBinding, setupManagedDevice, type DeviceBinding } from '../services/classBinding';
+import { cacheDeviceBinding, fetchOccupiedClassIds, getCachedDeviceBinding, getClassBindingInstanceId, hasConfirmedDevicePurpose, markClassChoiceConfirmed, markDevicePurposeConfirmed, markPendingManagementSetup, saveDeviceBinding, setupManagedDevice, type DeviceBinding } from '../services/classBinding';
 import { classDisplayName, sortedClasses, sortedGrades } from '../utils/classSettings';
 import { useExamSync } from '../hooks/useExamSync';
 import { hasValidLocalToken } from '../services/examService';
@@ -68,6 +68,7 @@ export default function WelcomePage() {
   useEffect(() => { const update = () => { const t = nowMs(); const exam = getAppSettings().exam; setNow(t); setNextExam(getNextExam(getResolvedExamItems(t), t)); setGrades(sortedGrades(exam.grades)); setClasses(sortedClasses(exam.classes)); }; const onStorage = (event: StorageEvent) => { if (event.key === APP_SETTINGS_KEY) update(); }; update(); const id = window.setInterval(update, 1000); window.addEventListener(APP_SETTINGS_CHANGED_EVENT, update); window.addEventListener('storage', onStorage); window.addEventListener('focus', update); window.addEventListener('pageshow', update); return () => { clearInterval(id); window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, update); window.removeEventListener('storage', onStorage); window.removeEventListener('focus', update); window.removeEventListener('pageshow', update); }; }, []);
   useEffect(() => { const key = remoteBinding ? `${remoteBinding.gradeId}:${remoteBinding.classId}:${remoteBinding.revoked}:${remoteBinding.isManagement}` : ''; if (!remoteBinding || appliedRemoteBindingRef.current === key) return; appliedRemoteBindingRef.current = key; if (remoteBinding.revoked) { updateExamSettings({ selectedGradeId: '', selectedClassId: '' }); setClassPromptOpen(true); return; } if (remoteBinding.isManagement) { updateExamSettings({ selectedGradeId: '', selectedClassId: '' }); markDevicePurposeConfirmed(); setClassPromptOpen(false); return; } if (classes.some(item => item.id === remoteBinding.classId && item.gradeId === remoteBinding.gradeId)) { updateExamSettings({ selectedGradeId: remoteBinding.gradeId, selectedClassId: remoteBinding.classId }); markClassChoiceConfirmed(); markDevicePurposeConfirmed(); setClassPromptOpen(false); } }, [remoteBinding, classes]);
   useEffect(() => { const revoked = () => { setRemoteBinding({ gradeId: '', classId: '', revoked: true }); setClassPromptOpen(true); resetIdle(); }; window.addEventListener('exam-board:device-revoked', revoked); return () => window.removeEventListener('exam-board:device-revoked', revoked); }, []);
+  useEffect(() => { const updated = (event: Event) => setRemoteBinding((event as CustomEvent<DeviceBinding>).detail); window.addEventListener('exam-board:binding-updated', updated); return () => window.removeEventListener('exam-board:binding-updated', updated); }, []);
   const currentExamSettings = getAppSettings().exam;
   const isInitialized = grades.length > 0 && classes.length > 0;
   const isManagement = remoteBinding?.isManagement === true;
@@ -127,6 +128,7 @@ export default function WelcomePage() {
   const enterExam = () => { if (!isBound) { openClassPrompt(); return; } navigate('/exam'); };
   const bindAsManagement = () => {
     const target = '/?management=1';
+    markPendingManagementSetup();
     if (!hasValidLocalToken()) { navigate(`/login?next=${encodeURIComponent(target)}`); return; }
     if (managementSetupRef.current) return;
     managementSetupRef.current = true;

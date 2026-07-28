@@ -14,7 +14,7 @@
 .bb__ghost:hover { background:rgba(255,255,255,.08); color:#fff; }
 .bb__sync { font-size:13px; font-weight:600; padding:5px 12px; border-radius:999px; border:1px solid var(--soft); }
 .bb__sync.is-ok { color:#bdeccb; } .bb__sync.is-wait { color:var(--yellow); } .bb__sync.is-off { color:#ffb3a0; }
-.bb__clock { font-size:min(clamp(56px,7.4vw,150px), 30vh); font-weight:800; line-height:1.06; margin-top:clamp(22px,4.6vh,54px); text-shadow:0 4px 24px rgba(0,0,0,.3); }
+.bb__clock { font-size:min(clamp(52px,6.2vw,120px), 22vh); font-weight:800; line-height:1.02; margin-top:clamp(12px,2.5vh,28px); text-shadow:0 4px 24px rgba(0,0,0,.3); }
 .bb__date { margin:clamp(8px,1.6vh,18px) 0 0; font-size:clamp(15px,1.5vw,22px); color:var(--muted); letter-spacing:.12em; }
 .bb__notify { display:flex; align-items:center; gap:10px; margin-top:12px; padding:8px 14px; border-radius:10px; background:rgba(247,229,155,.14); border:1px solid rgba(247,229,155,.4); color:var(--yellow); font-size:14px; }
 .bb__notify button { background:none; border:none; color:inherit; font-size:17px; cursor:pointer; }

@@ -14,9 +14,9 @@ export function setDesignId(id: string): void {
 
 export function resolveManagedDesign(policy: DesignPolicy | undefined, gradeId: string, classId: string, instanceId: string): string | null {
   const rules = Array.isArray(policy?.rules) ? policy.rules : [];
-  return rules.find(rule => rule.scope === 'device' && rule.scopeId === instanceId)?.designId
-    ?? rules.find(rule => rule.scope === 'class' && rule.scopeId === classId)?.designId
+  return rules.find(rule => rule.scope === 'school')?.designId
     ?? rules.find(rule => rule.scope === 'grade' && rule.scopeId === gradeId)?.designId
-    ?? rules.find(rule => rule.scope === 'school')?.designId
+    ?? rules.find(rule => rule.scope === 'class' && rule.scopeId === classId)?.designId
+    ?? rules.find(rule => rule.scope === 'device' && rule.scopeId === instanceId)?.designId
     ?? null;
 }
