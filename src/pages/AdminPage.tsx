@@ -364,6 +364,34 @@ export default function AdminPage() {
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const placeMoreMenu = useCallback(() => {
+    const rect = moreTriggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const edge = 14;
+    const width = Math.min(280, window.innerWidth - edge * 2);
+    const estimatedHeight = 280;
+    const below = window.innerHeight - rect.bottom - edge;
+    const above = rect.top - edge;
+    const openUp = below < Math.min(estimatedHeight, 180) && above > below;
+    setMoreMenuStyle({
+      position: "fixed",
+      width,
+      left: Math.max(edge, Math.min(rect.right - width, window.innerWidth - width - edge)),
+      ...(openUp ? { bottom: window.innerHeight - rect.top + 8 } : { top: rect.bottom + 8 }),
+      maxHeight: `${Math.max(160, (openUp ? above : below) - 8)}px`,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    placeMoreMenu();
+    window.addEventListener("resize", placeMoreMenu);
+    window.addEventListener("scroll", placeMoreMenu, true);
+    return () => {
+      window.removeEventListener("resize", placeMoreMenu);
+      window.removeEventListener("scroll", placeMoreMenu, true);
+    };
+  }, [moreOpen, placeMoreMenu]);
   const pendingRef = useRef(false); // 是否有尚未推送到服务器的本地变更
   const stateRef = useRef({ majors, activeMajorId });
   stateRef.current = { majors, activeMajorId };
@@ -2090,17 +2118,7 @@ export default function AdminPage() {
                   setMoreOpen(false);
                   return;
                 }
-                const rect = moreTriggerRef.current?.getBoundingClientRect();
-                if (rect && window.matchMedia("(max-width: 700px)").matches) {
-                  const width = Math.min(280, window.innerWidth - 28);
-                  setMoreMenuStyle({
-                    position: "fixed",
-                    top: rect.bottom + 8,
-                    left: window.innerWidth - width - 14,
-                    width,
-                    maxHeight: `calc(100dvh - ${rect.bottom + 24}px)`,
-                  });
-                } else setMoreMenuStyle({});
+                placeMoreMenu();
                 setMoreOpen(true);
               }}
               aria-expanded={moreOpen}

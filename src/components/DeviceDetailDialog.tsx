@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link2, MonitorCog, RefreshCw, Wifi, X } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { classDisplayName } from '../utils/classSettings';
@@ -89,7 +90,7 @@ export default function DeviceDetailDialog({ device, grades, classes, selectable
     } finally { setSaving(false); }
   };
 
-  return <div className="device-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="device-detail-title" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+  const dialog = <div className="device-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="device-detail-title" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="device-detail">
       <header className="device-detail__head">
         <div><span>设备详情</span><h3 id="device-detail-title">{roleTitle}{isCurrent && <em>当前设备</em>}</h3><p>{assignment}</p></div>
@@ -118,4 +119,5 @@ export default function DeviceDetailDialog({ device, grades, classes, selectable
       </section>}
     </section>
   </div>;
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);
 }

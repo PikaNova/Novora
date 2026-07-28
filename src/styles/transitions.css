@@ -146,3 +146,44 @@
     animation: none !important;
   }
 }
+
+body:has(.device-detail-overlay),
+body:has(.admin-modal-overlay),
+body:has(.admin-device-setup),
+body:has(.time-range-overlay),
+body:has(.tdp-root),
+body:has(.dsw-overlay),
+body:has(.eann-overlay),
+body:has(.help-tip__layer),
+body:has(.overview-device-drawer),
+body:has(.app-dialog-overlay),
+body:has(.init-overlay),
+body:has(.temp-exam-overlay),
+body:has(.schedule-preview) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.device-detail-overlay {
+  z-index: 14000 !important;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.device-detail {
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+@media (max-width: 700px) {
+  .device-detail {
+    max-height: min(88dvh, calc(100svh - max(12px, env(safe-area-inset-top)))) !important;
+  }
+
+  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__layer, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .admin-mobile-nav,
+  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__layer, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .app-watermark {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
