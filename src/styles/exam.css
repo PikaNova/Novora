@@ -61,7 +61,7 @@
   .exam-root [class*="clock"]{ line-height:1 !important; }
 }
 @media (max-height:560px){
-  .bb__clock{ font-size:min(clamp(52px,8vw,150px),24vh)!important; margin-top:clamp(8px,1.8vh,18px)!important; }
+  .bb__clock{ font-size:min(clamp(48px,6.4vw,118px),20vh)!important; margin-top:clamp(6px,1.2vh,12px)!important; }
   .cf__clock{ font-size:min(clamp(60px,10vw,200px),30vh)!important; }
   .nd-clock{ font-size:min(clamp(76px,12vw,240px),30vh)!important; margin:clamp(8px,1.6vh,22px) auto 12px!important; }
   .em__clock{ font-size:min(clamp(84px,14vw,240px),32vh)!important; }

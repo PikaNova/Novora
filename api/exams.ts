@@ -446,7 +446,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const viewerInstanceId = String(req.query?.viewerInstanceId ?? '').trim().slice(0, 128);
       const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
       const payload = examPayload(examRows[0] ?? {});
-      const deviceRows = viewerInstanceId ? await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean }> : [];
+      const deviceRows = viewerInstanceId ? await sql`SELECT grade_id, class_id, revoked, is_management, last_seen_at FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean; last_seen_at: number | string }> : [];
       const device = deviceRows[0];
       const binding = device ? { gradeId: device.grade_id ?? '', classId: device.class_id ?? '', revoked: device.revoked === true, isManagement: device.is_management === true, classTag: classLabel(payload, device.grade_id ?? '', device.class_id ?? '') } : null;
       res.status(200).json({ ok: true, ...classIslandApiMeta(), pluginInstanceId: plugin.plugin_instance_id, expiresAt: Number(plugin.pair_expires_at), binding }); return;
@@ -484,7 +484,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const plugin = rows[0];
       if (!plugin || !equalHash(plugin.client_secret_hash, sha256(credentials.secret))) { res.status(401).json({ ok: false, error: 'Plugin credentials rejected' }); return; }
       const viewerInstanceId = String(plugin.viewer_instance_id ?? '');
-      const deviceRows = viewerInstanceId ? await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean }> : [];
+      const deviceRows = viewerInstanceId ? await sql`SELECT grade_id, class_id, revoked, is_management, last_seen_at FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean; last_seen_at: number | string }> : [];
       const device = deviceRows[0];
       const viewerBindingValid = !!device && !device.revoked && !device.is_management && !!device.grade_id && !!device.class_id;
       if (!viewerBindingValid && plugin.paired === true) {
@@ -515,7 +515,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         serverTime: new Date().toISOString(),
         binding: { gradeId, classId, classTag: classLabel(payload, gradeId, classId) },
         school: payload.initialization ?? {},
-        viewerOnline: Date.now() - Number(plugin.viewer_last_seen_at ?? 0) <= PLUGIN_VIEWER_ONLINE_MS,
+        viewerOnline: viewerBindingValid && Date.now() - Number(device.last_seen_at ?? 0) <= PLUGIN_VIEWER_ONLINE_MS,
         exams: resolvePluginExams(payload, gradeId, classId),
         updatedAt: payload.updatedAt,
       }); return;
@@ -580,12 +580,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<Array<Record<string, any>>>,
         sql`SELECT plugin_instance_id, grade_id, class_id, viewer_instance_id, paired, viewer_last_seen_at, updated_at FROM classisland_plugin_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<Array<Record<string, any>>>,
       ]);
+      const currentManagement = deviceActor && deviceRows.find(row => String(row.instance_id ?? '') === currentInstanceId && row.is_management === true);
+      if (deviceActor && currentManagement && (!currentManagement.management_actor_id || !currentManagement.management_role_name || !currentManagement.management_scope_label)) {
+        const scopeRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
+        const managementScopeLabel = actorScopeLabel(deviceActor, examPayload(scopeRows[0] ?? {}));
+        await sql`UPDATE device_instances SET management_actor_id=${deviceActor.id}, management_role_name=${deviceActor.roleName}, management_scope_label=${managementScopeLabel} WHERE instance_id=${currentInstanceId} AND is_management=TRUE`;
+        currentManagement.management_actor_id = deviceActor.id;
+        currentManagement.management_role_name = deviceActor.roleName;
+        currentManagement.management_scope_label = managementScopeLabel;
+      }
       let rows = deviceRows;
       let visiblePluginRows = pluginRows;
-      if (deviceActor) rows = rows.filter(row => row.is_management === true
-        ? allScope(deviceActor!) || Number(row.management_actor_id ?? 0) === deviceActor!.id || String(row.instance_id ?? '') === currentInstanceId
-        : canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
-      if (deviceActor) visiblePluginRows = visiblePluginRows.filter(row => canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
+      if (deviceActor) rows = rows.filter(row => String(row.instance_id ?? '') === currentInstanceId || (row.is_management === true
+        ? allScope(deviceActor!) || Number(row.management_actor_id ?? 0) === deviceActor!.id
+        : canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? ''))));
+      if (deviceActor) visiblePluginRows = visiblePluginRows.filter(row => String(row.viewer_instance_id ?? '') === currentInstanceId || canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
       const truncated = rows.length > 500 || visiblePluginRows.length > 500;
       res.status(200).json({
         ok: true,
@@ -663,6 +672,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await writeAudit(setupActor, 'device.setup', 'device', instanceId, { bindManagement, gradeId, classId, replaced: replaceExisting });
       res.status(200).json({ ok: true, binding: { gradeId: nextGradeId, classId: nextClassId, revoked: false, isManagement: bindManagement }, updatedAt: now }); return;
     }
+    if (action === 'device-role-update' && req.method === 'POST') {
+      const roleActor = await requireActor(req, res, 'device.bind');
+      if (!roleActor) return;
+      const instanceId = String(req.body?.instanceId ?? '').trim().slice(0, 128);
+      const targetRole = String(req.body?.targetRole ?? '');
+      const gradeId = String(req.body?.gradeId ?? '').trim().slice(0, 128);
+      const classId = String(req.body?.classId ?? '').trim().slice(0, 128);
+      const replaceExisting = req.body?.replaceExisting === true;
+      if (!instanceId || (targetRole !== 'management' && targetRole !== 'class-terminal')) { res.status(400).json({ ok: false, error: '设备和目标角色无效' }); return; }
+      await ensureTableOnce();
+      const targetRows = await sql`SELECT instance_id, grade_id, class_id, revoked, is_management, management_actor_id FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ instance_id: string; grade_id: string; class_id: string; revoked: boolean; is_management: boolean; management_actor_id: number | string }>;
+      const target = targetRows[0];
+      if (!target) { res.status(404).json({ ok: false, error: '设备不存在或尚未上报状态' }); return; }
+      const canManageTarget = target.is_management
+        ? roleActor.permissions.includes('*') || roleActor.scopes.some(scope => scope.type === 'all') || Number(target.management_actor_id ?? 0) === roleActor.id
+        : canAccessClass(roleActor, target.grade_id ?? '', target.class_id ?? '');
+      if (!canManageTarget) { res.status(403).json({ ok: false, error: '该设备超出当前账号的管理范围' }); return; }
+
+      const payloadRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
+      const payload = examPayload(payloadRows[0] ?? {});
+      const now = Date.now();
+      if (targetRole === 'management') {
+        const managementScopeLabel = actorScopeLabel(roleActor, payload);
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${instanceId}`;
+        await sql`UPDATE device_instances SET grade_id='', class_id='', revoked=FALSE, is_management=TRUE, management_actor_id=${roleActor.id}, management_role_name=${roleActor.roleName}, management_scope_label=${managementScopeLabel}, updated_at=${now} WHERE instance_id=${instanceId}`;
+        await writeAudit(roleActor, 'device.role.management', 'device', instanceId, { previousRole: target.is_management ? 'management' : 'class-terminal', previousGradeId: target.grade_id, previousClassId: target.class_id });
+        res.status(200).json({ ok: true, binding: { gradeId: '', classId: '', revoked: false, isManagement: true }, managementRoleName: roleActor.roleName, managementScopeLabel, updatedAt: now }); return;
+      }
+
+      const targetClass = (payload.classes as Array<Record<string, unknown>>).find(item => String(item.id ?? '') === classId && String(item.gradeId ?? '') === gradeId);
+      if (!gradeId || !classId || !targetClass) { res.status(400).json({ ok: false, error: '请选择有效的年级和班级' }); return; }
+      if (!canAccessClass(roleActor, gradeId, classId)) { res.status(403).json({ ok: false, error: '所选班级超出当前账号的管理范围' }); return; }
+      const occupied = await sql`SELECT instance_id, last_seen_at, status FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId} ORDER BY updated_at DESC LIMIT 1` as unknown as Array<{ instance_id: string; last_seen_at: number | string; status: string }>;
+      if (occupied[0] && !replaceExisting) {
+        const lastSeenAt = Number(occupied[0].last_seen_at ?? 0);
+        res.status(409).json({ ok: false, code: 'CLASS_DEVICE_EXISTS', error: '该班级已有考试端', existing: { instanceId: occupied[0].instance_id, status: occupied[0].status, lastSeenAt, online: Date.now() - lastSeenAt <= 90_000 } }); return;
+      }
+      if (occupied[0]) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id IN (SELECT instance_id FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId})`;
+        await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${now} WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId}`;
+      }
+      await sql`UPDATE device_instances SET grade_id=${gradeId}, class_id=${classId}, revoked=FALSE, is_management=FALSE, management_actor_id=0, management_role_name='', management_scope_label='', updated_at=${now} WHERE instance_id=${instanceId}`;
+      await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${now} WHERE viewer_instance_id=${instanceId} AND paired=TRUE`;
+      await writeAudit(roleActor, 'device.role.class-terminal', 'device', instanceId, { previousRole: target.is_management ? 'management' : 'class-terminal', gradeId, classId, replaced: !!occupied[0] }, gradeId, classId);
+      res.status(200).json({ ok: true, binding: { gradeId, classId, revoked: false, isManagement: false }, replaced: !!occupied[0], updatedAt: now }); return;
+    }
     if (action === 'device-binding') {
       const instanceId = String(req.method === 'GET' ? req.query?.instanceId ?? '' : req.body?.instanceId ?? '').trim().slice(0, 128);
       if (!instanceId) { res.status(400).json({ ok: false, error: 'instanceId is required' }); return; }
@@ -721,8 +776,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
           VALUES (${instanceId}, ${value('page')}, ${value('clientVersion', 40)}, ${value('status', 40)}, ${value('currentExam')}, ${value('currentSubject')}, ${value('examStart', 40)}, ${value('examEnd', 40)}, ${now}, ${now})
           ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at`;
-        const rows = await sql`SELECT revoked, temporary_command FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ revoked: boolean; temporary_command?: unknown }>;
-        res.status(200).json({ ok: true, revoked: rows[0]?.revoked === true, command: rows[0]?.temporary_command ?? null });
+        const rows = await sql`SELECT grade_id, class_id, revoked, is_management, temporary_command FROM device_instances WHERE instance_id=${instanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean; temporary_command?: unknown }>;
+        const device = rows[0];
+        const hasBinding = !!device && (device.revoked === true || device.is_management === true || !!device.class_id);
+        res.status(200).json({ ok: true, revoked: device?.revoked === true, binding: hasBinding ? { gradeId: device.grade_id ?? '', classId: device.class_id ?? '', revoked: device.revoked === true, isManagement: device.is_management === true } : null, command: device?.temporary_command ?? null });
       };
       try { await run(); } catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); await run(); }
       return;
@@ -779,13 +836,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const source = req.body?.designPolicy;
       const rawRules = Array.isArray(source?.rules) ? source.rules : [];
       const allowedScopes = new Set(['school', 'grade', 'class', 'device']);
-      const rules = rawRules.slice(0, 500).flatMap((rule: any, index: number) => {
+      const parsedRules = rawRules.slice(0, 500).flatMap((rule: any, index: number) => {
         const scope = String(rule?.scope ?? '');
         const scopeId = String(rule?.scopeId ?? '').trim().slice(0, 128);
         const designId = String(rule?.designId ?? '').trim().slice(0, 80);
         if (!allowedScopes.has(scope) || !designId || (scope !== 'school' && !scopeId)) return [];
         return [{ id: String(rule?.id ?? `design-${index}`).slice(0, 128), scope, scopeId: scope === 'school' ? '*' : scopeId, designId }];
       });
+      const schoolRule = [...parsedRules].reverse().find(rule => rule.scope === 'school');
+      const rules = schoolRule ? [schoolRule] : parsedRules;
       const updatedAt = Date.now();
       const designPolicy = { rules, updatedAt };
       const run = async () => sql`UPDATE exam_data SET design_policy=${JSON.stringify(designPolicy)}::jsonb, updated_at=${updatedAt} WHERE id=1`;

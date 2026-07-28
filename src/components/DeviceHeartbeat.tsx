@@ -8,6 +8,7 @@ import { nowMs, parseZonedTime } from '../utils/timeSource';
 import { endTemporaryExam, extendTemporaryExam, getTemporaryExam, setTemporaryExamPaused } from '../services/temporaryExam';
 import { notify } from '../services/notify';
 import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
+import { updateExamSettings } from '../utils/appSettings';
 
 export default function DeviceHeartbeat() {
   const { pathname, search } = useLocation();
@@ -35,7 +36,13 @@ export default function DeviceHeartbeat() {
         examEnd: current?.endTime ?? next?.endTime ?? '',
         acknowledgedCommandId,
       }).then(result => {
-        if (result.revoked && pathname !== '/') { navigate('/', { replace: true }); return; }
+        const bindingRequired = pathname === '/exam' || pathname === '/preferences' || pathname === '/local-settings' || pathname === '/plugin/connect';
+        if (result.revoked && bindingRequired) { navigate('/', { replace: true }); return; }
+        if (result.binding && !result.binding.revoked) {
+          const currentBinding = getAppSettings().exam;
+          if (currentBinding.selectedGradeId !== result.binding.gradeId || currentBinding.selectedClassId !== result.binding.classId) updateExamSettings({ selectedGradeId: result.binding.gradeId, selectedClassId: result.binding.classId });
+          if (result.binding.isManagement && pathname === '/exam') { navigate('/', { replace: true }); return; }
+        }
         if (!result.command || result.command.id === acknowledgedCommandId) return;
         if (result.command.action === 'pause') setTemporaryExamPaused(true);
         if (result.command.action === 'resume') setTemporaryExamPaused(false);

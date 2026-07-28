@@ -9,16 +9,22 @@ import { getAppSettings, updateExamSettings } from '../utils/appSettings';
 import { notify } from '../services/notify';
 import InlineSelect from './InlineSelect';
 
-const SCOPE_LABEL: Record<DesignRuleScope, string> = { school: '学校默认', grade: '年级', class: '班级', device: '设备实例' };
+const SCOPE_LABEL: Record<DesignRuleScope, string> = { school: '全校设计', grade: '年级', class: '班级', device: '设备实例' };
+const SCHOOL_LOCK_MESSAGE = '全校设计正在生效，请先删除全校设计后再设置其他范围。';
+
+function normalizePolicy(policy: DesignPolicy): DesignPolicy {
+  const schoolRule = [...policy.rules].reverse().find(rule => rule.scope === 'school');
+  return schoolRule ? { ...policy, rules: [schoolRule] } : policy;
+}
 
 export default function DesignPolicyManager({ grades, classes, devices, canEdit }: { grades: SchoolGrade[]; classes: SchoolClass[]; devices: DeviceBindingInfo[]; canEdit: boolean }) {
-  const [policy, setPolicy] = useState<DesignPolicy>(() => getAppSettings().exam.designPolicy);
+  const [policy, setPolicy] = useState<DesignPolicy>(() => normalizePolicy(getAppSettings().exam.designPolicy));
   const [scope, setScope] = useState<DesignRuleScope>('school');
   const [scopeId, setScopeId] = useState('*');
   const [designId, setDesignId] = useState(DESIGNS[0].id);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { void fetchExamsFromServer().then(payload => { if (payload?.designPolicy) setPolicy(payload.designPolicy); }); }, []);
+  useEffect(() => { void fetchExamsFromServer().then(payload => { if (payload?.designPolicy) setPolicy(normalizePolicy(payload.designPolicy)); }); }, []);
   useEffect(() => {
     if (scope === 'school') setScopeId('*');
     else if (scope === 'grade') setScopeId(grades[0]?.id || '');
@@ -38,30 +44,35 @@ export default function DesignPolicyManager({ grades, classes, devices, canEdit 
     setSaving(true);
     try {
       const saved = await saveDesignPolicy({ rules, updatedAt: Date.now() });
-      setPolicy(saved);
-      updateExamSettings({ designPolicy: saved, updatedAt: saved.updatedAt });
+      const normalized = normalizePolicy(saved);
+      setPolicy(normalized);
+      updateExamSettings({ designPolicy: normalized, updatedAt: normalized.updatedAt });
       notify('success', '考试端设计规则已下发');
     } catch (error) { notify('error', error instanceof Error ? error.message : '设计规则保存失败'); }
     finally { setSaving(false); }
   };
 
   const addRule = () => {
+    if (policy.rules.some(rule => rule.scope === 'school')) { notify('warning', SCHOOL_LOCK_MESSAGE); return; }
     if (!scopeId) { notify('warning', '请先选择应用对象'); return; }
     const next: DesignAssignmentRule = { id: `${scope}-${scopeId}`, scope, scopeId, designId };
-    void persist([...policy.rules.filter(rule => !(rule.scope === scope && rule.scopeId === scopeId)), next]);
+    void persist(scope === 'school' ? [next] : [...policy.rules.filter(rule => !(rule.scope === scope && rule.scopeId === scopeId)), next]);
   };
+  const schoolRule = policy.rules.find(rule => rule.scope === 'school');
   const targetLabel = (rule: DesignAssignmentRule) => rule.scope === 'school' ? '全校考试端'
     : rule.scope === 'grade' ? grades.find(item => item.id === rule.scopeId)?.name || rule.scopeId
     : rule.scope === 'class' ? classes.find(item => item.id === rule.scopeId)?.name || rule.scopeId
     : devices.find(item => item.instanceId === rule.scopeId)?.instanceId || rule.scopeId;
 
   return <section className="design-policy-manager">
-    <header><span><Palette aria-hidden="true" /><strong>考试端设计下发</strong></span><small>设备 &gt; 班级 &gt; 年级 &gt; 学校默认 &gt; 本地设置</small></header>
+    <header><span><Palette aria-hidden="true" /><strong>考试端设计下发</strong></span><small>全校设计 &gt; 年级 &gt; 班级 &gt; 单独设备 &gt; 本地设置</small></header>
     <div className="design-policy-manager__form">
-      <InlineSelect value={scope} onChange={value => setScope(value as DesignRuleScope)} options={(Object.keys(SCOPE_LABEL) as DesignRuleScope[]).map(value => ({ value, label: SCOPE_LABEL[value] }))} disabled={!canEdit || saving} />
-      <InlineSelect value={scopeId} onChange={setScopeId} options={targets} disabled={!canEdit || saving || !targets.length} placeholder="选择应用对象" />
-      <InlineSelect value={designId} onChange={setDesignId} options={DESIGNS.map(item => ({ value: item.id, label: item.name }))} disabled={!canEdit || saving} />
-      <button type="button" className="admin-btn admin-btn--primary" disabled={!canEdit || saving || !scopeId} onClick={addRule}>{saving ? '保存中…' : '下发设计'}</button>
+      {schoolRule ? <button type="button" className="design-policy-manager__lock" disabled={!canEdit || saving} onClick={() => notify('warning', SCHOOL_LOCK_MESSAGE)}>全校设计正在覆盖所有考试端。需要设置其他范围时，请先删除下方全校设计。</button> : <>
+        <InlineSelect value={scope} onChange={value => setScope(value as DesignRuleScope)} options={(Object.keys(SCOPE_LABEL) as DesignRuleScope[]).map(value => ({ value, label: SCOPE_LABEL[value] }))} disabled={!canEdit || saving} />
+        <InlineSelect value={scopeId} onChange={setScopeId} options={targets} disabled={!canEdit || saving || !targets.length} placeholder="选择应用对象" />
+        <InlineSelect value={designId} onChange={setDesignId} options={DESIGNS.map(item => ({ value: item.id, label: item.name }))} disabled={!canEdit || saving} />
+        <button type="button" className="admin-btn admin-btn--primary" disabled={!canEdit || saving || !scopeId} onClick={addRule}>{saving ? '保存中…' : '下发设计'}</button>
+      </>}
     </div>
     {policy.rules.length > 0 && <div className="design-policy-manager__rules">{policy.rules.map(rule => <div key={`${rule.scope}:${rule.scopeId}`}><span><strong>{SCOPE_LABEL[rule.scope]} · {targetLabel(rule)}</strong><small>{DESIGNS.find(item => item.id === rule.designId)?.name || rule.designId}</small></span>{canEdit && <button type="button" title="删除规则" disabled={saving} onClick={() => void persist(policy.rules.filter(item => item !== rule))}><Trash2 aria-hidden="true" /></button>}</div>)}</div>}
   </section>;
