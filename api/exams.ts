@@ -81,6 +81,9 @@ function ensureTableOnce(): Promise<void> {
           class_id TEXT NOT NULL DEFAULT '',
           revoked BOOLEAN NOT NULL DEFAULT FALSE,
           is_management BOOLEAN NOT NULL DEFAULT FALSE,
+          management_actor_id BIGINT NOT NULL DEFAULT 0,
+          management_role_name TEXT NOT NULL DEFAULT '',
+          management_scope_label TEXT NOT NULL DEFAULT '',
           page TEXT NOT NULL DEFAULT '',
           client_version TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT '',
@@ -109,6 +112,9 @@ function ensureTableOnce(): Promise<void> {
       await ensureUpdatedAtBigIntOnce();
       await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`;
       await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS is_management BOOLEAN NOT NULL DEFAULT FALSE`;
+      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_actor_id BIGINT NOT NULL DEFAULT 0`;
+      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_role_name TEXT NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`;
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
@@ -345,6 +351,17 @@ function classLabel(payload: ReturnType<typeof examPayload>, gradeId: string, cl
   return [grade?.name, schoolClass?.name].filter(Boolean).map(String).join(' ');
 }
 
+function actorScopeLabel(actor: AdminActor, payload: ReturnType<typeof examPayload>): string {
+  if (actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return '全校';
+  const grades = Array.isArray(payload.grades) ? payload.grades as Array<Record<string, unknown>> : [];
+  const names = actor.scopes.map(scope => {
+    if (scope.type === 'grade') return String(grades.find(item => String(item.id ?? '') === scope.gradeId)?.name ?? scope.gradeId);
+    if (scope.type === 'class') return classLabel(payload, scope.gradeId, scope.classId).replace(' ', ' · ');
+    return '';
+  }).filter(Boolean);
+  return names.join('、') || '未分配范围';
+}
+
 function resolvePluginExams(payload: ReturnType<typeof examPayload>, gradeId: string, classId: string) {
   const now = Date.now();
   const schedule = resolveEffectiveSchedule({
@@ -552,6 +569,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'device-bindings') {
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const currentInstanceId = String(req.query?.currentInstanceId ?? '').trim().slice(0, 128);
       let deviceActor: AdminActor | null = null;
       if (await isPasswordRequired()) {
         deviceActor = await requireActor(req, res, 'device.read');
@@ -564,12 +582,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ]);
       let rows = deviceRows;
       let visiblePluginRows = pluginRows;
-      if (deviceActor) rows = rows.filter(row => canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
+      if (deviceActor) rows = rows.filter(row => row.is_management === true
+        ? allScope(deviceActor!) || Number(row.management_actor_id ?? 0) === deviceActor!.id || String(row.instance_id ?? '') === currentInstanceId
+        : canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
       if (deviceActor) visiblePluginRows = visiblePluginRows.filter(row => canAccessClass(deviceActor!, String(row.grade_id ?? ''), String(row.class_id ?? '')));
       const truncated = rows.length > 500 || visiblePluginRows.length > 500;
       res.status(200).json({
         ok: true,
-        bindings: rows.slice(0, 500).map(row => ({ instanceId: row.instance_id, gradeId: row.grade_id, classId: row.class_id, revoked: row.revoked === true, isManagement: row.is_management === true, page: row.page, clientVersion: row.client_version, status: row.status, currentExam: row.current_exam, currentSubject: row.current_subject, examStart: row.exam_start, examEnd: row.exam_end, lastSeenAt: Number(row.last_seen_at), updatedAt: Number(row.updated_at) })),
+        bindings: rows.slice(0, 500).map(row => ({ instanceId: row.instance_id, gradeId: row.grade_id, classId: row.class_id, revoked: row.revoked === true, isManagement: row.is_management === true, managementRoleName: row.management_role_name ?? '', managementScopeLabel: row.management_scope_label ?? '', page: row.page, clientVersion: row.client_version, status: row.status, currentExam: row.current_exam, currentSubject: row.current_subject, examStart: row.exam_start, examEnd: row.exam_end, lastSeenAt: Number(row.last_seen_at), updatedAt: Number(row.updated_at) })),
         plugins: visiblePluginRows.slice(0, 500).map(row => ({ pluginInstanceId: row.plugin_instance_id, viewerInstanceId: row.viewer_instance_id ?? '', gradeId: row.grade_id ?? '', classId: row.class_id ?? '', paired: row.paired === true, pluginLastSeenAt: Number(row.updated_at), viewerLastSeenAt: Number(row.viewer_last_seen_at) })),
         truncated,
       });
@@ -603,13 +623,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const now = Date.now();
       const nextGradeId = bindManagement ? '' : gradeId;
       const nextClassId = bindManagement ? '' : classId;
-      await sql`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, updated_at)
-        VALUES (${instanceId}, ${nextGradeId}, ${nextClassId}, FALSE, ${bindManagement}, ${now})
+      const managementActorId = bindManagement ? Number(setupActor?.id ?? 0) : 0;
+      const managementRoleName = bindManagement ? String(setupActor?.roleName ?? '管理设备') : '';
+      let managementScopeLabel = bindManagement ? '管理范围未记录' : '';
+      if (bindManagement && setupActor) {
+        const scopeRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
+        managementScopeLabel = actorScopeLabel(setupActor, examPayload(scopeRows[0] ?? {}));
+      }
+      await sql`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, management_actor_id, management_role_name, management_scope_label, updated_at)
+        VALUES (${instanceId}, ${nextGradeId}, ${nextClassId}, FALSE, ${bindManagement}, ${managementActorId}, ${managementRoleName}, ${managementScopeLabel}, ${now})
         ON CONFLICT (instance_id) DO UPDATE SET
           grade_id=EXCLUDED.grade_id,
           class_id=EXCLUDED.class_id,
           revoked=FALSE,
           is_management=EXCLUDED.is_management,
+          management_actor_id=EXCLUDED.management_actor_id,
+          management_role_name=EXCLUDED.management_role_name,
+          management_scope_label=EXCLUDED.management_scope_label,
           updated_at=EXCLUDED.updated_at`;
       if (bindManagement) {
         await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${instanceId}`;
@@ -641,7 +671,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           await sql`
             INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, updated_at)
             VALUES (${instanceId}, ${gradeId}, ${classId}, FALSE, ${updatedAt})
-            ON CONFLICT (instance_id) DO UPDATE SET grade_id = EXCLUDED.grade_id, class_id = EXCLUDED.class_id, revoked = FALSE, is_management = FALSE, updated_at = EXCLUDED.updated_at
+            ON CONFLICT (instance_id) DO UPDATE SET grade_id = EXCLUDED.grade_id, class_id = EXCLUDED.class_id, revoked = FALSE, is_management = FALSE, management_actor_id=0, management_role_name='', management_scope_label='', updated_at = EXCLUDED.updated_at
           `;
           await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${updatedAt} WHERE viewer_instance_id=${instanceId} AND paired=TRUE`;
           res.status(200).json({ ok: true, binding: { gradeId, classId, revoked: false, isManagement: false }, updatedAt });
