@@ -7,6 +7,7 @@ import type { DesignAssignmentRule, DesignPolicy, DesignRuleScope } from '../typ
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
 import { notify } from '../services/notify';
+import { confirmDialog } from '../services/appDialog';
 import InlineSelect from './InlineSelect';
 
 const SCOPE_LABEL: Record<DesignRuleScope, string> = { school: '全校设计', grade: '年级', class: '班级', device: '设备实例' };
@@ -52,17 +53,42 @@ export default function DesignPolicyManager({ grades, classes, devices, canEdit 
     finally { setSaving(false); }
   };
 
-  const addRule = () => {
-    if (policy.rules.some(rule => rule.scope === 'school')) { notify('warning', SCHOOL_LOCK_MESSAGE); return; }
-    if (!scopeId) { notify('warning', '请先选择应用对象'); return; }
-    const next: DesignAssignmentRule = { id: `${scope}-${scopeId}`, scope, scopeId, designId };
-    void persist(scope === 'school' ? [next] : [...policy.rules.filter(rule => !(rule.scope === scope && rule.scopeId === scopeId)), next]);
-  };
-  const schoolRule = policy.rules.find(rule => rule.scope === 'school');
   const targetLabel = (rule: DesignAssignmentRule) => rule.scope === 'school' ? '全校考试端'
     : rule.scope === 'grade' ? grades.find(item => item.id === rule.scopeId)?.name || rule.scopeId
     : rule.scope === 'class' ? classes.find(item => item.id === rule.scopeId)?.name || rule.scopeId
     : devices.find(item => item.instanceId === rule.scopeId)?.instanceId || rule.scopeId;
+  const coveringRuleFor = (rule: DesignAssignmentRule, rules = policy.rules) => {
+    if (rule.scope === 'school') return undefined;
+    const school = rules.find(item => item.scope === 'school');
+    if (school) return school;
+    if (rule.scope === 'grade') return undefined;
+    const gradeId = rule.scope === 'class'
+      ? classes.find(item => item.id === rule.scopeId)?.gradeId
+      : devices.find(item => item.instanceId === rule.scopeId)?.gradeId;
+    const gradeRule = gradeId ? rules.find(item => item.scope === 'grade' && item.scopeId === gradeId) : undefined;
+    if (gradeRule) return gradeRule;
+    if (rule.scope !== 'device') return undefined;
+    const classId = devices.find(item => item.instanceId === rule.scopeId)?.classId;
+    return classId ? rules.find(item => item.scope === 'class' && item.scopeId === classId) : undefined;
+  };
+
+  const addRule = async () => {
+    if (policy.rules.some(rule => rule.scope === 'school')) { notify('warning', SCHOOL_LOCK_MESSAGE); return; }
+    if (!scopeId) { notify('warning', '请先选择应用对象'); return; }
+    const next: DesignAssignmentRule = { id: `${scope}-${scopeId}`, scope, scopeId, designId };
+    const nextRules = scope === 'school' ? [next] : [...policy.rules.filter(rule => !(rule.scope === scope && rule.scopeId === scopeId)), next];
+    const covering = coveringRuleFor(next);
+    const coveredExisting = scope === 'school' ? [] : policy.rules.filter(rule => rule.id !== next.id && coveringRuleFor(rule, nextRules)?.id === next.id);
+    if (covering || coveredExisting.length) {
+      const message = covering
+        ? `该规则会被“${SCOPE_LABEL[covering.scope]} · ${targetLabel(covering)}”覆盖，保存后暂不生效。删除高优先级规则后会自动恢复。`
+        : `下发后将覆盖 ${coveredExisting.length} 条低优先级设计；这些规则会保留为备用，但当前不生效。`;
+      const confirmed = await confirmDialog({ title: '设计优先级提醒', message, tone: 'warning', confirmLabel: '仍然保存' });
+      if (!confirmed) return;
+    }
+    void persist(nextRules);
+  };
+  const schoolRule = policy.rules.find(rule => rule.scope === 'school');
 
   return <section className="design-policy-manager">
     <header><span><Palette aria-hidden="true" /><strong>考试端设计下发</strong></span><small>全校设计 &gt; 年级 &gt; 班级 &gt; 单独设备 &gt; 本地设置</small></header>
@@ -74,6 +100,6 @@ export default function DesignPolicyManager({ grades, classes, devices, canEdit 
         <button type="button" className="admin-btn admin-btn--primary" disabled={!canEdit || saving || !scopeId} onClick={addRule}>{saving ? '保存中…' : '下发设计'}</button>
       </>}
     </div>
-    {policy.rules.length > 0 && <div className="design-policy-manager__rules">{policy.rules.map(rule => <div key={`${rule.scope}:${rule.scopeId}`}><span><strong>{SCOPE_LABEL[rule.scope]} · {targetLabel(rule)}</strong><small>{DESIGNS.find(item => item.id === rule.designId)?.name || rule.designId}</small></span>{canEdit && <button type="button" title="删除规则" disabled={saving} onClick={() => void persist(policy.rules.filter(item => item !== rule))}><Trash2 aria-hidden="true" /></button>}</div>)}</div>}
+    {policy.rules.length > 0 && <div className="design-policy-manager__rules">{policy.rules.map(rule => { const covering = coveringRuleFor(rule); return <div className={covering ? 'is-overridden' : ''} key={`${rule.scope}:${rule.scopeId}`}><span><strong>{SCOPE_LABEL[rule.scope]} · {targetLabel(rule)}</strong><small>{DESIGNS.find(item => item.id === rule.designId)?.name || rule.designId}</small>{covering && <small className="design-policy-manager__status">当前不生效 · 被 {SCOPE_LABEL[covering.scope]}“{targetLabel(covering)}”覆盖</small>}</span>{canEdit && <button type="button" title="删除规则" disabled={saving} onClick={() => void persist(policy.rules.filter(item => item !== rule))}><Trash2 aria-hidden="true" /></button>}</div>; })}</div>}
   </section>;
 }

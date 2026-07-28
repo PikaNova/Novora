@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import HelpTip from "./HelpTip";
 import {
   fetchDeviceBindings,
@@ -16,7 +17,7 @@ import { confirmDialog } from "../services/appDialog";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
 import DesignPolicyManager from "./DesignPolicyManager";
-import { getAdminUser } from "../services/examService";
+import { getAdminUser, logoutAdmin } from "../services/examService";
 import DeviceDetailDialog from "./DeviceDetailDialog";
 
 const ONLINE_MS = 90_000;
@@ -53,6 +54,7 @@ export default function DeviceStatusPanel({
   canBind?: boolean;
   canEditDesign?: boolean;
 }) {
+  const navigate = useNavigate();
   const [bindings, setBindings] = useState<DeviceBindingInfo[]>([]);
   const [plugins, setPlugins] = useState<PluginBindingInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -240,6 +242,11 @@ export default function DeviceStatusPanel({
         item.dashboard?.instanceId || "",
         item.plugins.map((plugin) => plugin.pluginInstanceId),
       );
+      if (item.dashboard?.instanceId === currentInstanceId) {
+        logoutAdmin();
+        navigate("/login?next=%2Fadmin&deviceRemoved=1", { replace: true });
+        return;
+      }
       await load(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "删除设备失败");
@@ -269,6 +276,14 @@ export default function DeviceStatusPanel({
     const failed = targets.filter(
       (_, index) => results[index].status === "rejected",
     );
+    const currentIndex = targets.findIndex(
+      (item) => item.dashboard?.instanceId === currentInstanceId,
+    );
+    if (currentIndex >= 0 && results[currentIndex]?.status === "fulfilled") {
+      logoutAdmin();
+      navigate("/login?next=%2Fadmin&deviceRemoved=1", { replace: true });
+      return;
+    }
     setSelectedKeys(failed.map((item) => item.key));
     await load(true);
     if (!failed.length) {

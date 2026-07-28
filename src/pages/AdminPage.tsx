@@ -49,6 +49,7 @@ import { renderMarkdown } from "../utils/renderMarkdown";
 import AnnouncementList from "../components/AnnouncementList";
 import WeeklyPanel from "../components/WeeklyPanel";
 import DeviceStatusPanel from "../components/DeviceStatusPanel";
+import { getCachedDeviceBinding } from "../services/classBinding";
 import AdminDeviceSetupPrompt from "../components/AdminDeviceSetupPrompt";
 import ClassManagementPanel from "../components/ClassManagementPanel";
 import InitializationWizard, {
@@ -291,6 +292,9 @@ export default function AdminPage() {
   const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() =>
     getAdminUser(),
   );
+  const [currentDeviceBinding, setCurrentDeviceBinding] = useState(() =>
+    getCachedDeviceBinding() ?? null,
+  );
   const [editing, setEditing] = useState<EditItem | null>(null);
   const [customSubjectActive, setCustomSubjectActive] = useState(false);
   const [majorTimeFlowOpen, setMajorTimeFlowOpen] = useState(false);
@@ -435,6 +439,19 @@ export default function AdminPage() {
     if (shouldPromptGradeAdminSetup(adminUser))
       setGradeAdminSetupPromptOpen(true);
   }, [adminUser]);
+
+  useEffect(() => {
+    const refreshBinding = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
+      setCurrentDeviceBinding(detail ?? getCachedDeviceBinding() ?? null);
+    };
+    window.addEventListener("exam-board:binding-updated", refreshBinding);
+    window.addEventListener("exam-board:device-revoked", refreshBinding);
+    return () => {
+      window.removeEventListener("exam-board:binding-updated", refreshBinding);
+      window.removeEventListener("exam-board:device-revoked", refreshBinding);
+    };
+  }, []);
 
   // 打开公告弹窗时拉取最新公告
   useEffect(() => {
@@ -2004,6 +2021,24 @@ export default function AdminPage() {
           )}
         </div>
         <div className="admin-header__right">
+          {currentDeviceBinding &&
+            !currentDeviceBinding.revoked &&
+            !currentDeviceBinding.isManagement &&
+            currentDeviceBinding.classId && (
+              <button
+                type="button"
+                className="admin-device-role-chip"
+                title="当前为班级设备；如需更改角色，请前往设备管理"
+                onClick={() =>
+                  selectAdminTab(
+                    ADMIN_NAV.find((item) => item.id === "devices")!,
+                  )
+                }
+              >
+                <strong>当前为班级设备</strong>
+                <small>更改角色请前往设备管理</small>
+              </button>
+            )}
           <span
             className="admin-user-chip"
             title={`登录账号：${adminUser.username}`}

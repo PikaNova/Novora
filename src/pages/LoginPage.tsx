@@ -25,6 +25,7 @@ export default function LoginPage() {
   const next = safeLoginDestination(search.get('next'));
   const initializing = search.get('mode') === 'initialize';
   const passwordChanged = search.get('passwordChanged') === '1';
+  const deviceRemoved = search.get('deviceRemoved') === '1';
 
   useEffect(() => {
     isLoginRequired().then(required => {
@@ -111,6 +112,7 @@ export default function LoginPage() {
         </form> : <>
         <form className="login-form" onSubmit={submit}>
           {initializing && <p className="login-form__notice">首次部署请使用用户名 admin 和 Vercel 中设置的 ADMIN_PASSWORD。首次验证会自动创建超级管理员。</p>}
+          {deviceRemoved && <p className="login-form__notice">当前设备已从设备管理中删除，本机登录令牌已失效。请重新登录后绑定或调整设备角色。</p>}
           {(notice || passwordChanged) && <p className="login-form__success">{notice || '超级管理员密码已修改，旧会话已失效。请使用新密码重新登录。'}</p>}
           <label className="login-form__label" htmlFor="admin-username">{initializing ? '超级管理员用户名' : '用户名'}</label>
           <div className={`login-form__field${error ? ' login-form__field--error' : ''}`}>

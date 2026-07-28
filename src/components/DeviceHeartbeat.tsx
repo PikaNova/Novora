@@ -9,6 +9,7 @@ import { endTemporaryExam, extendTemporaryExam, getTemporaryExam, setTemporaryEx
 import { notify } from '../services/notify';
 import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
 import { updateExamSettings } from '../utils/appSettings';
+import { logoutAdmin } from '../services/examService';
 
 export default function DeviceHeartbeat() {
   const { pathname, search } = useLocation();
@@ -36,8 +37,11 @@ export default function DeviceHeartbeat() {
         examEnd: current?.endTime ?? next?.endTime ?? '',
         acknowledgedCommandId,
       }).then(result => {
-        const bindingRequired = pathname === '/exam' || pathname === '/preferences' || pathname === '/local-settings' || pathname === '/plugin/connect';
-        if (result.revoked && bindingRequired) { navigate('/', { replace: true }); return; }
+        if (result.revoked) {
+          logoutAdmin();
+          if (pathname !== '/login') navigate('/login?next=%2Fadmin&deviceRemoved=1', { replace: true });
+          return;
+        }
         if (result.binding && !result.binding.revoked) {
           const currentBinding = getAppSettings().exam;
           if (currentBinding.selectedGradeId !== result.binding.gradeId || currentBinding.selectedClassId !== result.binding.classId) updateExamSettings({ selectedGradeId: result.binding.gradeId, selectedClassId: result.binding.classId });
