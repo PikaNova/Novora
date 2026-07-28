@@ -388,6 +388,7 @@
 .admin-back-btn--icon svg{width:18px;height:18px}
 .admin-header__major{max-width:min(32vw,360px)}
 .admin-header__quick-actions{display:flex;gap:7px}
+.admin-device-role-chip{display:grid;gap:2px;max-width:190px;padding:6px 9px;border:1px solid rgba(230,162,60,.4);border-radius:6px;background:rgba(230,162,60,.09);color:#f3cf87;font:inherit;text-align:left;cursor:pointer}.admin-device-role-chip strong,.admin-device-role-chip small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.admin-device-role-chip strong{font-size:11px}.admin-device-role-chip small{color:rgba(244,218,166,.68);font-size:9px}
 .admin-more{display:block}
 .admin-more__trigger{min-width:58px}
 .admin-more__menu{min-width:200px;max-height:min(540px,calc(100dvh - 80px));overflow-y:auto;padding:5px}
@@ -437,6 +438,8 @@
 @media(max-width:1100px){
   .admin-header__major{display:none}
   .admin-user-chip{display:none}
+  .admin-device-role-chip{max-width:118px}
+  .admin-device-role-chip small{display:none}
 }
 @media(max-width:900px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
@@ -452,6 +455,7 @@
   .admin-user-chip{display:none}
   .admin-cloud{justify-content:center;width:auto;max-width:112px;height:34px;padding:0 8px;font-size:10px;overflow:hidden;text-overflow:ellipsis}
   .admin-cloud__dot{width:9px;height:9px}
+  .admin-device-role-chip{max-width:78px;min-height:34px;padding:0 7px;text-align:center}.admin-device-role-chip strong{font-size:10px;white-space:normal;line-height:1.2}
   .admin-more__trigger{min-width:52px;min-height:38px;padding-inline:10px}
   .admin-more__menu{z-index:10001;min-width:0;max-width:calc(100vw - 28px);overscroll-behavior:contain}
   .admin-more__menu button{min-height:44px;padding:12px 13px;font-size:14px}
@@ -584,6 +588,7 @@
 .design-policy-manager__form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:9px;align-items:stretch}.design-policy-manager__form .inline-select,.design-policy-manager__form .inline-select__trigger{width:100%;height:100%}
 .design-policy-manager__lock{grid-column:1/-1;width:100%;padding:11px 13px;border:1px solid rgba(231,170,72,.4);border-radius:7px;color:#f2d59d;background:rgba(186,119,25,.11);font:inherit;text-align:left;cursor:pointer}.design-policy-manager__lock:disabled{cursor:not-allowed;opacity:.65}
 .design-policy-manager__rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.design-policy-manager__rules>div{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:9px 10px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.025)}.design-policy-manager__rules span{display:grid;gap:2px;min-width:0}.design-policy-manager__rules strong,.design-policy-manager__rules small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.design-policy-manager__rules strong{font-size:12px}.design-policy-manager__rules small{color:rgba(222,238,247,.6)}.design-policy-manager__rules button{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border:0;border-radius:5px;color:#ef8f8f;background:rgba(194,70,70,.12);cursor:pointer}.design-policy-manager__rules button svg{width:15px;height:15px}
+.design-policy-manager__rules>div.is-overridden{border-color:rgba(230,162,60,.27);background:rgba(230,162,60,.045)}.design-policy-manager__rules .design-policy-manager__status{color:#e8b75f;font-size:10px;font-weight:650}
 @media(max-width:700px){.design-policy-manager>header{align-items:flex-start;flex-direction:column}.design-policy-manager__form{grid-template-columns:1fr}.design-policy-manager__rules{grid-template-columns:1fr}}
 .admin-device-setup{position:fixed;inset:0;z-index:9100;display:grid;place-items:center;padding:18px;background:rgba(4,14,22,.7);backdrop-filter:blur(8px)}.admin-device-setup>section{position:relative;display:grid;gap:16px;width:min(620px,100%);max-height:calc(100dvh - 36px);overflow-y:auto;padding:22px;border:1px solid rgba(92,178,231,.35);border-radius:8px;background:#102431;box-shadow:0 22px 70px rgba(0,0,0,.45)}.admin-device-setup__close{position:absolute;top:14px;right:14px;display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:6px;color:#d9edf8;background:rgba(255,255,255,.07);cursor:pointer}.admin-device-setup__close svg{width:17px}.admin-device-setup>section>header{display:flex;align-items:center;gap:12px;padding-right:42px}.admin-device-setup>section>header>svg{width:28px;height:28px;color:#59b9ef}.admin-device-setup>section>header span{display:grid;gap:3px}.admin-device-setup>section>header strong{font-size:17px}.admin-device-setup>section>header small,.admin-device-setup__body p{color:rgba(222,238,247,.65)}.admin-device-setup__body{display:grid;gap:13px}.admin-device-setup__body h3,.admin-device-setup__body p{margin:0}.admin-device-setup__choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.admin-device-setup__choices button{display:grid;gap:5px;text-align:left;padding:14px;border:1px solid rgba(83,169,223,.28);border-radius:7px;color:#eef9ff;background:rgba(65,143,191,.09);cursor:pointer}.admin-device-setup__choices button:hover{border-color:#4aa8df;background:rgba(65,143,191,.17)}.admin-device-setup__choices span{color:rgba(222,238,247,.63);font-size:12px}.admin-device-setup__selectors{display:grid;grid-template-columns:1fr 1fr;gap:10px}.admin-device-setup__selectors .inline-select,.admin-device-setup__selectors .inline-select__trigger{width:100%}.admin-device-setup__conflict{display:grid;gap:5px;padding:12px;border:1px solid rgba(231,170,72,.4);border-radius:7px;background:rgba(186,119,25,.1)}.admin-device-setup__conflict span,.admin-device-setup__conflict small{font-size:12px;color:rgba(240,230,207,.75)}.admin-device-setup__conflict button{justify-self:start;margin-top:6px;padding:8px 11px;border:0;border-radius:5px;color:#fff;background:#b86428;cursor:pointer}.admin-device-setup footer{display:flex;justify-content:flex-end;gap:8px}
 @media(max-width:600px){.admin-device-setup{align-items:end;padding:10px}.admin-device-setup>section{width:100%;max-height:88dvh;padding:18px 15px;border-radius:8px}.admin-device-setup__choices,.admin-device-setup__selectors{grid-template-columns:1fr}.admin-device-setup footer .admin-btn{flex:1;min-width:0}}

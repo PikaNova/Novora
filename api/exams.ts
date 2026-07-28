@@ -581,10 +581,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         sql`SELECT plugin_instance_id, grade_id, class_id, viewer_instance_id, paired, viewer_last_seen_at, updated_at FROM classisland_plugin_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<Array<Record<string, any>>>,
       ]);
       const currentManagement = deviceActor && deviceRows.find(row => String(row.instance_id ?? '') === currentInstanceId && row.is_management === true);
-      if (deviceActor && currentManagement && (!currentManagement.management_actor_id || !currentManagement.management_role_name || !currentManagement.management_scope_label)) {
+      if (deviceActor && currentManagement) {
         const scopeRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
         const managementScopeLabel = actorScopeLabel(deviceActor, examPayload(scopeRows[0] ?? {}));
-        await sql`UPDATE device_instances SET management_actor_id=${deviceActor.id}, management_role_name=${deviceActor.roleName}, management_scope_label=${managementScopeLabel} WHERE instance_id=${currentInstanceId} AND is_management=TRUE`;
+        const identityChanged = Number(currentManagement.management_actor_id ?? 0) !== deviceActor.id
+          || String(currentManagement.management_role_name ?? '') !== deviceActor.roleName
+          || String(currentManagement.management_scope_label ?? '') !== managementScopeLabel;
+        if (identityChanged) await sql`UPDATE device_instances SET management_actor_id=${deviceActor.id}, management_role_name=${deviceActor.roleName}, management_scope_label=${managementScopeLabel}, updated_at=${Date.now()} WHERE instance_id=${currentInstanceId} AND is_management=TRUE`;
         currentManagement.management_actor_id = deviceActor.id;
         currentManagement.management_role_name = deviceActor.roleName;
         currentManagement.management_scope_label = managementScopeLabel;
