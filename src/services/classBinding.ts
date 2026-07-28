@@ -16,6 +16,8 @@ export interface DeviceBinding {
 export interface DeviceBindingInfo extends DeviceBinding {
   instanceId: string;
   isManagement?: boolean;
+  managementRoleName?: string;
+  managementScopeLabel?: string;
   page: string;
   clientVersion: string;
   status: string;
@@ -116,7 +118,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingInfo[]; plugins: PluginBindingInfo[]; truncated: boolean }> {
-  const response = await fetch(`${API_URL}?action=device-bindings`, { cache: 'no-store', headers: authHeaders() });
+  const response = await fetch(`${API_URL}?action=device-bindings&currentInstanceId=${encodeURIComponent(getInstanceId())}`, { cache: 'no-store', headers: authHeaders() });
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效，请重新进入管理后台' : response.status === 403 ? '当前账号无权查看设备' : '设备管理加载失败');
   const data = await response.json();
   return { bindings: Array.isArray(data.bindings) ? data.bindings : [], plugins: Array.isArray(data.plugins) ? data.plugins : [], truncated: data.truncated === true };

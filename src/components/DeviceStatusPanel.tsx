@@ -4,6 +4,7 @@ import {
   fetchDeviceBindings,
   revokeDevice,
   sendDeviceCommand,
+  getClassBindingInstanceId,
   type DeviceBindingInfo,
   type DeviceCommand,
   type PluginBindingInfo,
@@ -15,6 +16,7 @@ import { confirmDialog } from "../services/appDialog";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
 import DesignPolicyManager from "./DesignPolicyManager";
+import { getAdminUser } from "../services/examService";
 
 const ONLINE_MS = 90_000;
 const formatTime = (value: number) =>
@@ -61,6 +63,16 @@ export default function DeviceStatusPanel({
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
   const { grades, classes } = getAppSettings().exam;
+  const currentInstanceId = getClassBindingInstanceId();
+  const currentAdmin = getAdminUser();
+  const currentAdminScope = useMemo(() => {
+    if (!currentAdmin) return "管理范围未记录";
+    if (currentAdmin.scopes.some((scope) => scope.type === "all")) return "全校";
+    const names = currentAdmin.scopes.map((scope) => scope.type === "grade"
+      ? grades.find((grade) => grade.id === scope.gradeId)?.name
+      : classDisplayName(grades, classes, scope.classId));
+    return names.filter(Boolean).join("、") || "未分配范围";
+  }, [classes, currentAdmin, grades]);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -186,6 +198,9 @@ export default function DeviceStatusPanel({
   const orderedFiltered = useMemo(
     () =>
       [...categoryFiltered].sort((a, b) => {
+        const aCurrent = a.instanceId === currentInstanceId;
+        const bCurrent = b.instanceId === currentInstanceId;
+        if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
         const aOnline = groupOnline(a);
         const bOnline = groupOnline(b);
         if (aOnline !== bOnline) return aOnline ? -1 : 1;
@@ -193,7 +208,7 @@ export default function DeviceStatusPanel({
         if (recentFirst !== 0) return recentFirst;
         return (a.instanceId || a.key).localeCompare(b.instanceId || b.key, "zh-CN");
       }),
-    [categoryFiltered, now],
+    [categoryFiltered, currentInstanceId, now],
   );
   const onlineCount = groups.filter(groupOnline).length;
 
@@ -465,9 +480,14 @@ export default function DeviceStatusPanel({
               const lastSeenAt = groupLastSeenAt(item);
               const removed = isRemovedGroup(item);
               const isDashboardOnline = dashboardOnline(item);
+              const isCurrentDevice = item.instanceId === currentInstanceId;
+              const managementRoleName = dashboard?.managementRoleName || (isCurrentDevice ? currentAdmin?.roleName : "") || "";
+              const managementTitle = dashboard?.isManagement
+                ? managementRoleName ? `${managementRoleName} · 管理设备` : "管理设备"
+                : "";
               return (
                 <div
-                  className={`device-status__row${removed ? " is-revoked" : ""}`}
+                  className={`device-status__row${removed ? " is-revoked" : ""}${isCurrentDevice ? " is-current" : ""}`}
                   key={item.key}
                 >
                   <div className={`device-status__instance${canRevoke && !removed ? " is-selectable" : ""}`}>
@@ -485,11 +505,15 @@ export default function DeviceStatusPanel({
                         aria-label={`选择设备 ${item.instanceId}`}
                       />
                     )}
-                    <strong className={item.classId ? "" : "is-unbound"}>
-                      {item.classId
+                    <strong className={item.classId || dashboard?.isManagement ? "" : "is-unbound"}>
+                      {dashboard?.isManagement
+                        ? managementTitle
+                        : item.classId
                         ? classDisplayName(grades, classes, item.classId)
                         : "未绑定班级"}
+                      {isCurrentDevice && <em className="device-status__current-badge">当前设备</em>}
                     </strong>
+                    {dashboard?.isManagement && <small className="device-status__management-scope">{dashboard.managementScopeLabel || (isCurrentDevice ? currentAdminScope : "管理范围未记录")}</small>}
                     {dashboard ? (
                       <code title={dashboard.instanceId}>
                         看板 {dashboard.instanceId}
