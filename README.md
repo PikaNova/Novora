@@ -8,6 +8,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 ![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/background.png)
 
 完整零基础教程：[Novora 部署文档](https://docs.pikachu2026.space)
+项目预览:(https://novora.pikachu2026.space)
 
 ## 推荐部署区域
 
