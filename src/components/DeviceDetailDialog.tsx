@@ -103,7 +103,7 @@ export default function DeviceDetailDialog({ device, grades, classes, selectable
       </div>
       <section className="device-detail__section">
         <h4>设备信息</h4>
-        <dl><div><dt>当前绑定</dt><dd>{assignment}</dd></div><div><dt>当前页面</dt><dd>{dashboard?.page || '未知'}</dd></div><div><dt>当前考试</dt><dd>{dashboard?.currentSubject ? `${dashboard.currentExam} · ${dashboard.currentSubject}` : '暂无进行中的考试'}</dd></div><div><dt>看板实例</dt><dd><code>{dashboard?.instanceId || '尚无看板心跳'}</code></dd></div>{device.plugins.map(plugin => <div key={plugin.pluginInstanceId}><dt>ClassIsland 实例</dt><dd><code>{plugin.pluginInstanceId}</code></dd></div>)}</dl>
+        <dl><div><dt>当前绑定</dt><dd>{assignment}</dd></div><div><dt>当前页面</dt><dd>{dashboard?.page || '未知'}</dd></div><div><dt>{dashboard?.status === 'waiting' ? '下一场考试' : '当前考试'}</dt><dd>{dashboard?.currentSubject ? `${dashboard.currentExam} · ${dashboard.currentSubject}` : '暂无进行中的考试'}</dd></div><div><dt>看板实例</dt><dd><code>{dashboard?.instanceId || '尚无看板心跳'}</code></dd></div>{device.plugins.map(plugin => <div key={plugin.pluginInstanceId}><dt>ClassIsland 实例</dt><dd><code>{plugin.pluginInstanceId}</code></dd></div>)}</dl>
       </section>
       {canBind && dashboard && !dashboard.revoked && <section className="device-detail__section device-detail__role">
         <div><h4>设备角色</h4><p>转换会立即影响该设备的班级占用和 ClassIsland 配对。</p></div>

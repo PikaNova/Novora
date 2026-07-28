@@ -593,7 +593,7 @@ export default function DeviceStatusPanel({
                     </div>
                     <span>
                       {isDashboardOnline && dashboard?.currentSubject
-                        ? `${dashboard.currentExam} · ${dashboard.currentSubject}`
+                        ? `${dashboard.status === "waiting" ? "下一场" : dashboard.status === "temporary-paused" ? "已暂停" : "正在进行"}：${dashboard.currentExam} · ${dashboard.currentSubject}`
                         : dashboard
                           ? `页面 ${dashboard.page || "未知"} · v${dashboard.clientVersion || "未知"}`
                           : "插件已接入，等待 Novora 看板客户端心跳"}
