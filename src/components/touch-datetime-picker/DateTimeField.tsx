@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { DateTimePicker } from "./DateTimePicker"
 import { SelectionPreview } from "./SelectionPreview"
 import { parseNaive, partsToNaive, partsToNaiveDate, formatDateCN, weekdayCN, pad2 } from "./utils"
@@ -79,6 +79,21 @@ export function DateTimeField(props: DateTimeFieldProps) {
 
   const display = parsed ? fieldText(parsed, mode) : ""
   const previewValue = draftPreview ?? parsed
+
+  useEffect(() => {
+    if (!open) return
+    const updateAnchor = () => {
+      const next = btnRef.current?.getBoundingClientRect()
+      if (next) setRect({ top: next.top, left: next.left, width: next.width, height: next.height })
+    }
+    updateAnchor()
+    window.addEventListener("resize", updateAnchor)
+    window.addEventListener("scroll", updateAnchor, true)
+    return () => {
+      window.removeEventListener("resize", updateAnchor)
+      window.removeEventListener("scroll", updateAnchor, true)
+    }
+  }, [open])
 
   function openPicker() {
     if (disabled) return
