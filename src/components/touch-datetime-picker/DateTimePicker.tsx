@@ -26,22 +26,65 @@ const TimeWheel = forwardRef<HTMLDivElement, TimeWheelProps>(function TimeWheel(
   { label, values, value, onChange },
   ref,
 ) {
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const wheelDeltaRef = useRef(0)
+  const wheelLockRef = useRef<number | null>(null)
+  const wheelAnimationRef = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (wheelLockRef.current !== null) window.clearTimeout(wheelLockRef.current)
+    if (wheelAnimationRef.current !== null) window.clearTimeout(wheelAnimationRef.current)
+  }, [])
+
+  const assignRef = (node: HTMLDivElement | null) => {
+    listRef.current = node
+    if (typeof ref === "function") ref(node)
+    else if (ref) ref.current = node
+  }
+
+  const selectValue = (item: number, smooth = true) => {
+    const index = values.indexOf(item)
+    if (index < 0) return
+    onChange(item)
+    listRef.current?.scrollTo({ top: index * 48, behavior: smooth ? "smooth" : "auto" })
+  }
+
   return (
     <div className="tdp-time-wheel">
       <span className="tdp-time-wheel__label">选择{label}</span>
       <div
         className="tdp-time-wheel__list"
-        ref={ref}
+        ref={assignRef}
         aria-label={`选择${label}`}
         onWheel={(event) => {
           event.stopPropagation()
-          if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault()
+          const desktopPointer = window.matchMedia("(pointer: fine)").matches
+          if (!desktopPointer) {
+            if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault()
+            return
+          }
+          event.preventDefault()
+          if (!event.deltaY || wheelLockRef.current !== null) return
+          wheelDeltaRef.current += event.deltaY
+          if (Math.abs(wheelDeltaRef.current) < 18) return
+          const direction = wheelDeltaRef.current > 0 ? 1 : -1
+          wheelDeltaRef.current = 0
+          const currentIndex = Math.max(0, values.indexOf(value))
+          const nextIndex = Math.max(0, Math.min(values.length - 1, currentIndex + direction))
+          if (nextIndex !== currentIndex) selectValue(values[nextIndex])
+          wheelLockRef.current = window.setTimeout(() => {
+            wheelLockRef.current = null
+          }, 70)
+          wheelAnimationRef.current = window.setTimeout(() => {
+            wheelAnimationRef.current = null
+          }, 140)
         }}
         onScroll={(event) => {
           // Some Chromium builds still expose a horizontal scrollbar when a
           // selected wheel item has visual overflow. Keep this control purely
           // vertical even for a two-finger trackpad gesture.
           if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0
+          if (wheelAnimationRef.current !== null) return
           const index = Math.max(0, Math.min(values.length - 1, Math.round(event.currentTarget.scrollTop / 48)))
           const next = values[index]
           if (next !== value) onChange(next)
@@ -52,7 +95,7 @@ const TimeWheel = forwardRef<HTMLDivElement, TimeWheelProps>(function TimeWheel(
             type="button"
             key={item}
             className={item === value ? "is-selected" : ""}
-            onClick={() => onChange(item)}
+            onClick={() => selectValue(item)}
           >
             {pad2(item)}
           </button>

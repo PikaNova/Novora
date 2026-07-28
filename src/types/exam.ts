@@ -13,6 +13,18 @@ export type ScheduleMode = 'major-only' | 'weekly-only' | 'automatic';
 /** 后台当前编辑的模块（仅影响编辑界面，不决定大屏显示）。 */
 export type AdminTab = 'overview' | 'major' | 'weekly' | 'classes' | 'devices' | 'users';
 
+export type DesignRuleScope = 'school' | 'grade' | 'class' | 'device';
+export interface DesignAssignmentRule {
+  id: string;
+  scope: DesignRuleScope;
+  scopeId: string;
+  designId: string;
+}
+export interface DesignPolicy {
+  rules: DesignAssignmentRule[];
+  updatedAt: number;
+}
+
 /** 大型考试与周测的冲突作用范围。 */
 export type WeeklyConflictScope =
   | 'time-overlap'        // 仅实际时间段重叠时暂停周测（月考、部分时段考试）
@@ -113,6 +125,7 @@ export interface ExamBoardData {
   selectedClassId?: string;
   /** v1.24.0：全局冲突策略（后续版本可下放到单个大型考试）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
+  designPolicy?: DesignPolicy;
   updatedAt: number;
 }
 

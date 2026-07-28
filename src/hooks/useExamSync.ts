@@ -55,7 +55,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     setSyncState(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (pending ? 'pending' : 'local'));
   }, []);
 
-  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; activeWeeklyPlanIdByClassId?: any; grades?: any; classes?: any; initialization?: any; weeklyConflictPolicy?: any }) => {
+  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; activeWeeklyPlanIdByClassId?: any; grades?: any; classes?: any; initialization?: any; weeklyConflictPolicy?: any; designPolicy?: any }) => {
     const updates: Record<string, unknown> = {
       items: payload.items,
       title: payload.title,
@@ -72,6 +72,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     if (payload.classes !== undefined) updates.classes = payload.classes;
     if (payload.initialization !== undefined) updates.initialization = payload.initialization;
     if (payload.weeklyConflictPolicy !== undefined) updates.weeklyConflictPolicy = payload.weeklyConflictPolicy;
+    if (payload.designPolicy !== undefined) updates.designPolicy = payload.designPolicy;
     updateExamSettings(updates as any);
     if (payload.alerts) updateAlertsSettings(payload.alerts);
     const s = getAppSettings();

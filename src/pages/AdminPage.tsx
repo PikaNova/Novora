@@ -49,6 +49,7 @@ import { renderMarkdown } from "../utils/renderMarkdown";
 import AnnouncementList from "../components/AnnouncementList";
 import WeeklyPanel from "../components/WeeklyPanel";
 import DeviceStatusPanel from "../components/DeviceStatusPanel";
+import AdminDeviceSetupPrompt from "../components/AdminDeviceSetupPrompt";
 import ClassManagementPanel from "../components/ClassManagementPanel";
 import InitializationWizard, {
   type InitializationCompletion,
@@ -308,6 +309,11 @@ export default function AdminPage() {
   const [openImportGuide, setOpenImportGuide] = useState(false);
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
+  const [majorImportPreview, setMajorImportPreview] = useState<{
+    title: string;
+    items: Array<ExamItem & { include: boolean }>;
+    warnings: string[];
+  } | null>(null);
   const [majorModal, setMajorModal] = useState<MajorModal>(null);
   const [majorModalStep, setMajorModalStep] = useState(0);
   const [majorError, setMajorError] = useState("");
@@ -318,7 +324,10 @@ export default function AdminPage() {
     if (majorModal) setMajorModalStep(0);
   }, [majorModal !== null]);
   useEffect(() => {
-    if (importOpen) setMajorImportStep(0);
+    if (importOpen) {
+      setMajorImportStep(0);
+      setMajorImportPreview(null);
+    }
   }, [importOpen]);
   const [editingMajorIdByGrade, setEditingMajorIdByGrade] = useState<
     Record<string, string>
@@ -1772,7 +1781,7 @@ export default function AdminPage() {
     });
   const resetAlerts = () => commitAlerts(normalizeAlerts(DEFAULT_ALERTS));
 
-  const importJson = () => {
+  const validateMajorImportJson = () => {
     setImportError("");
     if (!hasScopedMajor || !activeMajor.id) {
       setImportError("请先填写标题并创建大型考试，再导入分考试安排。");
@@ -1787,13 +1796,22 @@ export default function AdminPage() {
         const row = raw as Record<string, unknown>;
         if (!row.name || !row.startTime || !row.endTime)
           throw new Error(`第 ${index + 1} 项缺少 name、startTime 或 endTime`);
+        const startTime = String(row.startTime);
+        const endTime = String(row.endTime);
+        const start = new Date(startTime).getTime();
+        const end = new Date(endTime).getTime();
+        if (!Number.isFinite(start) || !Number.isFinite(end))
+          throw new Error(`第 ${index + 1} 项的开始或结束时间格式无效`);
+        if (end <= start)
+          throw new Error(`第 ${index + 1} 项的结束时间必须晚于开始时间`);
         return {
           id: String(row.id ?? makeId()),
           name: String(row.name),
-          startTime: String(row.startTime),
-          endTime: String(row.endTime),
+          startTime,
+          endTime,
           enabled: row.enabled !== false,
           order: typeof row.order === "number" ? row.order : index,
+          include: true,
         };
       });
       const chronological = normalizeExamItems(next);
@@ -1802,14 +1820,43 @@ export default function AdminPage() {
         typeof source.title === "string" && source.title.trim()
           ? source.title.trim()
           : activeMajor.name;
+      const warnings: string[] = [];
+      chronological.forEach((item, index) => {
+        const previous = chronological[index - 1];
+        if (previous && new Date(item.startTime) < new Date(previous.endTime))
+          warnings.push(`“${item.name}”与“${previous.name}”时间重叠`);
+      });
+      setMajorImportPreview({
+        title: nextName,
+        items: chronological.map((item) => ({ ...item, include: true })),
+        warnings,
+      });
+      setMajorImportStep(2);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "JSON 格式错误");
+    }
+  };
+
+  const importJson = () => {
+    setImportError("");
+    if (!majorImportPreview) {
+      validateMajorImportJson();
+      return;
+    }
+    try {
+      const selectedItems = majorImportPreview.items
+        .filter((item) => item.include)
+        .map(({ include: _include, ...item }) => item);
+      if (!selectedItems.length) throw new Error("请至少保留一项分考试安排");
       const ms = majors.map((m) =>
         m.id === activeMajor.id
-          ? { ...m, name: nextName, items: chronological }
+          ? { ...m, name: majorImportPreview.title, items: selectedItems }
           : m,
       );
       commit(ms, activeMajorId);
       setImportText("");
       setImportOpen(false);
+      setMajorImportPreview(null);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : "JSON 格式错误");
     }
@@ -1929,6 +1976,7 @@ export default function AdminPage() {
 
   return (
     <div className="admin-page">
+      <AdminDeviceSetupPrompt user={adminUser} grades={visibleGrades} classes={visibleClasses} canBind={can("device.bind")} />
       <Watermark />
       <header className="admin-header">
         <div className="admin-header__left">
@@ -2293,7 +2341,7 @@ export default function AdminPage() {
             canManageClasses={can("school.class_manage")}
           />
         ) : adminTab === "devices" ? (
-          <DeviceStatusPanel canRevoke={can("device.revoke")} />
+          <DeviceStatusPanel canRevoke={can("device.revoke")} canEditDesign={hasAllScope && can("settings.edit")} />
         ) : adminTab === "users" ? (
           <UserManagementPanel
             grades={visibleGrades}
@@ -3309,18 +3357,19 @@ export default function AdminPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">导入分考试 JSON</h2>
-            <AdminWorkflowClose onClick={() => { setImportOpen(false); setOpenImportGuide(false); setImportError(""); }} />
+            <AdminWorkflowClose onClick={() => { setImportOpen(false); setOpenImportGuide(false); setImportError(""); setMajorImportPreview(null); }} />
             {importError && <div className="admin-error">{importError}</div>}
             <div className="admin-workflow-layout">
-              <AdminWizardSteps active={majorImportStep} steps={[{ label: "准备内容", hint: "查看格式或生成提示词" }, { label: "粘贴导入", hint: "校验并写入分考试" }]} summary={<><span>导入到</span><strong>{activeMajor.name}</strong><span>{activeMajorScopeLabel}</span></>} />
+              <AdminWizardSteps active={majorImportStep} steps={[{ label: "准备内容", hint: "查看格式或生成提示词" }, { label: "粘贴校验", hint: "解析分考试 JSON" }, { label: "预览结果", hint: "检查风险后导入" }]} summary={<><span>导入到</span><strong>{majorImportPreview?.title || activeMajor.name}</strong><span>{majorImportPreview ? `${majorImportPreview.items.filter((item) => item.include).length} 项待导入` : activeMajorScopeLabel}</span></>} />
               <div className="admin-workflow-content" key={majorImportStep}>
                 {majorImportStep === 0 && <div className="admin-workflow-pane"><p className="admin-modal__body">支持纯数组，或含 <code>title</code> 与 <code>items</code> 的对象。导入时会校验字段并按开始时间排序。</p><AiImportGuide kind="major" context={`${initialization.schoolFullName || "当前学校"}，${activeMajorScopeLabel}，大型考试“${activeMajor.name}”`} targetTitle={activeMajor.name} initiallyOpen={openImportGuide} /></div>}
-                {majorImportStep === 1 && <div className="admin-workflow-pane"><label className="admin-label">考试安排 JSON<textarea className="admin-textarea" rows={11} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /></label></div>}
+                {majorImportStep === 1 && <div className="admin-workflow-pane"><label className="admin-label">考试安排 JSON<textarea className="admin-textarea" rows={11} value={importText} onChange={(e) => { setImportText(e.target.value); setMajorImportPreview(null); }} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /></label></div>}
+                {majorImportStep === 2 && majorImportPreview && <div className="admin-workflow-pane"><h3 className="admin-modal__title">预览导入结果</h3>{majorImportPreview.warnings.length ? <div className="admin-error">{majorImportPreview.warnings.join("；")}</div> : <p className="admin-major-card__hint">时间格式和顺序校验通过。取消勾选可跳过单项。</p>}<div className="admin-import-preview">{majorImportPreview.items.map((item, index) => <label key={`${item.id}-${index}`} className={item.include ? "" : "is-skipped"}><input type="checkbox" checked={item.include} onChange={(event) => setMajorImportPreview((value) => value && { ...value, items: value.items.map((current, itemIndex) => itemIndex === index ? { ...current, include: event.target.checked } : current) })} /><span><strong>{item.name}</strong><small>{fmtLocal(item.startTime)} - {fmtLocal(item.endTime)} · {duration(item.startTime, item.endTime)}</small></span></label>)}</div></div>}
               </div>
             </div>
             <div className="admin-modal__actions">
-              <button className="admin-btn" onClick={() => { if (majorImportStep) setMajorImportStep(0); else { setImportOpen(false); setOpenImportGuide(false); setImportError(""); } }}>{majorImportStep ? "上一步" : "取消"}</button>
-              {majorImportStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => setMajorImportStep(1)}>下一步，粘贴 JSON</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={importJson}>校验并导入</button>}
+              <button className="admin-btn" onClick={() => { if (majorImportStep) setMajorImportStep((value) => value - 1); else { setImportOpen(false); setOpenImportGuide(false); setImportError(""); setMajorImportPreview(null); } }}>{majorImportStep ? "上一步" : "取消"}</button>
+              {majorImportStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => setMajorImportStep(1)}>下一步，粘贴 JSON</button> : majorImportStep === 1 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={validateMajorImportJson}>校验并预览</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!majorImportPreview?.items.some((item) => item.include)} onClick={importJson}>确认导入 {majorImportPreview?.items.filter((item) => item.include).length || 0} 项</button>}
             </div>
           </div>
         </div>

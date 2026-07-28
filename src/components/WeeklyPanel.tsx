@@ -222,11 +222,14 @@ export default function WeeklyPanel({
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
   const [importClassIds, setImportClassIds] = useState<string[]>([]);
-  const [importStep, setImportStep] = useState<"paste" | "targets">("paste");
+  const [importStep, setImportStep] = useState<"paste" | "preview" | "targets">("paste");
   const [importSummary, setImportSummary] = useState<{
     itemCount: number;
     planName?: string;
+    items: Array<{ name: string; weekday: IsoWeekday; startTime: string; endTime: string; warning?: string }>;
+    warnings: string[];
   } | null>(null);
+  const [importExcludedIndexes, setImportExcludedIndexes] = useState<number[]>([]);
   const [exceptionsOpen, setExceptionsOpen] = useState(false);
   const [newExcludeDate, setNewExcludeDate] = useState("");
   const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
@@ -992,6 +995,7 @@ export default function WeeklyPanel({
     setImportClassIds([]);
     setImportStep("paste");
     setImportSummary(null);
+    setImportExcludedIndexes([]);
     if (clearText) setImportText("");
   }
 
@@ -1020,14 +1024,33 @@ export default function WeeklyPanel({
           `第 ${invalidIndex + 1} 项需要有效的 name、startTime 和 endTime`,
         );
       }
+      const previewItems = list.map((raw: unknown) => {
+        const item = raw as Record<string, unknown>;
+        const weekday = ([1, 2, 3, 4, 5, 6, 7] as number[]).includes(item.weekday as number)
+          ? (item.weekday as IsoWeekday)
+          : 1;
+        const startTime = padHM(String(item.startTime));
+        const endTime = padHM(String(item.endTime));
+        return {
+          name: String(item.name),
+          weekday,
+          startTime,
+          endTime,
+          warning: !item.endNextDay && endTime <= startTime ? "结束时间不晚于开始时间" : undefined,
+        };
+      });
+      const warnings = previewItems.flatMap((item, index) => item.warning ? [`第 ${index + 1} 项：${item.warning}`] : []);
       setImportSummary({
         itemCount: list.length,
         planName:
           typeof importedPlan?.name === "string"
             ? importedPlan.name
             : undefined,
+        items: previewItems,
+        warnings,
       });
-      setImportStep("targets");
+      setImportExcludedIndexes([]);
+      setImportStep("preview");
     } catch (error) {
       setImportError(error instanceof Error ? error.message : "JSON 格式错误");
     }
@@ -1043,10 +1066,11 @@ export default function WeeklyPanel({
       if (!targets.length) throw new Error("请至少选择一个目标班级");
       if (source?.plan && typeof source.plan === "object") {
         const imported = normalizeWeeklyPlan(source.plan, weeklyPlans.length);
+        const includedItems = imported.items.filter((_, index) => !importExcludedIndexes.includes(index));
         const importedPlans = targets.map((classId, offset) => {
           const target = pickerOptions.find((item) => item.id === classId)!;
           const idMap = new Map(
-            imported.items.map((item) => [item.id, makeItemId()]),
+            includedItems.map((item) => [item.id, makeItemId()]),
           );
           return {
             ...imported,
@@ -1055,7 +1079,7 @@ export default function WeeklyPanel({
             gradeId: target.gradeId,
             classId,
             order: weeklyPlans.length + offset,
-            items: imported.items.map((item, index) => ({
+            items: includedItems.map((item, index) => ({
               ...item,
               id: idMap.get(item.id)!,
               order: index,
@@ -1092,7 +1116,7 @@ export default function WeeklyPanel({
       const list = Array.isArray(source) ? source : source.items;
       if (!Array.isArray(list))
         throw new Error("JSON 必须是周测数组，或包含 items 数组");
-      const nextItems: WeeklyExamItem[] = list.map(
+      const nextItems: WeeklyExamItem[] = list.filter((_: unknown, index: number) => !importExcludedIndexes.includes(index)).map(
         (raw: unknown, index: number) => {
           const row = raw as Record<string, unknown>;
           const weekday = ([1, 2, 3, 4, 5, 6, 7] as number[]).includes(
@@ -2157,8 +2181,8 @@ export default function WeeklyPanel({
             <AdminWorkflowClose onClick={() => closeImport()} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps
-                active={importStep === "paste" ? 0 : 1}
-                steps={[{ label: "粘贴校验", hint: "识别周测 JSON" }, { label: "选择班级", hint: "确认应用范围" }]}
+                active={importStep === "paste" ? 0 : importStep === "preview" ? 1 : 2}
+                steps={[{ label: "粘贴校验", hint: "识别周测 JSON" }, { label: "预览结果", hint: "检查安排与风险" }, { label: "选择班级", hint: "确认应用范围" }]}
                 summary={<><span>导入内容</span><strong>{importSummary?.planName || "待校验 JSON"}</strong><span>{importSummary ? `${importSummary.itemCount} 项周测安排` : "尚未识别"}</span></>}
               />
               <div className="admin-workflow-content" key={importStep}>
@@ -2188,6 +2212,24 @@ export default function WeeklyPanel({
                   </button>
                 </div>
               </>
+            ) : importStep === "preview" ? (
+              <div className="admin-workflow-pane">
+                <h3 className="admin-modal__title">预览导入结果</h3>
+                {importSummary?.warnings.length ? <div className="admin-error">{importSummary.warnings.join("；")}</div> : <p className="admin-major-card__hint">格式校验通过。取消勾选可跳过不需要导入的单项。</p>}
+                <div className="admin-import-preview">
+                  {importSummary?.items.map((item, index) => (
+                    <label key={`${item.name}-${index}`} className={importExcludedIndexes.includes(index) ? "is-skipped" : ""}>
+                      <input type="checkbox" checked={!importExcludedIndexes.includes(index)} onChange={(event) => setImportExcludedIndexes((value) => event.target.checked ? value.filter((itemIndex) => itemIndex !== index) : [...value, index])} />
+                      <span><strong>{item.name}</strong><small>{WEEKDAY_LABEL[item.weekday]} · {item.startTime} - {item.endTime}</small>{item.warning && <em>{item.warning}</em>}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="admin-modal__actions">
+                  <button className="admin-btn" onClick={() => setImportStep("paste")}>上一步</button>
+                  <button className="admin-btn admin-btn--primary" disabled={(importSummary?.itemCount || 0) === importExcludedIndexes.length} onClick={() => setImportStep("targets")}>下一步，选择班级</button>
+                  <button className="admin-btn" onClick={() => closeImport()}>取消</button>
+                </div>
+              </div>
             ) : (
               <>
                 <h3 className="admin-modal__title">选择应用班级</h3>
@@ -2210,7 +2252,7 @@ export default function WeeklyPanel({
                 )}
                 {importError && <div className="admin-error">{importError}</div>}
                 <div className="admin-modal__actions">
-                  <button className="admin-btn" onClick={() => setImportStep("paste")}>
+                  <button className="admin-btn" onClick={() => setImportStep("preview")}>
                     上一步
                   </button>
                   <button className="admin-btn admin-btn--primary" onClick={importJson}>

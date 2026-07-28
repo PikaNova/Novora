@@ -428,25 +428,33 @@ export default function QuickMajorPublishModal({
                     {option.label}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className={`quick-major-choice${useCustomStart ? " is-selected" : ""}`}
-                  onClick={() => {
-                    setUseCustomStart(true);
-                    openTimeFlow();
-                  }}
-                >
-                  指定时间
-                </button>
+              </div>
+              <div className="admin-major-duration-presets quick-major-inline-durations">
+                <span>常用考试时长</span>
+                <div>
+                  {DURATIONS.map((minutes) => (
+                    <button
+                      type="button"
+                      key={minutes}
+                      className={durationMinutes === minutes ? "is-selected" : ""}
+                      onClick={() => {
+                        setDurationMinutes(minutes);
+                        setCrossDayConfirmed(false);
+                      }}
+                    >
+                      {formatDuration(minutes)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="quick-major-modal__section quick-major-time-settings">
-              <strong>时间设置</strong>
-              <p>开始时间和结束时间独立于开始方式，在同一界面一次完成。</p>
+              <strong>自定义时间</strong>
+              <p>特殊时间安排可直接设置开始和结束时间，系统自动计算实际时长。</p>
               <button type="button" className="quick-major-time-trigger" onClick={openTimeFlow}>
-                <span>{useCustomStart ? "已指定考试时间" : "按开始方式计算"}</span>
+                <span>{useCustomStart ? "已自定义开始与结束时间" : "当前按开始方式和常用时长计算"}</span>
                 <strong>{startTime.slice(11, 16)} - {previewEndTime.slice(11, 16)}</strong>
-                <small>{examDate} · {formatDuration(durationMinutes)}，点击统一调整</small>
+                <small>{examDate} · {formatDuration(durationMinutes)}，点击自定义起止时间</small>
               </button>
             </div>
             <section className="quick-major-live-preview" aria-live="polite">
@@ -456,7 +464,7 @@ export default function QuickMajorPublishModal({
                 <strong>{finalSubject || "请先选择考试科目"}</strong>
                 <p>{previewEndTime ? `${displayTime(startTime)} - ${displayTime(previewEndTime)}` : "请选择有效的开始时间"}</p>
                 <small>
-                  {formatDuration(finalDuration)} · 使用滚轮时间设置
+                  {formatDuration(finalDuration)} · {useCustomStart ? "自定义起止时间" : "快捷时间设置"}
                 </small>
               </div>
             </section>
@@ -556,7 +564,7 @@ export default function QuickMajorPublishModal({
           endValue={useCustomStart ? clockAfter(customStartTime, durationMinutes) : previewEndTime.slice(11, 16)}
           subject={finalSubject || "待选择科目"}
           contextLabel={examDate}
-          presets={DURATIONS}
+          presets={[]}
           initialCrossDay={crossDayConfirmed}
           onPreviewChange={applyTimeFlowDraft}
           onCancel={cancelTimeFlow}

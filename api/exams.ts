@@ -59,6 +59,7 @@ function ensureTableOnce(): Promise<void> {
           grades JSONB NOT NULL DEFAULT '[]',
           classes JSONB NOT NULL DEFAULT '[]',
           initialization JSONB NOT NULL DEFAULT '{}',
+          design_policy JSONB NOT NULL DEFAULT '{"rules":[],"updatedAt":0}',
           updated_at BIGINT NOT NULL DEFAULT 0,
           CHECK (id = 1)
         )`,
@@ -73,11 +74,13 @@ function ensureTableOnce(): Promise<void> {
         transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS grades JSONB NOT NULL DEFAULT '[]'`,
         transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS classes JSONB NOT NULL DEFAULT '[]'`,
         transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS initialization JSONB NOT NULL DEFAULT '{}'`,
+        transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS design_policy JSONB NOT NULL DEFAULT '{"rules":[],"updatedAt":0}'`,
         transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
           grade_id TEXT NOT NULL DEFAULT '',
           class_id TEXT NOT NULL DEFAULT '',
           revoked BOOLEAN NOT NULL DEFAULT FALSE,
+          is_management BOOLEAN NOT NULL DEFAULT FALSE,
           page TEXT NOT NULL DEFAULT '',
           client_version TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT '',
@@ -105,6 +108,7 @@ function ensureTableOnce(): Promise<void> {
       ]);
       await ensureUpdatedAtBigIntOnce();
       await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`;
+      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS is_management BOOLEAN NOT NULL DEFAULT FALSE`;
       await sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`;
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
@@ -130,6 +134,7 @@ type ExamRow = {
   grades?: unknown;
   classes?: unknown;
   initialization?: unknown;
+  design_policy?: unknown;
   updated_at?: number | string | null;
   bound_grade_id?: string | null;
   bound_class_id?: string | null;
@@ -170,6 +175,7 @@ function examPayload(row: ExamRow) {
     classes: arrayValue(row.classes),
     initialization: objectValue(row.initialization),
     weeklyConflictPolicy: row.weekly_conflict_policy ?? null,
+    designPolicy: objectValue(row.design_policy),
     updatedAt: Number(row.updated_at ?? 0),
   };
 }
@@ -464,7 +470,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.status(200).json({ ok: true, ...classIslandApiMeta(), paired, classTag, pairExpiresAt: Number(plugin.pair_expires_at ?? 0) || null }); return;
       }
       if (plugin.paired !== true || !plugin.class_id) { res.status(409).json({ ok: false, error: 'Plugin is not paired' }); return; }
-      const examRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
+      const examRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
       const payload = examPayload(examRows[0] ?? {});
       const gradeId = String(plugin.grade_id ?? '');
       const classId = String(plugin.class_id ?? '');
@@ -499,7 +505,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const selectBootstrap = async (): Promise<ExamRow[]> => (
         await sql`
           SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode,
-                 active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at,
+                 active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at,
                  (SELECT grade_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_grade_id,
                  (SELECT class_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_class_id,
                  (SELECT revoked FROM device_instances WHERE instance_id = ${instanceId}) AS binding_revoked
@@ -535,11 +541,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const truncated = rows.length > 500 || visiblePluginRows.length > 500;
       res.status(200).json({
         ok: true,
-        bindings: rows.slice(0, 500).map(row => ({ instanceId: row.instance_id, gradeId: row.grade_id, classId: row.class_id, revoked: row.revoked === true, page: row.page, clientVersion: row.client_version, status: row.status, currentExam: row.current_exam, currentSubject: row.current_subject, examStart: row.exam_start, examEnd: row.exam_end, lastSeenAt: Number(row.last_seen_at), updatedAt: Number(row.updated_at) })),
+        bindings: rows.slice(0, 500).map(row => ({ instanceId: row.instance_id, gradeId: row.grade_id, classId: row.class_id, revoked: row.revoked === true, isManagement: row.is_management === true, page: row.page, clientVersion: row.client_version, status: row.status, currentExam: row.current_exam, currentSubject: row.current_subject, examStart: row.exam_start, examEnd: row.exam_end, lastSeenAt: Number(row.last_seen_at), updatedAt: Number(row.updated_at) })),
         plugins: visiblePluginRows.slice(0, 500).map(row => ({ pluginInstanceId: row.plugin_instance_id, viewerInstanceId: row.viewer_instance_id ?? '', gradeId: row.grade_id ?? '', classId: row.class_id ?? '', paired: row.paired === true, pluginLastSeenAt: Number(row.updated_at), viewerLastSeenAt: Number(row.viewer_last_seen_at) })),
         truncated,
       });
       return;
+    }
+    if (action === 'managed-device-setup' && req.method === 'POST') {
+      let setupActor: AdminActor | null = null;
+      if (await isPasswordRequired()) {
+        setupActor = await requireActor(req, res, 'device.bind');
+        if (!setupActor) return;
+      }
+      const instanceId = String(req.body?.instanceId ?? '').trim().slice(0, 128);
+      const gradeId = String(req.body?.gradeId ?? '').trim().slice(0, 128);
+      const classId = String(req.body?.classId ?? '').trim().slice(0, 128);
+      const bindManagement = req.body?.bindManagement === true;
+      const replaceExisting = req.body?.replaceExisting === true;
+      if (!instanceId || (!bindManagement && !classId)) { res.status(400).json({ ok: false, error: '请选择至少一种设备用途' }); return; }
+      if (classId && (!gradeId || setupActor && !canAccessClass(setupActor, gradeId, classId))) { res.status(403).json({ ok: false, error: '所选班级超出当前账号的管理范围' }); return; }
+      await ensureTableOnce();
+      if (classId) {
+        const existing = await sql`SELECT instance_id, last_seen_at, status FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId} ORDER BY updated_at DESC LIMIT 1` as unknown as Array<{ instance_id: string; last_seen_at: number | string; status: string }>;
+        if (existing[0] && !replaceExisting) {
+          const lastSeenAt = Number(existing[0].last_seen_at ?? 0);
+          res.status(409).json({ ok: false, code: 'CLASS_DEVICE_EXISTS', error: '该班级已有考试端', existing: { instanceId: existing[0].instance_id, status: existing[0].status, lastSeenAt, online: Date.now() - lastSeenAt <= 90_000 } }); return;
+        }
+        if (existing[0]) await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${existing[0].instance_id}`;
+      }
+      const now = Date.now();
+      await sql`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, updated_at)
+        VALUES (${instanceId}, ${gradeId}, ${classId}, FALSE, ${bindManagement}, ${now})
+        ON CONFLICT (instance_id) DO UPDATE SET
+          grade_id=CASE WHEN EXCLUDED.class_id='' THEN device_instances.grade_id ELSE EXCLUDED.grade_id END,
+          class_id=CASE WHEN EXCLUDED.class_id='' THEN device_instances.class_id ELSE EXCLUDED.class_id END,
+          revoked=FALSE,
+          is_management=EXCLUDED.is_management OR device_instances.is_management,
+          updated_at=EXCLUDED.updated_at`;
+      await writeAudit(setupActor, 'device.setup', 'device', instanceId, { bindManagement, gradeId, classId, replaced: replaceExisting });
+      res.status(200).json({ ok: true, updatedAt: now }); return;
     }
     if (action === 'device-binding') {
       const instanceId = String(req.method === 'GET' ? req.query?.instanceId ?? '' : req.body?.instanceId ?? '').trim().slice(0, 128);
@@ -554,6 +594,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const gradeId = String(req.body?.gradeId ?? '').trim().slice(0, 128);
           const classId = String(req.body?.classId ?? '').trim().slice(0, 128);
           if (!gradeId || !classId) { res.status(400).json({ ok: false, error: 'gradeId and classId are required' }); return; }
+          const occupied = await sql`SELECT instance_id, last_seen_at FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId} ORDER BY updated_at DESC LIMIT 1` as unknown as Array<{ instance_id: string; last_seen_at: number | string }>;
+          if (occupied[0]) {
+            const lastSeenAt = Number(occupied[0].last_seen_at ?? 0);
+            res.status(409).json({ ok: false, code: 'CLASS_DEVICE_EXISTS', error: '该班级已绑定其他考试端，请由管理员在设备管理中替换', existing: { instanceId: occupied[0].instance_id, lastSeenAt, online: Date.now() - lastSeenAt <= 90_000 } }); return;
+          }
           const updatedAt = Date.now();
           await sql`
             INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, updated_at)
@@ -617,7 +662,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (plugins.some(item => !canAccessClass(deviceActor!, item.grade_id, item.class_id))) { res.status(403).json({ ok: false, error: '插件实例超出当前账号的管理范围' }); return; }
         }
       }
-      if (instanceId) await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
+      if (instanceId) await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', is_management=FALSE, updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
       if (pluginInstanceIds.length && instanceId) {
         await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE plugin_instance_id=ANY(${pluginInstanceIds}) OR viewer_instance_id=${instanceId}`;
       } else if (pluginInstanceIds.length) {
@@ -627,6 +672,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       await writeAudit(deviceActor, 'device.revoke', 'device', instanceId || pluginInstanceIds.join(','));
       res.status(200).json({ ok: true }); return;
+    }
+    if (action === 'design-policy' && req.method === 'POST') {
+      let designActor: AdminActor | null = null;
+      if (await isPasswordRequired()) {
+        designActor = await requireActor(req, res, 'settings.edit');
+        if (!designActor) return;
+        if (!allScope(designActor)) { res.status(403).json({ ok: false, error: '只有全校范围管理员可以下发考试端设计' }); return; }
+      }
+      const source = req.body?.designPolicy;
+      const rawRules = Array.isArray(source?.rules) ? source.rules : [];
+      const allowedScopes = new Set(['school', 'grade', 'class', 'device']);
+      const rules = rawRules.slice(0, 500).flatMap((rule: any, index: number) => {
+        const scope = String(rule?.scope ?? '');
+        const scopeId = String(rule?.scopeId ?? '').trim().slice(0, 128);
+        const designId = String(rule?.designId ?? '').trim().slice(0, 80);
+        if (!allowedScopes.has(scope) || !designId || (scope !== 'school' && !scopeId)) return [];
+        return [{ id: String(rule?.id ?? `design-${index}`).slice(0, 128), scope, scopeId: scope === 'school' ? '*' : scopeId, designId }];
+      });
+      const updatedAt = Date.now();
+      const designPolicy = { rules, updatedAt };
+      const run = async () => sql`UPDATE exam_data SET design_policy=${JSON.stringify(designPolicy)}::jsonb, updated_at=${updatedAt} WHERE id=1`;
+      try { await run(); } catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); await run(); }
+      getCache = null;
+      await writeAudit(designActor, 'settings.design-policy', 'exam_data', '1', { ruleCount: rules.length });
+      res.status(200).json({ ok: true, designPolicy, updatedAt }); return;
     }
     if (action === 'reset-data' && req.method === 'POST') {
       let resetActor: AdminActor | null = null;
@@ -658,6 +728,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         alerts=CASE WHEN ${resetSettings} THEN NULL ELSE alerts END,
         schedule_mode=CASE WHEN ${resetSettings} THEN 'major-only' ELSE schedule_mode END,
         weekly_conflict_policy=CASE WHEN ${resetSettings} THEN NULL ELSE weekly_conflict_policy END,
+        design_policy=CASE WHEN ${resetSettings} THEN '{"rules":[],"updatedAt":0}'::jsonb ELSE design_policy END,
         updated_at=${at} WHERE id=1`;
       if (resetDevices) await Promise.all([
         sql`DELETE FROM device_instances`,
@@ -677,7 +748,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       // 快路径：直接查询（一次往返）；仅当表/列缺失时才迁移后重试。
       const selectRow = async (): Promise<ExamRow[]> => (
-        await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id = 1`
+        await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id = 1`
       ) as unknown as ExamRow[];
       let rows: ExamRow[];
       try {
@@ -708,11 +779,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (actor || action === 'initialize') {
         let currentRows: ExamRow[];
         try {
-          currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
+          currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
         } catch (error) {
           if (!missingRelation(error)) throw error;
           await ensureTableOnce();
-          currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
+          currentRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
         }
         const currentPayload = examPayload(currentRows[0] ?? {});
         if (action === 'initialize') {
@@ -774,7 +845,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
       if (!updatedRows?.length) {
-        const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
+        const rows = (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
         const row = rows[0] ?? {};
         const { ok: _ok, ...remote } = examPayload(row);
         res.status(409).json({ ok: false, code: 'DATA_CONFLICT', error: '云端数据已发生变化', remote, requestId: res.getHeader('X-Request-Id') });
