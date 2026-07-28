@@ -44,7 +44,10 @@ export default function DeviceHeartbeat() {
       }).then(result => {
         if (result.revoked) {
           logoutAdmin();
-          if (pathname !== '/login') navigate('/login?next=%2Fadmin&deviceRemoved=1', { replace: true });
+          const managementRoute = pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/settings';
+          const bindingRoute = pathname === '/exam' || pathname === '/preferences' || pathname === '/local-settings' || pathname === '/plugin/connect';
+          if (managementRoute) navigate('/login?next=%2Fadmin&deviceRemoved=1', { replace: true });
+          else if (bindingRoute) navigate('/', { replace: true });
           return;
         }
         if (result.binding && !result.binding.revoked) {
