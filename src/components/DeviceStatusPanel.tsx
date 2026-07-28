@@ -14,6 +14,7 @@ import { notify } from "../services/notify";
 import { confirmDialog } from "../services/appDialog";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
+import DesignPolicyManager from "./DesignPolicyManager";
 
 const ONLINE_MS = 90_000;
 const formatTime = (value: number) =>
@@ -42,8 +43,10 @@ type DeviceGroup = {
 
 export default function DeviceStatusPanel({
   canRevoke = true,
+  canEditDesign = false,
 }: {
   canRevoke?: boolean;
+  canEditDesign?: boolean;
 }) {
   const [bindings, setBindings] = useState<DeviceBindingInfo[]>([]);
   const [plugins, setPlugins] = useState<PluginBindingInfo[]>([]);
@@ -292,6 +295,7 @@ export default function DeviceStatusPanel({
           刷新
         </button>
       </div>
+      <DesignPolicyManager grades={grades} classes={classes} devices={bindings} canEdit={canEditDesign} />
       <div className="device-status__stats">
         <div>
           <span>设备总数</span>

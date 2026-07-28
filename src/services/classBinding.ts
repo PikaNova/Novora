@@ -13,6 +13,7 @@ export interface DeviceBinding {
 
 export interface DeviceBindingInfo extends DeviceBinding {
   instanceId: string;
+  isManagement?: boolean;
   page: string;
   clientVersion: string;
   status: string;
@@ -22,6 +23,19 @@ export interface DeviceBindingInfo extends DeviceBinding {
   examEnd: string;
   lastSeenAt: number;
   updatedAt: number;
+}
+
+export type DeviceSetupConflict = { instanceId: string; status: string; lastSeenAt: number; online: boolean };
+export async function setupManagedDevice(input: { bindManagement: boolean; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<{ conflict?: DeviceSetupConflict }> {
+  const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) });
+  const data = await response.json().catch(() => null);
+  if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { conflict: data.existing as DeviceSetupConflict };
+  if (!response.ok) throw new Error(data?.error || '设备登记失败');
+  if (input.gradeId && input.classId) {
+    cacheDeviceBinding({ gradeId: input.gradeId, classId: input.classId, revoked: false });
+    markClassChoiceConfirmed();
+  }
+  return {};
 }
 
 export interface PluginBindingInfo {

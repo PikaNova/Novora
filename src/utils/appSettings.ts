@@ -1,5 +1,5 @@
 import type { ExamItem, MajorExam, AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
-import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
+import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES, ALL_CONFLICT_SCOPES } from '../types/exam';
 import { normalizeWeeklyPlan } from './weeklySchedule';
 import { logger } from './logger';
@@ -55,6 +55,7 @@ export interface ExamSettings {
   };
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
+  designPolicy: DesignPolicy;
   alertEnabled: boolean;
   announcementPermanentlyHidden: boolean;
   updatedAt?: number;
@@ -187,6 +188,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     selectedClassId: '',
     initialization: { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' },
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
+    designPolicy: { rules: [], updatedAt: 0 },
     alertEnabled: true,
     announcementPermanentlyHidden: false,
     updatedAt: 0,
@@ -273,6 +275,10 @@ export function normalizeExam(raw: unknown): ExamSettings {
     province: String(rawInitialization.province ?? '').trim(),
     schoolName: String(rawInitialization.schoolName ?? '').trim(),
     schoolFullName: String(rawInitialization.schoolFullName ?? rawInitialization.schoolName ?? '').trim(),
+  };
+  base.designPolicy = {
+    rules: Array.isArray(src.designPolicy?.rules) ? src.designPolicy.rules.filter(rule => rule && typeof rule.designId === 'string') : [],
+    updatedAt: Number(src.designPolicy?.updatedAt ?? 0),
   };
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 

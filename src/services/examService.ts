@@ -1,5 +1,5 @@
 import type { ExamItem, MajorExam, AlertsSettings } from '../types';
-import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
+import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
@@ -18,6 +18,7 @@ export interface ExamPayload {
   classes?: SchoolClass[];
   initialization?: ExamSettings['initialization'];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
+  designPolicy?: DesignPolicy;
   binding?: { gradeId: string; classId: string; revoked: boolean } | null;
   updatedAt: number;
 }
@@ -63,6 +64,9 @@ function toPayload(data: any): ExamPayload {
     initialization: data?.initialization && typeof data.initialization === 'object' ? data.initialization : undefined,
     weeklyConflictPolicy: data?.weeklyConflictPolicy && typeof data.weeklyConflictPolicy === 'object'
       ? (data.weeklyConflictPolicy as WeeklyConflictPolicy)
+      : undefined,
+    designPolicy: data?.designPolicy && typeof data.designPolicy === 'object'
+      ? (data.designPolicy as DesignPolicy)
       : undefined,
     binding: data?.binding && typeof data.binding === 'object' ? data.binding : null,
     updatedAt: Number(data?.updatedAt ?? 0),
@@ -202,6 +206,7 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       classes: input.classes,
       initialization: input.initialization,
       weeklyConflictPolicy: input.weeklyConflictPolicy,
+      designPolicy: getCloudSnapshot()?.designPolicy,
       updatedAt,
     });
     lastExamApiError = null;
@@ -211,6 +216,23 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     lastExamApiError = error;
     return { kind: 'error', error };
   }
+}
+
+export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<DesignPolicy> {
+  const token = localStorage.getItem(TOKEN_KEY) ?? '';
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ action: 'design-policy', designPolicy }),
+  });
+  if (!response.ok) throw await apiErrorFromResponse(response, '考试端设计规则保存失败');
+  const data = await response.json();
+  if (!data?.designPolicy) throw new Error('服务器未返回设计规则');
+  const saved = data.designPolicy as DesignPolicy;
+  const snapshot = getCloudSnapshot();
+  if (snapshot) rememberCloudSnapshot({ ...snapshot, designPolicy: saved, updatedAt: Number(data.updatedAt ?? saved.updatedAt) });
+  else localStorage.setItem(CLOUD_VERSION_KEY, String(data.updatedAt ?? saved.updatedAt));
+  return saved;
 }
 
 export async function isLoginRequired(): Promise<boolean> {

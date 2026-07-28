@@ -17,7 +17,8 @@ import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
 import SubjectIcon from '../components/SubjectIcon';
 import { getDesign, isMobileReadyDesign } from '../designs/registry';
-import { getDesignId, setDesignId } from '../utils/designPref';
+import { getDesignId, resolveManagedDesign, setDesignId } from '../utils/designPref';
+import { getClassBindingInstanceId } from '../services/classBinding';
 import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
 import { fetchAnnouncements } from '../services/announcements';
@@ -127,7 +128,14 @@ function BoundExamPage() {
   const [items, setItems] = useState<ExamItem[]>(() => getResolvedExamItems());
   const [title, setTitle] = useState<string>(() => getAppSettings().exam?.title ?? '');
   const [now, setNow] = useState<number>(() => nowMs());
-  const [designId, setDesign] = useState<string>(() => getDesignId());
+  const [designId, setDesign] = useState<string>(() => {
+    const current = getAppSettings().exam;
+    return resolveManagedDesign(current.designPolicy, current.selectedGradeId, current.selectedClassId, getClassBindingInstanceId()) || getDesignId();
+  });
+  const [managedDesign, setManagedDesign] = useState(() => {
+    const current = getAppSettings().exam;
+    return Boolean(resolveManagedDesign(current.designPolicy, current.selectedGradeId, current.selectedClassId, getClassBindingInstanceId()));
+  });
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [alerts, setAlerts] = useState<AlertsSettings>(() => getAppSettings().alerts);
   const [schoolName, setSchoolName] = useState<string>(() => {
@@ -150,6 +158,10 @@ function BoundExamPage() {
       if (newAlerts) setAlerts(newAlerts);
       const initialization = getAppSettings().exam.initialization;
       setSchoolName(initialization.schoolFullName || initialization.schoolName || '');
+      const current = getAppSettings().exam;
+      const assigned = resolveManagedDesign(current.designPolicy, current.selectedGradeId, current.selectedClassId, getClassBindingInstanceId());
+      setManagedDesign(Boolean(assigned));
+      if (assigned) setDesign(assigned);
     },
   });
   useEffect(() => {
@@ -265,8 +277,9 @@ function BoundExamPage() {
   const Design = getDesign(designId).component;
 
   const chooseDesign = useCallback((id: string) => {
+    if (managedDesign) return;
     setDesign(id); setDesignId(id);
-  }, []);
+  }, [managedDesign]);
 
   // 全屏展示：顶栏按钮手动切换 + 无操作 1 分钟自动进入。
   const { isFullscreen, enter: enterFullscreen, exit: exitFullscreen } = useFullscreen();
@@ -367,7 +380,7 @@ function BoundExamPage() {
         onBack={() => navigate('/')}
         quickMenu={<ExamQuickMenu onTemporary={() => setTemporaryOpen(true)} onLocal={() => navigate('/local-settings')} onAdmin={() => navigate('/admin')} />}
         onOpenAnnouncements={openAnnouncements}
-        onSwitchDesign={() => setSwitcherOpen(true)}
+        onSwitchDesign={() => { if (!managedDesign) setSwitcherOpen(true); }}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreenWithGuidance}
       /></Suspense>
