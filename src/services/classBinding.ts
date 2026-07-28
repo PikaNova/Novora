@@ -3,12 +3,14 @@ import { getInstanceId } from './telemetry';
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
 const BINDING_CACHE_KEY = 'exam_board_device_binding_cache';
+const DEVICE_PURPOSE_KEY = 'exam_board_device_purpose_confirmed';
 const ADMIN_TOKEN_KEY = 'admin_auth_token';
 
 export interface DeviceBinding {
   gradeId: string;
   classId: string;
   revoked: boolean;
+  isManagement?: boolean;
 }
 
 export interface DeviceBindingInfo extends DeviceBinding {
@@ -31,9 +33,14 @@ export async function setupManagedDevice(input: { bindManagement: boolean; grade
   const data = await response.json().catch(() => null);
   if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { conflict: data.existing as DeviceSetupConflict };
   if (!response.ok) throw new Error(data?.error || '设备登记失败');
-  if (input.gradeId && input.classId) {
-    cacheDeviceBinding({ gradeId: input.gradeId, classId: input.classId, revoked: false });
+  if (input.bindManagement) {
+    cacheDeviceBinding({ gradeId: '', classId: '', revoked: false, isManagement: true });
+    markDevicePurposeConfirmed();
+    clearClassChoiceConfirmation();
+  } else if (input.gradeId && input.classId) {
+    cacheDeviceBinding({ gradeId: input.gradeId, classId: input.classId, revoked: false, isManagement: false });
     markClassChoiceConfirmed();
+    markDevicePurposeConfirmed();
   }
   return {};
 }
@@ -62,6 +69,18 @@ export function clearClassChoiceConfirmation(): void {
   try { localStorage.removeItem(CLASS_CHOICE_KEY); } catch { /* ignore */ }
 }
 
+export function hasConfirmedDevicePurpose(): boolean {
+  try { return localStorage.getItem(DEVICE_PURPOSE_KEY) === 'true'; } catch { return false; }
+}
+
+export function markDevicePurposeConfirmed(): void {
+  try { localStorage.setItem(DEVICE_PURPOSE_KEY, 'true'); } catch { /* ignore */ }
+}
+
+export function clearDevicePurposeConfirmation(): void {
+  try { localStorage.removeItem(DEVICE_PURPOSE_KEY); } catch { /* ignore */ }
+}
+
 export function getClassBindingInstanceId(): string { return getInstanceId(); }
 
 export function getCachedDeviceBinding(): DeviceBinding | null | undefined {
@@ -74,16 +93,20 @@ export function getCachedDeviceBinding(): DeviceBinding | null | undefined {
 
 export function cacheDeviceBinding(binding: DeviceBinding | null): void {
   try { localStorage.setItem(BINDING_CACHE_KEY, JSON.stringify({ instanceId: getInstanceId(), binding, checkedAt: Date.now() })); } catch { /* ignore */ }
-  if (binding?.revoked) clearClassChoiceConfirmation();
+  if (binding?.revoked) {
+    clearClassChoiceConfirmation();
+    clearDevicePurposeConfirmation();
+  }
 }
 
 export async function saveDeviceBinding(gradeId: string, classId: string): Promise<boolean> {
-  const binding = { gradeId, classId, revoked: false };
-  markClassChoiceConfirmed();
-  cacheDeviceBinding(binding);
   try {
     const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId }) });
-    return response.ok;
+    if (!response.ok) return false;
+    cacheDeviceBinding({ gradeId, classId, revoked: false, isManagement: false });
+    markClassChoiceConfirmed();
+    markDevicePurposeConfirmed();
+    return true;
   } catch { return false; }
 }
 
@@ -115,7 +138,7 @@ export async function sendDeviceHeartbeat(input: Omit<DeviceBindingInfo, 'instan
     if (!response.ok) return { revoked: false, command: null };
     const data = await response.json();
     if (data.revoked === true) {
-      cacheDeviceBinding({ gradeId: '', classId: '', revoked: true });
+      cacheDeviceBinding({ gradeId: '', classId: '', revoked: true, isManagement: false });
       window.dispatchEvent(new CustomEvent('exam-board:device-revoked'));
       return { revoked: true, command: null };
     }

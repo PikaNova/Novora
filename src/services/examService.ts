@@ -19,7 +19,7 @@ export interface ExamPayload {
   initialization?: ExamSettings['initialization'];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   designPolicy?: DesignPolicy;
-  binding?: { gradeId: string; classId: string; revoked: boolean } | null;
+  binding?: { gradeId: string; classId: string; revoked: boolean; isManagement?: boolean } | null;
   updatedAt: number;
 }
 

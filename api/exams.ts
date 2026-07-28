@@ -139,6 +139,7 @@ type ExamRow = {
   bound_grade_id?: string | null;
   bound_class_id?: string | null;
   binding_revoked?: boolean | null;
+  binding_is_management?: boolean | null;
 };
 type UpdatedRow = { updated_at: number | string };
 
@@ -425,26 +426,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const rows = await sql`SELECT plugin_instance_id, pair_expires_at, paired FROM classisland_plugin_instances WHERE pair_token_hash=${sha256(pairToken)}` as unknown as PluginInstanceRow[];
       const plugin = rows[0];
       if (!plugin || Number(plugin.pair_expires_at ?? 0) < Date.now()) { res.status(410).json({ ok: false, error: 'Pairing request expired' }); return; }
+      const viewerInstanceId = String(req.query?.viewerInstanceId ?? '').trim().slice(0, 128);
       const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
       const payload = examPayload(examRows[0] ?? {});
-      const grades = (Array.isArray(payload.grades) ? payload.grades : []).filter((item: any) => item?.enabled !== false);
-      const classes = (Array.isArray(payload.classes) ? payload.classes : []).filter((item: any) => item?.enabled !== false);
-      res.status(200).json({ ok: true, ...classIslandApiMeta(), pluginInstanceId: plugin.plugin_instance_id, expiresAt: Number(plugin.pair_expires_at), grades, classes }); return;
+      const deviceRows = viewerInstanceId ? await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean }> : [];
+      const device = deviceRows[0];
+      const binding = device ? { gradeId: device.grade_id ?? '', classId: device.class_id ?? '', revoked: device.revoked === true, isManagement: device.is_management === true, classTag: classLabel(payload, device.grade_id ?? '', device.class_id ?? '') } : null;
+      res.status(200).json({ ok: true, ...classIslandApiMeta(), pluginInstanceId: plugin.plugin_instance_id, expiresAt: Number(plugin.pair_expires_at), binding }); return;
     }
     if (action === 'plugin-pair-confirm') {
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
       const pairToken = String(req.body?.pairToken ?? '').trim();
-      const gradeId = String(req.body?.gradeId ?? '').trim().slice(0, 128);
-      const classId = String(req.body?.classId ?? '').trim().slice(0, 128);
       const viewerInstanceId = String(req.body?.viewerInstanceId ?? '').trim().slice(0, 128);
-      if (!PLUGIN_TOKEN_RE.test(pairToken) || !gradeId || !classId) { res.status(400).json({ ok: false, error: 'Incomplete pairing data' }); return; }
+      if (!PLUGIN_TOKEN_RE.test(pairToken) || !viewerInstanceId) { res.status(400).json({ ok: false, error: 'Incomplete pairing data' }); return; }
       await ensureTableOnce();
       const rows = await sql`SELECT plugin_instance_id, pair_expires_at FROM classisland_plugin_instances WHERE pair_token_hash=${sha256(pairToken)}` as unknown as PluginInstanceRow[];
       const plugin = rows[0];
       if (!plugin || Number(plugin.pair_expires_at ?? 0) < Date.now()) { res.status(410).json({ ok: false, error: 'Pairing request expired' }); return; }
       const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
       const payload = examPayload(examRows[0] ?? {});
+      const deviceRows = await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean }>;
+      const device = deviceRows[0];
+      if (!device || device.revoked || device.is_management || !device.grade_id || !device.class_id) { res.status(409).json({ ok: false, code: 'VIEWER_CLASS_REQUIRED', error: device?.is_management ? '管理设备不能绑定 ClassIsland，请先改为班级考试端' : '看板尚未绑定有效班级，请先在看板首页完成绑定' }); return; }
+      const gradeId = String(device.grade_id);
+      const classId = String(device.class_id);
       const gradeValid = (payload.grades as any[]).some(item => item?.id === gradeId && item?.enabled !== false);
       const classValid = (payload.classes as any[]).some(item => item?.id === classId && item?.gradeId === gradeId && item?.enabled !== false);
       if (!gradeValid || !classValid) { res.status(400).json({ ok: false, error: 'Invalid class binding' }); return; }
@@ -460,21 +466,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const rows = await sql`SELECT * FROM classisland_plugin_instances WHERE plugin_instance_id=${credentials.instanceId}` as unknown as PluginInstanceRow[];
       const plugin = rows[0];
       if (!plugin || !equalHash(plugin.client_secret_hash, sha256(credentials.secret))) { res.status(401).json({ ok: false, error: 'Plugin credentials rejected' }); return; }
+      const viewerInstanceId = String(plugin.viewer_instance_id ?? '');
+      const deviceRows = viewerInstanceId ? await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id=${viewerInstanceId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean }> : [];
+      const device = deviceRows[0];
+      const viewerBindingValid = !!device && !device.revoked && !device.is_management && !!device.grade_id && !!device.class_id;
+      if (!viewerBindingValid && plugin.paired === true) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
+      }
       if (action === 'plugin-pair-status') {
-        const paired = plugin.paired === true && !!plugin.class_id;
+        const paired = plugin.paired === true && viewerBindingValid;
         let classTag = '';
         if (paired) {
           const examRows = await sql`SELECT grades, classes FROM exam_data WHERE id=1` as unknown as ExamRow[];
-          classTag = classLabel(examPayload(examRows[0] ?? {}), String(plugin.grade_id ?? ''), String(plugin.class_id ?? ''));
+          classTag = classLabel(examPayload(examRows[0] ?? {}), String(device.grade_id), String(device.class_id));
+          if (plugin.grade_id !== device.grade_id || plugin.class_id !== device.class_id) {
+            await sql`UPDATE classisland_plugin_instances SET grade_id=${device.grade_id}, class_id=${device.class_id}, updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
+          }
         }
         res.status(200).json({ ok: true, ...classIslandApiMeta(), paired, classTag, pairExpiresAt: Number(plugin.pair_expires_at ?? 0) || null }); return;
       }
-      if (plugin.paired !== true || !plugin.class_id) { res.status(409).json({ ok: false, error: 'Plugin is not paired' }); return; }
+      if (plugin.paired !== true || !viewerBindingValid) { res.status(409).json({ ok: false, code: 'VIEWER_CLASS_REQUIRED', error: '看板未绑定有效班级，ClassIsland 配对已解除' }); return; }
       const examRows = await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id=1` as unknown as ExamRow[];
       const payload = examPayload(examRows[0] ?? {});
-      const gradeId = String(plugin.grade_id ?? '');
-      const classId = String(plugin.class_id ?? '');
-      await sql`UPDATE classisland_plugin_instances SET updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
+      const gradeId = String(device.grade_id);
+      const classId = String(device.class_id);
+      await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
       res.status(200).json({
         ok: true,
         ...classIslandApiMeta(),
@@ -494,7 +510,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const viewerInstanceId = String(req.body?.viewerInstanceId ?? '').trim().slice(0, 128);
       if (!PLUGIN_ID_RE.test(instanceId)) { res.status(400).json({ ok: false, error: 'Invalid plugin instance' }); return; }
       await ensureTableOnce();
-      await sql`UPDATE classisland_plugin_instances SET viewer_last_seen_at=${Date.now()}, viewer_instance_id=CASE WHEN ${viewerInstanceId}='' THEN viewer_instance_id ELSE ${viewerInstanceId} END WHERE plugin_instance_id=${instanceId} AND paired=TRUE`;
+      const pluginRows = await sql`SELECT viewer_instance_id, paired FROM classisland_plugin_instances WHERE plugin_instance_id=${instanceId}` as unknown as PluginInstanceRow[];
+      const plugin = pluginRows[0];
+      const linkedViewerId = String(plugin?.viewer_instance_id ?? '');
+      if (!plugin || plugin.paired !== true || !linkedViewerId || (viewerInstanceId && viewerInstanceId !== linkedViewerId)) { res.status(409).json({ ok: false, error: 'Plugin is not paired with this viewer' }); return; }
+      const deviceRows = await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id=${linkedViewerId}` as unknown as Array<{ grade_id: string; class_id: string; revoked: boolean; is_management: boolean }>;
+      const device = deviceRows[0];
+      if (!device || device.revoked || device.is_management || !device.grade_id || !device.class_id) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE plugin_instance_id=${instanceId}`;
+        res.status(409).json({ ok: false, error: 'Viewer class binding is no longer valid' }); return;
+      }
+      await sql`UPDATE classisland_plugin_instances SET viewer_last_seen_at=${Date.now()}, grade_id=${device.grade_id}, class_id=${device.class_id}, updated_at=${Date.now()} WHERE plugin_instance_id=${instanceId}`;
       res.status(200).json({ ok: true }); return;
     }
     if (action === 'bootstrap') {
@@ -508,7 +534,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                  active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at,
                  (SELECT grade_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_grade_id,
                  (SELECT class_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_class_id,
-                 (SELECT revoked FROM device_instances WHERE instance_id = ${instanceId}) AS binding_revoked
+                 (SELECT revoked FROM device_instances WHERE instance_id = ${instanceId}) AS binding_revoked,
+                 (SELECT is_management FROM device_instances WHERE instance_id = ${instanceId}) AS binding_is_management
           FROM exam_data
           WHERE id = 1
         `
@@ -518,7 +545,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); rows = await selectBootstrap(); }
       const row = rows[0] ?? {};
       res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
-      res.status(200).json({ ...examPayload(row), binding: row.bound_class_id == null ? null : { gradeId: row.bound_grade_id ?? '', classId: row.bound_class_id, revoked: row.binding_revoked === true } });
+      const hasDeviceBinding = row.bound_class_id != null || row.binding_is_management === true;
+      res.status(200).json({ ...examPayload(row), binding: hasDeviceBinding ? { gradeId: row.bound_grade_id ?? '', classId: row.bound_class_id ?? '', revoked: row.binding_revoked === true, isManagement: row.binding_is_management === true } : null });
       return;
     }
     if (action === 'device-bindings') {
@@ -567,27 +595,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const lastSeenAt = Number(existing[0].last_seen_at ?? 0);
           res.status(409).json({ ok: false, code: 'CLASS_DEVICE_EXISTS', error: '该班级已有考试端', existing: { instanceId: existing[0].instance_id, status: existing[0].status, lastSeenAt, online: Date.now() - lastSeenAt <= 90_000 } }); return;
         }
-        if (existing[0]) await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${existing[0].instance_id}`;
+        if (existing[0]) {
+          await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${existing[0].instance_id}`;
+          await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE viewer_instance_id=${existing[0].instance_id}`;
+        }
       }
       const now = Date.now();
+      const nextGradeId = bindManagement ? '' : gradeId;
+      const nextClassId = bindManagement ? '' : classId;
       await sql`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, updated_at)
-        VALUES (${instanceId}, ${gradeId}, ${classId}, FALSE, ${bindManagement}, ${now})
+        VALUES (${instanceId}, ${nextGradeId}, ${nextClassId}, FALSE, ${bindManagement}, ${now})
         ON CONFLICT (instance_id) DO UPDATE SET
-          grade_id=CASE WHEN EXCLUDED.class_id='' THEN device_instances.grade_id ELSE EXCLUDED.grade_id END,
-          class_id=CASE WHEN EXCLUDED.class_id='' THEN device_instances.class_id ELSE EXCLUDED.class_id END,
+          grade_id=EXCLUDED.grade_id,
+          class_id=EXCLUDED.class_id,
           revoked=FALSE,
-          is_management=EXCLUDED.is_management OR device_instances.is_management,
+          is_management=EXCLUDED.is_management,
           updated_at=EXCLUDED.updated_at`;
+      if (bindManagement) {
+        await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${instanceId}`;
+      } else {
+        await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${now} WHERE viewer_instance_id=${instanceId} AND paired=TRUE`;
+      }
       await writeAudit(setupActor, 'device.setup', 'device', instanceId, { bindManagement, gradeId, classId, replaced: replaceExisting });
-      res.status(200).json({ ok: true, updatedAt: now }); return;
+      res.status(200).json({ ok: true, binding: { gradeId: nextGradeId, classId: nextClassId, revoked: false, isManagement: bindManagement }, updatedAt: now }); return;
     }
     if (action === 'device-binding') {
       const instanceId = String(req.method === 'GET' ? req.query?.instanceId ?? '' : req.body?.instanceId ?? '').trim().slice(0, 128);
       if (!instanceId) { res.status(400).json({ ok: false, error: 'instanceId is required' }); return; }
       const runBinding = async () => {
         if (req.method === 'GET') {
-          const rows = await sql`SELECT grade_id, class_id, revoked FROM device_instances WHERE instance_id = ${instanceId}` as unknown as Array<{ grade_id?: string; class_id?: string; revoked?: boolean }>;
-          res.status(200).json({ ok: true, binding: rows[0] ? { gradeId: rows[0].grade_id ?? '', classId: rows[0].class_id ?? '', revoked: rows[0].revoked === true } : null });
+          const rows = await sql`SELECT grade_id, class_id, revoked, is_management FROM device_instances WHERE instance_id = ${instanceId}` as unknown as Array<{ grade_id?: string; class_id?: string; revoked?: boolean; is_management?: boolean }>;
+          res.status(200).json({ ok: true, binding: rows[0] ? { gradeId: rows[0].grade_id ?? '', classId: rows[0].class_id ?? '', revoked: rows[0].revoked === true, isManagement: rows[0].is_management === true } : null });
           return;
         }
         if (req.method === 'POST') {
@@ -603,9 +641,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           await sql`
             INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, updated_at)
             VALUES (${instanceId}, ${gradeId}, ${classId}, FALSE, ${updatedAt})
-            ON CONFLICT (instance_id) DO UPDATE SET grade_id = EXCLUDED.grade_id, class_id = EXCLUDED.class_id, revoked = FALSE, updated_at = EXCLUDED.updated_at
+            ON CONFLICT (instance_id) DO UPDATE SET grade_id = EXCLUDED.grade_id, class_id = EXCLUDED.class_id, revoked = FALSE, is_management = FALSE, updated_at = EXCLUDED.updated_at
           `;
-          res.status(200).json({ ok: true, binding: { gradeId, classId, revoked: false }, updatedAt });
+          await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${updatedAt} WHERE viewer_instance_id=${instanceId} AND paired=TRUE`;
+          res.status(200).json({ ok: true, binding: { gradeId, classId, revoked: false, isManagement: false }, updatedAt });
           return;
         }
         res.status(405).json({ ok: false, error: 'Method not allowed' });

@@ -1,4 +1,4 @@
-const LOGIN_DESTINATIONS = new Set(['/admin', '/settings']);
+const LOGIN_DESTINATIONS = new Set(['/', '/admin', '/settings']);
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 export function safeLoginDestination(value: string | null | undefined): string {

@@ -121,6 +121,18 @@
   font-size: 13px;
 }
 
+.plugin-connect__binding {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid #31587f;
+  border-radius: 7px;
+  background: #17293b;
+}
+
+.plugin-connect__binding span { color: #9cb8d2; font-size: 12px; }
+.plugin-connect__binding strong { color: #fff; font-size: 19px; }
+
 .plugin-connect__class-picker {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
