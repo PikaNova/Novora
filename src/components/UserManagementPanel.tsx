@@ -26,7 +26,7 @@ import {
 } from "../services/adminUsers";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
-import AdminWizardSteps from "./AdminWizardSteps";
+import AdminWizardSteps, { AdminWorkflowClose } from "./AdminWizardSteps";
 import { confirmDialog } from "../services/appDialog";
 
 type Props = {
@@ -930,6 +930,7 @@ export default function UserManagementPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">批量添加班级管理员</h2>
+            <AdminWorkflowClose onClick={() => setBatchUserDraft(null)} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps
                 active={batchUserWizardStep}
@@ -1422,6 +1423,7 @@ export default function UserManagementPanel({
             <h2 className="admin-modal__title admin-workflow-head">
               {userDraft.id ? "编辑管理员" : "添加管理员"}
             </h2>
+            <AdminWorkflowClose onClick={() => { setUserDraft(null); setUserErrors({}); }} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps
                 active={userWizardStep}
@@ -1650,6 +1652,7 @@ export default function UserManagementPanel({
             <h2 className="admin-modal__title admin-workflow-head">
               {roleDraft.id ? "编辑自定义角色" : "新建自定义角色"}
             </h2>
+            <AdminWorkflowClose onClick={() => setRoleDraft(null)} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps
                 active={roleWizardStep}

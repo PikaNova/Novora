@@ -1,10 +1,30 @@
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 
 type Step = {
   label: string;
   hint?: string;
 };
+
+export function AdminWorkflowClose({
+  onClick,
+  label = "关闭窗口",
+}: {
+  onClick: () => void;
+  label?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="admin-workflow-close"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      <X aria-hidden="true" />
+    </button>
+  );
+}
 
 export default function AdminWizardSteps({
   steps,

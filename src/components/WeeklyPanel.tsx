@@ -38,7 +38,7 @@ import { confirmDialog } from "../services/appDialog";
 import { notify } from "../services/notify";
 import AiImportGuide from "./AiImportGuide";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
-import AdminWizardSteps from "./AdminWizardSteps";
+import AdminWizardSteps, { AdminWorkflowClose } from "./AdminWizardSteps";
 import InlineSelect from "./InlineSelect";
 import { DateTimeField } from "./touch-datetime-picker";
 import { CalendarDays, CircleHelp } from "lucide-react";
@@ -1283,6 +1283,7 @@ export default function WeeklyPanel({
           <h2 className="admin-modal__title admin-workflow-head">
             {planModal.mode === "add" ? "新建周测计划" : "周测计划设置"}
           </h2>
+          <AdminWorkflowClose onClick={closePlanModal} />
           {planError && <div className="admin-error">{planError}</div>}
           <div className="admin-workflow-layout">
             <AdminWizardSteps
@@ -1944,6 +1945,7 @@ export default function WeeklyPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">批量删除周测计划</h2>
+            <AdminWorkflowClose onClick={() => { setBatchDeleteOpen(false); setBatchDeletePlanIds([]); }} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps active={batchDeleteStep} steps={[{ label: "选择计划", hint: "按年级筛选并勾选" }, { label: "确认删除", hint: "核对影响范围" }]} summary={<><span>已选择</span><strong>{batchDeletePlanIds.length} 个计划</strong><span>删除后可整批撤销</span></>} />
               <div className="admin-workflow-content" key={batchDeleteStep}>
@@ -1970,6 +1972,7 @@ export default function WeeklyPanel({
             <h2 className="admin-modal__title admin-workflow-head">
               {editing.id ? "编辑周测" : "添加周测"}
             </h2>
+            <AdminWorkflowClose onClick={() => { setWeeklyTimeFlowOpen(false); setEditing(null); setEditError(""); }} />
             {editError && <div className="admin-error">{editError}</div>}
             <div className="admin-workflow-layout">
               <AdminWizardSteps
@@ -2151,6 +2154,7 @@ export default function WeeklyPanel({
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">导入周测 JSON</h2>
+            <AdminWorkflowClose onClick={() => closeImport()} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps
                 active={importStep === "paste" ? 0 : 1}
@@ -2483,6 +2487,7 @@ export default function WeeklyPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">批量应用周测计划</h2>
+            <AdminWorkflowClose onClick={() => setCopyModal(null)} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps active={copyWizardStep} steps={[{ label: "选择计划", hint: "确定源计划和标题" }, { label: "应用班级", hint: "批量选择目标班级" }]} summary={<><span>源计划</span><strong>{weeklyPlans.find((plan) => plan.id === copyModal.sourcePlanId)?.name || "未选择"}</strong><span>{copyModal.targetClassIds.length} 个目标班级</span></>} />
               <div className="admin-workflow-content" key={copyWizardStep}>
@@ -2712,6 +2717,7 @@ export default function WeeklyPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">批量预览与下载 PDF</h2>
+            <AdminWorkflowClose onClick={() => { setPrintPickerOpen(false); setPrintClassIds([]); }} />
             <div className="admin-workflow-layout">
               <AdminWizardSteps active={printPickerStep} steps={[{ label: "选择班级", hint: "勾选需要导出的范围" }, { label: "确认文档", hint: "核对页数和排版" }]} summary={<><span>导出范围</span><strong>{printSchedules.length} 个班级</strong><span>每班一周一张 A4</span></>} />
               <div className="admin-workflow-content" key={printPickerStep}>

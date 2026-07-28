@@ -66,7 +66,7 @@ import BrandMark from "../components/BrandMark";
 import QuickMajorPublishModal, {
   type QuickMajorPublishInput,
 } from "../components/QuickMajorPublishModal";
-import AdminWizardSteps from "../components/AdminWizardSteps";
+import AdminWizardSteps, { AdminWorkflowClose } from "../components/AdminWizardSteps";
 import InlineSelect from "../components/InlineSelect";
 import TimeRangePickerModal from "../components/TimeRangePickerModal";
 import { notify } from "../services/notify";
@@ -2796,6 +2796,7 @@ export default function AdminPage() {
                   ? "新建大型考试"
                   : "大型考试设置"}
             </h2>
+            <AdminWorkflowClose onClick={() => { setMajorModal(null); setMajorError(""); }} />
             {majorError && <div className="admin-error">{majorError}</div>}
             <div className="admin-workflow-layout">
               <AdminWizardSteps
@@ -3308,6 +3309,7 @@ export default function AdminPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="admin-modal__title admin-workflow-head">导入分考试 JSON</h2>
+            <AdminWorkflowClose onClick={() => { setImportOpen(false); setOpenImportGuide(false); setImportError(""); }} />
             {importError && <div className="admin-error">{importError}</div>}
             <div className="admin-workflow-layout">
               <AdminWizardSteps active={majorImportStep} steps={[{ label: "准备内容", hint: "查看格式或生成提示词" }, { label: "粘贴导入", hint: "校验并写入分考试" }]} summary={<><span>导入到</span><strong>{activeMajor.name}</strong><span>{activeMajorScopeLabel}</span></>} />
