@@ -26,15 +26,20 @@ export default function DeviceHeartbeat() {
       const settings = getAppSettings();
       const temporary = getTemporaryExam();
       const temporaryActive = temporary && temporary.status !== 'ended' && new Date(temporary.endTime).getTime() > now;
-      const currentIsTemporary = current?.kind === 'temporary';
+      const reportedExam = current ?? next;
+      const reportedKind = reportedExam?.kind;
+      const reportedExamName = !reportedExam ? ''
+        : reportedKind === 'temporary' ? `${reportedExam.name} - 临时考试`
+        : reportedKind === 'weekly' ? '周测'
+        : reportedExam.majorName || settings.exam.title || '大型考试';
       void sendDeviceHeartbeat({
         page: pathname,
         clientVersion: APP_VERSION,
-        status: current ? 'exam-running' : temporaryActive && temporary.status === 'paused' ? 'temporary-paused' : next ? 'waiting' : 'idle',
-        currentExam: currentIsTemporary ? `${current.name} - 临时考试` : current?.majorName || settings.exam.title,
-        currentSubject: current?.name ?? next?.name ?? '',
-        examStart: current?.startTime ?? next?.startTime ?? '',
-        examEnd: current?.endTime ?? next?.endTime ?? '',
+        status: temporaryActive && temporary.status === 'paused' ? 'temporary-paused' : current ? 'exam-running' : next ? 'waiting' : 'idle',
+        currentExam: reportedExamName,
+        currentSubject: reportedExam?.name ?? '',
+        examStart: reportedExam?.startTime ?? '',
+        examEnd: reportedExam?.endTime ?? '',
         acknowledgedCommandId,
       }).then(result => {
         if (result.revoked) {
