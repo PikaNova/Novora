@@ -6,6 +6,7 @@ import { DateTimeField } from "./touch-datetime-picker";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import SubjectIcon from "./SubjectIcon";
 import TimeRangePickerModal from "./TimeRangePickerModal";
+import AdminWizardSteps from "./AdminWizardSteps";
 
 export interface QuickMajorPublishInput {
   name: string;
@@ -251,13 +252,13 @@ export default function QuickMajorPublishModal({
   return (
     <div className="admin-modal-overlay" role="presentation">
       <div
-        className="admin-modal admin-modal--wide quick-major-modal"
+        className="admin-modal admin-modal--wide admin-modal--workflow quick-major-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="quick-major-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="quick-major-modal__head">
+        <div className="quick-major-modal__head admin-workflow-head">
           <div>
             <span className="quick-major-modal__eyebrow">后台统一下发</span>
             <h2 id="quick-major-title" className="admin-modal__title">
@@ -271,11 +272,18 @@ export default function QuickMajorPublishModal({
             </button>
           </div>
         </div>
-        <div className="quick-major-modal__progress">
-          <span style={{ width: `${(step / 3) * 100}%` }} />
-        </div>
         {error && <div className="admin-error">{error}</div>}
-
+        <div className="admin-workflow-layout">
+          <AdminWizardSteps
+            active={step - 1}
+            steps={[
+              { label: "选择范围", hint: "名称、日期和班级" },
+              { label: "科目时间", hint: "开始方式与时长" },
+              { label: "确认下发", hint: "检查冲突后发布" },
+            ]}
+            summary={<><span>当前考试</span><strong>{name || "尚未填写名称"}</strong><span>{finalSubject || "尚未选择科目"}</span><span>{displayTime(startTime)} · {formatDuration(finalDuration)}</span></>}
+          />
+          <div className="admin-workflow-content" key={step}>
         {step === 1 && (
           <div className="quick-major-modal__body">
             <label className="admin-label">
@@ -515,6 +523,8 @@ export default function QuickMajorPublishModal({
             )}
           </div>
         )}
+          </div>
+        </div>
 
         <div className="admin-modal__actions">
           <button

@@ -26,6 +26,7 @@ import {
 } from "../services/adminUsers";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
+import AdminWizardSteps from "./AdminWizardSteps";
 import { confirmDialog } from "../services/appDialog";
 
 type Props = {
@@ -411,14 +412,17 @@ export default function UserManagementPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [userDraft, setUserDraft] = useState<UserDraft | null>(null);
+  const [userWizardStep, setUserWizardStep] = useState(0);
   const [batchUserDraft, setBatchUserDraft] = useState<BatchUserDraft | null>(
     null,
   );
+  const [batchUserWizardStep, setBatchUserWizardStep] = useState(0);
   const [batchCredentials, setBatchCredentials] = useState<
     BatchCredential[] | null
   >(null);
   const [userErrors, setUserErrors] = useState<Record<string, string>>({});
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
+  const [roleWizardStep, setRoleWizardStep] = useState(0);
   const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [resetMode, setResetMode] = useState<"generated" | "manual">(
@@ -473,6 +477,15 @@ export default function UserManagementPanel({
   useEffect(() => {
     void load();
   }, []);
+  useEffect(() => {
+    if (userDraft) setUserWizardStep(0);
+  }, [userDraft !== null]);
+  useEffect(() => {
+    if (roleDraft) setRoleWizardStep(0);
+  }, [roleDraft !== null]);
+  useEffect(() => {
+    if (batchUserDraft) setBatchUserWizardStep(0);
+  }, [batchUserDraft !== null]);
   useEffect(() => {
     if (forcePasswordChange || current?.mustChangePassword)
       setPasswordOpen(true);
@@ -913,14 +926,23 @@ export default function UserManagementPanel({
       {batchUserDraft && (
         <div className="admin-modal-overlay">
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="admin-modal__title">批量添加班级管理员</h2>
-            <p className="admin-modal__body">
-              每个班级创建一个独立账号，用户名按“前缀 + 年级序号 +
-              班级序号”生成。
-            </p>
+            <h2 className="admin-modal__title admin-workflow-head">批量添加班级管理员</h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps
+                active={batchUserWizardStep}
+                steps={[
+                  { label: "账号规则", hint: "前缀和初始密码" },
+                  { label: "选择班级", hint: "批量指定目标班级" },
+                  { label: "确认创建", hint: "生成并导出账号" },
+                ]}
+                summary={<><span>将创建</span><strong>{batchUserDraft.classIds.length} 个账号</strong><span>前缀：{batchUserDraft.prefix || "未填写"}</span></>}
+              />
+              <div className="admin-workflow-content" key={batchUserWizardStep}>
+            {batchUserWizardStep === 0 && <div className="admin-workflow-pane">
+              <p className="admin-modal__body">每个班级创建一个独立账号，用户名按“前缀 + 年级序号 + 班级序号”生成。</p>
             <div className="user-editor__grid">
               <label className="admin-label">
                 账号前缀
@@ -952,6 +974,8 @@ export default function UserManagementPanel({
                 />
               </label>
             </div>
+            </div>}
+            {batchUserWizardStep === 1 && <div className="admin-workflow-pane">
             <div className="admin-label">
               创建账号的班级
               <ClassMultiPicker
@@ -967,23 +991,30 @@ export default function UserManagementPanel({
             <p className="admin-major-card__hint">
               示例：class_admin_g1c01。若用户名已存在，已成功创建的账号会保留，并明确提示停止位置。
             </p>
+            </div>}
+            {batchUserWizardStep === 2 && <div className="admin-workflow-pane">
+              <div className="admin-workflow-review">
+                <span>账号前缀<strong>{batchUserDraft.prefix}</strong></span>
+                <span>目标班级<strong>{batchUserDraft.classIds.length} 个班级</strong></span>
+                <span>初始密码<strong>{batchUserDraft.password.length >= 8 ? "已设置，创建后必须修改" : "长度不足 8 位"}</strong></span>
+                <span>结果导出<strong>创建完成后可立即导出 CSV</strong></span>
+              </div>
+            </div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                disabled={busy || !batchUserDraft.classIds.length}
-                onClick={() => void submitBatchUsers()}
-              >
-                {busy
-                  ? "正在创建…"
-                  : `创建 ${batchUserDraft.classIds.length} 个账号`}
-              </button>
               <button
                 className="admin-btn"
                 disabled={busy}
-                onClick={() => setBatchUserDraft(null)}
+                onClick={batchUserWizardStep === 0 ? () => setBatchUserDraft(null) : () => setBatchUserWizardStep((value) => value - 1)}
               >
-                取消
+                {batchUserWizardStep === 0 ? "取消" : "上一步"}
               </button>
+              {batchUserWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => {
+                if (batchUserWizardStep === 0 && (!batchUserDraft.prefix.trim() || batchUserDraft.password.length < 8)) return;
+                if (batchUserWizardStep === 1 && !batchUserDraft.classIds.length) return;
+                setBatchUserWizardStep((value) => value + 1);
+              }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy || !batchUserDraft.classIds.length} onClick={() => void submitBatchUsers()}>{busy ? "正在创建…" : `创建 ${batchUserDraft.classIds.length} 个账号`}</button>}
             </div>
           </div>
         </div>
@@ -1385,12 +1416,24 @@ export default function UserManagementPanel({
       {userDraft && (
         <div className="admin-modal-overlay">
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="admin-modal__title">
+            <h2 className="admin-modal__title admin-workflow-head">
               {userDraft.id ? "编辑管理员" : "添加管理员"}
             </h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps
+                active={userWizardStep}
+                steps={[
+                  { label: "账户信息", hint: "用户名、名称和角色" },
+                  { label: "管理范围", hint: "年级与班级权限" },
+                  { label: "确认保存", hint: "检查账户配置" },
+                ]}
+                summary={<><span>当前账户</span><strong>{userDraft.displayName || userDraft.username || "尚未填写"}</strong><span>{delegableRoles.find((role) => role.id === userDraft.roleId)?.name || "尚未选择角色"}</span></>}
+              />
+              <div className="admin-workflow-content" key={userWizardStep}>
+            {userWizardStep === 0 && <div className="admin-workflow-pane">
             <div className="user-editor__grid">
               <label className="admin-label">
                 用户名
@@ -1496,6 +1539,8 @@ export default function UserManagementPanel({
                 </label>
               )}
             </div>
+            </div>}
+            {userWizardStep === 1 && <div className="admin-workflow-pane">
             <div className="user-editor__scope">
               {canAssignAll && (
                 <label className="admin-toggle-label">
@@ -1565,23 +1610,33 @@ export default function UserManagementPanel({
                 </>
               )}
             </div>
+            </div>}
+            {userWizardStep === 2 && <div className="admin-workflow-pane">
+              <div className="admin-workflow-review">
+                <span>登录用户名<strong>{userDraft.username}</strong></span>
+                <span>显示名称<strong>{userDraft.displayName}</strong></span>
+                <span>账户角色<strong>{delegableRoles.find((role) => role.id === userDraft.roleId)?.name || userDraft.roleId}</strong></span>
+                <span>管理年级<strong>{userDraft.allScope || userDraft.roleId === "super_admin" ? "全校" : `${userDraft.gradeIds.length} 个年级`}</strong></span>
+                <span>额外班级<strong>{userDraft.allScope || userDraft.roleId === "super_admin" ? "无需单独指定" : `${userDraft.classIds.length} 个班级`}</strong></span>
+                {userDraft.id && <span>账户状态<strong>{userDraft.status === "active" ? "启用" : "停用"}</strong></span>}
+              </div>
+            </div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
               <button
-                className="admin-btn admin-btn--primary"
-                disabled={busy}
-                onClick={() => void submitUser()}
-              >
-                {busy ? "保存中…" : "保存"}
-              </button>
-              <button
                 className="admin-btn"
-                onClick={() => {
-                  setUserDraft(null);
-                  setUserErrors({});
-                }}
+                onClick={userWizardStep === 0 ? () => { setUserDraft(null); setUserErrors({}); } : () => setUserWizardStep((value) => value - 1)}
               >
-                取消
+                {userWizardStep === 0 ? "取消" : "上一步"}
               </button>
+              {userWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => {
+                if (userWizardStep === 0 && (!userDraft.username.trim() || !userDraft.displayName.trim() || !userDraft.roleId || (!userDraft.id && userDraft.password.length < 8))) {
+                  setUserErrors((value) => ({ ...value, username: !userDraft.username.trim() ? "请填写用户名" : value.username, displayName: !userDraft.displayName.trim() ? "请填写显示名称" : value.displayName, roleId: !userDraft.roleId ? "请选择角色" : value.roleId, password: !userDraft.id && userDraft.password.length < 8 ? "初始密码至少 8 位" : value.password }));
+                  return;
+                }
+                setUserWizardStep((value) => value + 1);
+              }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitUser()}>{busy ? "保存中…" : "保存管理员"}</button>}
             </div>
           </div>
         </div>
@@ -1589,12 +1644,24 @@ export default function UserManagementPanel({
       {roleDraft && (
         <div className="admin-modal-overlay">
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="admin-modal__title">
+            <h2 className="admin-modal__title admin-workflow-head">
               {roleDraft.id ? "编辑自定义角色" : "新建自定义角色"}
             </h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps
+                active={roleWizardStep}
+                steps={[
+                  { label: "角色信息", hint: "名称和职责说明" },
+                  { label: "模块权限", hint: "按模块选择权限级别" },
+                  { label: "确认保存", hint: "检查角色能力" },
+                ]}
+                summary={<><span>当前角色</span><strong>{roleDraft.name || "尚未命名"}</strong><span>{ROLE_MODULES.filter((module) => moduleLevel(roleDraft.permissions, module) !== "none").length} 个可访问模块</span></>}
+              />
+              <div className="admin-workflow-content" key={roleWizardStep}>
+            {roleWizardStep === 0 && <div className="admin-workflow-pane">
             <label className="admin-label">
               角色名称
               <input
@@ -1622,6 +1689,8 @@ export default function UserManagementPanel({
                 placeholder="说明该角色负责什么、不能做什么，分配账号时会直接展示。"
               />
             </label>
+            </div>}
+            {roleWizardStep === 1 && <div className="admin-workflow-pane">
             <div className="role-editor__modules">
               {ROLE_MODULES.map((module) => (
                 <label key={module.id}>
@@ -1650,17 +1719,24 @@ export default function UserManagementPanel({
             <p className="admin-major-card__hint">
               数据库重置、初始化、角色管理、部署和超级管理员操作仅保留给超级管理员。
             </p>
+            </div>}
+            {roleWizardStep === 2 && <div className="admin-workflow-pane">
+              <div className="admin-workflow-review">
+                <span>角色名称<strong>{roleDraft.name || "未填写"}</strong></span>
+                <span>职责说明<strong>{roleDraft.description || "未填写"}</strong></span>
+                {ROLE_MODULES.map((module) => <span key={module.id}>{module.label}<strong>{moduleLevel(roleDraft.permissions, module) === "manage" ? "可管理" : moduleLevel(roleDraft.permissions, module) === "read" ? "仅查看" : "不可访问"}</strong></span>)}
+              </div>
+            </div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
               <button
-                className="admin-btn admin-btn--primary"
-                disabled={busy}
-                onClick={() => void submitRole()}
+                className="admin-btn"
+                onClick={roleWizardStep === 0 ? () => setRoleDraft(null) : () => setRoleWizardStep((value) => value - 1)}
               >
-                {busy ? "保存中…" : "保存角色"}
+                {roleWizardStep === 0 ? "取消" : "上一步"}
               </button>
-              <button className="admin-btn" onClick={() => setRoleDraft(null)}>
-                取消
-              </button>
+              {roleWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (roleWizardStep === 0 && !roleDraft.name.trim()) return; setRoleWizardStep((value) => value + 1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitRole()}>{busy ? "保存中…" : "保存角色"}</button>}
             </div>
           </div>
         </div>

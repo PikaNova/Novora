@@ -86,6 +86,7 @@ export default function TemporaryExamLauncher({
   const [mode, setMode] = useState<"now" | "delay" | "specific">("now");
   const [delay, setDelay] = useState(10);
   const [duration, setDuration] = useState(45);
+  const [nowStartMs, setNowStartMs] = useState(() => Date.now());
   const [specificDate, setSpecificDate] = useState(() =>
     dateKey(nextFiveMinutes()),
   );
@@ -100,9 +101,9 @@ export default function TemporaryExamLauncher({
   const finalSubject = customSubjectOpen ? customSubject.trim() : subject;
   const startMs =
     mode === "now"
-      ? Date.now()
+      ? nowStartMs
       : mode === "delay"
-        ? roundUpToFiveMinutes(Date.now() + delay * 60_000)
+        ? roundUpToFiveMinutes(nowStartMs + delay * 60_000)
         : parseLocal(specificDate, specificTime);
   const endMs = startMs + Math.max(5, duration) * 60_000;
   const openTimeRange = () => {
@@ -170,6 +171,7 @@ export default function TemporaryExamLauncher({
         : "请检查开始时间和考试时长。");
       return;
     }
+    if (step === 0) setNowStartMs(Date.now());
     setStep((value) => Math.min(2, value + 1));
   };
   const create = async () => {
@@ -285,24 +287,31 @@ export default function TemporaryExamLauncher({
               </div>
             ) : (
               <>
-                <div className="temp-exam-progress">
-                  {["选择科目", "设置时间", "确认选项"].map((label, index) => (
-                    <div
-                      key={label}
-                      className={
-                        index === step
-                          ? "is-active"
-                          : index < step
-                            ? "is-done"
-                            : ""
-                      }
-                    >
-                      <i>{index < step ? <Check /> : index + 1}</i>
-                      <span>{label}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="temp-exam-wizard">
+                <div className="temp-exam-workspace">
+                  <div className="temp-exam-progress">
+                    {["选择科目", "设置时间", "确认选项"].map((label, index) => (
+                      <div
+                        key={label}
+                        className={
+                          index === step
+                            ? "is-active"
+                            : index < step
+                              ? "is-done"
+                              : ""
+                        }
+                      >
+                        <i>{index < step ? <Check /> : index + 1}</i>
+                        <span>{label}</span>
+                      </div>
+                    ))}
+                    <aside className="temp-exam-progress__summary">
+                      <span>当前设置</span>
+                      <strong>{finalSubject || "尚未选择科目"}</strong>
+                      <p>{formatDateTime(startMs)} - {formatDateTime(endMs)}</p>
+                      <small>{boundClass || "当前设备尚未绑定班级"}</small>
+                    </aside>
+                  </div>
+                  <div className="temp-exam-wizard">
                   {step === 0 && (
                     <section className="temp-exam-step">
                       <div className="temp-exam-step__head">
@@ -364,13 +373,13 @@ export default function TemporaryExamLauncher({
                         <legend>开始方式</legend>
                         <button
                           className={mode === "now" ? "is-active" : ""}
-                          onClick={() => { setMode("now"); setCrossDayConfirmed(false); }}
+                          onClick={() => { setNowStartMs(Date.now()); setMode("now"); setCrossDayConfirmed(false); }}
                         >
                           立即开始
                         </button>
                         <button
                           className={mode === "delay" ? "is-active" : ""}
-                          onClick={() => { setMode("delay"); setCrossDayConfirmed(false); }}
+                          onClick={() => { setNowStartMs(Date.now()); setMode("delay"); setCrossDayConfirmed(false); }}
                         >
                           稍后开始
                         </button>
@@ -381,7 +390,25 @@ export default function TemporaryExamLauncher({
                           指定时间
                         </button>
                       </fieldset>
-                      {mode === "now" && (
+                      <div className={`temp-timing-presets${mode === "delay" ? " has-delay" : ""}`}>
+                        {mode === "delay" && (
+                          <div className="temp-preset">
+                            <span>多久后开始</span>
+                            <div>
+                              {DELAY_PRESETS.map((value) => (
+                                <button
+                                  type="button"
+                                  key={value}
+                                  className={delay === value ? "is-active" : ""}
+                                  aria-pressed={delay === value}
+                                  onClick={() => { setDelay(value); setCrossDayConfirmed(false); }}
+                                >
+                                  {value}分钟后
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div className="temp-preset temp-duration-presets">
                           <span>常用考试时长</span>
                           <div>
@@ -400,25 +427,8 @@ export default function TemporaryExamLauncher({
                               </button>
                             ))}
                           </div>
-                          <small>以当前时间开始，并按所选时长自动计算结束时间。</small>
                         </div>
-                      )}
-                      {mode === "delay" && (
-                        <div className="temp-preset">
-                          <span>延迟时间</span>
-                          <div>
-                            {DELAY_PRESETS.map((value) => (
-                              <button
-                                key={value}
-                                className={delay === value ? "is-active" : ""}
-                                onClick={() => { setDelay(value); setCrossDayConfirmed(false); }}
-                              >
-                                {value} 分钟后
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      </div>
                       {mode === "specific" && (
                         <div className="temp-specific-time">
                           <label>
@@ -434,22 +444,17 @@ export default function TemporaryExamLauncher({
                           </label>
                         </div>
                       )}
-                      <div className="temp-time-setting">
-                        <span>时间设置</span>
-                        <button type="button" onClick={openTimeRange}>
-                          <strong>{formatDateTime(startMs)} - {formatDateTime(endMs)}</strong>
-                          <small>一次设置开始时间、结束时间和常用时长</small>
-                        </button>
-                      </div>
                       <div className="temp-time-summary">
                         <Clock3 />
                         <div>
-                          <span>预计时间</span>
+                          <span>{mode === "now" ? "立即开始" : mode === "delay" ? `${delay}分钟后开始` : "指定时间开始"}</span>
                           <strong>
                             {formatDateTime(startMs)} -{" "}
                             {formatDateTime(endMs)}
                           </strong>
+                          <small>共 {formatDuration(duration)}</small>
                         </div>
+                        <button type="button" onClick={openTimeRange}>自定义时间</button>
                       </div>
                     </section>
                   )}
@@ -515,6 +520,7 @@ export default function TemporaryExamLauncher({
                       )}
                     </section>
                   )}
+                  </div>
                 </div>
                 <footer className="temp-exam-actions">
                   {step > 0 && (

@@ -38,6 +38,7 @@ import { confirmDialog } from "../services/appDialog";
 import { notify } from "../services/notify";
 import AiImportGuide from "./AiImportGuide";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
+import AdminWizardSteps from "./AdminWizardSteps";
 import InlineSelect from "./InlineSelect";
 import { DateTimeField } from "./touch-datetime-picker";
 import { CalendarDays, CircleHelp } from "lucide-react";
@@ -205,10 +206,12 @@ export default function WeeklyPanel({
   const items = activePlan?.items ?? [];
 
   const [planModal, setPlanModal] = useState<PlanModal>(null);
+  const [planWizardStep, setPlanWizardStep] = useState(0);
   const [planError, setPlanError] = useState("");
   const [deletePlanOpen, setDeletePlanOpen] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [editing, setEditing] = useState<ItemEdit | null>(null);
+  const [itemWizardStep, setItemWizardStep] = useState(0);
   const [customWeeklySubjectActive, setCustomWeeklySubjectActive] = useState(false);
   const [editError, setEditError] = useState("");
   const [weeklyTimeFlowOpen, setWeeklyTimeFlowOpen] = useState(false);
@@ -241,11 +244,29 @@ export default function WeeklyPanel({
     targetClassIds: string[];
     name: string;
   } | null>(null);
+  const [copyWizardStep, setCopyWizardStep] = useState(0);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeleteStep, setBatchDeleteStep] = useState(0);
   const [batchDeletePlanIds, setBatchDeletePlanIds] = useState<string[]>([]);
   const [printOpen, setPrintOpen] = useState(false);
   const [printPickerOpen, setPrintPickerOpen] = useState(false);
+  const [printPickerStep, setPrintPickerStep] = useState(0);
   const [printClassIds, setPrintClassIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (planModal) setPlanWizardStep(0);
+  }, [planModal?.mode]);
+  useEffect(() => {
+    if (editing) setItemWizardStep(0);
+  }, [editing !== null]);
+  useEffect(() => {
+    if (copyModal) setCopyWizardStep(0);
+  }, [copyModal !== null]);
+  useEffect(() => {
+    if (batchDeleteOpen) setBatchDeleteStep(0);
+  }, [batchDeleteOpen]);
+  useEffect(() => {
+    if (printPickerOpen) setPrintPickerStep(0);
+  }, [printPickerOpen]);
   const pickerOptions = useMemo<ClassPickerOption[]>(
     () =>
       classOptions.map((item) => ({
@@ -1235,19 +1256,47 @@ export default function WeeklyPanel({
 
   function renderPlanModal() {
     if (!planModal) return null;
+    const closePlanModal = () => {
+      setPlanModal(null);
+      setPlanError("");
+    };
+    const nextPlanStep = () => {
+      if (planWizardStep === 0) {
+        if (!planModal.name.trim()) {
+          setPlanError("请填写计划名称。");
+          return;
+        }
+        if (planModal.mode === "add" && (!planModal.gradeId || !planModal.classIds.length)) {
+          setPlanError("请先选择适用年级和班级。");
+          return;
+        }
+      }
+      setPlanError("");
+      setPlanWizardStep((value) => Math.min(2, value + 1));
+    };
     return (
       <div
         className="admin-modal-overlay"
-        {...backdropProps(() => setPlanModal(null))}
+        {...backdropProps(closePlanModal)}
       >
-        <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-          <h2 className="admin-modal__title">
+        <div className="admin-modal admin-modal--wide admin-modal--workflow" onClick={(e) => e.stopPropagation()}>
+          <h2 className="admin-modal__title admin-workflow-head">
             {planModal.mode === "add" ? "新建周测计划" : "周测计划设置"}
           </h2>
           {planError && <div className="admin-error">{planError}</div>}
-          <div className="admin-form">
-            {planModal.mode === "add" && (
-              <>
+          <div className="admin-workflow-layout">
+            <AdminWizardSteps
+              active={planWizardStep}
+              steps={[
+                { label: "适用范围", hint: "年级、班级和名称" },
+                { label: "计划规则", hint: "日期、周次和节假日" },
+                { label: "确认保存", hint: "检查计划配置" },
+              ]}
+              summary={<><span>当前计划</span><strong>{planModal.name || "尚未命名"}</strong><span>{planModal.mode === "add" ? `${planModal.classIds.length} 个班级` : "当前班级"}</span></>}
+            />
+            <div className="admin-workflow-content" key={planWizardStep}>
+              {planWizardStep === 0 && <div className="admin-workflow-pane">
+                {planModal.mode === "add" && <>
                 <label className="admin-label">
                   适用年级
                   <InlineSelect
@@ -1296,21 +1345,20 @@ export default function WeeklyPanel({
                     single={!allowBatchApply}
                   />
                 </div>
-              </>
-            )}
-            <label className="admin-label">
-              计划名称
-              <input
-                className="admin-input"
-                autoFocus={planModal.mode !== "add"}
-                value={planModal.name}
-                onChange={(e) =>
-                  setPlanModal((p) => p && { ...p, name: e.target.value })
-                }
-                placeholder="如：高三周测 / 晚自习周测"
-              />
-            </label>
-            <label className="admin-label">
+                </>}
+                <label className="admin-label">
+                  计划名称
+                  <input
+                    className="admin-input"
+                    autoFocus={planModal.mode !== "add"}
+                    value={planModal.name}
+                    onChange={(e) => setPlanModal((p) => p && { ...p, name: e.target.value })}
+                    placeholder="如：高三周测 / 晚自习周测"
+                  />
+                </label>
+              </div>}
+              {planWizardStep === 1 && <div className="admin-workflow-pane admin-workflow-pane--two-column">
+              <label className="admin-label">
               生效日期
               <DateTimeField
                 className="admin-date-time-field"
@@ -1405,25 +1453,22 @@ export default function WeeklyPanel({
               />
               自动排除 2026 年法定节假日
             </label>
-            <div className="admin-form-actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={commitPlanModal}
-              >
-                保存到{" "}
-                {planModal.mode === "add" ? planModal.classIds.length : 1}{" "}
-                个班级
-              </button>
-              <button
-                className="admin-btn admin-btn--ghost"
-                onClick={() => {
-                  setPlanModal(null);
-                  setPlanError("");
-                }}
-              >
-                取消
-              </button>
+              </div>}
+              {planWizardStep === 2 && <div className="admin-workflow-pane">
+                <div className="admin-workflow-review">
+                  <span>计划名称<strong>{planModal.name}</strong></span>
+                  <span>应用范围<strong>{planModal.mode === "add" ? `${planModal.classIds.length} 个班级` : "当前班级"}</strong></span>
+                  <span>生效日期<strong>{planModal.activeFrom} 至 {planModal.forever ? "长期" : planModal.activeUntil || "未设置"}</strong></span>
+                  <span>周次规则<strong>{planModal.weekMode === "ab" ? "A/B 周交替" : planModal.repeatEveryWeeks === 1 ? "每周" : `每 ${planModal.repeatEveryWeeks} 周`}</strong></span>
+                  <span>节假日<strong>{planModal.excludeOfficialHolidays ? "自动排除" : "不自动排除"}</strong></span>
+                </div>
+                <p className="admin-major-card__hint">保存后仍可在计划设置中修改规则；批量创建的计划会分别归属于各班级。</p>
+              </div>}
             </div>
+          </div>
+          <div className="admin-modal__actions">
+            <button className="admin-btn" onClick={planWizardStep === 0 ? closePlanModal : () => setPlanWizardStep((value) => value - 1)}>{planWizardStep === 0 ? "取消" : "上一步"}</button>
+            {planWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={nextPlanStep}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitPlanModal}>保存到 {planModal.mode === "add" ? planModal.classIds.length : 1} 个班级</button>}
           </div>
         </div>
       </div>
@@ -1895,37 +1940,20 @@ export default function WeeklyPanel({
           })}
         >
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="admin-modal__title">批量删除周测计划</h2>
-            <p className="admin-modal__body">
-              按年级和班级选择要删除的具体计划。删除当前启用计划后，该班会自动切换到剩余计划；没有剩余计划时将清空。
-            </p>
-            <ClassMultiPicker
-              options={planPickerOptions}
-              selectedIds={batchDeletePlanIds}
-              onChange={setBatchDeletePlanIds}
-              noun="计划"
-              emptyText="当前范围内没有可删除的周测计划"
-            />
+            <h2 className="admin-modal__title admin-workflow-head">批量删除周测计划</h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps active={batchDeleteStep} steps={[{ label: "选择计划", hint: "按年级筛选并勾选" }, { label: "确认删除", hint: "核对影响范围" }]} summary={<><span>已选择</span><strong>{batchDeletePlanIds.length} 个计划</strong><span>删除后可整批撤销</span></>} />
+              <div className="admin-workflow-content" key={batchDeleteStep}>
+                {batchDeleteStep === 0 && <div className="admin-workflow-pane"><p className="admin-modal__body">按年级和班级选择要删除的具体计划。</p><ClassMultiPicker options={planPickerOptions} selectedIds={batchDeletePlanIds} onChange={setBatchDeletePlanIds} noun="计划" emptyText="当前范围内没有可删除的周测计划" /></div>}
+                {batchDeleteStep === 1 && <div className="admin-workflow-pane"><div className="admin-workflow-review"><span>删除数量<strong>{batchDeletePlanIds.length} 个周测计划</strong></span><span>删除后处理<strong>自动切换各班剩余计划；无剩余则清空</strong></span><span>恢复方式<strong>页面顶部支持整批撤销</strong></span></div><p className="admin-major-card__hint">请确认所选年级和班级无误后再删除。</p></div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--danger"
-                disabled={!batchDeletePlanIds.length}
-                onClick={() => void removeSelectedPlans()}
-              >
-                删除 {batchDeletePlanIds.length} 个计划
-              </button>
-              <button
-                className="admin-btn"
-                onClick={() => {
-                  setBatchDeleteOpen(false);
-                  setBatchDeletePlanIds([]);
-                }}
-              >
-                取消
-              </button>
+              <button className="admin-btn" onClick={() => { if (batchDeleteStep) setBatchDeleteStep(0); else { setBatchDeleteOpen(false); setBatchDeletePlanIds([]); } }}>{batchDeleteStep ? "上一步" : "取消"}</button>
+              {batchDeleteStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!batchDeletePlanIds.length} onClick={() => setBatchDeleteStep(1)}>下一步，确认范围</button> : <button className="admin-btn admin-btn--danger admin-workflow-actions-spacer" onClick={() => void removeSelectedPlans()}>删除 {batchDeletePlanIds.length} 个计划</button>}
             </div>
           </div>
         </div>
@@ -1938,12 +1966,23 @@ export default function WeeklyPanel({
             setEditing(null);
           })}
         >
-          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="admin-modal__title">
+          <div className="admin-modal admin-modal--wide admin-modal--workflow" onClick={(e) => e.stopPropagation()}>
+            <h2 className="admin-modal__title admin-workflow-head">
               {editing.id ? "编辑周测" : "添加周测"}
             </h2>
             {editError && <div className="admin-error">{editError}</div>}
-            <div className="admin-form">
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps
+                active={itemWizardStep}
+                steps={[
+                  { label: "选择科目", hint: "常用或自定义科目" },
+                  { label: "时间规则", hint: "周次、时间和备注" },
+                  { label: "确认保存", hint: "检查本次周测" },
+                ]}
+                summary={<><span>当前周测</span><strong>{editing.name || "尚未选择科目"}</strong><span>{WEEKDAY_LABEL[editing.weekday]} · {editing.startTime || "--:--"} - {editing.endTime || "--:--"}</span></>}
+              />
+              <div className="admin-workflow-content" key={itemWizardStep}>
+              {itemWizardStep === 0 && <div className="admin-workflow-pane">
               <label className="admin-label">
                 名称
                 <InlineSelect
@@ -1967,6 +2006,8 @@ export default function WeeklyPanel({
                 />
                 {(customWeeklySubjectActive || (editing.name && !COMMON_WEEKLY_SUBJECTS.includes(editing.name))) && <input className="admin-input" autoFocus value={editing.name} onChange={(e) => setEditing((p) => p && { ...p, name: e.target.value })} placeholder="填写自定义科目名称" maxLength={40} />}
               </label>
+              </div>}
+              {itemWizardStep === 1 && <div className="admin-workflow-pane admin-workflow-pane--two-column">
               <label className="admin-label">
                 星期
                 <InlineSelect
@@ -2035,25 +2076,21 @@ export default function WeeklyPanel({
                 />
                 启用此周测
               </label>
-              <div className="admin-form-actions">
-                <button
-                  className="admin-btn admin-btn--primary"
-                  onClick={commitItemModal}
-                >
-                  确认并保存
-                </button>
-                <button
-                  className="admin-btn admin-btn--ghost"
-                  onClick={() => {
-                    setWeeklyTimeFlowOpen(false);
-                    setEditing(null);
-                    setCustomWeeklySubjectActive(false);
-                    setEditError("");
-                  }}
-                >
-                  取消
-                </button>
+              </div>}
+              {itemWizardStep === 2 && <div className="admin-workflow-pane">
+                <div className="admin-workflow-review">
+                  <span>考试科目<strong>{editing.name || "未选择"}</strong></span>
+                  <span>进行时间<strong>{WEEKDAY_LABEL[editing.weekday]} {editing.startTime} - {editing.endTime}{editing.endNextDay ? "（次日）" : ""}</strong></span>
+                  <span>适用周次<strong>{activePlan.weekMode === "ab" ? editing.weekType === "a" ? "仅 A 周" : editing.weekType === "b" ? "仅 B 周" : "A/B 周都进行" : "每个生效周"}</strong></span>
+                  <span>地点备注<strong>{editing.location || "无"}</strong></span>
+                  <span>启用状态<strong>{editing.enabled ? "启用" : "停用"}</strong></span>
+                </div>
+              </div>}
               </div>
+            </div>
+            <div className="admin-modal__actions">
+              <button className="admin-btn" onClick={itemWizardStep === 0 ? () => { setWeeklyTimeFlowOpen(false); setEditing(null); setCustomWeeklySubjectActive(false); setEditError(""); } : () => setItemWizardStep((value) => value - 1)}>{itemWizardStep === 0 ? "取消" : "上一步"}</button>
+              {itemWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (itemWizardStep === 0 && !editing.name.trim()) { setEditError("请先选择或填写周测科目。"); return; } setEditError(""); setItemWizardStep((value) => value + 1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitItemModal}>确认并保存</button>}
             </div>
           </div>
         </div>
@@ -2110,16 +2147,19 @@ export default function WeeklyPanel({
           {...backdropProps(() => closeImport())}
         >
           <div
-            className="admin-modal admin-modal--wide weekly-import-modal"
+            className="admin-modal admin-modal--wide admin-modal--workflow weekly-import-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="weekly-import-modal__steps" aria-label="导入步骤">
-              <span className={importStep === "paste" ? "is-current" : "is-done"}>1. 粘贴 JSON</span>
-              <span className={importStep === "targets" ? "is-current" : ""}>2. 选择班级</span>
-            </div>
+            <h2 className="admin-modal__title admin-workflow-head">导入周测 JSON</h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps
+                active={importStep === "paste" ? 0 : 1}
+                steps={[{ label: "粘贴校验", hint: "识别周测 JSON" }, { label: "选择班级", hint: "确认应用范围" }]}
+                summary={<><span>导入内容</span><strong>{importSummary?.planName || "待校验 JSON"}</strong><span>{importSummary ? `${importSummary.itemCount} 项周测安排` : "尚未识别"}</span></>}
+              />
+              <div className="admin-workflow-content" key={importStep}>
             {importStep === "paste" ? (
               <>
-                <h2 className="admin-modal__title">导入周测 JSON</h2>
                 <p className="admin-modal__body">
                   先粘贴 JSON 并校验内容，下一步再选择应用班级。
                 </p>
@@ -2146,7 +2186,7 @@ export default function WeeklyPanel({
               </>
             ) : (
               <>
-                <h2 className="admin-modal__title">选择应用班级</h2>
+                <h3 className="admin-modal__title">选择应用班级</h3>
                 <div className="weekly-import-modal__summary">
                   <strong>{importSummary?.planName || "周测 JSON"}</strong>
                   <span>已识别 {importSummary?.itemCount ?? 0} 项周测安排</span>
@@ -2178,6 +2218,8 @@ export default function WeeklyPanel({
                 </div>
               </>
             )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -2299,6 +2341,9 @@ export default function WeeklyPanel({
               整日排除的日期当天完全不生成周测；下方“单次调整”是“取消本次 /
               临时调课 / 本周仍然进行”产生的记录，可在此撤销。
             </p>
+            <div className="weekly-exception-layout">
+              <section>
+                <h3>整日排除</h3>
             <label className="admin-toggle-label">
               <input
                 type="checkbox"
@@ -2372,9 +2417,9 @@ export default function WeeklyPanel({
             ) : (
               <p className="admin-collapsed-hint">暂无整日排除</p>
             )}
-            <h2 className="admin-modal__title" style={{ marginTop: 18 }}>
-              单次调整记录
-            </h2>
+              </section>
+              <section>
+            <h3>单次调整记录</h3>
             {activePlan.overrides.length > 0 ? (
               <ul
                 className="admin-list"
@@ -2415,6 +2460,8 @@ export default function WeeklyPanel({
             ) : (
               <p className="admin-collapsed-hint">暂无单次调整</p>
             )}
+              </section>
+            </div>
             <div className="admin-form-actions">
               <button
                 className="admin-btn admin-btn--primary"
@@ -2432,11 +2479,14 @@ export default function WeeklyPanel({
           {...backdropProps(() => setCopyModal(null))}
         >
           <div
-            className="admin-modal"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="admin-modal__title">批量应用周测计划</h2>
-            <label className="admin-label">
+            <h2 className="admin-modal__title admin-workflow-head">批量应用周测计划</h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps active={copyWizardStep} steps={[{ label: "选择计划", hint: "确定源计划和标题" }, { label: "应用班级", hint: "批量选择目标班级" }]} summary={<><span>源计划</span><strong>{weeklyPlans.find((plan) => plan.id === copyModal.sourcePlanId)?.name || "未选择"}</strong><span>{copyModal.targetClassIds.length} 个目标班级</span></>} />
+              <div className="admin-workflow-content" key={copyWizardStep}>
+              {copyWizardStep === 0 && <div className="admin-workflow-pane"><label className="admin-label">
               源计划
               <InlineSelect
                 className="admin-input"
@@ -2498,8 +2548,8 @@ export default function WeeklyPanel({
                 }
                 placeholder="请输入计划标题"
               />
-            </label>
-            <div className="admin-label">
+            </label></div>}
+            {copyWizardStep === 1 && <div className="admin-workflow-pane"><div className="admin-label">
               应用到班级
               <ClassMultiPicker
                 options={pickerOptions.filter(
@@ -2519,18 +2569,12 @@ export default function WeeklyPanel({
             </div>
             <p className="admin-major-card__hint">
               每个目标班级会创建一份已启用的独立计划，之后可分别编辑。
-            </p>
+            </p></div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={commitCopyPlan}
-                disabled={!copyModal.targetClassIds.length}
-              >
-                应用到 {copyModal.targetClassIds.length} 个班级
-              </button>
-              <button className="admin-btn" onClick={() => setCopyModal(null)}>
-                取消
-              </button>
+              <button className="admin-btn" onClick={() => copyWizardStep ? setCopyWizardStep(0) : setCopyModal(null)}>{copyWizardStep ? "上一步" : "取消"}</button>
+              {copyWizardStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!copyModal.sourcePlanId || !copyModal.name.trim()} onClick={() => setCopyWizardStep(1)}>下一步，选择班级</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitCopyPlan} disabled={!copyModal.targetClassIds.length}>应用到 {copyModal.targetClassIds.length} 个班级</button>}
             </div>
           </div>
         </div>
@@ -2664,37 +2708,20 @@ export default function WeeklyPanel({
           {...backdropProps(() => setPrintPickerOpen(false))}
         >
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="admin-modal__title">批量预览与下载 PDF</h2>
-            <p className="admin-modal__body">
-              选择需要导出的班级。一个 PDF 内按班级分组，每个班级仍保持一周一张
-              A4 页面。
-            </p>
-            <ClassMultiPicker
-              options={pickerOptions}
-              gradeId={selectedGradeId}
-              selectedIds={printClassIds}
-              onChange={setPrintClassIds}
-            />
+            <h2 className="admin-modal__title admin-workflow-head">批量预览与下载 PDF</h2>
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps active={printPickerStep} steps={[{ label: "选择班级", hint: "勾选需要导出的范围" }, { label: "确认文档", hint: "核对页数和排版" }]} summary={<><span>导出范围</span><strong>{printSchedules.length} 个班级</strong><span>每班一周一张 A4</span></>} />
+              <div className="admin-workflow-content" key={printPickerStep}>
+                {printPickerStep === 0 && <div className="admin-workflow-pane"><p className="admin-modal__body">选择需要导出的班级。</p><ClassMultiPicker options={pickerOptions} gradeId={selectedGradeId} selectedIds={printClassIds} onChange={setPrintClassIds} /></div>}
+                {printPickerStep === 1 && <div className="admin-workflow-pane"><div className="admin-workflow-review"><span>班级数量<strong>{printSchedules.length} 个</strong></span><span>文档结构<strong>按班级分组</strong></span><span>分页规则<strong>每个班级一周一张 A4 页面</strong></span></div></div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                disabled={!printSchedules.length}
-                onClick={() => {
-                  setPrintPickerOpen(false);
-                  setPrintOpen(true);
-                }}
-              >
-                预览 {printSchedules.length} 个班级
-              </button>
-              <button
-                className="admin-btn"
-                onClick={() => setPrintPickerOpen(false)}
-              >
-                取消
-              </button>
+              <button className="admin-btn" onClick={() => printPickerStep ? setPrintPickerStep(0) : setPrintPickerOpen(false)}>{printPickerStep ? "上一步" : "取消"}</button>
+              {printPickerStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!printSchedules.length} onClick={() => setPrintPickerStep(1)}>下一步，确认文档</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { setPrintPickerOpen(false); setPrintOpen(true); }}>预览 {printSchedules.length} 个班级</button>}
             </div>
           </div>
         </div>

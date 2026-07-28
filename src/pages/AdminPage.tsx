@@ -66,6 +66,7 @@ import BrandMark from "../components/BrandMark";
 import QuickMajorPublishModal, {
   type QuickMajorPublishInput,
 } from "../components/QuickMajorPublishModal";
+import AdminWizardSteps from "../components/AdminWizardSteps";
 import InlineSelect from "../components/InlineSelect";
 import TimeRangePickerModal from "../components/TimeRangePickerModal";
 import { notify } from "../services/notify";
@@ -303,14 +304,22 @@ export default function AdminPage() {
   } | null>(null);
   const [collapsedList, setCollapsedList] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [majorImportStep, setMajorImportStep] = useState(0);
   const [openImportGuide, setOpenImportGuide] = useState(false);
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
   const [majorModal, setMajorModal] = useState<MajorModal>(null);
+  const [majorModalStep, setMajorModalStep] = useState(0);
   const [majorError, setMajorError] = useState("");
   const [deleteMajorOpen, setDeleteMajorOpen] = useState(false);
   const [majorPrintOpen, setMajorPrintOpen] = useState(false);
   const [quickMajorOpen, setQuickMajorOpen] = useState(false);
+  useEffect(() => {
+    if (majorModal) setMajorModalStep(0);
+  }, [majorModal !== null]);
+  useEffect(() => {
+    if (importOpen) setMajorImportStep(0);
+  }, [importOpen]);
   const [editingMajorIdByGrade, setEditingMajorIdByGrade] = useState<
     Record<string, string>
   >({});
@@ -2779,82 +2788,42 @@ export default function AdminPage() {
           className="admin-modal-overlay"
           {...backdropProps(() => setMajorModal(null))}
         >
-          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="admin-modal__title">
+          <div className="admin-modal admin-modal--wide admin-modal--workflow" onClick={(e) => e.stopPropagation()}>
+            <h2 className="admin-modal__title admin-workflow-head">
               {majorModal.next === "import"
                 ? "先填写考试标题"
                 : majorModal.mode === "add"
                   ? "新建大型考试"
                   : "大型考试设置"}
             </h2>
-            {majorModal.next === "import" && (
-              <p className="admin-modal__body">
-                当前年级还没有大型考试。请先填写本次考试的标题，创建后将自动生成使用该标题的
-                AI 识图提示词。
-              </p>
-            )}
             {majorError && <div className="admin-error">{majorError}</div>}
-            <label className="admin-label">
-              名称
-              <input
-                className="admin-input"
-                autoFocus
-                value={majorModal.name}
-                onChange={(e) =>
-                  setMajorModal((p) => p && { ...p, name: e.target.value })
-                }
-                placeholder="如：2026年高考 / 高三一模"
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps
+                active={majorModalStep}
+                steps={[{ label: "考试名称", hint: "填写清晰的考试标题" }, { label: "适用范围", hint: "确认下发年级" }]}
+                summary={<><span>大型考试</span><strong>{majorModal.name || "尚未命名"}</strong><span>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</span></>}
               />
-            </label>
-            <label className="admin-label">
-              适用范围{" "}
-              <HelpTip title="适用范围">
-                默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。
-              </HelpTip>
-              <InlineSelect
-                className="admin-input"
-                value={
-                  majorModal.targetGradeIds.length
-                    ? majorModal.targetGradeIds[0]
-                    : "all"
-                }
-                onChange={(value) =>
-                  setMajorModal(
-                    (p) =>
-                      p && {
-                        ...p,
-                        targetGradeIds: value === "all" ? [] : [value],
-                      },
-                  )
-                }
-                options={[
-                  ...(hasAllScope ? [{ value: "all", label: "全校统一" }] : []),
-                  ...visibleGrades.map((grade) => ({
-                    value: grade.id,
-                    label: grade.name,
-                  })),
-                ]}
-              />
-            </label>
-            <p className="admin-major-card__hint">
-              后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。
-            </p>
+              <div className="admin-workflow-content" key={majorModalStep}>
+                {majorModalStep === 0 && <div className="admin-workflow-pane">
+                  {majorModal.next === "import" && <p className="admin-modal__body">当前年级还没有大型考试。先填写标题，创建后将生成对应的 AI 识图提示词。</p>}
+                  <label className="admin-label">
+                    考试名称
+                    <input className="admin-input" autoFocus value={majorModal.name} onChange={(e) => setMajorModal((p) => p && { ...p, name: e.target.value })} placeholder="如：2026年高考 / 高三一模" />
+                  </label>
+                </div>}
+                {majorModalStep === 1 && <div className="admin-workflow-pane">
+                  <label className="admin-label">
+                    适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip>
+                    <InlineSelect className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : "all"} onChange={(value) => setMajorModal((p) => p && { ...p, targetGradeIds: value === "all" ? [] : [value] })} options={[...(hasAllScope ? [{ value: "all", label: "全校统一" }] : []), ...visibleGrades.map((grade) => ({ value: grade.id, label: grade.name }))]} />
+                  </label>
+                  <div className="admin-workflow-review"><span>考试名称<strong>{majorModal.name}</strong></span><span>显示范围<strong>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</strong></span></div>
+                  <p className="admin-major-card__hint">后台切换考试只改变编辑对象，不会覆盖大屏；客户端按绑定年级自动匹配。</p>
+                </div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={commitMajorModal}
-              >
-                {majorModal.next === "import" ? "创建并继续导入" : "确认"}
-              </button>
-              <button
-                className="admin-btn"
-                onClick={() => {
-                  setMajorModal(null);
-                  setMajorError("");
-                }}
-              >
-                取消
-              </button>
+              <button className="admin-btn" onClick={() => { if (majorModalStep) setMajorModalStep(0); else { setMajorModal(null); setMajorError(""); } }}>{majorModalStep ? "上一步" : "取消"}</button>
+              {majorModalStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (!majorModal.name.trim()) { setMajorError("请输入大型考试名称"); return; } setMajorError(""); setMajorModalStep(1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitMajorModal}>{majorModal.next === "import" ? "创建并继续导入" : "确认保存"}</button>}
             </div>
           </div>
         </div>
@@ -3335,46 +3304,21 @@ export default function AdminPage() {
           })}
         >
           <div
-            className="admin-modal admin-modal--wide"
+            className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="admin-modal__title">导入分考试 JSON</h2>
-            <p className="admin-modal__body">
-              导入到当前大型考试「{activeMajor.name}
-              」，导入前会校验必填字段并按开始时间排序。支持纯数组，或含{" "}
-              <code>title</code> 与 <code>items</code> 的对象。
-            </p>
-            <AiImportGuide
-              kind="major"
-              context={`${initialization.schoolFullName || "当前学校"}，${activeMajorScopeLabel}，大型考试“${activeMajor.name}”`}
-              targetTitle={activeMajor.name}
-              initiallyOpen={openImportGuide}
-            />
+            <h2 className="admin-modal__title admin-workflow-head">导入分考试 JSON</h2>
             {importError && <div className="admin-error">{importError}</div>}
-            <textarea
-              className="admin-textarea"
-              rows={11}
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}'
-            />
+            <div className="admin-workflow-layout">
+              <AdminWizardSteps active={majorImportStep} steps={[{ label: "准备内容", hint: "查看格式或生成提示词" }, { label: "粘贴导入", hint: "校验并写入分考试" }]} summary={<><span>导入到</span><strong>{activeMajor.name}</strong><span>{activeMajorScopeLabel}</span></>} />
+              <div className="admin-workflow-content" key={majorImportStep}>
+                {majorImportStep === 0 && <div className="admin-workflow-pane"><p className="admin-modal__body">支持纯数组，或含 <code>title</code> 与 <code>items</code> 的对象。导入时会校验字段并按开始时间排序。</p><AiImportGuide kind="major" context={`${initialization.schoolFullName || "当前学校"}，${activeMajorScopeLabel}，大型考试“${activeMajor.name}”`} targetTitle={activeMajor.name} initiallyOpen={openImportGuide} /></div>}
+                {majorImportStep === 1 && <div className="admin-workflow-pane"><label className="admin-label">考试安排 JSON<textarea className="admin-textarea" rows={11} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='{"title":"2026年高考","items":[{"name":"语文","startTime":"2026-06-07T09:00:00","endTime":"2026-06-07T11:30:00","enabled":true}]}' /></label></div>}
+              </div>
+            </div>
             <div className="admin-modal__actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={importJson}
-              >
-                校验并导入
-              </button>
-              <button
-                className="admin-btn"
-                onClick={() => {
-                  setImportOpen(false);
-                  setOpenImportGuide(false);
-                  setImportError("");
-                }}
-              >
-                取消
-              </button>
+              <button className="admin-btn" onClick={() => { if (majorImportStep) setMajorImportStep(0); else { setImportOpen(false); setOpenImportGuide(false); setImportError(""); } }}>{majorImportStep ? "上一步" : "取消"}</button>
+              {majorImportStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => setMajorImportStep(1)}>下一步，粘贴 JSON</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={importJson}>校验并导入</button>}
             </div>
           </div>
         </div>
