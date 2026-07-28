@@ -11,6 +11,7 @@ import './styles/temporary-exam.css';
 import './styles/subject-icons.css';
 import './styles/brand.css';
 import './styles/scrollbars.css';
+import './styles/transitions.css';
 import { startTimeSyncManager } from './utils/timeSync';
 import { registerPwa } from './services/pwa';
 import { bindTypographySettings } from './utils/typographySettings';

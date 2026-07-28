@@ -284,7 +284,7 @@
 .device-status__heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:16px; }
 .device-status__heading h2 { margin:0; font-size:1.05rem; }
 .device-status__heading p { margin:6px 0 0; color:rgba(255,255,255,.55); font-size:.8rem; }
-.device-status__stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+.device-status__stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:16px 0 12px; }
 .device-status__stats>div { padding:13px 15px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.035); }
 .device-status__stats span { display:block; color:rgba(255,255,255,.55); font-size:.74rem; }
 .device-status__stats strong { display:block; margin-top:6px; font-size:1.35rem; font-variant-numeric:tabular-nums; }

@@ -2321,7 +2321,8 @@ export default function AdminPage() {
           )}
       </div>
       <div
-        className={`admin-body${(["overview", "classes", "devices", "users"] as AdminTab[]).includes(adminTab) ? " admin-body--wide" : ""}`}
+        key={adminTab}
+        className={`admin-body admin-tab-transition${(["overview", "classes", "devices", "users"] as AdminTab[]).includes(adminTab) ? " admin-body--wide" : ""}`}
       >
         {adminTab === "overview" ? (
           <OverviewPanel
