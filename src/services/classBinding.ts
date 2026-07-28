@@ -30,6 +30,14 @@ export interface DeviceBindingInfo extends DeviceBinding {
 }
 
 export type DeviceSetupConflict = { instanceId: string; status: string; lastSeenAt: number; online: boolean };
+export type DeviceBindingSaveResult = { ok: true; replaced: boolean } | { ok: false; conflict?: DeviceSetupConflict; error: string };
+
+export async function fetchOccupiedClassIds(): Promise<string[]> {
+  const response = await fetch(`${API_URL}?action=device-binding-options&instanceId=${encodeURIComponent(getInstanceId())}`, { cache: 'no-store' });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || '班级绑定状态加载失败');
+  return Array.isArray(data?.occupiedClassIds) ? data.occupiedClassIds.filter((value: unknown): value is string => typeof value === 'string') : [];
+}
 export async function setupManagedDevice(input: { bindManagement: boolean; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<{ conflict?: DeviceSetupConflict }> {
   const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) });
   const data = await response.json().catch(() => null);
@@ -101,15 +109,17 @@ export function cacheDeviceBinding(binding: DeviceBinding | null): void {
   }
 }
 
-export async function saveDeviceBinding(gradeId: string, classId: string): Promise<boolean> {
+export async function saveDeviceBinding(gradeId: string, classId: string, replaceExisting = false): Promise<DeviceBindingSaveResult> {
   try {
-    const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId }) });
-    if (!response.ok) return false;
+    const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) });
+    const data = await response.json().catch(() => null);
+    if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已绑定其他考试端' };
+    if (!response.ok) return { ok: false, error: data?.error || '班级绑定失败' };
     cacheDeviceBinding({ gradeId, classId, revoked: false, isManagement: false });
     markClassChoiceConfirmed();
     markDevicePurposeConfirmed();
-    return true;
-  } catch { return false; }
+    return { ok: true, replaced: replaceExisting };
+  } catch (error) { return { ok: false, error: error instanceof Error ? error.message : '班级绑定失败，请检查网络后重试' }; }
 }
 
 function authHeaders(): Record<string, string> {

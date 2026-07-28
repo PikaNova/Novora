@@ -10,11 +10,12 @@ import ClassMultiPicker from '../components/ClassMultiPicker';
 import type { ExamItem } from '../types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import { APP_SETTINGS_CHANGED_EVENT, APP_SETTINGS_KEY } from '../utils/appSettings';
-import { cacheDeviceBinding, getCachedDeviceBinding, getClassBindingInstanceId, hasConfirmedDevicePurpose, markClassChoiceConfirmed, markDevicePurposeConfirmed, saveDeviceBinding, setupManagedDevice, type DeviceBinding } from '../services/classBinding';
+import { cacheDeviceBinding, fetchOccupiedClassIds, getCachedDeviceBinding, getClassBindingInstanceId, hasConfirmedDevicePurpose, markClassChoiceConfirmed, markDevicePurposeConfirmed, saveDeviceBinding, setupManagedDevice, type DeviceBinding } from '../services/classBinding';
 import { classDisplayName, sortedClasses, sortedGrades } from '../utils/classSettings';
 import { useExamSync } from '../hooks/useExamSync';
 import { hasValidLocalToken } from '../services/examService';
 import { notify } from '../services/notify';
+import { confirmDialog } from '../services/appDialog';
 import '../styles/welcome.css';
 import { CalendarDays, Gauge, LogIn, MonitorCog, X } from 'lucide-react';
 
@@ -53,6 +54,8 @@ export default function WelcomePage() {
   const [grades, setGrades] = useState(() => sortedGrades(initialExam.grades));
   const [classes, setClasses] = useState(() => sortedClasses(initialExam.classes));
   const [promptGradeId, setPromptGradeId] = useState(initialExam.selectedGradeId || '');
+  const [occupiedClassIds, setOccupiedClassIds] = useState<string[]>([]);
+  const [bindingClassId, setBindingClassId] = useState('');
   const { syncState, refresh } = useExamSync({
     bootstrapInstanceId: hasConfirmedDevicePurpose() ? undefined : getClassBindingInstanceId(),
     onBootstrapBinding: binding => { cacheDeviceBinding(binding); if (binding && !binding.revoked) markDevicePurposeConfirmed(); setRemoteBinding(binding); },
@@ -77,6 +80,12 @@ export default function WelcomePage() {
     setClassPromptOpen(true);
   }, [isInitialized, remoteBinding, syncState]);
   useEffect(() => {
+    if (!classPromptOpen || !isInitialized) return;
+    let active = true;
+    void fetchOccupiedClassIds().then(ids => { if (active) setOccupiedClassIds(ids); }).catch(() => { if (active) setOccupiedClassIds([]); });
+    return () => { active = false; };
+  }, [classPromptOpen, isInitialized]);
+  useEffect(() => {
     const wantsManagement = new URLSearchParams(location.search).get('management') === '1';
     if (!wantsManagement || managementSetupRef.current || !hasValidLocalToken()) return;
     managementSetupRef.current = true;
@@ -93,7 +102,27 @@ export default function WelcomePage() {
   }, [location.search, navigate]);
   const install = async () => { resetIdle(); const installed = await promptInstallPwa(); if (installed) setPwaAvailable(false); };
   const dismissPwa = () => { localStorage.setItem(PWA_DISMISS_KEY, String(Date.now())); setPwaAvailable(false); resetIdle(); };
-  const chooseClass = async (classId: string) => { if (!promptGradeId || !classId) return; const saved = await saveDeviceBinding(promptGradeId, classId); if (!saved) { notify('error', '班级绑定失败。该班级可能已绑定其他考试端，请联系管理员处理。'); return; } const binding: DeviceBinding = { gradeId: promptGradeId, classId, revoked: false, isManagement: false }; updateExamSettings({ selectedGradeId: promptGradeId, selectedClassId: classId }); setRemoteBinding(binding); setClassPromptOpen(false); resetIdle(); };
+  const chooseClass = async (classId: string) => {
+    if (!promptGradeId || !classId || bindingClassId) return;
+    setBindingClassId(classId);
+    try {
+      let replaceExisting = occupiedClassIds.includes(classId);
+      if (replaceExisting && !(await confirmDialog({ title: '该班级已绑定其他设备', message: '继续后将解除原考试端及其 ClassIsland 配对，并将当前设备设为该班级的新考试端。', tone: 'warning', confirmLabel: '解除旧设备并绑定本机' }))) return;
+      let result = await saveDeviceBinding(promptGradeId, classId, replaceExisting);
+      if (!result.ok && result.conflict && !replaceExisting) {
+        replaceExisting = await confirmDialog({ title: '该班级已绑定其他设备', message: '继续后将解除原考试端及其 ClassIsland 配对，并将当前设备设为该班级的新考试端。', tone: 'warning', confirmLabel: '解除旧设备并绑定本机' });
+        if (!replaceExisting) return;
+        result = await saveDeviceBinding(promptGradeId, classId, true);
+      }
+      if (!result.ok) { notify('error', result.error); return; }
+      const binding: DeviceBinding = { gradeId: promptGradeId, classId, revoked: false, isManagement: false };
+      updateExamSettings({ selectedGradeId: promptGradeId, selectedClassId: classId });
+      setRemoteBinding(binding);
+      setClassPromptOpen(false);
+      notify('success', result.replaced ? '已解除旧设备并将本机绑定为新的班级考试端。' : '本机已绑定为该班级考试端。');
+      resetIdle();
+    } finally { setBindingClassId(''); }
+  };
   const openClassPrompt = () => { setPromptGradeId(currentExamSettings.selectedGradeId || ''); setClassPromptOpen(true); resetIdle(); };
   const enterExam = () => { if (!isBound) { openClassPrompt(); return; } navigate('/exam'); };
   const bindAsManagement = () => {
@@ -133,6 +162,6 @@ export default function WelcomePage() {
     <div className="welcome-grid welcome-grid--has-exam"><button className="welcome-card welcome-card--featured" onClick={enterExam}><span className="welcome-card__icon"><Gauge /></span><span className="welcome-card__text"><span className="welcome-card__label">{ongoing ? '返回考试大屏' : nextExam ? '查看开考倒计时' : '查看考试大屏'}</span><span className="welcome-card__desc">{ongoing ? '正在进行，显示剩余时间' : nextExam ? '下一场考试与开考时间' : classDataLoading ? '正在同步班级设置' : !isBound ? '进入时选择本机班级' : '暂无考试，可先进行安排'}</span></span></button><button className="welcome-card" onClick={() => navigate('/preferences')}><span className="welcome-card__icon"><CalendarDays /></span><span className="welcome-card__text"><span className="welcome-card__label">考试安排预览</span><span className="welcome-card__desc">本班日历与 A4 导出</span></span></button><button className="welcome-card" onClick={() => navigate('/local-settings')}><span className="welcome-card__icon"><MonitorCog /></span><span className="welcome-card__text"><span className="welcome-card__label">本地设置</span><span className="welcome-card__desc">班级、显示与字体</span></span></button><button className="welcome-card" onClick={() => navigate('/admin')}><span className="welcome-card__icon"><LogIn /></span><span className="welcome-card__text"><span className="welcome-card__label">登录管理</span><span className="welcome-card__desc">使用账户进入管理后台</span></span></button></div>
     {pwaAvailable && <div className="welcome-pwa"><span>📲 可添加到设备桌面，便于离线使用</span><button onClick={install}>添加</button><button className="welcome-pwa__dismiss" onClick={dismissPwa}>暂不</button></div>}
     <p className="welcome-idle-hint">{isInitialized && isBound ? <><b>{idleLeft}</b> 秒后自动进入考试大屏</> : isManagement ? '管理设备不会自动进入考试大屏' : '完成初始化并选择班级后启用自动进入大屏'}</p><Watermark />
-    {classPromptOpen && <div className="welcome-class-overlay" role="dialog" aria-modal="true" aria-labelledby="welcome-class-title"><div className="welcome-class-dialog">{(isBound || isManagement) && <button type="button" className="welcome-class-dialog__close" onClick={() => setClassPromptOpen(false)} aria-label="关闭班级选择"><X /></button>}<span className="welcome-class-dialog__eyebrow">本设备用途</span><h2 id="welcome-class-title">绑定班级考试端</h2><p>{remoteBinding?.revoked ? '此设备已被管理员删除，请重新选择设备用途。' : '班级考试端只显示所选班级的周测和适用考试，一个班级仅保留一台。'}</p>{isInitialized ? <div className="welcome-class-options"><div className="welcome-class-step"><span>1. 选择年级</span><div className="welcome-class-choices" role="listbox" aria-label="选择年级">{grades.map(item => <button type="button" role="option" aria-selected={promptGradeId === item.id} className={promptGradeId === item.id ? 'is-selected' : ''} key={item.id} onClick={() => setPromptGradeId(item.id)}>{item.name}</button>)}</div></div>{promptGradeId && <div className="welcome-class-step"><span>2. 搜索并选择班级</span><ClassMultiPicker options={classes.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: grades.find(grade => grade.id === item.gradeId)?.name || '未知年级', className: item.name }))} gradeId={promptGradeId} selectedIds={[]} onChange={ids => void chooseClass(ids[0] || '')} single /></div>}<div className="welcome-class-management"><span>本机仅用于管理？</span><button type="button" onClick={bindAsManagement}>登录并绑定为管理设备</button></div></div> : classDataLoading ? <div className="welcome-class-loading" role="status"><span />正在同步考试与班级设置…</div> : <div className="welcome-class-empty"><strong>{syncState === 'synced' ? '尚未创建可选择的班级' : '班级配置暂时不可用'}</strong><span>{syncState === 'synced' ? '请先由超级管理员完成学校、年级和班级初始化。' : '请检查网络后重新同步，避免覆盖已有云端配置。'}</span><div><button type="button" onClick={() => void refresh(true)}>重新同步</button>{syncState === 'synced' && <button type="button" className="is-primary" onClick={openInitialization}>开始初始化</button>}</div></div>}</div></div>}
+    {classPromptOpen && <div className="welcome-class-overlay" role="dialog" aria-modal="true" aria-labelledby="welcome-class-title"><div className="welcome-class-dialog">{(isBound || isManagement) && <button type="button" className="welcome-class-dialog__close" onClick={() => setClassPromptOpen(false)} aria-label="关闭班级选择"><X /></button>}<span className="welcome-class-dialog__eyebrow">本设备用途</span><h2 id="welcome-class-title">绑定班级考试端</h2><p>{remoteBinding?.revoked ? '此设备已被管理员删除，请重新选择设备用途。' : '标记“已绑定”的班级仍可选择，确认后会由本机接替原考试端。'}</p>{isInitialized ? <div className="welcome-class-options"><div className="welcome-class-step"><span>1. 选择年级</span><div className="welcome-class-choices" role="listbox" aria-label="选择年级">{grades.map(item => <button type="button" role="option" aria-selected={promptGradeId === item.id} className={promptGradeId === item.id ? 'is-selected' : ''} key={item.id} onClick={() => setPromptGradeId(item.id)}>{item.name}</button>)}</div></div>{promptGradeId && <div className="welcome-class-step"><span>2. 搜索并选择班级</span><ClassMultiPicker options={classes.map(item => ({ id: item.id, gradeId: item.gradeId, gradeName: grades.find(grade => grade.id === item.gradeId)?.name || '未知年级', className: item.name, statusLabel: occupiedClassIds.includes(item.id) ? '已绑定' : undefined }))} gradeId={promptGradeId} selectedIds={bindingClassId ? [bindingClassId] : []} onChange={ids => void chooseClass(ids[0] || '')} disabled={Boolean(bindingClassId)} single /></div>}<div className="welcome-class-management"><span>本机仅用于管理？</span><button type="button" onClick={bindAsManagement}>登录并绑定为管理设备</button></div></div> : classDataLoading ? <div className="welcome-class-loading" role="status"><span />正在同步考试与班级设置…</div> : <div className="welcome-class-empty"><strong>{syncState === 'synced' ? '尚未创建可选择的班级' : '班级配置暂时不可用'}</strong><span>{syncState === 'synced' ? '请先由超级管理员完成学校、年级和班级初始化。' : '请检查网络后重新同步，避免覆盖已有云端配置。'}</span><div><button type="button" onClick={() => void refresh(true)}>重新同步</button>{syncState === 'synced' && <button type="button" className="is-primary" onClick={openInitialization}>开始初始化</button>}</div></div>}</div></div>}
   </div>;
 }
