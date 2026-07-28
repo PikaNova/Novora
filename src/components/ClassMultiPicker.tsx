@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, Search } from 'lucide-react';
 import '../styles/class-picker.css';
 
-export type ClassPickerOption = { id: string; gradeId: string; gradeName: string; className: string };
+export type ClassPickerOption = { id: string; gradeId: string; gradeName: string; className: string; statusLabel?: string };
 
 type Props = {
   options: ClassPickerOption[];
@@ -45,7 +45,7 @@ export default function ClassMultiPicker({ options, selectedIds, onChange, grade
         const rows = visible.filter(item => item.gradeId === group.id);
         const rowIds = rows.map(item => item.id);
         const groupSelected = rowIds.length > 0 && rowIds.every(id => selectedIds.includes(id));
-        return <section key={group.id}><header><strong>{group.name}</strong>{!single && <button type="button" disabled={disabled} onClick={() => onChange(groupSelected ? selectedIds.filter(id => !rowIds.includes(id)) : [...new Set([...selectedIds, ...rowIds])])}>{groupSelected ? '取消全选' : `全选 ${rows.length} 个${noun}`}</button>}</header><div>{rows.map(item => { const checked = selectedIds.includes(item.id); return <button type="button" key={item.id} title={item.className} disabled={disabled} className={checked ? 'is-selected' : ''} aria-pressed={checked} onClick={() => toggle(item.id)}><span>{item.className}</span>{checked && <Check aria-hidden="true" />}</button>; })}</div></section>;
+        return <section key={group.id}><header><strong>{group.name}</strong>{!single && <button type="button" disabled={disabled} onClick={() => onChange(groupSelected ? selectedIds.filter(id => !rowIds.includes(id)) : [...new Set([...selectedIds, ...rowIds])])}>{groupSelected ? '取消全选' : `全选 ${rows.length} 个${noun}`}</button>}</header><div>{rows.map(item => { const checked = selectedIds.includes(item.id); return <button type="button" key={item.id} title={item.statusLabel ? `${item.className} · ${item.statusLabel}` : item.className} disabled={disabled} className={`${checked ? 'is-selected' : ''}${item.statusLabel ? ' has-status' : ''}`} aria-pressed={checked} onClick={() => toggle(item.id)}><span className="class-picker__option-label">{item.className}</span>{item.statusLabel && <small className="class-picker__option-status">{item.statusLabel}</small>}{checked && <Check aria-hidden="true" />}</button>; })}</div></section>;
       })}
     </div>
   </div>;

@@ -595,6 +595,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
       return;
     }
+    if (action === 'device-binding-options') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
+      const instanceId = String(req.query?.instanceId ?? '').trim().slice(0, 128);
+      if (!instanceId) { res.status(400).json({ ok: false, error: 'instanceId is required' }); return; }
+      await ensureTableOnce();
+      const rows = await sql`
+        SELECT DISTINCT class_id
+        FROM device_instances
+        WHERE class_id<>'' AND revoked=FALSE AND is_management=FALSE AND instance_id<>${instanceId}
+      ` as unknown as Array<{ class_id: string }>;
+      res.status(200).json({ ok: true, occupiedClassIds: rows.map(row => row.class_id).filter(Boolean) });
+      return;
+    }
     if (action === 'managed-device-setup' && req.method === 'POST') {
       let setupActor: AdminActor | null = null;
       if (await isPasswordRequired()) {
@@ -661,11 +675,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (req.method === 'POST') {
           const gradeId = String(req.body?.gradeId ?? '').trim().slice(0, 128);
           const classId = String(req.body?.classId ?? '').trim().slice(0, 128);
+          const replaceExisting = req.body?.replaceExisting === true;
           if (!gradeId || !classId) { res.status(400).json({ ok: false, error: 'gradeId and classId are required' }); return; }
           const occupied = await sql`SELECT instance_id, last_seen_at FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId} ORDER BY updated_at DESC LIMIT 1` as unknown as Array<{ instance_id: string; last_seen_at: number | string }>;
-          if (occupied[0]) {
+          if (occupied[0] && !replaceExisting) {
             const lastSeenAt = Number(occupied[0].last_seen_at ?? 0);
-            res.status(409).json({ ok: false, code: 'CLASS_DEVICE_EXISTS', error: '该班级已绑定其他考试端，请由管理员在设备管理中替换', existing: { instanceId: occupied[0].instance_id, lastSeenAt, online: Date.now() - lastSeenAt <= 90_000 } }); return;
+            res.status(409).json({ ok: false, code: 'CLASS_DEVICE_EXISTS', error: '该班级已绑定其他考试端', existing: { instanceId: occupied[0].instance_id, lastSeenAt, online: Date.now() - lastSeenAt <= 90_000 } }); return;
+          }
+          if (occupied[0]) {
+            const replacedAt = Date.now();
+            await sql`
+              UPDATE classisland_plugin_instances
+              SET paired=FALSE, grade_id='', class_id='', updated_at=${replacedAt}
+              WHERE viewer_instance_id IN (
+                SELECT instance_id FROM device_instances
+                WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId}
+              )
+            `;
+            await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${replacedAt} WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId}`;
           }
           const updatedAt = Date.now();
           await sql`
