@@ -2123,6 +2123,22 @@ export default function AdminPage() {
                 >
                   我的账户
                 </button>
+                {currentDeviceBinding &&
+                  !currentDeviceBinding.revoked &&
+                  !currentDeviceBinding.isManagement &&
+                  currentDeviceBinding.classId && (
+                    <button
+                      className="admin-more__mobile-only"
+                      onClick={() => {
+                        selectAdminTab(
+                          ADMIN_NAV.find((item) => item.id === "devices")!,
+                        );
+                        setMoreOpen(false);
+                      }}
+                    >
+                      当前为班级设备 · 前往设备管理
+                    </button>
+                  )}
                 {can("major.create") && (
                   <button
                     className="admin-more__mobile-only"

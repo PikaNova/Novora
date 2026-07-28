@@ -455,7 +455,7 @@
   .admin-user-chip{display:none}
   .admin-cloud{justify-content:center;width:auto;max-width:112px;height:34px;padding:0 8px;font-size:10px;overflow:hidden;text-overflow:ellipsis}
   .admin-cloud__dot{width:9px;height:9px}
-  .admin-device-role-chip{max-width:78px;min-height:34px;padding:0 7px;text-align:center}.admin-device-role-chip strong{font-size:10px;white-space:normal;line-height:1.2}
+  .admin-device-role-chip{display:none}
   .admin-more__trigger{min-width:52px;min-height:38px;padding-inline:10px}
   .admin-more__menu{z-index:10001;min-width:0;max-width:calc(100vw - 28px);overscroll-behavior:contain}
   .admin-more__menu button{min-height:44px;padding:12px 13px;font-size:14px}
