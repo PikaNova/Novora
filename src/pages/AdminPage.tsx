@@ -76,7 +76,6 @@ import { confirmDialog } from "../services/appDialog";
 import { changeOwnPassword } from "../services/adminUsers";
 import type { InitializationResult } from "../utils/initializationData";
 import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
-import { saveDeviceBinding } from "../services/classBinding";
 import type {
   AdminTab,
   ScheduleMode,
@@ -660,8 +659,6 @@ export default function AdminPage() {
       return;
     setSelectedClassId(classId);
     updateExamSettings({ selectedGradeId, selectedClassId: classId });
-    if (selectedGradeId && classId)
-      void saveDeviceBinding(selectedGradeId, classId);
   };
 
   // 构造待推送的完整载荷（items/title 镜像激活大型考试）

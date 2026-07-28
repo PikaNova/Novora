@@ -1,4 +1,3 @@
-import type { SchoolClass, SchoolGrade } from '../types/school';
 import { getClassBindingInstanceId } from './classBinding';
 
 const API_URL = '/api/exams';
@@ -6,8 +5,13 @@ const API_URL = '/api/exams';
 export interface PluginPairInfo {
   pluginInstanceId: string;
   expiresAt: number;
-  grades: SchoolGrade[];
-  classes: SchoolClass[];
+  binding: {
+    gradeId: string;
+    classId: string;
+    revoked: boolean;
+    isManagement: boolean;
+    classTag: string;
+  } | null;
 }
 
 async function readError(response: Response, fallback: string): Promise<string> {
@@ -16,22 +20,27 @@ async function readError(response: Response, fallback: string): Promise<string> 
 }
 
 export async function fetchPluginPairInfo(token: string): Promise<PluginPairInfo> {
-  const response = await fetch(`${API_URL}?action=plugin-pair-info&token=${encodeURIComponent(token)}`, { cache: 'no-store' });
+  const response = await fetch(`${API_URL}?action=plugin-pair-info&token=${encodeURIComponent(token)}&viewerInstanceId=${encodeURIComponent(getClassBindingInstanceId())}`, { cache: 'no-store' });
   if (!response.ok) throw new Error(await readError(response, '无法读取配对请求'));
   const data = await response.json();
   return {
     pluginInstanceId: String(data.pluginInstanceId ?? ''),
     expiresAt: Number(data.expiresAt ?? 0),
-    grades: Array.isArray(data.grades) ? data.grades : [],
-    classes: Array.isArray(data.classes) ? data.classes : [],
+    binding: data.binding && typeof data.binding === 'object' ? {
+      gradeId: String(data.binding.gradeId ?? ''),
+      classId: String(data.binding.classId ?? ''),
+      revoked: data.binding.revoked === true,
+      isManagement: data.binding.isManagement === true,
+      classTag: String(data.binding.classTag ?? ''),
+    } : null,
   };
 }
 
-export async function confirmPluginPairing(token: string, gradeId: string, classId: string): Promise<void> {
+export async function confirmPluginPairing(token: string): Promise<void> {
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'plugin-pair-confirm', pairToken: token, gradeId, classId, viewerInstanceId: getClassBindingInstanceId() }),
+    body: JSON.stringify({ action: 'plugin-pair-confirm', pairToken: token, viewerInstanceId: getClassBindingInstanceId() }),
   });
   if (!response.ok) throw new Error(await readError(response, '班级绑定失败'));
 }

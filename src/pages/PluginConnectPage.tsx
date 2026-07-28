@@ -3,24 +3,16 @@ import { CheckCircle2, Link2 } from "lucide-react";
 import BrandMark from "../components/BrandMark";
 import { useSearchParams } from "react-router-dom";
 import {
-  getCachedDeviceBinding,
-  saveDeviceBinding,
-} from "../services/classBinding";
-import {
   confirmPluginPairing,
   fetchPluginPairInfo,
   type PluginPairInfo,
 } from "../services/pluginPairing";
 import "../styles/plugin-connect.css";
-import ClassMultiPicker from "../components/ClassMultiPicker";
-import InlineSelect from "../components/InlineSelect";
 
 export default function PluginConnectPage() {
   const [params] = useSearchParams();
   const token = params.get("token") ?? "";
   const [info, setInfo] = useState<PluginPairInfo | null>(null);
-  const [gradeId, setGradeId] = useState("");
-  const [classId, setClassId] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [complete, setComplete] = useState(false);
@@ -31,44 +23,24 @@ export default function PluginConnectPage() {
       return;
     }
     fetchPluginPairInfo(token)
-      .then((value) => {
-        setInfo(value);
-        const cached = getCachedDeviceBinding();
-        if (
-          cached &&
-          !cached.revoked &&
-          value.classes.some((item) => item.id === cached.classId)
-        ) {
-          setGradeId(cached.gradeId);
-          setClassId(cached.classId);
-        }
-      })
+      .then(setInfo)
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : "无法读取配对请求"),
       );
   }, [token]);
 
-  const selectedGrade = info?.grades.find((item) => item.id === gradeId);
-  const selectedClass = info?.classes.find((item) => item.id === classId);
-  const classOptions = (info?.classes ?? []).map((item) => ({
-    id: item.id,
-    gradeId: item.gradeId,
-    gradeName:
-      info?.grades.find((grade) => grade.id === item.gradeId)?.name ??
-      "未知年级",
-    className: item.name,
-  }));
+  const binding = info?.binding;
+  const bindingValid = !!binding && !binding.revoked && !binding.isManagement && !!binding.gradeId && !!binding.classId;
 
   const confirm = async () => {
-    if (!gradeId || !classId) {
-      setError("请选择要绑定的年级和班级。");
+    if (!bindingValid) {
+      setError(binding?.isManagement ? "管理设备不能绑定 ClassIsland，请先改为班级考试端。" : "请先返回看板首页绑定年级和班级。");
       return;
     }
     setSubmitting(true);
     setError("");
     try {
-      await confirmPluginPairing(token, gradeId, classId);
-      await saveDeviceBinding(gradeId, classId);
+      await confirmPluginPairing(token);
       setComplete(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "班级绑定失败");
@@ -89,7 +61,7 @@ export default function PluginConnectPage() {
             />
             <h1>ClassIsland 已连接</h1>
             <p>
-              {selectedGrade?.name} {selectedClass?.name}
+              {binding?.classTag}
             </p>
             <button type="button" onClick={() => window.close()}>
               完成
@@ -101,36 +73,8 @@ export default function PluginConnectPage() {
               <Link2 aria-hidden="true" />
             </div>
             <h1>连接 ClassIsland</h1>
-            <p>选择本机所在班级，考试安排将自动同步到 ClassIsland。</p>
-            <label>
-              年级
-              <InlineSelect
-                value={gradeId}
-                disabled={!info || submitting}
-                onChange={(value) => {
-                  setGradeId(value);
-                  setClassId("");
-                }}
-                options={[
-                  { value: "", label: "请选择年级" },
-                  ...(info?.grades.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                  })) ?? []),
-                ]}
-              />
-            </label>
-            <div className="plugin-connect__class-picker">
-              <span>班级</span>
-              <ClassMultiPicker
-                options={classOptions}
-                gradeId={gradeId}
-                selectedIds={classId ? [classId] : []}
-                onChange={(ids) => setClassId(ids[0] || "")}
-                disabled={!gradeId || submitting}
-                single
-              />
-            </div>
+            <p>ClassIsland 将直接继承本看板的班级，不能在插件连接页单独更改。</p>
+            {bindingValid ? <div className="plugin-connect__binding"><span>跟随看板班级</span><strong>{binding.classTag}</strong></div> : <div className="plugin-connect__error" role="alert">{binding?.isManagement ? "本机是管理设备，不能连接班级插件。" : binding?.revoked ? "本看板绑定已被删除，请先重新绑定班级。" : "本看板尚未绑定班级，请先回首页完成绑定。"}</div>}
             {error && (
               <div className="plugin-connect__error" role="alert">
                 {error}
@@ -138,7 +82,7 @@ export default function PluginConnectPage() {
             )}
             <button
               type="button"
-              disabled={!info || !classId || submitting}
+              disabled={!info || !bindingValid || submitting}
               onClick={() => void confirm()}
             >
               {submitting ? "正在连接…" : "确认连接"}

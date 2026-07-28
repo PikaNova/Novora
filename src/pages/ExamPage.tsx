@@ -18,7 +18,7 @@ import BrandMark from '../components/BrandMark';
 import SubjectIcon from '../components/SubjectIcon';
 import { getDesign, isMobileReadyDesign } from '../designs/registry';
 import { getDesignId, resolveManagedDesign, setDesignId } from '../utils/designPref';
-import { getClassBindingInstanceId } from '../services/classBinding';
+import { getCachedDeviceBinding, getClassBindingInstanceId } from '../services/classBinding';
 import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
 import { fetchAnnouncements } from '../services/announcements';
@@ -120,7 +120,7 @@ export default function ExamPage() {
   const exam = getAppSettings().exam;
   const selectedClass = exam.classes.find(item => item.id === exam.selectedClassId);
   const bindingValid = Boolean(exam.selectedGradeId && selectedClass && selectedClass.gradeId === exam.selectedGradeId);
-  return bindingValid ? <BoundExamPage /> : <Navigate to="/?selectClass=1" replace />;
+  return bindingValid ? <BoundExamPage /> : <Navigate to={getCachedDeviceBinding()?.isManagement ? "/" : "/?selectClass=1"} replace />;
 }
 
 function BoundExamPage() {

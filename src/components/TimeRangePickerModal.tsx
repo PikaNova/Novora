@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
 import { DateTimeField } from "./touch-datetime-picker";
+import WheelColumn from "./WheelColumn";
 import "../styles/time-range-picker.css";
 
 type RangeMode = "time" | "datetime";
@@ -112,20 +112,12 @@ export default function TimeRangePickerModal({
   const [draftStart, setDraftStart] = useState(startValue);
   const [draftEnd, setDraftEnd] = useState(endValue);
   const [crossDayEnabled, setCrossDayEnabled] = useState(initialCrossDay);
-  const hourRef = useRef<HTMLDivElement | null>(null);
-  const minuteRef = useRef<HTMLDivElement | null>(null);
   const modalRef = useRef<HTMLElement | null>(null);
   const anchorElementRef = useRef<HTMLElement | null>(null);
   const initialRangeRef = useRef({ startValue, endValue, endNextDay: initialCrossDay });
   const previewChangeRef = useRef(onPreviewChange);
   const previewReadyRef = useRef(false);
   const previewReadyFrameRef = useRef<number | null>(null);
-  const wheelSyncingRef = useRef(false);
-  const wheelSyncFrameRef = useRef<number | null>(null);
-  const wheelChangeFrameRef = useRef<number | null>(null);
-  const wheelDeltaRef = useRef({ hour: 0, minute: 0 });
-  const wheelLockRef = useRef<{ hour: number | null; minute: number | null }>({ hour: null, minute: null });
-  const wheelReleaseRef = useRef<number | null>(null);
 
   useEffect(() => {
     previewChangeRef.current = onPreviewChange;
@@ -139,13 +131,6 @@ export default function TimeRangePickerModal({
     const activeElement = document.activeElement;
     anchorElementRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
   }, [open]);
-
-  useEffect(() => () => {
-    if (wheelLockRef.current.hour !== null) window.clearTimeout(wheelLockRef.current.hour);
-    if (wheelLockRef.current.minute !== null) window.clearTimeout(wheelLockRef.current.minute);
-    if (wheelReleaseRef.current !== null) window.clearTimeout(wheelReleaseRef.current);
-    if (wheelChangeFrameRef.current !== null) window.cancelAnimationFrame(wheelChangeFrameRef.current);
-  }, []);
 
   useLayoutEffect(() => {
     if (!open || !modalRef.current || window.innerWidth <= 620) return;
@@ -244,22 +229,6 @@ export default function TimeRangePickerModal({
   const stepNumber = step === "start" ? 1 : directEndSelection ? 2 : step === "duration" ? 2 : 3;
   const stepCount = directEndSelection ? 2 : 3;
 
-  useEffect(() => {
-    if (!open || (step !== "start" && step !== "end")) return;
-    wheelSyncingRef.current = true;
-    const frame = requestAnimationFrame(() => {
-      if (hourRef.current) hourRef.current.scrollTop = activeParts.hour * ITEM_HEIGHT;
-      if (minuteRef.current) minuteRef.current.scrollTop = activeParts.minute * ITEM_HEIGHT;
-      wheelSyncFrameRef.current = requestAnimationFrame(() => {
-        wheelSyncingRef.current = false;
-      });
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      if (wheelSyncFrameRef.current !== null) cancelAnimationFrame(wheelSyncFrameRef.current);
-    };
-  }, [open, step, target]);
-
   if (!open) return null;
 
   const updatePart = (part: "hour" | "minute", value: number) => {
@@ -269,51 +238,6 @@ export default function TimeRangePickerModal({
     const next = serialize({ ...parts, [part]: value }, mode);
     if (target === "start") setDraftStart(next);
     else setDraftEnd(next);
-  };
-
-  const handleWheelScroll = (part: "hour" | "minute", element: HTMLDivElement) => {
-    if (element.scrollLeft) element.scrollLeft = 0;
-    if (wheelSyncingRef.current) return;
-    if (wheelChangeFrameRef.current !== null) cancelAnimationFrame(wheelChangeFrameRef.current);
-    wheelChangeFrameRef.current = requestAnimationFrame(() => {
-      const maximum = part === "hour" ? 23 : 59;
-      updatePart(part, Math.max(0, Math.min(maximum, Math.round(element.scrollTop / ITEM_HEIGHT))));
-    });
-  };
-
-  const handleSteppedWheel = (
-    part: "hour" | "minute",
-    event: ReactWheelEvent<HTMLDivElement>,
-  ) => {
-    event.stopPropagation();
-    const desktopPointer = window.matchMedia("(pointer: fine)").matches;
-    if (!desktopPointer) {
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) event.preventDefault();
-      return;
-    }
-    event.preventDefault();
-    if (!event.deltaY || wheelLockRef.current[part] !== null) return;
-    wheelDeltaRef.current[part] += event.deltaY;
-    if (Math.abs(wheelDeltaRef.current[part]) < 18) return;
-    const direction = wheelDeltaRef.current[part] > 0 ? 1 : -1;
-    wheelDeltaRef.current[part] = 0;
-    const current = activeParts[part];
-    const maximum = part === "hour" ? 23 : 59;
-    const next = Math.max(0, Math.min(maximum, current + direction));
-    const element = event.currentTarget;
-    if (next !== current) {
-      wheelSyncingRef.current = true;
-      updatePart(part, next);
-      element.scrollTo({ top: next * ITEM_HEIGHT, behavior: "smooth" });
-      if (wheelReleaseRef.current !== null) window.clearTimeout(wheelReleaseRef.current);
-      wheelReleaseRef.current = window.setTimeout(() => {
-        wheelSyncingRef.current = false;
-        wheelReleaseRef.current = null;
-      }, 140);
-    }
-    wheelLockRef.current[part] = window.setTimeout(() => {
-      wheelLockRef.current[part] = null;
-    }, 70);
   };
 
   const updateDate = (date: string) => {
@@ -393,9 +317,9 @@ export default function TimeRangePickerModal({
         {(step === "start" || step === "end") && <section className="time-range-wheel-panel">
           <div><strong>设置{target === "start" ? "开始" : "结束"}时间</strong><span>上下滚动小时和分钟</span></div>
           <div className="time-range-wheels">
-            <div className="time-range-wheel"><span>时</span><div ref={hourRef} onWheel={(event) => handleSteppedWheel("hour", event)} onScroll={(event) => handleWheelScroll("hour", event.currentTarget)}>{HOURS.map((hour) => <button type="button" key={hour} className={activeParts.hour === hour ? "is-selected" : ""} onClick={() => { updatePart("hour", hour); hourRef.current?.scrollTo({ top: hour * ITEM_HEIGHT, behavior: "smooth" }); }}>{pad(hour)}</button>)}</div></div>
+            <div className="time-range-wheel"><span>时</span><WheelColumn itemHeight={ITEM_HEIGHT} values={HOURS} value={activeParts.hour} onChange={(hour) => updatePart("hour", hour)} ariaLabel="选择小时" /></div>
             <b>:</b>
-            <div className="time-range-wheel"><span>分</span><div ref={minuteRef} onWheel={(event) => handleSteppedWheel("minute", event)} onScroll={(event) => handleWheelScroll("minute", event.currentTarget)}>{MINUTES.map((minute) => <button type="button" key={minute} className={activeParts.minute === minute ? "is-selected" : ""} onClick={() => { updatePart("minute", minute); minuteRef.current?.scrollTo({ top: minute * ITEM_HEIGHT, behavior: "smooth" }); }}>{pad(minute)}</button>)}</div></div>
+            <div className="time-range-wheel"><span>分</span><WheelColumn itemHeight={ITEM_HEIGHT} values={MINUTES} value={activeParts.minute} onChange={(minute) => updatePart("minute", minute)} ariaLabel="选择分钟" /></div>
           </div>
         </section>
         }
