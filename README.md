@@ -7,20 +7,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 
 ![项目预览](https://raw.githubusercontent.com/PikaNova/Novora/refs/heads/main/background.png)
 
-一键部署
-！注意！使用一键部署按钮的仓库无法获取更新，不推荐使用，请使用右上角的Fork新建项目！！！！
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3a%2f%2fgithub.com%2fPikaNova%2fNovora&project-name=novora-board&repository-name=novora-board&env=DATABASE_URL,ADMIN_PASSWORD&envDescription=请填写%20Neon%20PostgreSQL%20连接字符串和超级管理员初始密码)
-
-简易部署：
-
-1. 在 Neon 创建 AWS Singapore 数据库并复制 Pooled connection string。
-2. 点击上方按钮，填写 `DATABASE_URL` 和至少 8 位的 `ADMIN_PASSWORD`，完成首次 Deploy。
-3. 在 Vercel `Settings → Git → Deploy Hooks` 创建 `main` 分支钩子，将 URL 添加为必填的 `VERCEL_DEPLOY_HOOK_URL`，然后 Redeploy。
-4. 确认 Functions 位于 Singapore (`sin1`)，并绑定自定义域名。
-5. 从首页开始初始化，修改初始密码并保存只显示一次的自动恢复密钥。
-
-完整零基础教程：[Novora 部署文档](https://github.com/PikaNova/novora-vitepress-docs)
+完整零基础教程：[Novora 部署文档](https://docs.pikachu2026.space)
 
 ## 推荐部署区域
 
