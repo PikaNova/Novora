@@ -153,3 +153,6 @@
 
 /* v1.23.0 手机端安全区 */
 @media (max-width:620px){ .cd{ padding-top:max(env(safe-area-inset-top),16px); } }
+
+/* v2.7.0 zoom/layout guards */
+.cd,.cd *{box-sizing:border-box}.cd__top,.cd__center,.cd__cards,.cd__foot,.cd__top-left,.cd__top-right{min-width:0;max-width:100%}.cd__center{overflow:hidden}.cd__clock{max-width:100%;overflow:hidden;text-align:center}.cd__headline,.cd__period,.cd__date,.cd__master,.cd__card-value,.cd__track-meta span,.cd__foot span{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cd__top-left{flex:1}.cd__top-right{flex:0 0 auto}.cd__track,.cd__track-meta{max-width:100%}@media(max-height:640px){.cd__cards{max-height:22vh}.cd__clock{font-size:min(clamp(72px,13vw,230px),34vh)}}@media(max-width:760px){.cd__track,.cd__track-meta{width:100%}.cd__date{max-width:100%}}

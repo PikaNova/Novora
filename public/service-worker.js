@@ -1,5 +1,5 @@
-const CACHE = 'novora-shell-v2.7.0-datetime-unblock';
-const RUNTIME = 'novora-runtime-v2.7.0-datetime-unblock';
+const CACHE = 'novora-shell-v2.7.0-exam-zoom-guards';
+const RUNTIME = 'novora-runtime-v2.7.0-exam-zoom-guards';
 // Keep installation light. Fonts are cached after a design actually requests them.
 const CORE = ['/', '/index.html', '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512-rounded.png', '/manifest.webmanifest', '/fonts/exam-numeric-subset.ttf', '/fonts/source-han-sc-standard-subset.woff2'];
 

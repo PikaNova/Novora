@@ -56,3 +56,6 @@
 .bb{--font-design-display:var(--font-chalk)}.bb__top,.bb__master,.bb__date,.bb__k,.bb__remind,.bb__ring-label,.bb__side,.bb__notify{font-family:var(--font-region-navigation)}.bb__subject{font-family:var(--font-region-display)}.bb__v,.bb__empty{font-family:var(--font-region-content)}.bb__clock,.bb__ring-value{font-family:var(--font-region-numeric)}
 
 .bb__clock.eao-fit-text{margin-bottom:0}
+
+/* v2.7.0 zoom/layout guards */
+.bb,.bb *{box-sizing:border-box}.bb__frame,.bb__top,.bb__lower,.bb__side,.bb__ring{min-width:0;max-width:100%}.bb__frame{overflow:hidden}.bb__clock{max-width:100%;overflow:hidden;text-align:center}.bb__master,.bb__subject,.bb__date,.bb__v,.bb__remind,.bb__ring-value{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bb__lower{overflow:hidden}.bb__side{flex:1}.bb__ring{flex:0 1 clamp(210px,24vw,360px)}@media(max-height:640px){.bb__clock{font-size:min(clamp(48px,5.8vw,105px),18vh)}.bb__ring{width:clamp(180px,22vw,300px)}}@media(max-width:900px){.bb__side{width:100%;justify-content:center}.bb__lower{overflow:visible}.bb__v{font-size:clamp(16px,3.8vw,26px)}}

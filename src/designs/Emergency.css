@@ -59,3 +59,6 @@
 
 /* v1.23.0 手机端安全区 */
 @media (max-width:620px){ .em{ padding-top:env(safe-area-inset-top); } }
+
+/* v2.7.0 zoom/layout guards */
+.em,.em *{box-sizing:border-box}.em__body,.em__head,.em__head-left,.em__head-right,.em__cards,.em__track-meta{min-width:0;max-width:100%}.em__body{overflow:hidden}.em__head-left{flex:1}.em__head-left>div{min-width:0}.em__head-right{flex:0 0 auto}.em__clock{max-width:100%;overflow:hidden}.em__sys,.em__subject,.em__date,.em__card-v,.em__track-meta span,.em__bar{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.em__card{min-width:0}@media(max-height:640px){.em__clock{font-size:min(clamp(86px,15vw,250px),34vh)}}@media(max-width:760px){.em__track-meta{gap:10px}.em__track-meta span{flex:1}.em__cards{grid-template-columns:1fr}}

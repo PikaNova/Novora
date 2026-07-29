@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import type { ElementType, ReactNode } from 'react';
 import { useFitText } from '../hooks/useFitText';
 
-type Props = { as?: 'p' | 'span'; className: string; children: ReactNode; minScale?: number };
+type Props = { as?: ElementType; className: string; children: ReactNode; minScale?: number };
 export default function FitText({ as = 'p', className, children, minScale }: Props) {
   const ref = useFitText(children, minScale);
   const Tag = as;
