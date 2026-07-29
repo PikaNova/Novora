@@ -5,6 +5,7 @@ import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
+import { notify } from './notify';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -177,19 +178,46 @@ export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remo
 const CLOUD_EXAM_WRITE_INTERVAL_MS = 1_000;
 let examWriteChain: Promise<void> = Promise.resolve();
 let lastExamWriteAt = 0;
+let pendingExamWrites = 0;
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
-async function runQueuedExamWrite<T>(task: () => Promise<T>): Promise<T> {
+function examQueueLabel(input: SaveExamsInput) {
+  if (input.action === 'initialize') return '初始化数据';
+  if (input.weeklyPlans !== undefined || input.grades !== undefined || input.classes !== undefined)
+    return '周测/班级数据';
+  return '考试数据';
+}
+
+function notifyExamQueue(label: string, pending: number, running: boolean) {
+  notify(
+    running ? 'warning' : 'success',
+    running
+      ? `正在提交：${label}。还有 ${pending} 项待提交，请等待完成后再关闭页面。`
+      : `${label}已提交到云端。`,
+    running ? '云端提交中' : '云端提交完成',
+    { id: 'cloud-queue-exam', variant: running ? 'queue' : undefined, durationMs: running ? 12_000 : 2600 },
+  );
+}
+
+async function runQueuedExamWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
+  pendingExamWrites += 1;
+  notifyExamQueue(label, pendingExamWrites, true);
   const run = examWriteChain.then(async () => {
+    pendingExamWrites = Math.max(0, pendingExamWrites - 1);
+    notifyExamQueue(label, pendingExamWrites, true);
     const elapsed = Date.now() - lastExamWriteAt;
     if (elapsed < CLOUD_EXAM_WRITE_INTERVAL_MS)
       await wait(CLOUD_EXAM_WRITE_INTERVAL_MS - elapsed);
-    const result = await task();
-    lastExamWriteAt = Date.now();
-    return result;
+    try {
+      const result = await task();
+      lastExamWriteAt = Date.now();
+      return result;
+    } finally {
+      notifyExamQueue(label, pendingExamWrites, pendingExamWrites > 0);
+    }
   });
   examWriteChain = run.then(
     () => undefined,
@@ -277,7 +305,7 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
 }
 
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
-  return runQueuedExamWrite(() => saveExamsToServerNow(input));
+  return runQueuedExamWrite(examQueueLabel(input), () => saveExamsToServerNow(input));
 }
 
 /** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。 */

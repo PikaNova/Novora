@@ -265,11 +265,6 @@ export default function DeviceStatusPanel({
       }))
     )
       return;
-    notify(
-      "warning",
-      `已进入删除队列，将逐台同步云端，预计至少 ${targets.length} 秒。`,
-      "设备排队删除",
-    );
     const results: Array<{ status: "fulfilled" } | { status: "rejected"; reason: unknown }> = [];
     for (const item of targets) {
       try {

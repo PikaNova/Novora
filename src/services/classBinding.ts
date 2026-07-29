@@ -1,5 +1,6 @@
 import { getInstanceId } from './telemetry';
 import { fetchWithTimeout } from './fetchWithTimeout';
+import { notify } from './notify';
 
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
@@ -11,19 +12,39 @@ const DEVICE_WRITE_INTERVAL_MS = 1_000;
 let deviceWriteChain: Promise<void> = Promise.resolve();
 let lastDeviceWriteAt = 0;
 let heartbeatInFlight = false;
+let pendingDeviceWrites = 0;
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
-async function queuedDeviceWrite<T>(task: () => Promise<T>): Promise<T> {
+function notifyDeviceQueue(label: string, pending: number, running: boolean) {
+  notify(
+    running ? 'warning' : 'success',
+    running
+      ? `正在提交：${label}。还有 ${pending} 项待提交，请等待完成后再关闭页面。`
+      : `${label}已提交到云端。`,
+    running ? '设备提交中' : '设备提交完成',
+    { id: 'cloud-queue-device', variant: running ? 'queue' : undefined, durationMs: running ? 12_000 : 2600 },
+  );
+}
+
+async function queuedDeviceWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
+  pendingDeviceWrites += 1;
+  notifyDeviceQueue(label, pendingDeviceWrites, true);
   const run = deviceWriteChain.then(async () => {
+    pendingDeviceWrites = Math.max(0, pendingDeviceWrites - 1);
+    notifyDeviceQueue(label, pendingDeviceWrites, true);
     const elapsed = Date.now() - lastDeviceWriteAt;
     if (elapsed < DEVICE_WRITE_INTERVAL_MS)
       await wait(DEVICE_WRITE_INTERVAL_MS - elapsed);
-    const result = await task();
-    lastDeviceWriteAt = Date.now();
-    return result;
+    try {
+      const result = await task();
+      lastDeviceWriteAt = Date.now();
+      return result;
+    } finally {
+      notifyDeviceQueue(label, pendingDeviceWrites, pendingDeviceWrites > 0);
+    }
   });
   deviceWriteChain = run.then(
     () => undefined,
@@ -78,7 +99,7 @@ export async function fetchOccupiedClassIds(): Promise<string[]> {
   return Array.isArray(data?.occupiedClassIds) ? data.occupiedClassIds.filter((value: unknown): value is string => typeof value === 'string') : [];
 }
 export async function setupManagedDevice(input: { bindManagement: boolean; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<{ conflict?: DeviceSetupConflict }> {
-  const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) }, 20_000));
+  const response = await queuedDeviceWrite(input.bindManagement ? '绑定管理设备' : '绑定班级设备', () => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) }, 20_000));
   const data = await response.json().catch(() => null);
   if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { conflict: data.existing as DeviceSetupConflict };
   if (!response.ok) throw new Error(data?.error || '设备登记失败');
@@ -98,7 +119,7 @@ export async function setupManagedDevice(input: { bindManagement: boolean; grade
 
 export async function updateDeviceRole(input: { instanceId: string; targetRole: 'management' | 'class-terminal'; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<DeviceRoleUpdateResult> {
   try {
-    const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-role-update', ...input }) }, 20_000));
+    const response = await queuedDeviceWrite(input.targetRole === 'management' ? '转换为管理设备' : '转换为班级设备', () => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-role-update', ...input }) }, 20_000));
     const data = await response.json().catch(() => null);
     if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已有考试端' };
     if (!response.ok) return { ok: false, error: data?.error || '设备角色转换失败' };
@@ -170,7 +191,7 @@ export function cacheDeviceBinding(binding: DeviceBinding | null): void {
 
 export async function saveDeviceBinding(gradeId: string, classId: string, replaceExisting = false): Promise<DeviceBindingSaveResult> {
   try {
-    const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) }, 20_000));
+    const response = await queuedDeviceWrite('绑定班级设备', () => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) }, 20_000));
     const data = await response.json().catch(() => null);
     if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已绑定其他考试端' };
     if (!response.ok) return { ok: false, error: data?.error || '班级绑定失败' };
@@ -195,12 +216,12 @@ export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingIn
 }
 
 export async function revokeDevice(instanceId: string, pluginInstanceIds: string[] = []): Promise<void> {
-  const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) }, 20_000));
+  const response = await queuedDeviceWrite('删除设备', () => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) }, 20_000));
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : '删除设备失败');
 }
 
 export async function sendDeviceCommand(instanceId: string, commandAction: DeviceCommand['action'], minutes?: number): Promise<void> {
-  const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) }, 20_000));
+  const response = await queuedDeviceWrite('下发设备指令', () => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) }, 20_000));
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权管理此设备' : '临时考试指令发送失败');
 }
 
