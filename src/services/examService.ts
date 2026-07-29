@@ -174,7 +174,31 @@ export interface SaveExamsInput {
 
 export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remote: ExamPayload | null } | { kind: 'error'; error: ApiError } | null;
 
-export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
+const CLOUD_EXAM_WRITE_INTERVAL_MS = 1_000;
+let examWriteChain: Promise<void> = Promise.resolve();
+let lastExamWriteAt = 0;
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+async function runQueuedExamWrite<T>(task: () => Promise<T>): Promise<T> {
+  const run = examWriteChain.then(async () => {
+    const elapsed = Date.now() - lastExamWriteAt;
+    if (elapsed < CLOUD_EXAM_WRITE_INTERVAL_MS)
+      await wait(CLOUD_EXAM_WRITE_INTERVAL_MS - elapsed);
+    const result = await task();
+    lastExamWriteAt = Date.now();
+    return result;
+  });
+  examWriteChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = localStorage.getItem(TOKEN_KEY);
@@ -250,6 +274,10 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     lastExamApiError = wrappedError;
     return { kind: 'error', error: wrappedError };
   }
+}
+
+export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
+  return runQueuedExamWrite(() => saveExamsToServerNow(input));
 }
 
 /** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。 */
