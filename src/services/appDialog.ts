@@ -6,6 +6,8 @@ export type AppDialogOptions = {
   tone?: AppDialogTone;
   confirmLabel?: string;
   cancelLabel?: string;
+  // 可选锚点：传入触发元素(HTMLElement)或任何实现 getBoundingClientRect() 的虚拟元素
+  anchor?: HTMLElement | { getBoundingClientRect: () => DOMRect };
 };
 
 export type AppDialogRequest = AppDialogOptions & {

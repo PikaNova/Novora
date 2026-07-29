@@ -1,276 +1,45 @@
-@keyframes app-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes app-panel-in {
-  from { opacity: 0; transform: translateY(8px) scale(.985); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes app-drawer-in {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes app-side-drawer-in {
-  from { opacity: 0; transform: translateX(24px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes app-menu-in {
-  from { opacity: 0; transform: translateY(-4px) scale(.98); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes app-admin-tab-in {
-  from { opacity: 0; transform: translateX(8px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes app-time-popover-in {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.985); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
-
-.app-route-transition {
-  min-width: 0;
-  min-height: 100%;
-  animation: app-fade-in 170ms ease-out both;
-}
-
-.admin-tab-transition {
-  animation: app-admin-tab-in 150ms ease-out both;
-}
-
-.device-detail-overlay,
-.admin-device-setup,
-.dsw-overlay,
-.eann-overlay,
-.help-tip__layer,
-.welcome-class-overlay,
-.admin-modal-overlay,
-.app-dialog-overlay,
-.init-overlay,
-.temp-exam-overlay,
-.tdp-root {
-  animation: app-fade-in 150ms ease-out both;
-}
-
-.device-detail,
-.admin-device-setup > section,
-.dsw-window,
-.eann-window,
-.help-tip__panel,
-.welcome-class-dialog {
-  animation: app-panel-in 180ms cubic-bezier(.2, .75, .25, 1) both;
-}
-
-.schedule-preview {
-  animation: app-fade-in 180ms ease-out both;
-}
-
-.overview-device-drawer,
-.overview-device-drawer__backdrop,
-.time-range-overlay {
-  animation: app-fade-in 140ms ease-out both;
-}
-
-.overview-device-drawer aside {
-  animation: app-side-drawer-in 180ms cubic-bezier(.2, .75, .25, 1) both;
-}
-
-.tdp-panel {
-  animation: app-panel-in 170ms cubic-bezier(.2, .75, .25, 1) both;
-}
-
-.inline-select__menu,
-.admin-more__menu,
-.exam-quick__menu,
-.device-status__class-filter[open] > .class-picker {
-  transform-origin: top right;
-  animation: app-menu-in 120ms ease-out both;
-}
-
-@media (min-width: 621px) {
-  .time-range-modal {
-    animation: app-time-popover-in 170ms cubic-bezier(.2, .75, .25, 1) both;
-  }
-}
-
-@media (max-width: 620px) {
-  .device-detail,
-  .admin-device-setup > section,
-  .help-tip__panel,
-  .time-range-modal,
-  .tdp-root[data-density="sheet"] .tdp-panel {
-    animation: app-drawer-in 190ms cubic-bezier(.2, .75, .25, 1) both;
-  }
-
-  .overview-device-drawer aside {
-    animation-duration: 170ms;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-route-transition,
-  .admin-tab-transition,
-  .device-detail-overlay,
-  .device-detail,
-  .admin-device-setup,
-  .admin-device-setup > section,
-  .dsw-overlay,
-  .dsw-window,
-  .eann-overlay,
-  .eann-window,
-  .help-tip__layer,
-  .help-tip__panel,
-  .welcome-class-overlay,
-  .welcome-class-dialog,
-  .admin-modal-overlay,
-  .app-dialog-overlay,
-  .init-overlay,
-  .temp-exam-overlay,
-  .tdp-root,
-  .tdp-panel,
-  .schedule-preview,
-  .overview-device-drawer,
-  .overview-device-drawer__backdrop,
-  .overview-device-drawer aside,
-  .time-range-overlay,
-  .time-range-modal,
-  .inline-select__menu,
-  .admin-more__menu,
-  .exam-quick__menu,
-  .device-status__class-filter[open] > .class-picker {
-    animation: none !important;
-  }
-}
-
-body:has(.device-detail-overlay),
-body:has(.admin-modal-overlay),
-body:has(.admin-device-setup),
-body:has(.time-range-overlay),
-body:has(.tdp-root),
-body:has(.dsw-overlay),
-body:has(.eann-overlay),
-body:has(.help-tip__layer),
-body:has(.overview-device-drawer),
-body:has(.app-dialog-overlay),
-body:has(.init-overlay),
-body:has(.temp-exam-overlay),
-body:has(.schedule-preview) {
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
-.device-detail-overlay {
-  z-index: 14000 !important;
-  overflow: hidden;
-  overscroll-behavior: none;
-  touch-action: none;
-}
-
-.device-detail {
-  overscroll-behavior: contain;
-  touch-action: pan-y;
-}
-
-.admin-modal-overlay {
-  z-index: 15000 !important;
-  overflow: hidden !important;
-  overscroll-behavior: none;
-  touch-action: none;
-}
-
-.admin-modal {
-  max-height: calc(100dvh - 40px) !important;
-  overscroll-behavior: contain;
-  touch-action: pan-y;
-}
-
-.device-detail-overlay,
-.admin-device-setup,
-.overview-device-drawer {
-  z-index: 16000 !important;
-}
-
-.time-range-overlay,
-.quick-major-time-overlay {
-  z-index: 17000 !important;
-}
-
-.inline-select__menu,
-.admin-more__menu,
-.exam-quick__menu,
-.tdp-root,
-.help-tip__layer {
-  z-index: 18000 !important;
-}
-
+/* app-dialog base styles: ensure dialogs respect safe areas and have limited max-height */
 .app-dialog-overlay {
-  z-index: 19000 !important;
+  display: block;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-dialog {
+  width: min(720px, calc(100% - 32px));
+  box-sizing: border-box;
+  background: var(--bg, #0b0b0b);
+  color: var(--text, #efefef);
+  padding: 16px;
+  border-radius: 12px;
+  overflow: auto;
+  max-height: calc(100svh - 48px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+}
+
+.app-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-dialog__close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 20px;
+}
+
+.app-dialog__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 @media (max-width: 700px) {
-  .admin-modal-overlay {
-    align-items: flex-end !important;
-    justify-content: center !important;
-    padding: max(8px, env(safe-area-inset-top)) 0 0 !important;
-  }
-
-  .admin-modal,
-  .admin-modal--wide {
-    width: 100% !important;
-    max-width: none !important;
-    max-height: min(92dvh, calc(100svh - max(8px, env(safe-area-inset-top)))) !important;
-    border-right: 0 !important;
-    border-bottom: 0 !important;
-    border-left: 0 !important;
-    border-radius: 10px 10px 0 0 !important;
-  }
-
-  .admin-modal:not(.admin-modal--workflow) {
-    padding: 18px 16px 16px !important;
-  }
-
-  .admin-modal--workflow {
-    height: min(92dvh, calc(100svh - max(8px, env(safe-area-inset-top)))) !important;
-  }
-
-  .admin-modal:not(.admin-modal--workflow) > .admin-modal__actions {
-    bottom: -16px !important;
-    margin: 14px -16px -16px !important;
-    padding: 12px 16px max(16px, env(safe-area-inset-bottom)) !important;
-  }
-
-  .admin-modal__actions .admin-btn {
-    min-width: 0;
-    min-height: 46px;
-  }
-
-  .admin-modal,
-  .admin-workflow-content,
-  .device-detail,
-  .admin-device-setup > section,
-  .time-range-modal,
-  .tdp-panel,
-  .dsw-window__body,
-  .eann-window__body,
-  .help-tip__panel,
-  .overview-device-drawer aside {
-    overscroll-behavior: contain;
-    touch-action: pan-y;
-  }
-
-  .device-detail {
-    max-height: min(88dvh, calc(100svh - max(12px, env(safe-area-inset-top)))) !important;
-  }
-
-  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__layer, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .admin-mobile-nav,
-  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__layer, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .app-watermark {
-    display: none !important;
-    visibility: hidden;
-    pointer-events: none;
+  .app-dialog {
+    width: calc(100% - 24px);
+    border-radius: 12px;
+    margin: 0;
   }
 }
