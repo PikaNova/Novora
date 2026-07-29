@@ -8,6 +8,8 @@ const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
 // 仅用于兼容已经配置过旧版环境变量的部署。新部署会在首次初始化时自动生成恢复密钥。
 const LEGACY_ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || '';
 const TOKEN_TTL = 24 * 60 * 60 * 1000;
+const REPAIR_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const REPAIR_RATE_LIMIT_MAX_ATTEMPTS = 5;
 export const SCHEMA_MIGRATION_LOCK_ID = 1649236847;
 
 export const ALL_PERMISSIONS = [
@@ -182,20 +184,25 @@ export async function isAdminRecoveryConfigured(): Promise<boolean> {
   return !!rows[0]?.recovery_key_hash || LEGACY_ADMIN_RECOVERY_KEY.length >= 16;
 }
 
+async function recoveryKeyMatches(recoveryKey: string): Promise<boolean> {
+  const recoveryRows = await authSql()`SELECT recovery_key_hash, recovery_key_salt FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null; recovery_key_salt?: string | null }>;
+  const stored = recoveryRows[0];
+  if (stored?.recovery_key_hash && stored.recovery_key_salt) {
+    return matches(recoveryKey, stored.recovery_key_hash, stored.recovery_key_salt);
+  }
+  if (LEGACY_ADMIN_RECOVERY_KEY.length >= 16) {
+    const supplied = Buffer.from(recoveryKey);
+    const expected = Buffer.from(LEGACY_ADMIN_RECOVERY_KEY);
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+  return false;
+}
+
 export async function recoverSuperAdmin(username: string, recoveryKey: string, nextPassword: string): Promise<{ ok: boolean; error?: string }> {
   if (!await isAdminRecoveryConfigured()) return { ok: false, error: '当前项目尚未生成超级管理员恢复密钥' };
   if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
   await ensureAuthTables();
-  const recoveryRows = await authSql()`SELECT recovery_key_hash, recovery_key_salt FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null; recovery_key_salt?: string | null }>;
-  const stored = recoveryRows[0];
-  let keyMatches = false;
-  if (stored?.recovery_key_hash && stored.recovery_key_salt) {
-    keyMatches = await matches(recoveryKey, stored.recovery_key_hash, stored.recovery_key_salt);
-  } else if (LEGACY_ADMIN_RECOVERY_KEY.length >= 16) {
-    const supplied = Buffer.from(recoveryKey);
-    const expected = Buffer.from(LEGACY_ADMIN_RECOVERY_KEY);
-    keyMatches = supplied.length === expected.length && timingSafeEqual(supplied, expected);
-  }
+  const keyMatches = await recoveryKeyMatches(recoveryKey);
   const rows = await authSql()`SELECT id, username FROM app_users
     WHERE LOWER(username)=LOWER(${username.trim().slice(0, 80)}) AND role_id='super_admin' AND status='active' LIMIT 1` as unknown as Array<{ id: number; username: string }>;
   if (!keyMatches || !rows[0]) return { ok: false, error: '恢复信息不正确' };
@@ -204,6 +211,49 @@ export async function recoverSuperAdmin(username: string, recoveryKey: string, n
     must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${rows[0].id}`;
   await writeAudit(null, 'user.password.recover', 'user', String(rows[0].id), { username: rows[0].username });
   return { ok: true };
+}
+
+export async function repairSuperAdmin(username: string, recoveryKey: string, nextPassword: string): Promise<{ ok: boolean; error?: string; created?: boolean }> {
+  if (!await isAdminRecoveryConfigured()) return { ok: false, error: '当前项目尚未生成超级管理员恢复密钥' };
+  if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
+  const name = username.trim().slice(0, 80);
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(name)) return { ok: false, error: '用户名需为 3-40 位字母、数字、点、横线或下划线' };
+  await ensureAuthTables();
+
+  const sql = authSql();
+  const since = Date.now() - REPAIR_RATE_LIMIT_WINDOW_MS;
+  const recentFailures = await sql`SELECT COUNT(*)::int AS count FROM app_audit_logs
+    WHERE action='user.super_admin.repair.failed' AND created_at > ${since}` as unknown as Array<{ count: number }>;
+  if (Number(recentFailures[0]?.count) >= REPAIR_RATE_LIMIT_MAX_ATTEMPTS) {
+    return { ok: false, error: '恢复尝试过于频繁，请 15 分钟后再试' };
+  }
+
+  const keyMatches = await recoveryKeyMatches(recoveryKey);
+  if (!keyMatches) {
+    await writeAudit(null, 'user.super_admin.repair.failed', 'user', '', { username: name });
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return { ok: false, error: '恢复信息不正确' };
+  }
+
+  const password = await makePasswordHash(nextPassword);
+  const now = Date.now();
+  const existing = await sql`SELECT id FROM app_users WHERE LOWER(username)=LOWER(${name}) LIMIT 1` as unknown as Array<{ id: number }>;
+  let userId: number;
+  let created = false;
+  if (existing[0]) {
+    userId = existing[0].id;
+    await sql`UPDATE app_users SET role_id='super_admin', status='active', password_hash=${password.hash}, password_salt=${password.salt},
+      must_change_password=TRUE, token_version=token_version+1, updated_at=${now} WHERE id=${userId}`;
+  } else {
+    const insertedRows = await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
+      VALUES (${name}, '超级管理员', ${password.hash}, ${password.salt}, 'super_admin', 'active', TRUE, 1, ${now}, ${now}) RETURNING id` as unknown as Array<{ id: number }>;
+    userId = insertedRows[0].id;
+    created = true;
+  }
+  await sql`DELETE FROM app_user_scopes WHERE user_id=${userId}`;
+  await sql`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id) VALUES (${userId}, 'all', '', '') ON CONFLICT DO NOTHING`;
+  await writeAudit(null, 'user.super_admin.repair', 'user', String(userId), { username: name, created });
+  return { ok: true, created };
 }
 
 /** 首次学校初始化时生成一次；数据库只保存加盐哈希，明文只返回给当前超级管理员。 */

@@ -17,6 +17,8 @@ import { registerPwa } from './services/pwa';
 import { bindTypographySettings } from './utils/typographySettings';
 import { bindMotionSettings } from './utils/motionSettings';
 import { reportPerformance } from './services/telemetry';
+import { installGlobalErrorReporting } from './services/errorReport';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Global styles
@@ -35,6 +37,7 @@ document.head.appendChild(style);
 startTimeSyncManager();
 bindTypographySettings();
 bindMotionSettings();
+installGlobalErrorReporting();
 // 仅生产环境注册 Service Worker：开发环境（vite dev）下残留的生产 SW 会拦截
 // Vite 的模块请求、用旧缓存覆盖 dev 资源，导致 `npm run dev` 打开后白屏。
 if (import.meta.env.PROD) {
@@ -46,7 +49,9 @@ window.addEventListener('load', () => window.setTimeout(() => { void reportPerfo
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
     <SpeedInsights />
   </React.StrictMode>
 );

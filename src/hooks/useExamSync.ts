@@ -5,7 +5,7 @@ import { fetchExamsFromServer, getLastExamApiError } from '../services/examServi
 import { flushPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import { getResolvedExamItems } from '../utils/appSchedule';
 import type { DeviceBinding } from '../services/classBinding';
-import { formatApiError } from '../services/apiError';
+import { ApiError, formatApiError, getSyncNotifyTitle } from '../services/apiError';
 import { notify } from '../services/notify';
 
 interface Options {
@@ -15,7 +15,7 @@ interface Options {
   onBootstrapBinding?: (binding: DeviceBinding | null) => void;
 }
 
-export type ExamDataSyncState = 'local' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error' | 'auth-required';
+export type ExamDataSyncState = 'local' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error' | 'auth-required' | 'max-retries';
 const AUTO_REFRESH_COOLDOWN_MS = 10_000;
 
 export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId, onBootstrapBinding }: Options = {}) {
@@ -29,33 +29,56 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
   onUpdateRef.current = onUpdate;
   const onBootstrapBindingRef = useRef(onBootstrapBinding);
   onBootstrapBindingRef.current = onBootstrapBinding;
-  const [syncState, setSyncState] = useState<ExamDataSyncState>(() => typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (getPendingExamSync() ? 'pending' : 'local'));
+
+  const [syncState, setSyncState] = useState<ExamDataSyncState>(() =>
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (getPendingExamSync() ? 'pending' : 'local'));
   const [lastSyncAt, setLastSyncAt] = useState(0);
   const [hasPendingSync, setHasPendingSync] = useState(() => !!getPendingExamSync());
   const [syncError, setSyncError] = useState('');
-  const lastNotifiedError = useRef('');
+  const [needsRelogin, setNeedsRelogin] = useState(false);
+  // V3：账号被标记“必须修改密码”时单独暴露，UI 可据此引导用户先去改密
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
+
+  /**
+   * 错误通知去重: 仅用 error.code（不含 requestId）做去重键。
+   * 相同类型的错误（如持续断网）不会重复弹出 toast。
+   * 同步恢复后自动清除去重键。
+   */
+  const lastNotifiedErrorCode = useRef('');
 
   const reportSyncError = useCallback((fallback: string) => {
     const error = getLastExamApiError();
-    const message = error ? formatApiError(error) : fallback;
+    // 优先展示 API 错误（V3 起为服务端真实原因），否则尝试从 outbox 读取 lastError
+    const outboxPending = getPendingExamSync();
+    const message = error
+      ? formatApiError(error)
+      : outboxPending?.lastError ?? fallback;
+
     setSyncError(message);
-    const key = error ? `${error.code}:${error.requestId || error.message}` : message;
-    if (key !== lastNotifiedError.current) {
-      lastNotifiedError.current = key;
-      notify('error', message, error?.code.startsWith('DATABASE_') ? '数据库连接失败' : '云端同步失败');
+
+    // 仅用 code 去重（而非 code + requestId），避免相同类型错误连续弹出
+    const dedupeKey = error instanceof ApiError ? error.code : (outboxPending?.lastError ?? message);
+    if (dedupeKey !== lastNotifiedErrorCode.current) {
+      lastNotifiedErrorCode.current = dedupeKey;
+      notify('error', message, getSyncNotifyTitle(error instanceof ApiError ? error.code : undefined));
     }
   }, []);
 
   const applyLocal = useCallback(() => {
     const s = getAppSettings();
-    // 展示端统一消费“大型考试 + 生效周测”合并后的时间线（major-only 下等价于旧 exam.items）。
     onUpdateRef.current?.({ items: getResolvedExamItems(), title: s.exam.title, alerts: s.alerts });
     const pending = !!getPendingExamSync();
     setHasPendingSync(pending);
     setSyncState(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : (pending ? 'pending' : 'local'));
   }, []);
 
-  const applyPayload = useCallback((payload: { items: ExamItem[]; title: string; alerts: AlertsSettings | null; majors: any[]; activeMajorId: string; updatedAt: number; scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any; activeWeeklyPlanIdByClassId?: any; grades?: any; classes?: any; initialization?: any; weeklyConflictPolicy?: any; designPolicy?: any }) => {
+  const applyPayload = useCallback((payload: {
+    items: ExamItem[]; title: string; alerts: AlertsSettings | null;
+    majors: any[]; activeMajorId: string; updatedAt: number;
+    scheduleMode?: any; weeklyPlans?: any; activeWeeklyPlanId?: any;
+    activeWeeklyPlanIdByClassId?: any; grades?: any; classes?: any;
+    initialization?: any; weeklyConflictPolicy?: any; designPolicy?: any;
+  }) => {
     const updates: Record<string, unknown> = {
       items: payload.items,
       title: payload.title,
@@ -63,7 +86,6 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     };
     if (payload.majors && payload.majors.length) updates.majors = payload.majors;
     if (payload.activeMajorId) updates.activeMajorId = payload.activeMajorId;
-    // 仅在服务端返回周测字段时才写入，避免 undefined 覆盖本地已同步的周测数据。
     if (payload.scheduleMode !== undefined) updates.scheduleMode = payload.scheduleMode;
     if (payload.weeklyPlans !== undefined) updates.weeklyPlans = payload.weeklyPlans;
     if (payload.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = payload.activeWeeklyPlanId;
@@ -83,7 +105,6 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     if (pulling.current) return;
     const pullStartedAt = Date.now();
     if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < AUTO_REFRESH_COOLDOWN_MS) return;
-    // 手动/恢复时先应用本地快照；离线永远可立即显示最新本机编辑。
     applyLocal();
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     lastPullAt.current = pullStartedAt;
@@ -91,23 +112,58 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     setSyncState('syncing');
     try {
       const flushed = await flushPendingExamSync(force);
+
       if (flushed.kind === 'saved') {
         applyPayload({ ...flushed.payload, updatedAt: flushed.updatedAt });
         setHasPendingSync(false);
-      } else if (flushed.kind === 'offline') { setSyncState('offline'); return; }
-      else if (flushed.kind === 'deferred') { setHasPendingSync(true); setSyncState('pending'); return; }
-      else if (flushed.kind === 'unauthorized') { setSyncState('auth-required'); return; }
-      else if (flushed.kind === 'error') { setHasPendingSync(true); setSyncState('error'); reportSyncError('待同步数据暂时无法上传，本机数据已保留。'); return; }
+        // 同步成功，清除去重键以便下次错误重新通知
+        lastNotifiedErrorCode.current = '';
+      } else if (flushed.kind === 'offline') {
+        setSyncState('offline');
+        return;
+      } else if (flushed.kind === 'max-retries') {
+        // 已达最大重试次数或收到不可重试错误，需用户手动干预
+        setHasPendingSync(true);
+        setSyncState('max-retries');
+        const pending = getPendingExamSync();
+        setSyncError(pending?.lastError ?? '已达最大自动重试次数，请手动刷新或联系管理员。');
+        return;
+      } else if (flushed.kind === 'deferred') {
+        setHasPendingSync(true);
+        setSyncState('pending');
+        return;
+      } else if (flushed.kind === 'unauthorized') {
+        // 登录已失效——设置标志并提示用户重新登录
+        setSyncState('auth-required');
+        setNeedsRelogin(true);
+        if ('auth-required' !== lastNotifiedErrorCode.current) {
+          lastNotifiedErrorCode.current = 'auth-required';
+          notify('warning', '登录状态已失效，请重新登录后继续操作。', '登录已失效');
+        }
+        return;
+      } else if (flushed.kind === 'error') {
+        setHasPendingSync(true);
+        setSyncState('error');
+        // V3：账号被标记「必须修改密码」时单独暴露状态，供 UI 引导用户完成改密
+        if (getLastExamApiError()?.code === 'PASSWORD_CHANGE_REQUIRED') setPasswordChangeRequired(true);
+        reportSyncError('待同步数据暂时无法上传，本机数据已保留。');
+        return;
+      }
 
-      // 本地仍有待办时绝不以云端旧数据覆盖；等待下一次冲刷/三方合并。
+      // 本地仍有待办时绝不以云端旧数据覆盖。
       if (getPendingExamSync()) { setHasPendingSync(true); setSyncState('pending'); return; }
+
       const bootstrapId = bootstrapResolved.current ? undefined : bootstrapInstanceIdRef.current;
       const remote = await fetchExamsFromServer(bootstrapId);
       if (bootstrapId && remote) {
         onBootstrapBindingRef.current?.(remote.binding ?? null);
         bootstrapResolved.current = true;
       }
-      if (!remote) { setSyncState('error'); reportSyncError('暂时无法读取云端考试与班级数据。'); return; }
+      if (!remote) {
+        setSyncState('error');
+        reportSyncError('暂时无法读取云端考试与班级数据。');
+        return;
+      }
       const localAt = getAppSettings().exam?.updatedAt ?? 0;
       const baseline = Math.max(lastApplied.current, localAt);
       if (remote.updatedAt > baseline) {
@@ -118,6 +174,10 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
       setLastSyncAt(Date.now());
       setSyncState('synced');
       setSyncError('');
+      // 同步成功，清除错误去重键与账号状态标志
+      lastNotifiedErrorCode.current = '';
+      setNeedsRelogin(false);
+      setPasswordChangeRequired(false);
     } finally {
       pulling.current = false;
     }
@@ -128,10 +188,8 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     const pull = () => { if (!cancelled) void refresh(); };
     pull();
     const id = setInterval(() => { if (document.visibilityState === 'visible') pull(); }, intervalMs);
-    // PWA/离线设备恢复网络、回到前台时立即补拉云端，API 始终网络优先。
     const onOnline = () => { void pull(); };
     const onVisible = () => { if (document.visibilityState === 'visible') void pull(); };
-    // 后台标签页的定时器可能被浏览器暂停；恢复焦点或 BFCache 页面时立即补拉最新数据。
     const onFocus = () => { void pull(); };
     const onPageShow = () => { void pull(); };
     const onLocalChanged = () => { applyLocal(); };
@@ -154,5 +212,5 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     };
   }, [intervalMs, refresh, applyLocal]);
 
-  return { refresh, reloadLocal: applyLocal, syncState, lastSyncAt, hasPendingSync, syncError };
+  return { refresh, reloadLocal: applyLocal, syncState, lastSyncAt, hasPendingSync, syncError, needsRelogin, passwordChangeRequired };
 }

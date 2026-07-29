@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Watermark from "../components/Watermark";
+import AdminModalPortal from '../components/AdminModalPortal';
 import type {
   ExamItem,
   MajorExam,
@@ -2859,7 +2860,7 @@ export default function AdminPage() {
         ))}
       </nav>
       {gradeAdminSetupPromptOpen && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal"
             onClick={(event) => event.stopPropagation()}
@@ -2896,10 +2897,10 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {majorModal && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setMajorModal(null))}
         >
@@ -2942,7 +2943,7 @@ export default function AdminPage() {
               {majorModalStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (!majorModal.name.trim()) { setMajorError("请输入大型考试名称"); return; } setMajorError(""); setMajorModalStep(1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitMajorModal}>{majorModal.next === "import" ? "创建并继续导入" : "确认保存"}</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {quickMajorOpen && (
         <QuickMajorPublishModal
@@ -2985,7 +2986,7 @@ export default function AdminPage() {
         />
       )}
       {deleteMajorOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setDeleteMajorOpen(false))}
         >
@@ -3010,10 +3011,10 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {deleteTarget && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setDeleteTarget(null))}
         >
@@ -3037,10 +3038,10 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {alertsOpen && can("alerts.read") && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setAlertsOpen(false))}
         >
@@ -3375,10 +3376,10 @@ export default function AdminPage() {
               )}
             </fieldset>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {announceOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setAnnounceOpen(false))}
         >
@@ -3409,10 +3410,10 @@ export default function AdminPage() {
               <AnnouncementList announcements={anns} formatTime={fmtAnnTime} />
             )}
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {importOpen && hasScopedMajor && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => {
             setImportOpen(false);
@@ -3439,7 +3440,7 @@ export default function AdminPage() {
               {majorImportStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => setMajorImportStep(1)}>下一步，粘贴 JSON</button> : majorImportStep === 1 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={validateMajorImportJson}>校验并预览</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!majorImportPreview?.items.some((item) => item.include)} onClick={importJson}>确认导入 {majorImportPreview?.items.filter((item) => item.include).length || 0} 项</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {editing && <TimeRangePickerModal
         open={majorTimeFlowOpen}

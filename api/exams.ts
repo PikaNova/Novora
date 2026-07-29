@@ -24,7 +24,7 @@ let migratePromise: Promise<void> | null = null;
 let updatedAtMigrationPromise: Promise<void> | null = null;
 type CachedGet = { body: string; etag: string; expiresAt: number };
 let getCache: CachedGet | null = null;
-const GET_CACHE_MS = 10_000;
+const GET_CACHE_MS = 3_000;
 
 // 早期版本曾将 updated_at 建为 INTEGER；毫秒时间戳超过其上限时，将旧列无损扩展为 BIGINT。
 // 仅在旧表首次写入溢出、或按需建表迁移时执行，避免每次请求增加 DDL 往返。
@@ -109,13 +109,15 @@ function ensureTableOnce(): Promise<void> {
           updated_at BIGINT NOT NULL
         )`,
       ]);
-      await ensureUpdatedAtBigIntOnce();
-      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`;
-      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS is_management BOOLEAN NOT NULL DEFAULT FALSE`;
-      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_actor_id BIGINT NOT NULL DEFAULT 0`;
-      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_role_name TEXT NOT NULL DEFAULT ''`;
-      await sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`;
-      await sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`;
+      await Promise.all([
+        ensureUpdatedAtBigIntOnce(),
+        sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`,
+        sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS is_management BOOLEAN NOT NULL DEFAULT FALSE`,
+        sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_actor_id BIGINT NOT NULL DEFAULT 0`,
+        sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_role_name TEXT NOT NULL DEFAULT ''`,
+        sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`,
+      ]);
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
         VALUES (1, '[]', '', 0)
@@ -207,6 +209,22 @@ function recordDiff(before: any[], after: any[]) {
   };
 }
 
+function cleanActiveWeeklyPlanByClass(
+  value: Record<string, string | null> | undefined,
+  classMap: Map<string, any>,
+): Record<string, string | null> {
+  if (!value || typeof value !== 'object') return {};
+  const cleaned: Record<string, string | null> = {};
+  for (const [classId, planId] of Object.entries(value)) {
+    if (!classMap.has(classId)) {
+      console.warn(`[exams] dropping stale active weekly plan mapping for deleted class ${classId}`);
+      continue;
+    }
+    cleaned[classId] = planId;
+  }
+  return cleaned;
+}
+
 function validateMutation(actor: AdminActor, current: ReturnType<typeof examPayload>, body: Record<string, any>): { ok: true; actions: string[] } | { ok: false; error: string; permission?: Permission } {
   const actions: string[] = [];
   const need = (permission: Permission, label: string) => {
@@ -257,9 +275,12 @@ function validateMutation(actor: AdminActor, current: ReturnType<typeof examPayl
     const before = current.activeWeeklyPlanIdByClassId ?? {};
     const after = body.activeWeeklyPlanIdByClassId ?? before;
     const classMap = new Map((nextClasses as any[]).map(item => [String(item?.id ?? ''), item]));
-    const changedClassIds = new Set([...Object.keys(before), ...Object.keys(after)].filter(id => before[id] !== after[id]));
+    const cleanedAfter = cleanActiveWeeklyPlanByClass(after, classMap);
+    body.activeWeeklyPlanIdByClassId = cleanedAfter;
+    const changedClassIds = new Set([...Object.keys(before), ...Object.keys(cleanedAfter)].filter(id => before[id] !== cleanedAfter[id]));
     for (const classId of changedClassIds) {
       const schoolClass: any = classMap.get(classId);
+      if (!schoolClass) continue;
       if (!schoolClass || !canAccessClass(actor, String(schoolClass.gradeId ?? ''), classId)) return { ok: false, error: '生效周测计划超出当前账号的班级管理范围' };
     }
   }
@@ -401,7 +422,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     || (req.method === 'GET' && action !== 'device-bindings')
     || (req.method === 'POST' && publicPostActions.has(action));
   // Short edge cache reduces repeated US→Singapore database reads while keeping updates prompt.
-  if (req.method === 'GET') res.setHeader('Cache-Control', 'public, s-maxage=10, stale-while-revalidate=50');
+  if (req.method === 'GET') res.setHeader('Cache-Control', 'public, s-maxage=3, stale-while-revalidate=10');
   else res.setHeader('Cache-Control', 'no-store');
   if (!applyCors(req, res, { methods: ['GET', 'POST'], public: publicRequest })) return;
 

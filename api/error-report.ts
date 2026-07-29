@@ -1,12 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createHash } from 'node:crypto';
 import { getAuthorConfig, getIngestToken, shouldSample } from './_authorClient.js';
 import { telemetryConfig } from './_telemetryConfig.js';
 
-const COLLECT_URL = telemetryConfig.collectUrl;
-const IP_SALT = telemetryConfig.ipSalt;
+const ERROR_REPORT_URL = telemetryConfig.errorReportUrl;
+const ALLOWED_LEVELS = new Set(['error', 'warning', 'info']);
 
-function str(value: unknown, max = 512): string | null {
+function str(value: unknown, max = 2000): string | null {
   if (value == null) return null;
   const text = String(value).trim();
   return text ? text.slice(0, max) : null;
@@ -15,12 +14,6 @@ function str(value: unknown, max = 512): string | null {
 function num(value: unknown): number | null {
   const number = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-function clientIp(req: VercelRequest): string {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor || '';
-  return (raw.split(',')[0] || '').trim();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -33,47 +26,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
     const instanceId = str(body.instanceId, 128);
-    const event = str(body.event, 32);
-    if (!instanceId || !event) {
-      res.status(400).json({ ok: false, error: 'missing instanceId/event' });
+    const message = str(body.message, 2000);
+    if (!instanceId || !message) {
+      res.status(400).json({ ok: false, error: 'missing instanceId/message' });
       return;
     }
 
-    const ip = clientIp(req);
-    const ipHash = ip ? createHash('sha256').update(`${IP_SALT}|${ip}`).digest('hex').slice(0, 32) : null;
-    const country = str(req.headers['x-vercel-ip-country'], 8);
-    const payload = {
-      instanceId,
-      event,
-      appVersion: str(body.appVersion, 32),
-      commitSha: str(body.commitSha, 64),
-      host: str(body.host, 128),
-      vercelEnv: process.env.VERCEL_ENV || null,
-      userAgent: str(body.userAgent, 512) || str(req.headers['user-agent'], 512),
-      tz: str(body.tz, 64),
-      lang: str(body.lang, 32),
-      country,
-      ipHash,
-      clientTs: num(body.clientTs),
-      perf: body.perf && typeof body.perf === 'object' && !Array.isArray(body.perf) ? body.perf : null,
-      weekly: body.weekly && typeof body.weekly === 'object' && !Array.isArray(body.weekly) ? body.weekly : null,
-      schoolName: str(body.schoolName, 80),
-      province: str(body.province, 40),
-    };
-
     const config = await getAuthorConfig();
-    if (!config.telemetryEnabled) {
+    if (!config.errorReportEnabled) {
       res.json({ ok: true, skipped: true, reason: 'disabled' });
       return;
     }
-    if (payload.appVersion && config.disabledVersions.includes(payload.appVersion)) {
+    const appVersionForGate = str(body.appVersion, 32);
+    if (appVersionForGate && config.disabledVersions.includes(appVersionForGate)) {
       res.json({ ok: true, skipped: true, reason: 'version_disabled' });
       return;
     }
-    if (!shouldSample(config.sampleRate)) {
+    if (!shouldSample(config.errorSampleRate)) {
       res.json({ ok: true, skipped: true, reason: 'sampled_out' });
       return;
     }
+
+    const level = str(body.level, 16);
+    const context = body.context && typeof body.context === 'object' && !Array.isArray(body.context) ? body.context : null;
+    const payload = {
+      instanceId,
+      message,
+      errorName: str(body.errorName, 200),
+      stack: str(body.stack, config.maxStackLength),
+      fingerprint: str(body.fingerprint, 256),
+      level: level && ALLOWED_LEVELS.has(level) ? level : 'error',
+      route: str(body.route, 256),
+      action: str(body.action, 200),
+      apiEndpoint: str(body.apiEndpoint, 256),
+      httpStatus: num(body.httpStatus),
+      context,
+      appVersion: str(body.appVersion, 32),
+      clientChannel: str(body.clientChannel, 16) || 'novora-client',
+      schoolName: str(body.schoolName, 80),
+      province: str(body.province, 40),
+      host: str(body.host, 128),
+      userAgent: str(body.userAgent, 512) || str(req.headers['user-agent'], 512),
+      tz: str(body.tz, 64),
+      lang: str(body.lang, 32),
+      clientTs: num(body.clientTs),
+    };
 
     const token = await getIngestToken('v2', instanceId);
     if (!token) {
@@ -82,8 +79,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const targets = [
-      COLLECT_URL,
-      ...(config.backupBaseUrl ? [`${config.backupBaseUrl.replace(/\/+$/, '')}/api/collect`] : []),
+      ERROR_REPORT_URL,
+      ...(config.backupBaseUrl ? [`${config.backupBaseUrl.replace(/\/+$/, '')}/api/error-report`] : []),
     ];
     const relayStartedAt = Date.now();
     let lastError: { status?: number; detail?: string } = {};
@@ -109,6 +106,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     res.status(502).json({ ok: false, error: 'forward_failed', ...lastError });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'telemetry_failed' });
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'error_report_failed' });
   }
 }

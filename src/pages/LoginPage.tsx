@@ -5,6 +5,7 @@ import { formatApiError } from '../services/apiError';
 import { changeOwnCredentials } from '../services/adminUsers';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
+import SuperAdminRepairLink from '../components/SuperAdminRepairLink';
 import { ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
 import { safeLoginDestination } from '../utils/safeNavigation';
 import '../styles/login.css';
@@ -134,6 +135,7 @@ export default function LoginPage() {
           </button>
         </form>
         {!initializing && <button className="login-form__link" type="button" onClick={() => void openRecovery()}>忘记密码？</button>}
+        {!initializing && <SuperAdminRepairLink />}
         </>}
         <Link className="login-card__back" to="/"><ArrowLeft aria-hidden="true" />返回首页</Link>
       </section>

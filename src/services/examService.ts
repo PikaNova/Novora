@@ -3,6 +3,8 @@ import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } fro
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -88,6 +90,21 @@ export function getCloudSnapshot(): ExamPayload | null {
   } catch { return null; }
 }
 
+// ── 统一的网络错误分类 ────────────────────────────────────────────
+function classifyFetchError(err: unknown): ApiError {
+  if (err instanceof ApiError) return err;
+  if (err instanceof TypeError && /fetch|network|load/i.test(err.message)) {
+    return networkApiError();
+  }
+  console.error('[examService] unexpected error:', err);
+  return new ApiError({
+    status: 0,
+    code: 'UNEXPECTED_ERROR',
+    message: '发生了意外错误，请刷新页面后重试。',
+    retryable: false,
+  });
+}
+
 export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
   try {
     const headers: Record<string, string> = {};
@@ -97,33 +114,44 @@ export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promis
     const url = isBootstrap
       ? `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`
       : API_URL;
-    // no-cache validates at the edge but does not force a database round-trip when the ETag is unchanged.
-    const res = await fetch(url, { method: 'GET', headers, cache: isBootstrap ? 'no-store' : 'no-cache' });
+
+    const res = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers, cache: isBootstrap ? 'no-store' : 'no-cache' },
+      15_000,
+    );
+
     if (res.status === 304) {
-      // 304 = 云端数据自上次拉取后未变更，本身即“已同步”成功状态。
       const snap = getCloudSnapshot();
       if (snap) return snap;
-      // 极少数情况下本地基线快照丢失（隐私模式/配额清理/跨版本），但服务端已确认未变更；
-      // 去掉条件头重新完整拉取一次，避免把“已同步”误判为同步失败。
-      const full = await fetch(API_URL, { method: 'GET', cache: 'no-cache' });
+      const full = await fetchWithTimeout(API_URL, { method: 'GET', cache: 'no-cache' }, 15_000);
       if (!full.ok) { lastExamApiError = await apiErrorFromResponse(full, '读取考试与班级数据失败'); return null; }
       const fullEtag = full.headers.get('ETag'); if (fullEtag) localStorage.setItem(CLOUD_ETAG_KEY, fullEtag);
       const fullData = await full.json();
-      if (!fullData?.ok) { lastExamApiError = new ApiError({ status: 500, code: 'INVALID_RESPONSE', message: '服务器返回了无效的数据', retryable: true }); return null; }
+      if (!fullData?.ok) {
+        lastExamApiError = new ApiError({ status: 500, code: 'INVALID_RESPONSE', message: '服务器返回了无效的数据，请刷新后重试。', retryable: true });
+        return null;
+      }
       const fullPayload = toPayload(fullData);
       rememberCloudSnapshot(fullPayload);
       return fullPayload;
     }
+
     if (!res.ok) { lastExamApiError = await apiErrorFromResponse(res, '读取考试与班级数据失败'); return null; }
     const freshEtag = res.headers.get('ETag'); if (freshEtag) localStorage.setItem(CLOUD_ETAG_KEY, freshEtag);
     const data = await res.json();
-    if (!data?.ok) { lastExamApiError = new ApiError({ status: 500, code: 'INVALID_RESPONSE', message: '服务器返回了无效的数据', retryable: true }); return null; }
+    if (!data?.ok) {
+      lastExamApiError = new ApiError({ status: 500, code: 'INVALID_RESPONSE', message: '服务器返回了无效的数据，请刷新后重试。', retryable: true });
+      return null;
+    }
     const payload = toPayload(data);
-    // 原代码在 return 后写缓存，实际从未执行；现在读取成功即同时写入版本和完整基线快照。
     rememberCloudSnapshot(payload);
     lastExamApiError = null;
     return payload;
-  } catch { lastExamApiError = networkApiError(); return null; }
+  } catch (err) {
+    lastExamApiError = classifyFetchError(err);
+    return null;
+  }
 }
 
 export interface SaveExamsInput {
@@ -146,10 +174,6 @@ export interface SaveExamsInput {
 
 export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remote: ExamPayload | null } | { kind: 'error'; error: ApiError } | null;
 
-/**
- * 将数据推送至服务器。
- * 返回值：成功返回 updatedAt；冲突时携带服务端完整快照，供后台执行三方合并；鉴权失败返回 'unauthorized'。
- */
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -164,7 +188,6 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       baseUpdatedAt: input.baseUpdatedAt ?? Number(localStorage.getItem(CLOUD_VERSION_KEY) ?? 0),
     };
     if (input.action) requestBody.action = input.action;
-    // 仅在显式提供时才发送周测字段；缺省时服务端保留既有值，避免后台保存把周测数据覆盖为空。
     if (input.scheduleMode !== undefined) requestBody.scheduleMode = input.scheduleMode;
     if (input.weeklyPlans !== undefined) requestBody.weeklyPlans = input.weeklyPlans;
     if (input.activeWeeklyPlanId !== undefined) requestBody.activeWeeklyPlanId = input.activeWeeklyPlanId;
@@ -173,7 +196,13 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     if (input.classes !== undefined) requestBody.classes = input.classes;
     if (input.initialization !== undefined) requestBody.initialization = input.initialization;
     if (input.weeklyConflictPolicy !== undefined) requestBody.weeklyConflictPolicy = input.weeklyConflictPolicy;
-    const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) });
+
+    const res = await fetchWithTimeout(
+      API_URL,
+      { method: 'POST', headers, body: JSON.stringify(requestBody) },
+      20_000,
+    );
+
     if (res.status === 401) { lastExamApiError = await apiErrorFromResponse(res, '登录状态已失效'); logoutAdmin(); return 'unauthorized'; }
     if (res.status === 409) {
       const data = await res.json().catch(() => null);
@@ -183,6 +212,8 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
       lastExamApiError = error;
       return { kind: 'error', error };
     }
+    // V3：403 专门处理——区分「PASSWORD_CHANGE_REQUIRED」与「PERMISSION_DENIED」，
+    // 避免前端统一展示为笼统的「权限不足」。真实错误文本已在 apiErrorFromResponse 中优先取服务端原始文本。
     if (!res.ok) {
       const error = await apiErrorFromResponse(res, '考试数据同步失败');
       lastExamApiError = error;
@@ -211,53 +242,101 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
     });
     lastExamApiError = null;
     return updatedAt;
-  } catch {
-    const error = networkApiError('无法连接服务器，本机修改已保留，联网后会自动重试。');
-    lastExamApiError = error;
-    return { kind: 'error', error };
+  } catch (err) {
+    const error = classifyFetchError(err);
+    const wrappedError = (error.code === 'NETWORK_UNAVAILABLE' || error.code === 'NETWORK_TIMEOUT')
+      ? new ApiError({ ...error, message: '无法连接服务器，本机修改已保留，联网后会自动重试。' })
+      : error;
+    lastExamApiError = wrappedError;
+    return { kind: 'error', error: wrappedError };
   }
 }
 
+/** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。 */
 export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<DesignPolicy> {
   const token = localStorage.getItem(TOKEN_KEY) ?? '';
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ action: 'design-policy', designPolicy }),
-  });
-  if (!response.ok) throw await apiErrorFromResponse(response, '考试端设计规则保存失败');
-  const data = await response.json();
-  if (!data?.designPolicy) throw new Error('服务器未返回设计规则');
-  const saved = data.designPolicy as DesignPolicy;
-  const snapshot = getCloudSnapshot();
-  if (snapshot) rememberCloudSnapshot({ ...snapshot, designPolicy: saved, updatedAt: Number(data.updatedAt ?? saved.updatedAt) });
-  else localStorage.setItem(CLOUD_VERSION_KEY, String(data.updatedAt ?? saved.updatedAt));
-  return saved;
+  try {
+    const response = await fetchWithTimeout(
+      API_URL,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action: 'design-policy', designPolicy }),
+      },
+      20_000,
+    );
+    if (!response.ok) {
+      const error = await apiErrorFromResponse(response, '考试端设计规则保存失败');
+      saveDesignPolicyDraft(designPolicy, error.message);
+      throw error;
+    }
+    const data = await response.json();
+    if (!data?.designPolicy) throw new Error('服务器未返回设计规则');
+    const saved = data.designPolicy as DesignPolicy;
+    clearDesignPolicyDraft();
+    const snapshot = getCloudSnapshot();
+    if (snapshot) rememberCloudSnapshot({ ...snapshot, designPolicy: saved, updatedAt: Number(data.updatedAt ?? saved.updatedAt) });
+    else localStorage.setItem(CLOUD_VERSION_KEY, String(data.updatedAt ?? saved.updatedAt));
+    return saved;
+  } catch (err) {
+    if (!(err instanceof ApiError)) {
+      const wrapped = classifyFetchError(err);
+      saveDesignPolicyDraft(designPolicy, wrapped.message);
+      throw wrapped;
+    }
+    throw err;
+  }
 }
 
 export async function isLoginRequired(): Promise<boolean> {
   try {
-    const res = await fetch(LOGIN_URL, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
+    const res = await fetchWithTimeout(LOGIN_URL, { method: 'GET', headers: { 'Cache-Control': 'no-store' } }, 10_000);
     if (!res.ok) { lastAuthApiError = await apiErrorFromResponse(res, '无法读取登录配置'); return true; }
     const data = await res.json();
     lastAuthApiError = null;
     return !!data?.required;
-  } catch { lastAuthApiError = networkApiError('无法连接登录服务，请检查网络后重试。'); return true; }
+  } catch (err) {
+    lastAuthApiError = classifyFetchError(err);
+    return true;
+  }
 }
 
 export async function getAdminRecoveryStatus(): Promise<boolean> {
-  const res = await fetch(`${LOGIN_URL}?action=recovery-status`, { headers: { 'Cache-Control': 'no-store' } });
+  const res = await fetchWithTimeout(
+    `${LOGIN_URL}?action=recovery-status`,
+    { headers: { 'Cache-Control': 'no-store' } },
+    10_000,
+  );
   if (!res.ok) throw await apiErrorFromResponse(res, '无法读取账户恢复配置');
   const data = await res.json();
   return data?.configured === true;
 }
 
 export async function recoverSuperAdminAccount(username: string, recoveryKey: string, newPassword: string): Promise<void> {
-  const res = await fetch(LOGIN_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'recover-super-admin', username, recoveryKey, newPassword }),
-  });
+  const res = await fetchWithTimeout(
+    LOGIN_URL,
+    {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'recover-super-admin', username, recoveryKey, newPassword }),
+    },
+    15_000,
+  );
   if (!res.ok) throw await apiErrorFromResponse(res, '超级管理员账户恢复失败');
+}
+
+export async function repairSuperAdminAccount(username: string, recoveryKey: string, newPassword: string): Promise<{ created: boolean }> {
+  const res = await fetchWithTimeout(
+    LOGIN_URL,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'repair-super-admin', username, recoveryKey, newPassword }),
+    },
+    15_000,
+  );
+  const data = await res.clone().json().catch(() => null);
+  if (!res.ok || data?.ok !== true) throw await apiErrorFromResponse(res, '超级管理员账户修复失败');
+  return { created: data.created === true };
 }
 
 export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
@@ -297,14 +376,20 @@ export function adminCanGrade(gradeId: string, user = getAdminUser()): boolean {
 }
 
 export function adminCanClass(gradeId: string, classId: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.scopes.some(scope => scope.type === 'all' || scope.type === 'grade' && scope.gradeId === gradeId || scope.type === 'class' && scope.classId === classId));
+  return !!user && (user.permissions.includes('*') || user.scopes.some(scope =>
+    scope.type === 'all' || scope.type === 'grade' && scope.gradeId === gradeId || scope.type === 'class' && scope.classId === classId));
 }
 
+/** V3：登录/进入管理页时主动刷新一次真实权限，消除前端 localStorage 缓存与服务端实际角色的漂移（见权限排查报告原因 5）。 */
 export async function refreshAdminUser(): Promise<AdminUserContext | null> {
   try {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return null;
-    const res = await fetch(`${LOGIN_URL}?action=me`, { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' } });
+    const res = await fetchWithTimeout(
+      `${LOGIN_URL}?action=me`,
+      { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' } },
+      10_000,
+    );
     if (!res.ok) { if (res.status === 401) logoutAdmin(); return null; }
     const data = await res.json();
     if (!data?.user) return null;
@@ -315,11 +400,15 @@ export async function refreshAdminUser(): Promise<AdminUserContext | null> {
 
 export async function loginAdmin(username: string, password: string): Promise<boolean> {
   try {
-    const res = await fetch(LOGIN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
+    const res = await fetchWithTimeout(
+      LOGIN_URL,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      },
+      15_000,
+    );
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) {
       lastAuthApiError = await apiErrorFromResponse(new Response(JSON.stringify(data), { status: res.status, headers: res.headers }), '登录失败');
@@ -335,7 +424,10 @@ export async function loginAdmin(username: string, password: string): Promise<bo
     }
     lastAuthApiError = null;
     return true;
-  } catch { lastAuthApiError = networkApiError('无法连接登录服务，请检查网络后重试。'); return false; }
+  } catch (err) {
+    lastAuthApiError = classifyFetchError(err);
+    return false;
+  }
 }
 
 export function hasValidLocalToken(): boolean {

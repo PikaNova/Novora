@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { SchoolClass, SchoolGrade } from "../types/school";
+import AdminModalPortal from './AdminModalPortal';
 import {
   adminCan,
   getAdminUser,
@@ -924,7 +925,7 @@ export default function UserManagementPanel({
   return (
     <main className="user-management">
       {batchUserDraft && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
@@ -1018,10 +1019,10 @@ export default function UserManagementPanel({
               }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy || !batchUserDraft.classIds.length} onClick={() => void submitBatchUsers()}>{busy ? "正在创建…" : `创建 ${batchUserDraft.classIds.length} 个账号`}</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {batchCredentials && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal admin-modal--wide"
             onClick={(event) => event.stopPropagation()}
@@ -1057,7 +1058,7 @@ export default function UserManagementPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       <div className="device-status__heading user-management__heading">
         <div>
@@ -1415,7 +1416,7 @@ export default function UserManagementPanel({
       )}
 
       {userDraft && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
@@ -1641,10 +1642,10 @@ export default function UserManagementPanel({
               }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitUser()}>{busy ? "保存中…" : "保存管理员"}</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {roleDraft && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal admin-modal--wide admin-modal--workflow"
             onClick={(event) => event.stopPropagation()}
@@ -1742,10 +1743,10 @@ export default function UserManagementPanel({
               {roleWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (roleWizardStep === 0 && !roleDraft.name.trim()) return; setRoleWizardStep((value) => value + 1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitRole()}>{busy ? "保存中…" : "保存角色"}</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {resetTarget && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal"
             onClick={(event) => event.stopPropagation()}
@@ -1820,10 +1821,10 @@ export default function UserManagementPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {issuedPassword && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal"
             onClick={(event) => event.stopPropagation()}
@@ -1868,10 +1869,10 @@ export default function UserManagementPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {passwordOpen && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal"
             onClick={(event) => event.stopPropagation()}
@@ -1998,10 +1999,10 @@ export default function UserManagementPanel({
               )}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {usernameOpen && (
-        <div className="admin-modal-overlay">
+        <AdminModalPortal className="admin-modal-overlay">
           <div
             className="admin-modal"
             onClick={(event) => event.stopPropagation()}
@@ -2069,7 +2070,7 @@ export default function UserManagementPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
     </main>
   );

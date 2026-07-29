@@ -56,8 +56,13 @@ export default function AppDialogHost() {
   if (!active) return null;
   const tone = active.tone ?? 'info';
   const Icon = ICONS[tone];
-  return <div className="app-dialog-overlay" role="presentation" onMouseDown={event => {
+  return <div className="app-dialog-overlay" role="presentation" onPointerDown={event => {
+    event.stopPropagation();
+  }} onMouseDown={event => {
+    event.stopPropagation();
     if (event.target === event.currentTarget && active.cancelLabel) settle(false);
+  }} onClick={event => {
+    event.stopPropagation();
   }}>
     <section ref={dialogRef} className={`app-dialog is-${tone}`} role="alertdialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message">
       <header className="app-dialog__header">

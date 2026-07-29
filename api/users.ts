@@ -237,6 +237,14 @@ async function handleRoles(req: VercelRequest, res: VercelResponse, actor: Admin
     const id = rawId || `role_${randomBytes(6).toString('hex')}`;
     const existing = await sql`SELECT built_in FROM app_roles WHERE id=${id}` as unknown as Array<{ built_in: boolean }>;
     if (existing[0]?.built_in) return res.status(400).json({ ok: false, error: '内置角色不可修改，请创建自定义角色' });
+    const builtinRoleNames = new Set(['\u8d85\u7ea7\u7ba1\u7406\u5458', '\u5e74\u7ea7\u7ba1\u7406\u5458', '\u73ed\u7ea7\u7ba1\u7406\u5458', '\u53ea\u8bfb\u7528\u6237']);
+    const normalizedName = name.trim();
+    if (builtinRoleNames.has(normalizedName)) {
+      return res.status(400).json({
+        ok: false,
+        error: '\u201c' + normalizedName + '\u201d\u4e3a\u7cfb\u7edf\u5185\u7f6e\u89d2\u8272\u540d\u79f0\uff0c\u8bf7\u4e3a\u81ea\u5b9a\u4e49\u89d2\u8272\u4f7f\u7528\u5176\u4ed6\u540d\u79f0\uff0c\u907f\u514d\u4e0e\u771f\u5b9e\u7ba1\u7406\u5458\u8eab\u4efd\u6df7\u6dc6',
+      });
+    }
     const at = Date.now();
     await sql`INSERT INTO app_roles (id, name, description, permissions, built_in, created_at, updated_at)
       VALUES (${id}, ${name}, ${text(body.description, 300)}, ${JSON.stringify(permissions)}::jsonb, FALSE, ${at}, ${at})

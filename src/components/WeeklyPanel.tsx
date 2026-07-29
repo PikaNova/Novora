@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { ExamItem } from "../types";
+import AdminModalPortal from './AdminModalPortal';
 import type {
   ScheduleMode,
   WeeklyPlan,
@@ -1299,7 +1300,7 @@ export default function WeeklyPanel({
       setPlanWizardStep((value) => Math.min(2, value + 1));
     };
     return (
-      <div
+      <AdminModalPortal
         className="admin-modal-overlay"
         {...backdropProps(closePlanModal)}
       >
@@ -1496,7 +1497,7 @@ export default function WeeklyPanel({
             {planWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={nextPlanStep}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitPlanModal}>保存到 {planModal.mode === "add" ? planModal.classIds.length : 1} 个班级</button>}
           </div>
         </div>
-      </div>
+      </AdminModalPortal>
     );
   }
 
@@ -1929,7 +1930,7 @@ export default function WeeklyPanel({
 
       {planModal && renderPlanModal()}
       {deletePlanOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setDeletePlanOpen(false))}
         >
@@ -1954,10 +1955,10 @@ export default function WeeklyPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {allowBatchApply && batchDeleteOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => {
             setBatchDeleteOpen(false);
@@ -1982,10 +1983,10 @@ export default function WeeklyPanel({
               {batchDeleteStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!batchDeletePlanIds.length} onClick={() => setBatchDeleteStep(1)}>下一步，确认范围</button> : <button className="admin-btn admin-btn--danger admin-workflow-actions-spacer" onClick={() => void removeSelectedPlans()}>删除 {batchDeletePlanIds.length} 个计划</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {editing && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => {
             setWeeklyTimeFlowOpen(false);
@@ -2120,7 +2121,7 @@ export default function WeeklyPanel({
               {itemWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (itemWizardStep === 0 && !editing.name.trim()) { setEditError("请先选择或填写周测科目。"); return; } setEditError(""); setItemWizardStep((value) => value + 1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitItemModal}>确认并保存</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {editing && <TimeRangePickerModal
         open={weeklyTimeFlowOpen}
@@ -2142,7 +2143,7 @@ export default function WeeklyPanel({
         }}
       />}
       {deleteTarget && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setDeleteTarget(null))}
         >
@@ -2166,10 +2167,10 @@ export default function WeeklyPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {importOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => closeImport())}
         >
@@ -2267,10 +2268,10 @@ export default function WeeklyPanel({
               </div>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {policyOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setPolicyOpen(false))}
         >
@@ -2371,10 +2372,10 @@ export default function WeeklyPanel({
               </div>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {exceptionsOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setExceptionsOpen(false))}
         >
@@ -2517,10 +2518,10 @@ export default function WeeklyPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {allowBatchApply && copyModal && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setCopyModal(null))}
         >
@@ -2624,10 +2625,10 @@ export default function WeeklyPanel({
               {copyWizardStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!copyModal.sourcePlanId || !copyModal.name.trim()} onClick={() => setCopyWizardStep(1)}>下一步，选择班级</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitCopyPlan} disabled={!copyModal.targetClassIds.length}>应用到 {copyModal.targetClassIds.length} 个班级</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {conflictTarget && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setConflictTarget(null))}
         >
@@ -2663,10 +2664,10 @@ export default function WeeklyPanel({
               </button>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {rescheduleTarget && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setRescheduleTarget(null))}
         >
@@ -2728,7 +2729,7 @@ export default function WeeklyPanel({
               </div>
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {rescheduleTarget && <TimeRangePickerModal
         open={rescheduleTimeOpen}
@@ -2750,7 +2751,7 @@ export default function WeeklyPanel({
         }}
       />}
       {printPickerOpen && (
-        <div
+        <AdminModalPortal
           className="admin-modal-overlay"
           {...backdropProps(() => setPrintPickerOpen(false))}
         >
@@ -2772,7 +2773,7 @@ export default function WeeklyPanel({
               {printPickerStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={!printSchedules.length} onClick={() => setPrintPickerStep(1)}>下一步，确认文档</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { setPrintPickerOpen(false); setPrintOpen(true); }}>预览 {printSchedules.length} 个班级</button>}
             </div>
           </div>
-        </div>
+        </AdminModalPortal>
       )}
       {printOpen && (
         <SchedulePrintPreview

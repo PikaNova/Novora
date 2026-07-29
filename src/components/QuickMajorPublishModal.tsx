@@ -7,6 +7,7 @@ import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import SubjectIcon from "./SubjectIcon";
 import TimeRangePickerModal from "./TimeRangePickerModal";
 import AdminWizardSteps from "./AdminWizardSteps";
+import AdminModalPortal from './AdminModalPortal';
 
 export interface QuickMajorPublishInput {
   name: string;
@@ -250,7 +251,7 @@ export default function QuickMajorPublishModal({
   };
 
   return (
-    <div className="admin-modal-overlay" role="presentation">
+    <AdminModalPortal className="admin-modal-overlay" role="presentation">
       <div
         className="admin-modal admin-modal--wide admin-modal--workflow quick-major-modal"
         role="dialog"
@@ -574,6 +575,6 @@ export default function QuickMajorPublishModal({
           }}
         />
       </div>
-    </div>
+    </AdminModalPortal>
   );
 }
