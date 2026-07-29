@@ -41,7 +41,7 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
   const validSchool = useMemo(() => school.some(row => row.name.trim() && row.classes.trim()), [school]);
   const safeDocumentUrl = (value?: string) => { try { const url = new URL(value ?? ''); return url.protocol === 'https:' ? url.toString() : ''; } catch { return ''; } };
   const validDocuments = useMemo(() => documents.filter(item => safeDocumentUrl(item.url)), [documents]);
-  const canDismiss = step === 0 ? false : step === 6 ? recoverySaved : true;
+  const canDismiss = false;
 
   useEffect(() => {
     if (!open) return;
@@ -105,7 +105,7 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
   };
 
   return <div className="init-overlay" role="dialog" aria-modal="true" aria-labelledby="init-title"><div className="init-window">
-    <header className="init-head"><div><span>初始化向导 · {step + 1}/7</span><h2 id="init-title">{['填写学校信息', '设置年级与班级', '设置学期规则', '确认学校配置', '查看使用文档', '修改超级管理员密码', '保存超级管理员恢复密钥'][step]}</h2></div><button onClick={onClose} disabled={!canDismiss || finishing} title={step === 0 ? '请先完成学校基本信息' : step === 6 && !recoverySaved ? '请先保存恢复密钥并完成确认' : undefined} aria-label="关闭初始化向导">×</button></header>
+    <header className="init-head"><div><span>初始化向导 · {step + 1}/7</span><h2 id="init-title">{['填写学校信息', '设置年级与班级', '设置学期规则', '确认学校配置', '查看使用文档', '修改超级管理员密码', '保存超级管理员恢复密钥'][step]}</h2></div><button onClick={onClose} disabled={!canDismiss || finishing} title="请完成初始化流程，不能中途跳过" aria-label="初始化流程完成前不可关闭">×</button></header>
     <div className="init-workspace">
     <AdminWizardSteps active={step} steps={[
       { label: '学校信息' }, { label: '年级班级' }, { label: '学期规则' }, { label: '确认配置' }, { label: '使用文档' }, { label: '管理员密码' }, { label: '恢复密钥' },
@@ -120,6 +120,6 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
       {step === 6 && <div className="init-recovery"><div className="init-recovery__warning"><strong>恢复密钥只显示这一次</strong><span>当所有超级管理员都忘记密码时，可在登录页使用此密钥重置指定超级管理员密码。它不能用于日常登录。</span></div><label className="init-recovery__key"><span>超级管理员恢复密钥</span><textarea readOnly value={recoveryKey} onFocus={event => event.currentTarget.select()} aria-label="超级管理员恢复密钥" /></label><button type="button" className="init-recovery__copy" onClick={() => void copyRecoveryKey()}>{copyState || '复制恢复密钥'}</button><ul><li>保存到可信密码管理器或学校受控的离线介质。</li><li>不要发送给年级管理员、班级管理员，也不要粘贴到公开反馈或截图中。</li><li>数据库仅保存密钥哈希，系统之后无法再次显示这段明文。</li></ul><label className="init-check init-recovery__confirm"><input type="checkbox" checked={recoverySaved} onChange={event => setRecoverySaved(event.target.checked)} /><span className="init-check__text"><strong>我已安全保存恢复密钥</strong><small>我了解密钥遗失后系统无法再次显示原文。</small></span></label></div>}
     </main>
     </div>
-    <footer className="init-actions"><button onClick={onClose} disabled={!canDismiss || finishing}>{step === 6 ? '关闭' : '稍后设置'}</button>{step > 0 && step < 6 && <button disabled={finishing} onClick={() => setStep(value => value - 1)}>上一步</button>}<button className="is-primary" disabled={finishing || (step === 0 && (!province || !schoolName.trim())) || (step === 1 && !validSchool) || (step === 6 && !recoverySaved)} onClick={() => step < 3 ? setStep(value => value + 1) : step === 3 ? enterDocumentStep() : step === 4 ? setStep(5) : step === 5 ? void finish() : onFinalized()}>{step < 3 ? '下一步' : step === 3 ? '查看使用文档' : step === 4 ? '继续设置超级管理员密码' : step === 5 ? finishing ? '正在保存并修改密码…' : '完成初始化并修改密码' : '我已保存，完成初始化'}</button></footer>
+    <footer className="init-actions">{step > 0 && step < 6 && <button disabled={finishing} onClick={() => setStep(value => value - 1)}>上一步</button>}<button className="is-primary" disabled={finishing || (step === 0 && (!province || !schoolName.trim())) || (step === 1 && !validSchool) || (step === 6 && !recoverySaved)} onClick={() => step < 3 ? setStep(value => value + 1) : step === 3 ? enterDocumentStep() : step === 4 ? setStep(5) : step === 5 ? void finish() : onFinalized()}>{step < 3 ? '下一步' : step === 3 ? '查看使用文档' : step === 4 ? '继续设置超级管理员密码' : step === 5 ? finishing ? '正在保存并修改密码…' : '完成初始化并修改密码' : '我已保存，完成初始化'}</button></footer>
   </div></div>;
 }
