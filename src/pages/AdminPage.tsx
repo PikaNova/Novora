@@ -70,6 +70,7 @@ import BrandMark from "../components/BrandMark";
 import QuickMajorPublishModal, {
   type QuickMajorPublishInput,
 } from "../components/QuickMajorPublishModal";
+import MajorBatchAddModal from "../components/MajorBatchAddModal";
 import AdminWizardSteps, { AdminWorkflowClose } from "../components/AdminWizardSteps";
 import InlineSelect from "../components/InlineSelect";
 import TimeRangePickerModal from "../components/TimeRangePickerModal";
@@ -325,6 +326,7 @@ export default function AdminPage() {
   const [deleteMajorOpen, setDeleteMajorOpen] = useState(false);
   const [majorPrintOpen, setMajorPrintOpen] = useState(false);
   const [quickMajorOpen, setQuickMajorOpen] = useState(false);
+  const [majorBatchAddOpen, setMajorBatchAddOpen] = useState(false);
   const [adminNow, setAdminNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
@@ -908,6 +910,10 @@ export default function AdminPage() {
     },
     [commit, editingMajorId],
   );
+  const commitBatchMajorItems = (nextItems: ExamItem[]) => {
+    commitItems(normalizeExamItems(nextItems));
+    setMajorBatchAddOpen(false);
+  };
 
   // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
   const pushWeeklyToServer = useCallback(
@@ -2686,9 +2692,9 @@ export default function AdminPage() {
                     </div>
                   </div>
                 ) : (
-                  <button
+                  <div className="admin-major-add-actions">
+                    <button
                     className="admin-btn admin-btn--primary"
-                    style={{ width: "100%" }}
                     onClick={() => {
                       setLongDurationConfirmed(false);
                       setCustomSubjectActive(false);
@@ -2703,7 +2709,14 @@ export default function AdminPage() {
                     }}
                   >
                     + 添加分考试
-                  </button>
+                    </button>
+                    <button
+                      className="admin-btn"
+                      onClick={() => setMajorBatchAddOpen(true)}
+                    >
+                      批量添加分考试
+                    </button>
+                  </div>
                 ))}
               <div className="admin-tips">
                 <p className="admin-tips__title">
@@ -2985,6 +2998,14 @@ export default function AdminPage() {
           majors={visibleMajors}
           onClose={() => setQuickMajorOpen(false)}
           onPublish={publishQuickMajor}
+        />
+      )}
+      {majorBatchAddOpen && hasScopedMajor && (
+        <MajorBatchAddModal
+          major={activeMajor}
+          existingItems={items}
+          onClose={() => setMajorBatchAddOpen(false)}
+          onCommit={commitBatchMajorItems}
         />
       )}
       {majorPrintOpen && (
