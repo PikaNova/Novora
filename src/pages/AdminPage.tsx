@@ -43,6 +43,7 @@ import {
   queuePendingExamSync,
 } from "../services/examOutbox";
 import { normalizeExamItems } from "../utils/examSchedule";
+import { getQuickMajorDisplayStatus } from "../utils/majorDisplayStatus";
 import { recordSyncConflict } from "../services/offlineStore";
 import { fetchAnnouncements } from "../services/announcements";
 import type { Announcement } from "../services/announcements";
@@ -324,6 +325,11 @@ export default function AdminPage() {
   const [deleteMajorOpen, setDeleteMajorOpen] = useState(false);
   const [majorPrintOpen, setMajorPrintOpen] = useState(false);
   const [quickMajorOpen, setQuickMajorOpen] = useState(false);
+  const [adminNow, setAdminNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     if (majorModal) setMajorModalStep(0);
   }, [majorModal !== null]);
@@ -2013,7 +2019,7 @@ export default function AdminPage() {
       !major.endedAt &&
       major.items.some(
         (item) =>
-          item.enabled && new Date(item.endTime).getTime() >= Date.now(),
+          item.enabled && new Date(item.endTime).getTime() >= adminNow,
       ),
   );
 
@@ -2529,7 +2535,16 @@ export default function AdminPage() {
                   </div>
                   {quickScopedMajors.map((major) => {
                     const item = major.items.find((value) => value.enabled);
-                    const running = item && phase(item) === "ongoing";
+                    const running =
+                      item &&
+                      new Date(item.startTime).getTime() <= adminNow &&
+                      new Date(item.endTime).getTime() > adminNow;
+                    const displayStatus = getQuickMajorDisplayStatus(
+                      major,
+                      orderedScopedMajors,
+                      adminNow,
+                      visibleClasses,
+                    );
                     return (
                       <article key={major.id}>
                         <div>
@@ -2540,6 +2555,14 @@ export default function AdminPage() {
                               : "已结束"}
                             {major.priorityOverSchedule ? " · 优先覆盖" : ""}
                           </small>
+                          {displayStatus && (
+                            <small
+                              className={`quick-major-running__display is-${displayStatus.tone}`}
+                            >
+                              {displayStatus.label}
+                              <span>{displayStatus.detail}</span>
+                            </small>
+                          )}
                         </div>
                         <span className={running ? "is-running" : ""}>
                           {running ? "进行中" : "待开始"}

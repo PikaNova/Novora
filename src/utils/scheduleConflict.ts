@@ -195,12 +195,12 @@ export function resolveEffectiveSchedule(
   });
   const candidates = applicableMajors.flatMap(major => {
     const scopePriority = major.targetClassIds?.length ? 2 : major.targetGradeIds?.length ? 1 : 0;
-    // 高优先级临时统一考试只在时间重叠时覆盖其他大型考试。
-    const priorityRank = scopePriority + (major.temporary && major.priorityOverSchedule ? 10 : 0);
+    const temporaryRank = major.temporary ? (major.priorityOverSchedule ? 100 : -100) : 0;
+    const priorityRank = scopePriority + temporaryRank;
     return major.items.filter(item => item.enabled).map(item => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, priorityRank }));
   });
   // 同时存在全校、年级和班级安排时，仅在实际时间重叠处使用更具体的安排；
-  // 被明确设为高优先级的临时统一考试会得到更高的 priorityRank。
+  // 临时统一考试默认低于正式大型考试；只有明确勾选优先覆盖时才在重叠时段覆盖正式考试。
   const majorItems = sortExamItemsByTime(candidates.filter(item => !candidates.some(other => other.priorityRank > item.priorityRank && isTimeOverlap(parseZonedTime(item.startTime), parseZonedTime(item.endTime), parseZonedTime(other.startTime), parseZonedTime(other.endTime)))).map(({ priorityRank: _priorityRank, ...item }) => item));
 
   const classPlanId = selectedClassId

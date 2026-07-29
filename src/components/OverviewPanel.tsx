@@ -19,6 +19,7 @@ import {
   type DeviceBindingInfo,
 } from "../services/classBinding";
 import { fetchAuditLogs, type AuditLog } from "../services/adminUsers";
+import { getQuickMajorDisplayStatus } from "../utils/majorDisplayStatus";
 
 const ONLINE_MS = 90_000;
 type OverviewDetail = "online" | "majors" | "database" | "attention";
@@ -146,13 +147,20 @@ export default function OverviewPanel({
     };
   }, [loadCloudOverview, loadDevices]);
 
-  const activeMajors = liveMajors.filter(
-    (major) =>
-      major.items.some(
-        (item) => item.enabled && new Date(item.endTime).getTime() >= now,
-      ) &&
-      (!major.targetGradeIds?.length ||
-        major.targetGradeIds.some((id) => scope.gradeIds.has(id))),
+  const majorVisibleToScope = (major: MajorExam) => {
+    const gradeVisible =
+      !major.targetGradeIds?.length ||
+      major.targetGradeIds.some((id) => scope.gradeIds.has(id));
+    const classVisible =
+      !major.targetClassIds?.length ||
+      major.targetClassIds.some((id) => scope.classIds.has(id));
+    return gradeVisible && classVisible;
+  };
+  const scopedMajors = liveMajors.filter(majorVisibleToScope);
+  const activeMajors = scopedMajors.filter((major) =>
+    major.items.some(
+      (item) => item.enabled && new Date(item.endTime).getTime() >= now,
+    ),
   );
   const scopedPlans = liveWeeklyPlans.filter((plan) =>
     scope.classIds.has(plan.classId),
@@ -196,6 +204,16 @@ export default function OverviewPanel({
       })
       .map((right) => `${left.major.name} / ${right.major.name}`),
   );
+  const quickMajorDisplayStatuses: Array<{
+    major: MajorExam;
+    status: NonNullable<ReturnType<typeof getQuickMajorDisplayStatus>>;
+  }> = [];
+  scopedMajors.forEach((major) => {
+    if (!major.temporary || major.endedAt) return;
+    if (!major.items.some((item) => item.enabled && new Date(item.endTime).getTime() >= now)) return;
+    const status = getQuickMajorDisplayStatus(major, scopedMajors, now, liveClasses);
+    if (status) quickMajorDisplayStatuses.push({ major, status });
+  });
   const canReadAudit =
     user.permissions.includes("*") || user.permissions.includes("audit.read");
   const cloudChangeLogs = auditLogs
@@ -345,6 +363,23 @@ export default function OverviewPanel({
           <p>当前管理范围内没有正在考试的设备。</p>
         )}
       </section>
+      {quickMajorDisplayStatuses.length > 0 && (
+        <section className="overview-section">
+          <h3>临时统一考试显示状态</h3>
+          <div className="overview-running overview-running--display-status">
+            {quickMajorDisplayStatuses.map(({ major, status }) => (
+              <div
+                key={major.id}
+                className={`overview-display-status is-${status.tone}`}
+              >
+                <strong>{major.name}</strong>
+                <span>{status.label}</span>
+                <small>{status.detail}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       {majorConflicts.length > 0 && (
         <section className="overview-section">
           <h3>大型考试冲突</h3>
