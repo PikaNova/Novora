@@ -57,6 +57,3 @@
 
 /* v1.23.0 手机端安全区（刘海/刘口遮挡） */
 @media (max-width:620px){ .cf{ padding-top:max(env(safe-area-inset-top),20px); padding-left:max(env(safe-area-inset-left),16px); padding-right:max(env(safe-area-inset-right),16px); } }
-
-/* v2.7.0 zoom/layout guards */
-.cf,.cf *{box-sizing:border-box}.cf__panel,.cf__top,.cf__center,.cf__top-left,.cf__top-right,.cf__meta{min-width:0;max-width:100%}.cf__panel,.cf__center{overflow:hidden}.cf__clock{max-width:100%;overflow:hidden;text-align:center}.cf__headline,.cf__period,.cf__date,.cf__master,.cf__next,.cf__meta-v{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cf__top-left{flex:1}.cf__top-right{flex:0 0 auto}.cf__segments{max-width:100%}@media(max-width:760px){.cf__meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;width:100%}.cf__segments{width:100%}}@media(max-height:640px){.cf__clock{font-size:min(clamp(70px,12vw,220px),34vh)}.cf__meta{gap:clamp(10px,2vw,24px)}}

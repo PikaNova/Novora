@@ -1,7 +1,6 @@
 import React from 'react';
 import type { DesignProps } from './types';
 import { getSyncStatus } from '../utils/syncStatus';
-import FitText from '../components/FitText';
 import { ArrowLeft, LayoutGrid, Maximize, Megaphone, Minimize } from 'lucide-react';
 import './Editorial.css';
 
@@ -51,12 +50,12 @@ export default function Editorial({ vm, onDismissNotification, onBack, quickMenu
           </div>
         )}
 
-        <FitText as="div" className="ed__clock">
+        <div className="ed__clock">
           <span className="ed__hm">{hm}</span>
           {phase === 'ended'
             ? <span className="ed__ended">已结束</span>
             : <span className="ed__ss">{ss}</span>}
-        </FitText>
+        </div>
 
         <div className="ed__rule" />
         <p className="ed__kicker">{kicker}</p>

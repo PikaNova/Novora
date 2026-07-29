@@ -2555,18 +2555,18 @@ export default function AdminPage() {
                               : "已结束"}
                             {major.priorityOverSchedule ? " · 优先覆盖" : ""}
                           </small>
-                          {displayStatus && (
-                            <small
-                              className={`quick-major-running__display is-${displayStatus.tone}`}
-                            >
-                              {displayStatus.label}
-                              <span>{displayStatus.detail}</span>
-                            </small>
-                          )}
                         </div>
                         <span className={running ? "is-running" : ""}>
                           {running ? "进行中" : "待开始"}
                         </span>
+                        {displayStatus && (
+                          <div
+                            className={`quick-major-running__display is-${displayStatus.tone}`}
+                          >
+                            <strong>{displayStatus.label}</strong>
+                            <span>{displayStatus.detail}</span>
+                          </div>
+                        )}
                         {can("major.edit") && (
                           <div className="quick-major-running__actions">
                             <button

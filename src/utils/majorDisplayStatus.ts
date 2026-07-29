@@ -90,14 +90,14 @@ export function getQuickMajorDisplayStatus(
       return {
         tone: "temporary",
         label: "当前显示：临时统一考试",
-        detail: `已启用优先覆盖，覆盖正式大型考试「${currentFormal.major.name}」`,
+        detail: `覆盖：${currentFormal.major.name}`,
         conflict: true,
       };
     }
     return {
       tone: "formal",
-      label: `当前显示：正式大型考试「${currentFormal.major.name}」`,
-      detail: `临时统一考试「${quickMajor.name}」与正式考试冲突，未勾选优先覆盖`,
+      label: `当前显示：${currentFormal.major.name}`,
+      detail: "未开启覆盖，临时考试暂不显示",
       conflict: true,
     };
   }
@@ -105,10 +105,10 @@ export function getQuickMajorDisplayStatus(
   if (quickRunning) {
     return {
       tone: overlappingFormalItems.length ? "temporary" : "clear",
-      label: `当前显示：临时统一考试「${quickItem.name}」`,
+      label: `当前显示：${quickItem.name}`,
       detail: overlappingFormalItems.length
-        ? "当前时段未与正式大型考试重叠，重叠时段会按优先级自动切换"
-        : "当前没有检测到正式大型考试冲突",
+        ? "未到重叠时段"
+        : "无正式考试冲突",
       conflict: overlappingFormalItems.length > 0,
     };
   }
@@ -119,8 +119,8 @@ export function getQuickMajorDisplayStatus(
       : `正式大型考试「${overlappingFormalItems[0].major.name}」`;
     return {
       tone: "pending",
-      label: `冲突预告：重叠时段将显示${winner}`,
-      detail: `临时统一考试「${quickMajor.name}」尚未进入当前冲突时段`,
+      label: `冲突预告：将显示${winner}`,
+      detail: "等待重叠时段",
       conflict: true,
     };
   }
