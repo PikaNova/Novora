@@ -5,6 +5,9 @@ import { parseNaive, partsToNaive, partsToNaiveDate, formatDateCN, weekdayCN, pa
 import type { AnchorRect, CompactPlacement, DateTimeParts, Density, Mode, PreviewConfig, WeekdayConfig } from "./types"
 import "./DateTimeField.css"
 
+const DATE_TIME_PICKER_OPEN_EVENT = "novora:datetime-picker-open"
+let dateTimePickerIdSeed = 0
+
 export interface DateTimeFieldProps {
   // 与 <input type="datetime-local"> 相同的字符串契约："YYYY-MM-DDTHH:mm"
   value: string
@@ -74,11 +77,25 @@ export function DateTimeField(props: DateTimeFieldProps) {
   const [open, setOpen] = useState(false)
   const [draftPreview, setDraftPreview] = useState<DateTimeParts | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
+  const pickerIdRef = useRef(0)
   const openedValueRef = useRef(value)
   const [rect, setRect] = useState<AnchorRect | undefined>(undefined)
+  if (pickerIdRef.current === 0) pickerIdRef.current = ++dateTimePickerIdSeed
 
   const display = parsed ? fieldText(parsed, mode) : ""
   const previewValue = draftPreview ?? parsed
+
+  useEffect(() => {
+    const closeOtherPicker = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: number }>).detail
+      if (detail?.id !== pickerIdRef.current) {
+        setOpen(false)
+        setDraftPreview(null)
+      }
+    }
+    window.addEventListener(DATE_TIME_PICKER_OPEN_EVENT, closeOtherPicker)
+    return () => window.removeEventListener(DATE_TIME_PICKER_OPEN_EVENT, closeOtherPicker)
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -101,6 +118,7 @@ export function DateTimeField(props: DateTimeFieldProps) {
     if (r) setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
     openedValueRef.current = value
     setDraftPreview(parsed ?? nowParts())
+    window.dispatchEvent(new CustomEvent(DATE_TIME_PICKER_OPEN_EVENT, { detail: { id: pickerIdRef.current } }))
     setOpen(true)
   }
 

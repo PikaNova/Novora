@@ -90,6 +90,21 @@ export function DateTimePicker(props: DateTimePickerProps) {
     callback()
   }
 
+  useEffect(() => {
+    if (density !== "compact") return
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const panel = panelRef.current
+      const target = event.target
+      if (!panel || !(target instanceof Node)) return
+      const path = typeof event.composedPath === "function" ? event.composedPath() : []
+      if (path.includes(panel) || panel.contains(target)) return
+      if (target instanceof Element && target.closest(".tdp-field")) return
+      onCancel()
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true)
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true)
+  }, [density, onCancel])
+
   // Keep compact popovers inside the viewport. A tall calendar can no longer
   // extend past the bottom of a modal or the browser window.
   useLayoutEffect(() => {

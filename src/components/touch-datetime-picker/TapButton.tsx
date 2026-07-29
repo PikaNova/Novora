@@ -52,6 +52,9 @@ export function TapButton({ onTap, children, className, selected, disabled, aria
       onLostPointerCapture={() => {
         armed.current = false
       }}
+      onClick={() => {
+        fire()
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault()
