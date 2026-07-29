@@ -400,6 +400,7 @@ export default function AdminPage() {
     };
   }, [moreOpen, placeMoreMenu]);
   const pendingRef = useRef(false); // 是否有尚未推送到服务器的本地变更
+  const queueNoticeAt = useRef(0);
   const stateRef = useRef({ majors, activeMajorId });
   stateRef.current = { majors, activeMajorId };
   const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -728,6 +729,17 @@ export default function AdminPage() {
   };
 
   // 将变更推送到服务器（已先行写入本地）
+  const showQueuedSyncNotice = () => {
+    const now = Date.now();
+    if (now - queueNoticeAt.current < 5_000) return;
+    queueNoticeAt.current = now;
+    notify(
+      "warning",
+      "已保存到本地，正在排队同步云端。请等待同步完成后再关闭页面。",
+      "排队同步",
+    );
+  };
+
   const pushToServer = useCallback(
     async (ms: MajorExam[], activeId: string) => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -880,6 +892,7 @@ export default function AdminPage() {
         baseSnapshot: getCloudSnapshot(),
         savedAt: now,
       });
+      showQueuedSyncNotice();
       pendingRef.current = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (immediate) {
@@ -1058,7 +1071,18 @@ export default function AdminPage() {
       setClasses(next.classes);
       setWeeklyConflictPolicy(next.weeklyConflictPolicy);
       weeklyStateRef.current = next;
-      updateExamSettings({ ...next, updatedAt: Date.now() });
+      const now = Date.now();
+      updateExamSettings({ ...next, updatedAt: now });
+      const queued = getPendingExamSync();
+      const basePayload =
+        queued?.payload ??
+        buildPayload(stateRef.current.majors, stateRef.current.activeMajorId);
+      queuePendingExamSync({
+        payload: { ...basePayload, ...next },
+        baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),
+        savedAt: now,
+      });
+      showQueuedSyncNotice();
       pendingRef.current = true;
       if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current);
       if (immediate) {
