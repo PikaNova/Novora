@@ -61,6 +61,33 @@ export interface ExamSettings {
   updatedAt?: number;
 }
 
+export interface MajorBatchSubjectGroup {
+  id: string;
+  name: string;
+  subjects: string[];
+  custom: true;
+  updatedAt: number;
+}
+
+export interface MajorBatchTimeSlot {
+  start: string;
+  end: string;
+  dayOffset?: number;
+}
+
+export interface MajorBatchTimeGroup {
+  id: string;
+  name: string;
+  slots: MajorBatchTimeSlot[];
+  custom: true;
+  updatedAt: number;
+}
+
+export interface MajorBatchSettings {
+  subjectGroups: MajorBatchSubjectGroup[];
+  timeGroups: MajorBatchTimeGroup[];
+}
+
 export type TypographyFontId = 'design' | 'alibaba' | 'sourceHan' | 'smiley' | 'wenkai' | 'general' | 'jbmono';
 export interface TypographySettings {
   navigation: TypographyFontId;
@@ -85,6 +112,7 @@ export interface AppSettings {
     motionMode: MotionMode;
   };
   exam: ExamSettings;
+  majorBatch: MajorBatchSettings;
   /** 全屏提醒浮层的统一管理设置。 */
   alerts: AlertsSettings;
   study: {
@@ -149,6 +177,75 @@ export const APP_SETTINGS_KEY = 'AppSettings';
 /** 同一页面内 localStorage 写入不会触发 storage 事件，使用此事件通知正在运行的页面。 */
 export const APP_SETTINGS_CHANGED_EVENT = 'exam-board:settings-changed';
 
+const MAJOR_BATCH_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const DEFAULT_MAJOR_BATCH_SETTINGS: MajorBatchSettings = {
+  subjectGroups: [],
+  timeGroups: [],
+};
+
+function genMajorBatchPresetId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function normalizeMajorBatchSubjectGroups(raw: unknown): MajorBatchSubjectGroup[] {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(Boolean)
+    .map((item, index) => {
+      const source = item as Partial<MajorBatchSubjectGroup>;
+      const subjects = Array.isArray(source.subjects)
+        ? [...new Set(source.subjects.map(value => String(value).trim()).filter(Boolean))]
+        : [];
+      return {
+        id: String(source.id || genMajorBatchPresetId('batch_subject_group')),
+        name: String(source.name || `自定义科目组 ${index + 1}`).trim(),
+        subjects,
+        custom: true as const,
+        updatedAt: Number.isFinite(source.updatedAt) ? Number(source.updatedAt) : 0,
+      };
+    })
+    .filter(item => item.name && item.subjects.length > 0)
+    .slice(0, 24);
+}
+
+function normalizeMajorBatchTimeSlots(raw: unknown): MajorBatchTimeSlot[] {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(Boolean)
+    .map((item) => {
+      const source = item as Partial<MajorBatchTimeSlot>;
+      const dayOffset = Number(source.dayOffset ?? 0);
+      return {
+        start: String(source.start ?? '').trim(),
+        end: String(source.end ?? '').trim(),
+        dayOffset: Number.isFinite(dayOffset) ? Math.max(0, Math.min(30, Math.round(dayOffset))) : 0,
+      };
+    })
+    .filter(item => MAJOR_BATCH_TIME_RE.test(item.start) && MAJOR_BATCH_TIME_RE.test(item.end))
+    .slice(0, 40);
+}
+
+export function normalizeMajorBatchSettings(raw: unknown): MajorBatchSettings {
+  const source = (raw ?? {}) as Partial<MajorBatchSettings>;
+  const timeGroups = (Array.isArray(source.timeGroups) ? source.timeGroups : [])
+    .filter(Boolean)
+    .map((item, index) => {
+      const value = item as Partial<MajorBatchTimeGroup>;
+      return {
+        id: String(value.id || genMajorBatchPresetId('batch_time_group')),
+        name: String(value.name || `自定义时间组 ${index + 1}`).trim(),
+        slots: normalizeMajorBatchTimeSlots(value.slots),
+        custom: true as const,
+        updatedAt: Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : 0,
+      };
+    })
+    .filter(item => item.name && item.slots.length > 0)
+    .slice(0, 24);
+  return {
+    subjectGroups: normalizeMajorBatchSubjectGroups(source.subjectGroups),
+    timeGroups,
+  };
+}
+
 export function genMajorId(): string {
   return `major_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -193,6 +290,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     announcementPermanentlyHidden: false,
     updatedAt: 0,
   },
+  majorBatch: DEFAULT_MAJOR_BATCH_SETTINGS,
   alerts: DEFAULT_ALERTS,
   study: {
     alerts: { errorCenterMode: 'off' },
@@ -331,6 +429,7 @@ export function getAppSettings(): AppSettings {
         typography: { ...DEFAULT_TYPOGRAPHY, ...(parsed.general?.typography ?? {}) },
       },
       exam: normalizeExam(parsed.exam),
+      majorBatch: normalizeMajorBatchSettings(parsed.majorBatch),
       alerts: normalizeAlerts(parsed.alerts),
       study: {
         ...DEFAULT_SETTINGS.study,
@@ -360,6 +459,7 @@ export function updateAppSettings(partial: Partial<AppSettings> | ((c: AppSettin
             typography: { ...current.general.typography, ...(updates.general.typography ?? {}) } }
         : current.general,
       exam: updates.exam ? normalizeExam({ ...current.exam, ...updates.exam }) : current.exam,
+      majorBatch: updates.majorBatch ? normalizeMajorBatchSettings({ ...current.majorBatch, ...updates.majorBatch }) : current.majorBatch,
       alerts: updates.alerts ? normalizeAlerts({ ...current.alerts, ...updates.alerts }) : current.alerts,
     };
     localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
@@ -373,6 +473,10 @@ export function updateAppSettings(partial: Partial<AppSettings> | ((c: AppSettin
 
 export function updateExamSettings(updates: Partial<ExamSettings>): void {
   updateAppSettings(c => ({ exam: normalizeExam({ ...c.exam, ...updates }) }));
+}
+
+export function updateMajorBatchSettings(updates: Partial<MajorBatchSettings>): void {
+  updateAppSettings(c => ({ majorBatch: normalizeMajorBatchSettings({ ...c.majorBatch, ...updates }) }));
 }
 
 export function updateAlertsSettings(updates: Partial<AlertsSettings>): void {
