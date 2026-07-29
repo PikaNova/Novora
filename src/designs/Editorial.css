@@ -15,7 +15,7 @@
 .ed__masthead { margin:clamp(10px,2vh,26px) 0 0; font-size:clamp(18px,2vw,30px); font-weight:700; letter-spacing:.04em; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ed__notify { display:inline-flex; align-items:center; gap:8px; margin-top:12px; padding:7px 13px; background:rgba(216,66,43,.1); border-left:3px solid var(--red); color:#a5301d; font-size:14px; }
 .ed__notify button { background:none; border:none; color:inherit; font-size:16px; cursor:pointer; }
-.ed__clock { margin-top:auto; line-height:.9; letter-spacing:-.01em; display:flex; align-items:baseline; flex-wrap:nowrap; gap:.04em; max-width:100%; min-width:0; overflow:hidden; }
+.ed__clock { margin:auto 0 0; line-height:.9; letter-spacing:-.01em; display:flex; align-items:baseline; flex-wrap:nowrap; gap:.04em; max-width:100%; min-width:0; overflow:visible; transform-origin:left center; }
 .ed__hm { font-size:min(clamp(120px,20vw,340px), 46vh); font-weight:800; color:var(--ink); white-space:nowrap; }
 .ed__ss { font-size:min(clamp(60px,9vw,150px), 22vh); font-weight:800; color:var(--red); margin-left:.06em; white-space:nowrap; }
 .ed__ended { align-self:center; margin-left:.14em; padding:.08em .3em; font-size:min(clamp(30px,4.4vw,72px), 12vh); font-weight:800; color:var(--red); letter-spacing:.04em; line-height:1; white-space:nowrap; border:.06em solid var(--red); }
