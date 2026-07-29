@@ -372,6 +372,13 @@ function scopeText(
 
 function draftScopes(draft: UserDraft, classes: SchoolClass[]): AdminScope[] {
   if (draft.allScope) return [{ type: "all", gradeId: "", classId: "" }];
+  if (draft.roleId === "class_admin") {
+    return draft.classIds.map((classId) => ({
+      type: "class" as const,
+      gradeId: classes.find((item) => item.id === classId)?.gradeId ?? "",
+      classId,
+    }));
+  }
   return [
     ...draft.gradeIds.map((gradeId) => ({
       type: "grade" as const,
@@ -384,6 +391,17 @@ function draftScopes(draft: UserDraft, classes: SchoolClass[]): AdminScope[] {
       classId,
     })),
   ];
+}
+
+function validateUserScopes(draft: UserDraft) {
+  if (draft.roleId === "super_admin" || draft.allScope) return "";
+  if (draft.roleId === "class_admin" && !draft.classIds.length)
+    return "班级管理员必须选择至少一个具体班级";
+  if (draft.roleId === "grade_admin" && !draft.gradeIds.length)
+    return "年级管理员必须选择至少一个年级";
+  if (!draft.gradeIds.length && !draft.classIds.length)
+    return "至少选择一个年级或班级";
+  return "";
 }
 
 export default function UserManagementPanel({
@@ -601,15 +619,11 @@ export default function UserManagementPanel({
     if (!userDraft.id && userDraft.password.length < 8)
       errors.password = "初始密码至少需要 8 位";
     if (!userDraft.roleId) errors.roleId = "请选择角色";
-    if (
-      userDraft.roleId !== "super_admin" &&
-      !userDraft.allScope &&
-      !userDraft.gradeIds.length &&
-      !userDraft.classIds.length
-    )
-      errors.scopes = "至少选择一个年级或班级";
+    const scopeError = validateUserScopes(userDraft);
+    if (scopeError) errors.scopes = scopeError;
     if (Object.keys(errors).length) {
       setUserErrors(errors);
+      if (errors.scopes) setUserWizardStep(1);
       return;
     }
     setBusy(true);
@@ -633,9 +647,10 @@ export default function UserManagementPanel({
           : "用户已创建，首次登录必须修改密码。",
       );
     } catch (error) {
-      if (error instanceof AdminApiError && error.field)
+      if (error instanceof AdminApiError && error.field) {
         setUserErrors({ [error.field]: error.message });
-      else setMessage(error instanceof Error ? error.message : "保存失败");
+        if (error.field === "scopes") setUserWizardStep(1);
+      } else setMessage(error instanceof Error ? error.message : "保存失败");
     } finally {
       setBusy(false);
     }
@@ -1508,10 +1523,17 @@ export default function UserManagementPanel({
                   className="admin-input"
                   value={userDraft.roleId}
                   onChange={(roleId) => {
-                    setUserErrors((value) => ({ ...value, roleId: "" }));
+                    setUserErrors((value) => ({ ...value, roleId: "", scopes: "" }));
                     setUserDraft(
                       (value) =>
-                        value && { ...value, roleId },
+                        value && {
+                          ...value,
+                          roleId,
+                          gradeIds:
+                            roleId === "class_admin" ? [] : value.gradeIds,
+                          classIds:
+                            roleId === "grade_admin" ? [] : value.classIds,
+                        },
                     );
                   }}
                   options={delegableRoles.map((role) => ({ value: role.id, label: role.name }))}
@@ -1565,36 +1587,40 @@ export default function UserManagementPanel({
               )}
               {!userDraft.allScope && userDraft.roleId !== "super_admin" && (
                 <>
-                  <h3>可管理年级</h3>
-                  <div className="admin-major-targets">
-                    {visibleGrades.map((grade) => (
-                      <label key={grade.id}>
-                        <input
-                          type="checkbox"
-                          checked={userDraft.gradeIds.includes(grade.id)}
-                          onChange={(event) => {
-                            setUserErrors((value) => ({
-                              ...value,
-                              scopes: "",
-                            }));
-                            setUserDraft(
-                              (value) =>
-                                value && {
+                  {userDraft.roleId !== "class_admin" && (
+                    <>
+                      <h3>可管理年级</h3>
+                      <div className="admin-major-targets">
+                        {visibleGrades.map((grade) => (
+                          <label key={grade.id}>
+                            <input
+                              type="checkbox"
+                              checked={userDraft.gradeIds.includes(grade.id)}
+                              onChange={(event) => {
+                                setUserErrors((value) => ({
                                   ...value,
-                                  gradeIds: event.target.checked
-                                    ? [...value.gradeIds, grade.id]
-                                    : value.gradeIds.filter(
-                                        (id) => id !== grade.id,
-                                      ),
-                                },
-                            );
-                          }}
-                        />
-                        {grade.name}
-                      </label>
-                    ))}
-                  </div>
-                  <h3>额外指定班级</h3>
+                                  scopes: "",
+                                }));
+                                setUserDraft(
+                                  (value) =>
+                                    value && {
+                                      ...value,
+                                      gradeIds: event.target.checked
+                                        ? [...value.gradeIds, grade.id]
+                                        : value.gradeIds.filter(
+                                            (id) => id !== grade.id,
+                                          ),
+                                    },
+                                );
+                              }}
+                            />
+                            {grade.name}
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <h3>{userDraft.roleId === "class_admin" ? "指定管理班级" : "额外指定班级"}</h3>
                   <ClassMultiPicker
                     options={classPickerOptions}
                     selectedIds={userDraft.classIds}
@@ -1619,10 +1645,15 @@ export default function UserManagementPanel({
                 <span>登录用户名<strong>{userDraft.username}</strong></span>
                 <span>显示名称<strong>{userDraft.displayName}</strong></span>
                 <span>账户角色<strong>{delegableRoles.find((role) => role.id === userDraft.roleId)?.name || userDraft.roleId}</strong></span>
-                <span>管理年级<strong>{userDraft.allScope || userDraft.roleId === "super_admin" ? "全校" : `${userDraft.gradeIds.length} 个年级`}</strong></span>
-                <span>额外班级<strong>{userDraft.allScope || userDraft.roleId === "super_admin" ? "无需单独指定" : `${userDraft.classIds.length} 个班级`}</strong></span>
+                <span>管理年级<strong>{userDraft.allScope || userDraft.roleId === "super_admin" ? "全校" : userDraft.roleId === "class_admin" ? `${new Set(userDraft.classIds.map((classId) => classes.find((item) => item.id === classId)?.gradeId).filter(Boolean)).size} 个年级` : `${userDraft.gradeIds.length} 个年级`}</strong></span>
+                <span>{userDraft.roleId === "class_admin" ? "管理班级" : "额外班级"}<strong>{userDraft.allScope || userDraft.roleId === "super_admin" ? "无需单独指定" : `${userDraft.classIds.length} 个班级`}</strong></span>
                 {userDraft.id && <span>账户状态<strong>{userDraft.status === "active" ? "启用" : "停用"}</strong></span>}
               </div>
+              {userErrors.scopes && (
+                <small className="admin-field-error">
+                  {userErrors.scopes}
+                </small>
+              )}
             </div>}
               </div>
             </div>
@@ -1637,6 +1668,13 @@ export default function UserManagementPanel({
                 if (userWizardStep === 0 && (!userDraft.username.trim() || !userDraft.displayName.trim() || !userDraft.roleId || (!userDraft.id && userDraft.password.length < 8))) {
                   setUserErrors((value) => ({ ...value, username: !userDraft.username.trim() ? "请填写用户名" : value.username, displayName: !userDraft.displayName.trim() ? "请填写显示名称" : value.displayName, roleId: !userDraft.roleId ? "请选择角色" : value.roleId, password: !userDraft.id && userDraft.password.length < 8 ? "初始密码至少 8 位" : value.password }));
                   return;
+                }
+                if (userWizardStep === 1) {
+                  const scopeError = validateUserScopes(userDraft);
+                  if (scopeError) {
+                    setUserErrors((value) => ({ ...value, scopes: scopeError }));
+                    return;
+                  }
                 }
                 setUserWizardStep((value) => value + 1);
               }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitUser()}>{busy ? "保存中…" : "保存管理员"}</button>}

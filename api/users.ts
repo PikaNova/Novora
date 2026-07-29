@@ -58,6 +58,14 @@ function canDelegateScopes(actor: AdminActor, next: AdminScope[]): boolean {
     : scope.type === 'class' && canAccessClass(actor, scope.gradeId, scope.classId));
 }
 
+function roleScopeError(roleId: string, next: AdminScope[]): string {
+  if (roleId === 'super_admin') return '';
+  if (roleId === 'class_admin' && !next.some(scope => scope.type === 'class')) return '班级管理员必须选择至少一个具体班级';
+  if (roleId === 'grade_admin' && !next.some(scope => scope.type === 'grade' || scope.type === 'all')) return '年级管理员必须选择至少一个年级';
+  if (!next.length) return '至少选择一个年级或班级';
+  return '';
+}
+
 async function delegatedRole(actor: AdminActor, roleId: string): Promise<{ id: string; permissions: Permission[] } | null> {
   const rows = await authSql()`SELECT id, permissions FROM app_roles WHERE id=${roleId}` as unknown as Array<{ id: string; permissions: unknown }>;
   if (!rows[0]) return null;
@@ -156,6 +164,8 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const role = await delegatedRole(actor, roleId);
     if (!role) return res.status(403).json({ ok: false, field: 'roleId', error: '不能授予超出当前账号的角色权限' });
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
+    const scopeError = roleScopeError(roleId, nextScopes);
+    if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, field: 'scopes', error: '不能授予超出当前账号的数据范围' });
     const { hash, salt } = await makePasswordHash(password);
     const at = Date.now();
@@ -185,6 +195,8 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const role = await delegatedRole(actor, roleId);
     if (!role) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的角色权限' });
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
+    const scopeError = roleScopeError(roleId, nextScopes);
+    if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
     if (!await ensureNotLastSuperAdmin(id, roleId, status)) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
     const updated = await sql`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id` as unknown as Array<{ id: number }>;
