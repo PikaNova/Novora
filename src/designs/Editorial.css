@@ -15,10 +15,10 @@
 .ed__masthead { margin:clamp(10px,2vh,26px) 0 0; font-size:clamp(18px,2vw,30px); font-weight:700; letter-spacing:.04em; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ed__notify { display:inline-flex; align-items:center; gap:8px; margin-top:12px; padding:7px 13px; background:rgba(216,66,43,.1); border-left:3px solid var(--red); color:#a5301d; font-size:14px; }
 .ed__notify button { background:none; border:none; color:inherit; font-size:16px; cursor:pointer; }
-.ed__clock { margin:auto 0 0; line-height:.9; letter-spacing:-.01em; display:flex; align-items:baseline; flex-wrap:nowrap; gap:.04em; max-width:100%; min-width:0; overflow:visible; transform-origin:left center; }
-.ed__hm { font-size:min(clamp(120px,20vw,340px), 46vh); font-weight:800; color:var(--ink); white-space:nowrap; }
-.ed__ss { font-size:min(clamp(60px,9vw,150px), 22vh); font-weight:800; color:var(--red); margin-left:.06em; white-space:nowrap; }
-.ed__ended { align-self:center; margin-left:.14em; padding:.08em .3em; font-size:min(clamp(30px,4.4vw,72px), 12vh); font-weight:800; color:var(--red); letter-spacing:.04em; line-height:1; white-space:nowrap; border:.06em solid var(--red); }
+.ed__clock { margin:auto 0 0; font-size:min(clamp(104px,17vw,300px), 40vh); line-height:.9; letter-spacing:-.01em; display:flex; align-items:baseline; flex-wrap:nowrap; gap:.04em; max-width:100%; min-width:0; overflow:visible; transform-origin:left center; }
+.ed__hm { font-size:1em; font-weight:800; color:var(--ink); white-space:nowrap; }
+.ed__ss { font-size:.42em; font-weight:800; color:var(--red); margin-left:.06em; white-space:nowrap; }
+.ed__ended { align-self:center; margin-left:.14em; padding:.08em .3em; font-size:.32em; font-weight:800; color:var(--red); letter-spacing:.04em; line-height:1; white-space:nowrap; border:.06em solid var(--red); }
 .ed__rule { height:2px; background:var(--rule); margin:clamp(12px,2vh,26px) 0 clamp(8px,1.4vh,16px); }
 .ed__kicker { margin:0; font-size:clamp(24px,3vw,48px); font-weight:700; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ed__period { margin:6px 0 0; font-size:clamp(15px,1.5vw,22px); color:var(--muted); letter-spacing:.08em; }
@@ -31,10 +31,10 @@
 .ed__side-sync { font-size:12px; color:var(--side-muted); } .ed__side-sync.is-ok { color:#8fe0b4; } .ed__side-sync.is-wait { color:#d8b25a; } .ed__side-sync.is-off { color:#e59a9a; }
 .ed__side-foot { margin-top:auto; font-size:clamp(12px,1.1vw,15px); color:var(--side-muted); letter-spacing:.1em; border-bottom:none; }
 @media (max-width:1000px){ .ed{grid-template-columns:24px 1fr} .ed__side{display:none} }
-@media (orientation:portrait){ .ed{grid-template-columns:20px 1fr} .ed__side{display:none} .ed__hm{font-size:min(22vw,40vh)} .ed__ss{font-size:min(11vw,18vh)} .ed__ended{font-size:min(9vw,14vh)} }
+@media (orientation:portrait){ .ed{grid-template-columns:20px 1fr} .ed__side{display:none} .ed__clock{font-size:min(20vw,38vh)} }
 /* 手机“桌面版网站”等窄可用宽度下：顶部固定三栏，标题优先省略而不挤压右侧三枚操作按钮。 */
 @media (max-width:620px){ .ed__head{column-gap:6px} .ed__head-actions{gap:5px} .ed__ghost{width:32px;height:32px;flex-basis:32px;font-size:14px} .ed__gaokao{font-size:12px;letter-spacing:.16em} }
-@media (max-height:520px){ .ed__main{padding:clamp(12px,2vw,28px)} .ed__hm{font-size:min(16vw,42vh)} .ed__masthead{margin-top:6px} }
+@media (max-height:520px){ .ed__main{padding:clamp(12px,2vw,28px)} .ed__clock{font-size:min(15vw,38vh)} .ed__masthead{margin-top:6px} }
 
 /* v1.17.5 editorial display typography */
 .ed{font-family:var(--font-editorial)}.ed__kicker,.ed__masthead{font-family:"Exam Source Han",var(--font-fallback);font-weight:850}
