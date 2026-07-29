@@ -1,6 +1,8 @@
 import { getClassBindingInstanceId } from './classBinding';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 const API_URL = '/api/exams';
+let pluginViewerHeartbeatInFlight = false;
 
 export interface PluginPairInfo {
   pluginInstanceId: string;
@@ -20,7 +22,7 @@ async function readError(response: Response, fallback: string): Promise<string> 
 }
 
 export async function fetchPluginPairInfo(token: string): Promise<PluginPairInfo> {
-  const response = await fetch(`${API_URL}?action=plugin-pair-info&token=${encodeURIComponent(token)}&viewerInstanceId=${encodeURIComponent(getClassBindingInstanceId())}`, { cache: 'no-store' });
+  const response = await fetchWithTimeout(`${API_URL}?action=plugin-pair-info&token=${encodeURIComponent(token)}&viewerInstanceId=${encodeURIComponent(getClassBindingInstanceId())}`, { cache: 'no-store' }, 12_000);
   if (!response.ok) throw new Error(await readError(response, '无法读取配对请求'));
   const data = await response.json();
   return {
@@ -37,11 +39,11 @@ export async function fetchPluginPairInfo(token: string): Promise<PluginPairInfo
 }
 
 export async function confirmPluginPairing(token: string): Promise<void> {
-  const response = await fetch(API_URL, {
+  const response = await fetchWithTimeout(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'plugin-pair-confirm', pairToken: token, viewerInstanceId: getClassBindingInstanceId() }),
-  });
+  }, 20_000);
   if (!response.ok) throw new Error(await readError(response, '班级绑定失败'));
 }
 
@@ -52,9 +54,17 @@ export function pluginInstanceFromSearch(search: string): string {
 
 export async function sendPluginViewerHeartbeat(pluginInstanceId: string, viewerInstanceId: string): Promise<void> {
   if (!pluginInstanceId) return;
-  await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'plugin-viewer-heartbeat', pluginInstanceId, viewerInstanceId }),
-  }).catch(() => undefined);
+  if (pluginViewerHeartbeatInFlight) return;
+  pluginViewerHeartbeatInFlight = true;
+  try {
+    await fetchWithTimeout(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'plugin-viewer-heartbeat', pluginInstanceId, viewerInstanceId }),
+    }, 8_000);
+  } catch {
+    /* heartbeat failures are non-blocking */
+  } finally {
+    pluginViewerHeartbeatInFlight = false;
+  }
 }
