@@ -1,0 +1,137 @@
+.batch-preset-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.batch-preset-section {
+  display: grid;
+  gap: 10px;
+}
+
+.batch-preset-section__head {
+  display: grid;
+  gap: 3px;
+}
+
+.batch-preset-section__head strong {
+  color: #f2f8fc;
+  font-size: 14px;
+}
+
+.batch-preset-section__head span {
+  color: rgba(235, 244, 250, 0.58);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.batch-preset-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.batch-preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.batch-preset-item__info {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.batch-preset-item__info strong {
+  color: #eff8ff;
+  font-size: 13px;
+}
+
+.batch-preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.batch-preset-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(52, 152, 219, 0.14);
+  color: #9bd8ff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.batch-preset-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.batch-preset-form {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.batch-preset-form > .admin-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.batch-preset-form__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.batch-preset-slot-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.batch-preset-slot-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 1fr auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.batch-preset-slot-row label {
+  display: grid;
+  gap: 5px;
+  color: rgba(235, 244, 250, 0.62);
+  font-size: 11px;
+}
+
+.batch-preset-slot-row .admin-input {
+  width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .batch-preset-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .batch-preset-item__actions {
+    justify-content: flex-end;
+  }
+
+  .batch-preset-slot-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
