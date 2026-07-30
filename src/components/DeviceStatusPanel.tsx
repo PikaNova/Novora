@@ -14,6 +14,7 @@ import { getAppSettings } from "../utils/appSettings";
 import { classDisplayName } from "../utils/classSettings";
 import { notify } from "../services/notify";
 import { confirmDialog } from "../services/appDialog";
+import { beginBatch, endBatch } from "../services/syncQueue";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
 import DesignPolicyManager from "./DesignPolicyManager";
@@ -265,23 +266,19 @@ export default function DeviceStatusPanel({
       }))
     )
       return;
-    notify(
-      "warning",
-      `已进入删除队列，将逐台同步云端，预计至少 ${targets.length} 秒。`,
-      "设备排队删除",
-    );
-    const results: Array<{ status: "fulfilled" } | { status: "rejected"; reason: unknown }> = [];
-    for (const item of targets) {
-      try {
-        await revokeDevice(
+    notify("warning", `正在删除 ${targets.length} 台设备，请稍候…`);
+    // 删除请求统一经过 syncQueue 全局限速，无需再手动逐台串行等待；
+    // beginBatch/endBatch 确保批量期间的其他防抖任务不会插队打乱节奏。
+    beginBatch();
+    const results = await Promise.allSettled(
+      targets.map((item) =>
+        revokeDevice(
           item.dashboard?.instanceId || "",
           item.plugins.map((plugin) => plugin.pluginInstanceId),
-        );
-        results.push({ status: "fulfilled" });
-      } catch (reason) {
-        results.push({ status: "rejected", reason });
-      }
-    }
+        ),
+      ),
+    );
+    endBatch();
     const failed = targets.filter((_, index) => results[index].status === "rejected");
     const currentIndex = targets.findIndex((item) => item.dashboard?.instanceId === currentInstanceId);
     if (currentIndex >= 0 && results[currentIndex]?.status === "fulfilled") {

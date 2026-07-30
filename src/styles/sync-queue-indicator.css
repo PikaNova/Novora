@@ -1,0 +1,48 @@
+.sync-queue-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 1.2;
+  background: rgba(52, 152, 219, 0.12);
+  color: #8ed5ff;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.sync-queue-indicator.is-idle {
+  background: rgba(39, 174, 96, 0.12);
+  color: #6fe0a8;
+}
+
+.sync-queue-indicator__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.sync-queue-indicator__icon.is-spinning {
+  animation: syncQueueSpin 0.9s linear infinite;
+}
+
+@keyframes syncQueueSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sync-queue-indicator__text {
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .sync-queue-indicator {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}

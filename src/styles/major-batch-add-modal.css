@@ -1,15 +1,18 @@
-/* Styles for the redesigned batch-add-subexam modal: grouped templates,
-   custom-preset reordering, and the card-based preview. Scoped under
-   major-batch-* class names so it layers on top of admin.css without
-   needing to edit that file. */
-
-.major-batch-template-groups {
-  display: grid;
+.major-batch-modal .admin-workflow-content {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 
+.major-batch-template-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .major-batch-template-group {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -17,62 +20,193 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #8ed5ff;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--admin-muted, #6b7280);
 }
 
-.major-batch-template-shell {
-  position: relative;
+.major-batch-template-grid {
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
 }
 
-.major-batch-preset-actions {
+.major-batch-template {
+  position: relative;
+}
+
+.major-batch-template em {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-style: normal;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+}
+
+.major-batch-pattern-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.major-batch-subjects {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.major-batch-subjects > div:first-child {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
-.major-batch-preset-actions .major-batch-delete-preset {
-  flex: 1;
+.major-batch-subjects > div:first-child span {
+  font-size: 12px;
+  color: var(--admin-muted, #6b7280);
 }
 
-.major-batch-move-preset {
-  flex: none;
-  width: 26px;
-  height: 26px;
+.major-batch-subject-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #d97706;
+}
+
+.major-batch-subject-hint.is-ok {
+  color: #16a34a;
+}
+
+.quick-major-subjects button {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #cfe6f5;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  gap: 4px;
 }
 
-.major-batch-move-preset:hover:not(:disabled) {
-  border-color: #3498db;
-  background: rgba(52, 152, 219, 0.16);
-}
-
-.major-batch-move-preset:disabled {
-  opacity: 0.35;
+.quick-major-subjects button.is-disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-/* ---- Preview cards ---- */
+.major-batch-subject-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.major-batch-custom-subject {
+  display: flex;
+  gap: 8px;
+}
+
+.major-batch-custom-subject input {
+  flex: 1;
+}
+
+.major-batch-preset-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--admin-muted, #6b7280);
+}
+
+.major-batch-patterns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-warning-banner {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(217, 119, 6, 0.12);
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-warning-banner--callout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(220, 38, 38, 0.1);
+  color: #991b1b;
+}
+
+.admin-warning-banner--callout strong {
+  font-size: 13px;
+}
+
+.admin-warning-banner--callout p {
+  margin: 0;
+}
+
+.major-batch-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.major-batch-preview-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.major-batch-preview-head span {
+  font-size: 12px;
+  color: var(--admin-muted, #6b7280);
+}
+
+.major-batch-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.06);
+  font-size: 12px;
+}
+
+.major-batch-preview-summary span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--admin-muted, #6b7280);
+}
+
+.major-batch-preview-summary strong {
+  font-size: 14px;
+  color: inherit;
+}
+
+.major-batch-preview-summary .is-danger strong {
+  color: #dc2626;
+}
+
+.major-batch-preview-summary .is-ok strong {
+  color: #16a34a;
+}
+
+.major-batch-preview--cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
 .major-batch-preview-card {
-  display: grid;
-  gap: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--admin-border, #e5e7eb);
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -82,195 +216,148 @@
   gap: 10px;
   width: 100%;
   padding: 10px 14px;
-  border: 0;
-  background: rgba(52, 152, 219, 0.07);
-  color: inherit;
-  font: inherit;
+  background: rgba(99, 102, 241, 0.06);
+  border: none;
   text-align: left;
-  cursor: pointer;
+  font: inherit;
+}
+
+.major-batch-preview-card__day {
+  font-size: 12px;
+  color: var(--admin-muted, #6b7280);
 }
 
 .major-batch-preview-card__head h3 {
   margin: 0;
-  flex: 1;
-  min-width: 0;
-  color: #f2f8fc;
   font-size: 14px;
-}
-
-.major-batch-preview-card__day {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(52, 152, 219, 0.2);
-  color: #dff2ff;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
+  flex: 1;
 }
 
 .major-batch-preview-card__count {
-  flex: none;
-  color: rgba(235, 244, 250, 0.62);
   font-size: 12px;
-  white-space: nowrap;
-}
-
-.major-batch-preview-card__flag {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--admin-muted, #6b7280);
 }
 
 .major-batch-preview-card__flag.is-danger {
-  background: rgba(231, 76, 60, 0.18);
-  color: #ffaaa2;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
 }
 
 .major-batch-preview-card__chevron {
-  flex: none;
-  color: rgba(235, 244, 250, 0.5);
   font-size: 12px;
-}
-
-.major-batch-preview-card.is-collapsed .major-batch-preview-card__head {
-  background: rgba(255, 255, 255, 0.03);
+  color: var(--admin-muted, #6b7280);
 }
 
 .major-batch-preview-list--cards {
-  display: grid;
-  gap: 10px;
-  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 14px;
 }
 
-.major-batch-preview-list--cards .major-batch-preview-item {
-  display: grid;
-  grid-template-columns: minmax(160px, 1.3fr) minmax(220px, 1.4fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
+.major-batch-preview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--admin-surface-muted, #f9fafb);
 }
 
-.major-batch-preview-list--cards .major-batch-preview-item.has-error {
-  border-color: rgba(231, 76, 60, 0.55);
-  background: rgba(231, 76, 60, 0.08);
+.major-batch-preview-item.has-error {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.05);
 }
 
 .major-batch-preview-item__subject {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-}
-
-.major-batch-preview-item__subject svg {
-  flex: none;
-  color: #7cc8f5;
 }
 
 .major-batch-preview-item__name {
-  min-width: 0;
-  min-height: 34px;
-  font-weight: 600;
+  flex: 1;
 }
 
 .major-batch-preview-item__badge {
-  flex: none;
-  padding: 1px 7px;
+  font-size: 11px;
+  padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(230, 162, 60, 0.16);
-  color: #f4c977;
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
+  background: rgba(107, 114, 128, 0.16);
+  color: #4b5563;
 }
 
 .major-batch-preview-item__time {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .major-batch-preview-item__date {
-  display: flex !important;
-  flex-direction: row !important;
+  display: flex;
   align-items: center;
   gap: 6px;
-  color: rgba(235, 244, 250, 0.62);
-  font-size: 11px;
-  white-space: nowrap;
+  font-size: 12px;
+  color: var(--admin-muted, #6b7280);
 }
 
-.major-batch-preview-item__date .admin-input {
-  min-height: 30px;
-  width: auto;
-}
-
-.major-batch-preview-item__time-badge {
+.major-batch-preview-item__time-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid rgba(52, 152, 219, 0.32);
-  border-radius: 999px;
-  background: rgba(52, 152, 219, 0.09);
-  color: #9bd8ff;
-}
-
-.major-batch-preview-item__time-badge svg {
-  flex: none;
-}
-
-.major-batch-preview-item__time-badge .admin-input {
-  min-height: 26px;
-  width: 74px;
-  padding: 2px 4px;
-  background: transparent;
-  border: 0;
-  color: inherit;
+  gap: 4px;
+  border: 1px solid var(--admin-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: #fff;
+  font-size: 12px;
 }
 
 .major-batch-preview-item__duration {
-  flex: none;
-  color: #9bd8ff;
   font-size: 12px;
-  white-space: nowrap;
+  color: var(--admin-muted, #6b7280);
 }
 
 .major-batch-preview-item__duration.is-danger {
-  color: #ffaaa2;
-  font-weight: 700;
+  color: #dc2626;
 }
 
 .major-batch-preview-item__flags {
   display: flex;
   align-items: center;
-  gap: 10px;
-  justify-self: end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.major-batch-preview__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
 }
 
 .major-batch-preview-item__errors {
-  grid-column: 1 / -1;
   margin: 0;
-  color: #ff8c83;
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 12px;
+  color: #dc2626;
 }
 
-@media (max-width: 760px) {
-  .major-batch-preview-list--cards .major-batch-preview-item {
+@media (max-width: 640px) {
+  .major-batch-template-grid,
+  .major-batch-pattern-grid {
     grid-template-columns: 1fr;
-    align-items: stretch;
   }
 
-  .major-batch-preview-item__flags {
-    justify-self: start;
+  .major-batch-preview-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .major-batch-preview-summary {
+    gap: 10px;
   }
 }

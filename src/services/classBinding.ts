@@ -1,5 +1,6 @@
 import { getInstanceId } from './telemetry';
 import { fetchWithTimeout } from './fetchWithTimeout';
+import { runQueued } from './syncQueue';
 
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
@@ -7,30 +8,7 @@ const BINDING_CACHE_KEY = 'exam_board_device_binding_cache';
 const DEVICE_PURPOSE_KEY = 'exam_board_device_purpose_confirmed';
 const PENDING_MANAGEMENT_SETUP_KEY = 'novora_pending_management_setup';
 const ADMIN_TOKEN_KEY = 'admin_auth_token';
-const DEVICE_WRITE_INTERVAL_MS = 1_000;
-let deviceWriteChain: Promise<void> = Promise.resolve();
-let lastDeviceWriteAt = 0;
 let heartbeatInFlight = false;
-
-function wait(ms: number) {
-  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
-}
-
-async function queuedDeviceWrite<T>(task: () => Promise<T>): Promise<T> {
-  const run = deviceWriteChain.then(async () => {
-    const elapsed = Date.now() - lastDeviceWriteAt;
-    if (elapsed < DEVICE_WRITE_INTERVAL_MS)
-      await wait(DEVICE_WRITE_INTERVAL_MS - elapsed);
-    const result = await task();
-    lastDeviceWriteAt = Date.now();
-    return result;
-  });
-  deviceWriteChain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
 
 export interface DeviceBinding {
   gradeId: string;
@@ -78,7 +56,7 @@ export async function fetchOccupiedClassIds(): Promise<string[]> {
   return Array.isArray(data?.occupiedClassIds) ? data.occupiedClassIds.filter((value: unknown): value is string => typeof value === 'string') : [];
 }
 export async function setupManagedDevice(input: { bindManagement: boolean; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<{ conflict?: DeviceSetupConflict }> {
-  const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) }, 20_000));
+  const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) }, 20_000), { priority: 'high' });
   const data = await response.json().catch(() => null);
   if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { conflict: data.existing as DeviceSetupConflict };
   if (!response.ok) throw new Error(data?.error || '设备登记失败');
@@ -98,7 +76,7 @@ export async function setupManagedDevice(input: { bindManagement: boolean; grade
 
 export async function updateDeviceRole(input: { instanceId: string; targetRole: 'management' | 'class-terminal'; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<DeviceRoleUpdateResult> {
   try {
-    const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-role-update', ...input }) }, 20_000));
+    const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-role-update', ...input }) }, 20_000), { priority: 'high' });
     const data = await response.json().catch(() => null);
     if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已有考试端' };
     if (!response.ok) return { ok: false, error: data?.error || '设备角色转换失败' };
@@ -170,7 +148,7 @@ export function cacheDeviceBinding(binding: DeviceBinding | null): void {
 
 export async function saveDeviceBinding(gradeId: string, classId: string, replaceExisting = false): Promise<DeviceBindingSaveResult> {
   try {
-    const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) }, 20_000));
+    const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) }, 20_000), { priority: 'high' });
     const data = await response.json().catch(() => null);
     if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已绑定其他考试端' };
     if (!response.ok) return { ok: false, error: data?.error || '班级绑定失败' };
@@ -195,12 +173,12 @@ export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingIn
 }
 
 export async function revokeDevice(instanceId: string, pluginInstanceIds: string[] = []): Promise<void> {
-  const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) }, 20_000));
+  const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) }, 20_000), { priority: 'high' });
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : '删除设备失败');
 }
 
 export async function sendDeviceCommand(instanceId: string, commandAction: DeviceCommand['action'], minutes?: number): Promise<void> {
-  const response = await queuedDeviceWrite(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) }, 20_000));
+  const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) }, 20_000), { priority: 'high' });
   if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权管理此设备' : '临时考试指令发送失败');
 }
 
