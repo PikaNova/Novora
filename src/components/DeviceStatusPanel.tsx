@@ -336,11 +336,13 @@ export default function DeviceStatusPanel({
       <div className="device-status__heading">
         <div>
           <h2>
-            设备管理{" "}
-            <HelpTip title="看板与 ClassIsland">
-              同一台设备上的 Novora 看板和 ClassIsland
-              插件按实例关联后合并展示。在线状态分别由各自心跳判断；删除会让两端重新绑定。
-            </HelpTip>
+            <span className="with-help-tip">
+              设备管理
+              <HelpTip title="看板与 ClassIsland">
+                同一台设备上的 Novora 看板和 ClassIsland
+                插件按实例关联后合并展示。在线状态分别由各自心跳判断；删除会让两端重新绑定。
+              </HelpTip>
+            </span>
           </h2>
           <p>
             一个设备视图同时显示 Novora 看板、ClassIsland

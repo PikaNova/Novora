@@ -226,21 +226,22 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     if (!data?.ok) return null;
     if (input.action === 'initialize' && typeof data.recoveryKey === 'string') generatedRecoveryKey = data.recoveryKey;
     const updatedAt = Number(data.updatedAt ?? Date.now());
+    const previousSnapshot = getCloudSnapshot();
     rememberCloudSnapshot({
       items: input.items,
       title: input.title ?? '',
       majors: input.majors ?? [],
       activeMajorId: input.activeMajorId ?? '',
       alerts: input.alerts ?? null,
-      scheduleMode: input.scheduleMode,
-      weeklyPlans: input.weeklyPlans,
-      activeWeeklyPlanId: input.activeWeeklyPlanId,
-      activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId,
-      grades: input.grades,
-      classes: input.classes,
-      initialization: input.initialization,
-      weeklyConflictPolicy: input.weeklyConflictPolicy,
-      designPolicy: getCloudSnapshot()?.designPolicy,
+      scheduleMode: input.scheduleMode ?? previousSnapshot?.scheduleMode,
+      weeklyPlans: input.weeklyPlans ?? previousSnapshot?.weeklyPlans,
+      activeWeeklyPlanId: input.activeWeeklyPlanId ?? previousSnapshot?.activeWeeklyPlanId,
+      activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId ?? previousSnapshot?.activeWeeklyPlanIdByClassId,
+      grades: input.grades ?? previousSnapshot?.grades,
+      classes: input.classes ?? previousSnapshot?.classes,
+      initialization: input.initialization ?? previousSnapshot?.initialization,
+      weeklyConflictPolicy: input.weeklyConflictPolicy ?? previousSnapshot?.weeklyConflictPolicy,
+      designPolicy: previousSnapshot?.designPolicy,
       updatedAt,
     });
     lastExamApiError = null;

@@ -53,6 +53,7 @@ export interface ExamSettings {
     province: string;
     schoolName: string;
     schoolFullName: string;
+    subjectTrackModeEnabled: boolean;
   };
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
@@ -292,7 +293,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     classes: [],
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' },
+    initialization: { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '', subjectTrackModeEnabled: true },
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
     designPolicy: { rules: [], updatedAt: 0 },
     alertEnabled: true,
@@ -389,6 +390,7 @@ export function normalizeExam(raw: unknown): ExamSettings {
     province: String(rawInitialization.province ?? '').trim(),
     schoolName: String(rawInitialization.schoolName ?? '').trim(),
     schoolFullName: String(rawInitialization.schoolFullName ?? rawInitialization.schoolName ?? '').trim(),
+    subjectTrackModeEnabled: rawInitialization.subjectTrackModeEnabled !== false,
   };
   base.designPolicy = {
     rules: Array.isArray(src.designPolicy?.rules) ? src.designPolicy.rules.filter(rule => rule && typeof rule.designId === 'string') : [],

@@ -1589,7 +1589,7 @@ export default function WeeklyPanel({
               {activePlan.enabled ? "停用此计划" : "启用此计划"}
             </button>
             {allowBatchApply && (
-              <>
+              <span className="with-help-tip" style={{ flex: 1 }}>
                 <button
                   className="admin-btn"
                   style={{ flex: 1 }}
@@ -1606,7 +1606,7 @@ export default function WeeklyPanel({
                 <HelpTip title="批量应用">
                   应用后每个目标班级都会得到独立计划，之后修改某个班级不会影响其他班级。
                 </HelpTip>
-              </>
+              </span>
             )}
           </div>
           <p className="admin-major-card__hint">
@@ -2291,10 +2291,12 @@ export default function WeeklyPanel({
                 启用冲突自动处理（仅自动模式下生效）
               </label>
               <label className="admin-label">
-                暂停范围{" "}
-                <HelpTip title="冲突暂停范围">
-                  “时间重叠”最精细；“当天”会暂停大型考试日期内的全部周测；“整个考期”会暂停从第一科开始到最后一科结束期间的周测。
-                </HelpTip>
+                <span className="with-help-tip">
+                  暂停范围
+                  <HelpTip title="冲突暂停范围">
+                    “时间重叠”最精细；“当天”会暂停大型考试日期内的全部周测；“整个考期”会暂停从第一科开始到最后一科结束期间的周测。
+                  </HelpTip>
+                </span>
                 <InlineSelect
                   className="admin-input"
                   value={weeklyConflictPolicy.scope}

@@ -27,11 +27,14 @@ import { renderMarkdown } from "../utils/renderMarkdown";
 import AnnouncementList from "../components/AnnouncementList";
 import BatchPresetSettingsPanel from "../components/BatchPresetSettingsPanel";
 import HelpTip from "../components/HelpTip";
+import LoadingState from "../components/LoadingState";
 import InlineSelect from "../components/InlineSelect";
 import { DateTimeField } from "../components/touch-datetime-picker";
 import readmeRaw from "../../README.md?raw";
 import {
   adminCan,
+  adminCanClass,
+  adminCanGrade,
   getAdminUser,
   getCloudSnapshot,
   hasValidLocalToken,
@@ -86,6 +89,8 @@ import {
 } from "../utils/weeklySchedule";
 
 const APP_VERSION = __APP_VERSION__;
+const AUTHOR_NAME = "PikaNova";
+const REPOSITORY_URL = "https://github.com/PikaNova/Novora";
 type ErrMode = "off" | "memory" | "persist";
 const FONT_OPTIONS: Array<{ value: TypographyFontId; label: string }> = [
   { value: "alibaba", label: "阿里巴巴普惠体 3" },
@@ -220,6 +225,11 @@ export default function SettingsPage() {
   const [calendarSave, setCalendarSave] = useState("");
   const [calendarSaving, setCalendarSaving] = useState(false);
   const calendarSavingRef = useRef(false);
+  const [subjectTrackModeEnabled, setSubjectTrackModeEnabled] = useState(
+    initialExam.initialization.subjectTrackModeEnabled !== false,
+  );
+  const [subjectTrackModeSave, setSubjectTrackModeSave] = useState("");
+  const [subjectTrackModeSaving, setSubjectTrackModeSaving] = useState(false);
   const [schoolName, setSchoolName] = useState(
     initialExam.initialization.schoolName,
   );
@@ -231,6 +241,10 @@ export default function SettingsPage() {
   const [demoBusy, setDemoBusy] = useState(false);
   const canEditSettings = adminUser
     ? adminCan("settings.edit", adminUser)
+    : !hasValidLocalToken();
+  const canEditMajorBatch = adminUser
+    ? adminCan("settings.edit", adminUser) ||
+      adminCan("settings.major_batch_edit", adminUser)
     : !hasValidLocalToken();
   const canEditWeekly = adminUser
     ? adminCan("weekly.edit", adminUser)
@@ -266,6 +280,20 @@ export default function SettingsPage() {
     getRedeployConfigured()
       .then(setRedeployOk)
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const syncSubjectTrackMode = () => {
+      setSubjectTrackModeEnabled(
+        getAppSettings().exam.initialization.subjectTrackModeEnabled !== false,
+      );
+    };
+    window.addEventListener("storage", syncSubjectTrackMode);
+    window.addEventListener("exam-board:settings-changed", syncSubjectTrackMode);
+    return () => {
+      window.removeEventListener("storage", syncSubjectTrackMode);
+      window.removeEventListener("exam-board:settings-changed", syncSubjectTrackMode);
+    };
   }, []);
 
   // 每次进入设置页都强制拉取最新公告（绕过缓存），确保 md 公告内容及时更新。
@@ -593,10 +621,19 @@ export default function SettingsPage() {
     }
   };
 
-  const grades = useMemo(() => sortedGrades(initialExam.grades), [initialExam]);
+  const grades = useMemo(
+    () =>
+      sortedGrades(initialExam.grades).filter((grade) =>
+        adminUser ? adminCanGrade(grade.id, adminUser) : true,
+      ),
+    [adminUser, initialExam],
+  );
   const classes = useMemo(
-    () => sortedClasses(initialExam.classes, calendarGradeId),
-    [initialExam, calendarGradeId],
+    () =>
+      sortedClasses(initialExam.classes, calendarGradeId).filter((item) =>
+        adminUser ? adminCanClass(item.gradeId, item.id, adminUser) : true,
+      ),
+    [adminUser, initialExam, calendarGradeId],
   );
   const classPlans = weeklyPlans.filter(
     (plan) => plan.classId === calendarClassId,
@@ -614,6 +651,57 @@ export default function SettingsPage() {
         weeklyPlans.find((plan) => plan.classId === classId)?.id ??
         "",
     );
+  };
+
+  const saveSubjectTrackMode = async (enabled: boolean) => {
+    if (!canEditSettings || subjectTrackModeSaving) return;
+    const exam = getAppSettings().exam;
+    const initialization = {
+      ...exam.initialization,
+      subjectTrackModeEnabled: enabled,
+    };
+    setSubjectTrackModeEnabled(enabled);
+    setSubjectTrackModeSaving(true);
+    setSubjectTrackModeSave("正在保存到云端…");
+    updateExamSettings({ initialization, updatedAt: Date.now() });
+    const result = await saveExamsToServer({
+      items: exam.items,
+      title: exam.title,
+      majors: exam.majors,
+      activeMajorId: exam.activeMajorId,
+      alerts: getAppSettings().alerts,
+      scheduleMode: exam.scheduleMode,
+      weeklyPlans: exam.weeklyPlans,
+      activeWeeklyPlanId: exam.activeWeeklyPlanId,
+      activeWeeklyPlanIdByClassId: exam.activeWeeklyPlanIdByClassId,
+      grades: exam.grades,
+      classes: exam.classes,
+      weeklyConflictPolicy: exam.weeklyConflictPolicy,
+      initialization,
+      baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0,
+      clientSyncLabel: enabled ? "开启分科模式" : "关闭分科模式",
+      clientQueueKey: "settings:subject-track-mode",
+    });
+    if (result === "unauthorized") {
+      setSubjectTrackModeSaving(false);
+      navigate("/login?next=/settings", { replace: true });
+      return;
+    }
+    if (typeof result === "number") {
+      updateExamSettings({ initialization, updatedAt: result });
+      setSubjectTrackModeSave("已保存到云端");
+      notify("success", enabled ? "分科模式已开启。" : "分科模式已关闭。");
+    } else {
+      const message =
+        result && typeof result === "object" && result.kind === "error"
+          ? formatApiError(result.error, "分科模式保存失败")
+          : "分科模式保存失败，请刷新后重试。";
+      setSubjectTrackModeEnabled(exam.initialization.subjectTrackModeEnabled !== false);
+      updateExamSettings({ initialization: exam.initialization });
+      setSubjectTrackModeSave(message);
+      notify("error", message, "保存失败");
+    }
+    setSubjectTrackModeSaving(false);
   };
 
   const saveCalendarPlan = async (updates: Partial<WeeklyPlan>) => {
@@ -757,7 +845,7 @@ export default function SettingsPage() {
     if (typeof result === "number") void reportNow("school_name_updated");
   };
 
-  if (!authed) return <div className="set-loading">正在验证管理权限…</div>;
+  if (!authed) return <LoadingState kind="auth" title="正在获取权限" message="正在确认系统设置权限…" />;
   if (denied)
     return (
       <AccessDenied moduleName="系统设置" onBack={() => navigate("/admin")} />
@@ -783,7 +871,7 @@ export default function SettingsPage() {
       <div className="set-body">
         {!canEditSettings && (
           <div className="set-note set-note--warn">
-            当前账号对系统设置只有查看权限。如需修改登录密码，请前往“用户与权限”。
+            当前账号只能修改已授权的系统设置项，其余全局设置保持只读。如需修改登录密码，请前往“用户与权限”。
           </div>
         )}
         <section className="set-card">
@@ -899,11 +987,13 @@ export default function SettingsPage() {
               <>
                 <div className="set-row">
                   <label className="set-label">
-                    学期开始日期{" "}
-                    <HelpTip title="A/B 周基准">
-                      该日期所在周固定为 A 周，后续自然周按 A、B
-                      交替推算。修改日期会立即反映到日历预览。
-                    </HelpTip>
+                    <span className="with-help-tip">
+                      学期开始日期
+                      <HelpTip title="A/B 周基准">
+                        该日期所在周固定为 A 周，后续自然周按 A、B
+                        交替推算。修改日期会立即反映到日历预览。
+                      </HelpTip>
+                    </span>
                   </label>
                   <DateTimeField
                     className="set-date-time-field"
@@ -965,6 +1055,29 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* ―― 分科模式 ―― */}
+        <section className="set-card">
+          <div className="set-card__head">
+            <h2 className="set-card__title">
+              <ListChecks size={18} />
+              分科模式
+            </h2>
+            <Switch
+              checked={subjectTrackModeEnabled}
+              disabled={!canEditSettings || subjectTrackModeSaving}
+              onChange={(value) => void saveSubjectTrackMode(value)}
+            />
+          </div>
+          <p className="set-note">
+            开启后：已分科班级按选科过滤，未分科班级读取全部 9 门。关闭后：所有科目按考试范围直接下放，不区分班级选科。
+          </p>
+          {subjectTrackModeSave && (
+            <p className="set-note" aria-live="polite">
+              {subjectTrackModeSave}
+            </p>
+          )}
+        </section>
+
         {/* ―― 批量添加分考试预设 ―― */}
         <section className="set-card">
           <h2 className="set-card__title">
@@ -974,7 +1087,7 @@ export default function SettingsPage() {
           <p className="set-note">
             管理批量添加分考试时可复用的常用科目组和常用时间组，与批量添加弹窗中的设置共享，可在此新建、排序或删除。
           </p>
-          <BatchPresetSettingsPanel canEdit={canEditSettings} />
+          <BatchPresetSettingsPanel canEdit={canEditMajorBatch} />
         </section>
 
         {/* ―― 时间同步 ―― */}
@@ -982,11 +1095,13 @@ export default function SettingsPage() {
           <div className="set-card__head">
             <h2 className="set-card__title">
               <Clock3 size={20} />
-              时间同步（校时）{" "}
-              <HelpTip title="校时方式">
-                时间接口精度最高且适合大屏；HTTP Date
-                无需专用接口但精度较低；浏览器不能直接使用 NTP。
-              </HelpTip>
+              <span className="with-help-tip">
+                时间同步（校时）
+                <HelpTip title="校时方式">
+                  时间接口精度最高且适合大屏；HTTP Date
+                  无需专用接口但精度较低；浏览器不能直接使用 NTP。
+                </HelpTip>
+              </span>
             </h2>
             <Switch
               checked={ts.enabled}
@@ -1703,6 +1818,20 @@ export default function SettingsPage() {
               <div>
                 <b>Novora</b> · v{APP_VERSION}
               </div>
+              <div>
+                作者：<b>{AUTHOR_NAME}</b>
+              </div>
+              <div>
+                GitHub：{" "}
+                <a
+                  className="set-about__link"
+                  href={REPOSITORY_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  PikaNova/Novora
+                </a>
+              </div>
               <div className="set-note">
                 React + Vite + Vercel Serverless · Neon Postgres
               </div>
@@ -1729,6 +1858,9 @@ export default function SettingsPage() {
             />
           )}
         </section>
+        <footer className="set-author-watermark">
+          Novora · Made by {AUTHOR_NAME}
+        </footer>
       </div>
     </div>
   );

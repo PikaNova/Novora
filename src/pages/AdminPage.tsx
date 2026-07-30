@@ -67,6 +67,7 @@ import AiImportGuide from "../components/AiImportGuide";
 import AccessDenied from "../components/AccessDenied";
 import SchedulePrintPreview from "../components/SchedulePrintPreview";
 import BrandMark from "../components/BrandMark";
+import LoadingState from "../components/LoadingState";
 import QuickMajorPublishModal, {
   type QuickMajorPublishInput,
 } from "../components/QuickMajorPublishModal";
@@ -661,8 +662,9 @@ export default function AdminPage() {
       items: [],
       order: -1,
       targetGradeIds: selectedGradeId ? [selectedGradeId] : [],
-    };
+  };
   const items = activeMajor?.items ?? [];
+  const subjectTrackModeEnabled = initialization.subjectTrackModeEnabled !== false;
   const classesInMajorScope = (major: MajorExam) =>
     visibleClasses.filter((item) => {
       if (!item.enabled) return false;
@@ -672,9 +674,10 @@ export default function AdminPage() {
     });
   const autoTrackClassIdsForMajorItem = (major: MajorExam, subject: string) => {
     const normalized = normalizeSubjectName(subject);
+    if (!subjectTrackModeEnabled) return undefined;
     if (!isTrackSubject(normalized)) return undefined;
     const ids = classesInMajorScope(major)
-      .filter((item) => item.track?.length && subjectAppliesToClass(normalized, item))
+      .filter((item) => subjectAppliesToClass(normalized, item))
       .map((item) => item.id);
     return ids.length ? ids : ["__no_matching_track_class__"];
   };
@@ -2130,7 +2133,7 @@ export default function AdminPage() {
   };
 
   if (!ready || !adminUser)
-    return <div className="admin-loading">正在验证管理权限…</div>;
+    return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;
   if (deniedModule)
     return (
       <AccessDenied
@@ -2449,7 +2452,7 @@ export default function AdminPage() {
           adminTab !== "users" && (
             <>
               <label className="admin-tabbar__mode">
-                <span className="admin-tabbar__mode-label">
+                <span className="admin-tabbar__mode-label with-help-tip">
                   <span>运行模式</span>
                   <HelpTip title="运行模式">
                     仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。
@@ -2692,9 +2695,11 @@ export default function AdminPage() {
                 </p>
                 {activeMajorTrackSubjects.length > 0 && (
                   <div className="admin-warning-banner">
-                    已按班级选科分发选择性科目：语文、数学、外语默认全员可见；物化地等班级只显示命中的物理、化学、地理等分考试。
-                    当前 {activeMajorTrackScopedCount}/{activeMajorTrackSubjects.length} 个选择性分考试已带班级范围；未带范围的旧数据会在展示端按班级选科兜底过滤。
-                    {activeMajorUnsetTrackClassCount > 0 ? ` 另有 ${activeMajorUnsetTrackClassCount} 个适用班级未设置选科，请到班级管理补齐后再批量添加选考科目。` : ""}
+                    {subjectTrackModeEnabled ? <>
+                      选科分发：语数外全班显示，选考科目按班级选科显示，未分科班级读取全部科目。
+                      已设置 {activeMajorTrackScopedCount}/{activeMajorTrackSubjects.length} 个选考科目；旧数据会自动按选科兜底过滤。
+                      {activeMajorUnsetTrackClassCount > 0 ? ` ${activeMajorUnsetTrackClassCount} 个未分科班级会读取全部科目。` : ""}
+                    </> : "分科模式已关闭：所有分考试按考试范围直接下放，不按班级选科过滤。"}
                   </div>
                 )}
               </div>
@@ -3132,7 +3137,10 @@ export default function AdminPage() {
                 </div>}
                 {majorModalStep === 1 && <div className="admin-workflow-pane">
                   <label className="admin-label">
-                    适用范围 <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip>
+                    <span className="with-help-tip">
+                      适用范围
+                      <HelpTip title="适用范围">默认归属当前年级；全校统一考试会出现在所有年级绑定设备上。</HelpTip>
+                    </span>
                     <InlineSelect className="admin-input" value={majorModal.targetGradeIds.length ? majorModal.targetGradeIds[0] : "all"} onChange={(value) => setMajorModal((p) => p && { ...p, targetGradeIds: value === "all" ? [] : [value] })} options={[...(hasAllScope ? [{ value: "all", label: "全校统一" }] : []), ...visibleGrades.map((grade) => ({ value: grade.id, label: grade.name }))]} />
                   </label>
                   <div className="admin-workflow-review"><span>考试名称<strong>{majorModal.name}</strong></span><span>显示范围<strong>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</strong></span></div>

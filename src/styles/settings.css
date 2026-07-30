@@ -74,6 +74,9 @@ select.set-input { cursor: pointer; }
 .set-about { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
 .set-about__meta { font-size: 13px; line-height: 1.7; }
 .set-about__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.set-about__link { color: #82c5fa; text-decoration: none; overflow-wrap: anywhere; }
+.set-about__link:hover { color: #b8ddff; text-decoration: underline; }
+.set-author-watermark { padding: 4px 0 12px; text-align: center; color: rgba(148, 163, 184, 0.56); font-size: 11.5px; letter-spacing: .04em; }
 
 .set-readme {
   margin-top: 16px; padding: 16px 18px; background: #0f1114;

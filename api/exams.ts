@@ -306,6 +306,16 @@ function validateMutation(actor: AdminActor, current: ReturnType<typeof examPayl
     const denied = need('alerts.edit', '全屏提醒'); if (denied) return denied;
   }
   if (body.initialization !== undefined && !sameJson(current.initialization, body.initialization)) {
+    const beforeInit = { ...(current.initialization ?? {}) };
+    const afterInit = { ...(body.initialization ?? {}) };
+    const beforeTrackMode = beforeInit.subjectTrackModeEnabled !== false;
+    const afterTrackMode = afterInit.subjectTrackModeEnabled !== false;
+    delete beforeInit.subjectTrackModeEnabled;
+    delete afterInit.subjectTrackModeEnabled;
+    if (sameJson(beforeInit, afterInit) && beforeTrackMode !== afterTrackMode) {
+      const denied = need('settings.edit', '分科模式'); if (denied) return denied;
+      return { ok: true, actions: [...new Set(actions)] };
+    }
     const denied = need('initialization.run', '初始化设置'); if (denied) return denied;
     if (!allScope(actor)) return { ok: false, error: '只有超级管理员可以执行初始化' };
   }

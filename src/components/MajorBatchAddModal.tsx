@@ -320,6 +320,7 @@ export default function MajorBatchAddModal({
   const [step, setStep] = useState(0);
   const [customSubjectGroups, setCustomSubjectGroups] = useState<MajorBatchSubjectGroup[]>(() => getAppSettings().majorBatch.subjectGroups);
   const [customTimeGroups, setCustomTimeGroups] = useState<MajorBatchTimeGroup[]>(() => getAppSettings().majorBatch.timeGroups);
+  const [subjectTrackModeEnabled, setSubjectTrackModeEnabled] = useState(() => getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
   const [templateId, setTemplateId] = useState(SUBJECT_TEMPLATES[0].id);
   const [subjects, setSubjects] = useState(SUBJECT_TEMPLATES[0].subjects);
   const [subjectCap, setSubjectCap] = useState<number | null>(SUBJECT_TEMPLATES[0].maxTotal ?? null);
@@ -334,9 +335,10 @@ export default function MajorBatchAddModal({
 
   useEffect(() => {
     const sync = () => {
-      const settings = getAppSettings().majorBatch;
-      setCustomSubjectGroups(settings.subjectGroups);
-      setCustomTimeGroups(settings.timeGroups);
+      const settings = getAppSettings();
+      setCustomSubjectGroups(settings.majorBatch.subjectGroups);
+      setCustomTimeGroups(settings.majorBatch.timeGroups);
+      setSubjectTrackModeEnabled(settings.exam.initialization.subjectTrackModeEnabled !== false);
     };
     window.addEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
     window.addEventListener("storage", sync);
@@ -372,9 +374,10 @@ export default function MajorBatchAddModal({
   const unsetTrackClassCount = scopedClasses.filter((item) => !item.track?.length).length;
   const autoTargetClassIdsForSubject = (subject: string) => {
     const normalized = normalizeSubjectName(subject);
+    if (!subjectTrackModeEnabled) return undefined;
     if (!isTrackSubject(normalized)) return undefined;
     const ids = scopedClasses
-      .filter((item) => item.track?.length && subjectAppliesToClass(normalized, item))
+      .filter((item) => subjectAppliesToClass(normalized, item))
       .map((item) => item.id);
     return ids.length ? ids : [NO_MATCHING_TRACK_CLASS_ID];
   };
@@ -579,7 +582,7 @@ export default function MajorBatchAddModal({
           endTime: toLocalIso(item.date, item.end, endNextDay),
           enabled: item.enabled,
           order: maxOrder + index + 1,
-          targetClassIds: item.targetClassIds?.length ? item.targetClassIds : undefined,
+          targetClassIds: subjectTrackModeEnabled && item.targetClassIds?.length ? item.targetClassIds : undefined,
         };
       }),
     ];
@@ -623,8 +626,10 @@ export default function MajorBatchAddModal({
               {step === 0 && (
                 <div className="admin-workflow-pane">
                   <div className="admin-warning-banner">
-                    批量添加会按班级选科自动细分选择性科目：语文、数学、外语默认下发到全部适用班级；物化地班级只会收到物理、化学、地理等命中的分考试。
-                    {unsetTrackClassCount > 0 ? ` 当前范围内有 ${unsetTrackClassCount} 个班级未设置选科，选择性科目不会自动分发到这些班级。` : ""}
+                    {subjectTrackModeEnabled ? <>
+                      批量添加会按班级选科自动细分选择性科目：语文、数学、外语默认下发到全部适用班级；物化地班级只会收到物理、化学、地理等命中的分考试。
+                      {unsetTrackClassCount > 0 ? ` 当前范围内有 ${unsetTrackClassCount} 个未分科班级，会按全部科目分发。` : ""}
+                    </> : "分科模式已关闭：批量添加会把所有科目直接下放到当前考试范围内的班级。"}
                   </div>
                   <div className="major-batch-template-groups">
                     <div className="major-batch-template-group">
@@ -638,10 +643,12 @@ export default function MajorBatchAddModal({
                     {customSubjectGroups.length > 0 && (
                       <div className="major-batch-template-group">
                         <div className="major-batch-group-title">
-                          我的自定义
-                          <HelpTip title="我的自定义科目组">
-                            保存的常用科目组会显示在这里，排在高考常用的下一项；如需新增、编辑或调整顺序，请前往「系统设置 → 批量预设管理」。
-                          </HelpTip>
+                          <span className="with-help-tip">
+                            我的自定义
+                            <HelpTip title="我的自定义科目组">
+                              保存的常用科目组会显示在这里，排在高考常用的下一项；如需新增、编辑或调整顺序，请前往「系统设置 → 批量预设管理」。
+                            </HelpTip>
+                          </span>
                         </div>
                         <div className="major-batch-template-grid">
                           {subjectTemplates
@@ -661,11 +668,13 @@ export default function MajorBatchAddModal({
                   </div>
                   <section className="major-batch-subjects">
                     <div>
-                      <strong>科目清单</strong>
+                      <span className="with-help-tip">
+                        <strong>科目清单</strong>
+                        <HelpTip title="科目顺序说明">
+                          普通模板按下方编号顺序排布；新高考三天常用会按官方时间表自动归位，并将物理/历史合并为同一场。
+                        </HelpTip>
+                      </span>
                       <span>可在模板基础上增删，顺序即生成顺序</span>
-                      <HelpTip title="科目顺序说明">
-                        普通模板按下方编号顺序排布；新高考三天常用会按官方时间表自动归位，并将物理/历史合并为同一场。
-                      </HelpTip>
                     </div>
                     {subjectCap && (
                       <p className={`major-batch-subject-hint${subjects.length >= subjectCap ? " is-ok" : ""}`}>
@@ -739,10 +748,12 @@ export default function MajorBatchAddModal({
                     {customTimeGroups.length > 0 && (
                       <div className="major-batch-template-group">
                         <div className="major-batch-group-title">
-                          我的自定义
-                          <HelpTip title="我的自定义时间组">
-                            保存的常用时间组会显示在这里，排在高考常用的下一项；如需新增、编辑或调整顺序，请前往「系统设置 → 批量预设管理」。
-                          </HelpTip>
+                          <span className="with-help-tip">
+                            我的自定义
+                            <HelpTip title="我的自定义时间组">
+                              保存的常用时间组会显示在这里，排在高考常用的下一项；如需新增、编辑或调整顺序，请前往「系统设置 → 批量预设管理」。
+                            </HelpTip>
+                          </span>
                         </div>
                         <div className="quick-major-choice-grid major-batch-pattern-grid">
                           {dayPatterns

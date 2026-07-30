@@ -15,7 +15,7 @@ export interface InitializationResult {
   scheduleMode: ScheduleMode;
   selectedGradeId: string;
   selectedClassId: string;
-  initialization: { completedAt: number; wizardVersion: number; demoDataImported: boolean; province: string; schoolName: string; schoolFullName: string };
+  initialization: { completedAt: number; wizardVersion: number; demoDataImported: boolean; province: string; schoolName: string; schoolFullName: string; subjectTrackModeEnabled: boolean };
 }
 
 const cleanNames = (value: string) => value.split(/[，,、\n]/).map(item => item.trim()).filter(Boolean);
@@ -81,6 +81,6 @@ export function buildInitializationData(options: {
     scheduleMode: options.scheduleMode,
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: Date.now(), wizardVersion: 2, demoDataImported: options.mode === 'demo', province: options.province.trim(), schoolName: options.schoolName.trim(), schoolFullName: `${options.province.trim()}${options.schoolName.trim()}` },
+    initialization: { completedAt: Date.now(), wizardVersion: 2, demoDataImported: options.mode === 'demo', province: options.province.trim(), schoolName: options.schoolName.trim(), schoolFullName: `${options.province.trim()}${options.schoolName.trim()}`, subjectTrackModeEnabled: true },
   };
 }

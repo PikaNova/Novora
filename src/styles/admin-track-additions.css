@@ -74,10 +74,29 @@ span.class-management__track-tag {
   border-color: rgba(52, 152, 219, 0.4);
 }
 
+.class-management__track-options button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.class-management__track-options button:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
 .class-management__track-options button.is-selected {
   border-color: #3498db;
   background: rgba(52, 152, 219, 0.16);
   color: #3498db;
+}
+
+.class-management__track-error {
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  font-size: 13px;
 }
 
 .quick-major-track-match {

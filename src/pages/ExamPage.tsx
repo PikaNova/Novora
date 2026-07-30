@@ -21,6 +21,7 @@ import { getDesignId, resolveManagedDesign, setDesignId } from '../utils/designP
 import { getCachedDeviceBinding, getClassBindingInstanceId } from '../services/classBinding';
 import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
+import LoadingState from '../components/LoadingState';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
@@ -374,7 +375,7 @@ function BoundExamPage() {
   return (
     <div className="exam-root">
       <TemporaryExamLauncher formalItems={getResolvedSchedule(nowTick).activeItems} externalOpen={temporaryOpen} onExternalHandled={() => setTemporaryOpen(false)} />
-      <Suspense fallback={<div className="exam-design-loading">正在载入展示设计…</div>}><Design
+      <Suspense fallback={<LoadingState kind="design" />}><Design
         vm={vm}
         onDismissNotification={dismiss}
         onBack={() => navigate('/')}

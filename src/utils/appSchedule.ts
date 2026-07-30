@@ -28,6 +28,7 @@ export function getResolvedSchedule(now: number = nowMs(), options?: ResolveWeek
       selectedGradeId: exam.selectedGradeId,
       selectedClassId: exam.selectedClassId,
       selectedClassTrack: selectedClass.track,
+      subjectTrackModeEnabled: exam.initialization.subjectTrackModeEnabled,
       majors: exam.majors,
       weeklyPlans: exam.weeklyPlans,
       weeklyConflictPolicy: exam.weeklyConflictPolicy,

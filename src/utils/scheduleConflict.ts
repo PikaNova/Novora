@@ -177,6 +177,7 @@ export interface ResolveScheduleInput {
   selectedGradeId?: string;
   selectedClassId?: string;
   selectedClassTrack?: string[];
+  subjectTrackModeEnabled?: boolean;
   weeklyConflictPolicy?: WeeklyConflictPolicy;
 }
 
@@ -192,6 +193,7 @@ export function resolveEffectiveSchedule(
   const selectedGradeId = (data.selectedGradeId || '').trim();
   const selectedClassId = (data.selectedClassId || '').trim();
   const selectedClassTrack = Array.isArray(data.selectedClassTrack) ? data.selectedClassTrack : [];
+  const subjectTrackModeEnabled = data.subjectTrackModeEnabled !== false;
   const applicableMajors = data.majors.filter(major => {
     const gradeApplies = !major.targetGradeIds?.length || (!!selectedGradeId && major.targetGradeIds.includes(selectedGradeId));
     const classApplies = !major.targetClassIds?.length || (!!selectedClassId && major.targetClassIds.includes(selectedClassId));
@@ -199,8 +201,9 @@ export function resolveEffectiveSchedule(
   });
   const itemAppliesToScope = (item: ExamItem) => {
     const gradeApplies = !item.targetGradeIds?.length || (!!selectedGradeId && item.targetGradeIds.includes(selectedGradeId));
-    const classApplies = !item.targetClassIds?.length || (!!selectedClassId && item.targetClassIds.includes(selectedClassId));
+    const classApplies = !subjectTrackModeEnabled || !item.targetClassIds?.length || (!!selectedClassId && item.targetClassIds.includes(selectedClassId));
     const trackApplies =
+      !subjectTrackModeEnabled ||
       item.targetClassIds?.length ||
       !selectedClassTrack.length ||
       !isTrackSubject(item.name) ||

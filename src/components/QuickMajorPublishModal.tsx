@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolClass, SchoolGrade } from "../types/school";
@@ -10,6 +10,7 @@ import SubjectIcon from "./SubjectIcon";
 import TimeRangePickerModal from "./TimeRangePickerModal";
 import AdminWizardSteps from "./AdminWizardSteps";
 import AdminModalPortal from './AdminModalPortal';
+import { APP_SETTINGS_CHANGED_EVENT, getAppSettings } from "../utils/appSettings";
 
 export interface QuickMajorPublishInput {
   name: string;
@@ -116,6 +117,17 @@ export default function QuickMajorPublishModal({
   const timeFlowSnapshotRef = useRef<null | { customStartTime: string; durationMinutes: number; crossDayConfirmed: boolean; useCustomStart: boolean }>(null);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
+  const [subjectTrackModeEnabled, setSubjectTrackModeEnabled] = useState(() => getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
+
+  useEffect(() => {
+    const sync = () => setSubjectTrackModeEnabled(getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   const startTime = useCustomStart
     ? `${examDate}T${customStartTime}`
@@ -126,7 +138,7 @@ export default function QuickMajorPublishModal({
     : "";
   const finalSubject =
     subject === OTHER_SUBJECT ? customSubject.trim() : subject;
-  const isElectiveSubject = ALL_TRACK_SUBJECTS.includes(subject);
+  const isElectiveSubject = subjectTrackModeEnabled && ALL_TRACK_SUBJECTS.includes(subject);
   const trackMatchedClassIds = useMemo(() => {
     if (!isElectiveSubject) return [] as string[];
     return classes

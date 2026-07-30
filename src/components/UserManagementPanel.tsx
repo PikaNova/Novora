@@ -278,6 +278,10 @@ const PERMISSION_META: Record<string, { label: string; description: string }> =
       label: "编辑系统设置",
       description: "修改系统级显示和运行参数。",
     },
+    "settings.major_batch_edit": {
+      label: "编辑批量预设",
+      description: "管理批量添加分考试的自定义考试组和时间组。",
+    },
     "initialization.run": {
       label: "运行初始化向导",
       description: "重新配置学校结构和初始数据。",
