@@ -1,29 +1,37 @@
-import { useEffect, useState } from "react";
-import { LoaderCircle } from "lucide-react";
+import { useEffect, useRef } from "react";
 import {
   getSyncQueueSnapshot,
   subscribeSyncQueue,
   type SyncQueueSnapshot,
 } from "../services/syncQueue";
-import "../styles/sync-queue-indicator.css";
+import { dismissNotice, notify } from "../services/notify";
 
-/** 显示在后台弹窗右上角，仅在同步进行中出现。 */
+const SYNC_QUEUE_NOTICE_ID = "sync-queue-indicator";
+const SYNC_QUEUE_DURATION_MS = 24 * 60 * 60 * 1000;
+
 export default function SyncQueueIndicator() {
-  const [snapshot, setSnapshot] = useState<SyncQueueSnapshot>(() =>
-    getSyncQueueSnapshot(),
-  );
+  const wasSyncingRef = useRef(false);
 
-  useEffect(() => subscribeSyncQueue(setSnapshot), []);
+  useEffect(() => {
+    const handle = (snapshot: SyncQueueSnapshot) => {
+      if (snapshot.syncing) {
+        notify(
+          "warning",
+          snapshot.pendingCount > 1
+            ? `正在提交：还有 ${snapshot.pendingCount} 项待提交，请等待完成后再关闭页面。`
+            : "正在提交云端数据，请等待完成后再关闭页面。",
+          "云端提交中",
+          { id: SYNC_QUEUE_NOTICE_ID, variant: "queue", durationMs: SYNC_QUEUE_DURATION_MS },
+        );
+      } else if (wasSyncingRef.current) {
+        dismissNotice(SYNC_QUEUE_NOTICE_ID);
+      }
+      wasSyncingRef.current = snapshot.syncing;
+    };
 
-  if (!snapshot.syncing) return null;
+    handle(getSyncQueueSnapshot());
+    return subscribeSyncQueue(handle);
+  }, []);
 
-  return (
-    <div className="sync-queue-badge" role="status" aria-live="polite">
-      <span className="sync-queue-badge__pulse" aria-hidden="true" />
-      <LoaderCircle className="sync-queue-badge__icon" size={13} aria-hidden="true" />
-      <span className="sync-queue-badge__text">
-        {snapshot.pendingCount > 1 ? `同步中 · ${snapshot.pendingCount} 项` : "同步中…"}
-      </span>
-    </div>
-  );
+  return null;
 }
