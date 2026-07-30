@@ -43,6 +43,9 @@ type DayPattern = {
   category: TemplateCategory;
 };
 
+const GAOKAO_THREE_DAY_PATTERN_ID = "gaokao-three-day";
+const GAOKAO_THREE_DAY_SUBJECTS_ID = "gaokao-three-day-subjects";
+
 const CATEGORY_LABELS: Record<Exclude<TemplateCategory, "custom">, string> = {
   gaokao: "高考常用",
   school: "学校常规",
@@ -50,10 +53,10 @@ const CATEGORY_LABELS: Record<Exclude<TemplateCategory, "custom">, string> = {
 
 const SUBJECT_TEMPLATES: SubjectTemplate[] = [
   {
-    id: "gaokao-three-day-subjects",
+    id: GAOKAO_THREE_DAY_SUBJECTS_ID,
     name: "新高考三天常用（全科覆盖）",
-    description: "语文、数学、外语、物理、历史及四门再选科目全覆盖，适合需要同时兼顾两个选科方向的学校",
-    subjects: ["语文", "数学", "外语", "物理", "历史", "化学", "地理", "思想政治", "生物"],
+    description: "9 科覆盖；物理/历史同场生成，按福建 2026 新高考时间表排成 8 场",
+    subjects: ["语文", "数学", "物理", "历史", "外语", "化学", "地理", "思想政治", "生物"],
     category: "gaokao",
   },
   {
@@ -98,9 +101,9 @@ const SUBJECT_TEMPLATES: SubjectTemplate[] = [
 
 const DAY_PATTERNS: DayPattern[] = [
   {
-    id: "gaokao-three-day",
+    id: GAOKAO_THREE_DAY_PATTERN_ID,
     name: "新高考三天常用",
-    description: "7日语数，8日首选/外语，9日四门再选；各省可在预览中微调",
+    description: "福建 2026：语数、物理/历史、外语、化地政生；9 科覆盖，8 场约 3 天",
     slots: [
       { start: "09:00", end: "11:30", dayOffset: 0 },
       { start: "15:00", end: "17:00", dayOffset: 0 },
@@ -237,10 +240,35 @@ function patternDaySpan(pattern: DayPattern) {
   return maxOffset + 1;
 }
 
+function arrangedSubjectsForPattern(subjects: string[], pattern: DayPattern): string[] {
+  if (pattern.id !== GAOKAO_THREE_DAY_PATTERN_ID) return subjects;
+  const selected = new Set(subjects);
+  const arranged: string[] = [];
+  const pushIfSelected = (subject: string) => {
+    if (selected.has(subject)) arranged.push(subject);
+  };
+  pushIfSelected("语文");
+  pushIfSelected("数学");
+  if (selected.has("物理") && selected.has("历史")) arranged.push("物理/历史");
+  else if (selected.has("物理")) arranged.push("物理");
+  else if (selected.has("历史")) arranged.push("历史");
+  pushIfSelected("外语");
+  pushIfSelected("化学");
+  pushIfSelected("地理");
+  pushIfSelected("思想政治");
+  pushIfSelected("生物");
+  const covered = new Set(["语文", "数学", "物理", "历史", "外语", "化学", "地理", "思想政治", "生物"]);
+  for (const subject of subjects) {
+    if (!covered.has(subject) && !arranged.includes(subject)) arranged.push(subject);
+  }
+  return arranged;
+}
+
 function buildDraftItems(subjects: string[], startDate: string, pattern: DayPattern): BatchDraftItem[] {
   const explicitDays = pattern.slots.some((slot) => slotDayOffset(slot) > 0);
   const daySpan = explicitDays ? patternDaySpan(pattern) : 1;
-  return subjects.map((subject, index) => {
+  const arrangedSubjects = arrangedSubjectsForPattern(subjects, pattern);
+  return arrangedSubjects.map((subject, index) => {
     const slot = pattern.slots[index % pattern.slots.length];
     const cycleOffset = Math.floor(index / pattern.slots.length) * daySpan;
     const dayOffset = explicitDays ? cycleOffset + slotDayOffset(slot) : Math.floor(index / pattern.slots.length);
@@ -340,7 +368,8 @@ export default function MajorBatchAddModal({
   const template = subjectTemplates.find((item) => item.id === templateId) ?? subjectTemplates[0];
   const pattern = dayPatterns.find((item) => item.id === patternId) ?? dayPatterns[0];
   const designDays = patternDaySpan(pattern);
-  const needsMoreSlots = subjects.length > pattern.slots.length;
+  const arrangedSubjects = useMemo(() => arrangedSubjectsForPattern(subjects, pattern), [subjects, pattern]);
+  const needsMoreSlots = arrangedSubjects.length > pattern.slots.length;
 
   const validation = useMemo(() => {
     const errors = new Map<string, string[]>();
@@ -453,7 +482,7 @@ export default function MajorBatchAddModal({
       onClick={onSelect}
     >
       <strong>{item.name}</strong>
-      <span>{item.subjects.length} 个</span>
+      <span>{item.id === GAOKAO_THREE_DAY_SUBJECTS_ID ? "9 科" : `${item.subjects.length} 个`}</span>
       {item.custom && <em>自定义</em>}
       <small>{item.description}</small>
     </button>
@@ -468,6 +497,7 @@ export default function MajorBatchAddModal({
     >
       <strong>{item.name}</strong>
       <span>
+        {item.id === GAOKAO_THREE_DAY_PATTERN_ID ? "9 科 · " : ""}
         {item.slots.length} 场 · 约 {patternDaySpan(item)} 天
       </span>
       {item.custom && <em>自定义</em>}
@@ -615,7 +645,7 @@ export default function MajorBatchAddModal({
                       <strong>科目清单</strong>
                       <span>可在模板基础上增删，顺序即生成顺序</span>
                       <HelpTip title="科目顺序说明">
-                        已选科目会按下方编号顺序自动排布到时间场次中；先选的科目会排在更靠前的场次，可点击已选科目取消后重新选择来调整顺序。
+                        普通模板按下方编号顺序排布；新高考三天常用会按官方时间表自动归位，并将物理/历史合并为同一场。
                       </HelpTip>
                     </div>
                     {subjectCap && (
@@ -716,19 +746,23 @@ export default function MajorBatchAddModal({
                   </section>
                   {needsMoreSlots && (
                     <div className="admin-warning-banner">
-                      科目数（{subjects.length}）超过「{pattern.name}」单轮场次数（{pattern.slots.length}），排布将顺延到第{" "}
-                      {Math.ceil(subjects.length / pattern.slots.length) * designDays} 天（模板设计为 {designDays} 天）。如需避免顺延，可选择场次更多的时间模板，或前往系统设置新增自定义时间组。
+                      生成场次数（{arrangedSubjects.length}）超过「{pattern.name}」单轮场次数（{pattern.slots.length}），排布将顺延到第{" "}
+                      {Math.ceil(arrangedSubjects.length / pattern.slots.length) * designDays} 天（模板设计为 {designDays} 天）。如需避免顺延，可选择场次更多的时间模板，或前往系统设置新增自定义时间组。
                     </div>
                   )}
                   <div className="admin-workflow-review">
                     <span>
                       将添加
-                      <strong>{subjects.length} 场分考试</strong>
+                      <strong>{arrangedSubjects.length} 场分考试</strong>
+                    </span>
+                    <span>
+                      科目覆盖
+                      <strong>{subjects.length} 科{arrangedSubjects.length !== subjects.length ? ` · 合并为 ${arrangedSubjects.length} 场` : ""}</strong>
                     </span>
                     <span>
                       预计日期
                       <strong>
-                        {fmtDate(startDate)} 起，约 {Math.ceil(subjects.length / pattern.slots.length) * designDays} 天
+                        {fmtDate(startDate)} 起，约 {Math.ceil(arrangedSubjects.length / pattern.slots.length) * designDays} 天
                       </strong>
                     </span>
                     <span>
@@ -773,6 +807,9 @@ export default function MajorBatchAddModal({
                   <div className="major-batch-preview-summary">
                     <span>
                       总场次<strong>{validation.count}</strong>
+                    </span>
+                    <span>
+                      科目覆盖<strong>{subjects.length} 科</strong>
                     </span>
                     <span>
                       启用<strong>{validation.enabledCount}</strong>

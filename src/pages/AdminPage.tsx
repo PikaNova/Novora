@@ -1510,11 +1510,13 @@ export default function AdminPage() {
       if (cancelled) return;
       if (remote) setCloudReadConfirmed(true);
       const localAt = getAppSettings().exam?.updatedAt ?? 0;
+      const pendingSync = getPendingExamSync();
 
       if (
         remote &&
         (remote.updatedAt > localAt ||
-          (remote.updatedAt === localAt && !getPendingExamSync()))
+          (remote.updatedAt === localAt && !pendingSync) ||
+          (remote.updatedAt < localAt && !pendingSync))
       ) {
         // 服务器更新：应用远端
         const remoteUpdates: Record<string, unknown> = {
@@ -1567,7 +1569,7 @@ export default function AdminPage() {
         setInitialization(merged.initialization);
         pendingRef.current = false;
         setSync("saved");
-      } else if (localAt > (remote?.updatedAt ?? 0)) {
+      } else if (pendingSync && localAt > (remote?.updatedAt ?? 0)) {
         // 本地更新（之前离线编辑）：回连后回推（大型考试 + 周测，此前周测字段遗漏，现已补齐）
         pendingRef.current = true;
         const localExam = getAppSettings().exam;

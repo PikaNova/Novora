@@ -343,31 +343,32 @@
   padding: 10px 14px 14px;
 }
 
-.major-batch-preview-item {
+.major-batch-modal .major-batch-preview-list--cards > .major-batch-preview-item {
   display: grid;
-  grid-template-columns: minmax(190px, 0.8fr) minmax(300px, 1.3fr) auto;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(360px, 1.45fr) auto;
   align-items: center;
   gap: 10px 12px;
-  padding: 10px;
+  padding: 12px;
   border-radius: 10px;
   border: 1px solid transparent;
   background: var(--admin-surface-muted, #f9fafb);
 }
 
-.major-batch-preview-item.has-error {
+.major-batch-modal .major-batch-preview-list--cards > .major-batch-preview-item.has-error {
   border-color: rgba(220, 38, 38, 0.4);
   background: rgba(220, 38, 38, 0.05);
 }
 
-.major-batch-preview-item__subject {
+.major-batch-modal .major-batch-preview-item__subject {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.major-batch-preview-item__name {
+.major-batch-modal .major-batch-preview-item__name {
   flex: 1;
+  min-width: 120px;
 }
 
 .major-batch-preview-item__badge {
@@ -378,7 +379,7 @@
   color: #4b5563;
 }
 
-.major-batch-preview-item__time {
+.major-batch-modal .major-batch-preview-item__time {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -386,35 +387,44 @@
   min-width: 0;
 }
 
-.major-batch-preview-item__date {
-  display: flex;
+.major-batch-modal .major-batch-preview-item__date {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   color: var(--admin-muted, #6b7280);
 }
 
-.major-batch-preview-item__time-trigger {
+.major-batch-modal .major-batch-preview-item__date .admin-date-time-field {
+  min-width: 0;
+}
+
+.major-batch-modal .major-batch-preview-item__time-trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   border: 1px solid var(--admin-border, #e5e7eb);
   border-radius: 8px;
-  padding: 4px 8px;
+  min-height: 34px;
+  padding: 0 10px;
   background: #fff;
   font-size: 12px;
+  white-space: nowrap;
 }
 
-.major-batch-preview-item__duration {
+.major-batch-modal .major-batch-preview-item__duration {
   font-size: 12px;
   color: var(--admin-muted, #6b7280);
+  white-space: nowrap;
 }
 
-.major-batch-preview-item__duration.is-danger {
+.major-batch-modal .major-batch-preview-item__duration.is-danger {
   color: #dc2626;
 }
 
-.major-batch-preview-item__flags {
+.major-batch-modal .major-batch-preview-item__flags {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -422,7 +432,7 @@
   justify-self: end;
 }
 
-.major-batch-preview__check {
+.major-batch-modal .major-batch-preview__check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -439,7 +449,7 @@
   white-space: nowrap;
 }
 
-.major-batch-preview__check.is-selected {
+.major-batch-modal .major-batch-preview__check.is-selected {
   border-color: #3498db;
   background: rgba(52, 152, 219, 0.2);
 }
@@ -466,9 +476,12 @@
   background: #3498db;
 }
 
-.major-batch-preview-item__errors {
+.major-batch-modal .major-batch-preview-item__errors {
   grid-column: 1 / -1;
   margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.12);
   font-size: 12px;
   color: #dc2626;
 }
@@ -527,25 +540,37 @@
     overflow-wrap: break-word;
   }
 
-  .major-batch-preview-head {
+  .major-batch-modal .major-batch-preview-head {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .major-batch-preview-item {
+  .major-batch-modal .major-batch-preview-list--cards > .major-batch-preview-item {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .major-batch-preview-item__flags {
+  .major-batch-modal .major-batch-preview-item__time,
+  .major-batch-modal .major-batch-preview-item__flags {
     justify-self: stretch;
   }
 
-  .major-batch-preview__check {
+  .major-batch-modal .major-batch-preview-item__date {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .major-batch-modal .major-batch-preview-item__date .admin-date-time-field,
+  .major-batch-modal .major-batch-preview-item__time-trigger,
+  .major-batch-modal .major-batch-preview__check {
+    width: 100%;
+  }
+
+  .major-batch-modal .major-batch-preview__check {
     min-height: 42px;
   }
 
-  .major-batch-preview-summary {
+  .major-batch-modal .major-batch-preview-summary {
     gap: 10px;
   }
 }
