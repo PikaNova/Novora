@@ -364,7 +364,14 @@ export function normalizeExam(raw: unknown): ExamSettings {
   if (activeWeeklyPlanId && !weeklyPlans.some(p => p.id === activeWeeklyPlanId)) activeWeeklyPlanId = null;
   if (!activeWeeklyPlanId && weeklyPlans.length) activeWeeklyPlanId = weeklyPlans[0].id;
   const grades = (Array.isArray(src.grades) ? src.grades : []).filter(Boolean).map((grade, index) => ({ id: String(grade.id), name: String(grade.name), order: Number.isFinite(grade.order) ? grade.order : index, enabled: grade.enabled !== false }));
-  const classes = (Array.isArray(src.classes) ? src.classes : []).filter(Boolean).map((item, index) => ({ id: String(item.id), gradeId: String(item.gradeId), name: String(item.name), order: Number.isFinite(item.order) ? item.order : index, enabled: item.enabled !== false })).filter(item => grades.some(grade => grade.id === item.gradeId));
+  const classes = (Array.isArray(src.classes) ? src.classes : []).filter(Boolean).map((item, index) => ({
+    id: String(item.id),
+    gradeId: String(item.gradeId),
+    name: String(item.name),
+    order: Number.isFinite(item.order) ? item.order : index,
+    enabled: item.enabled !== false,
+    track: Array.isArray(item.track) ? item.track.map(String).filter(Boolean) : undefined,
+  })).filter(item => grades.some(grade => grade.id === item.gradeId));
   const rawByClass = src.activeWeeklyPlanIdByClassId && typeof src.activeWeeklyPlanIdByClassId === 'object' ? src.activeWeeklyPlanIdByClassId : {};
   const activeWeeklyPlanIdByClassId: Record<string, string | null> = {};
   for (const item of classes) {

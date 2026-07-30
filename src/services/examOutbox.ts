@@ -165,7 +165,8 @@ function markPendingFailure(
  * 4. 此时如果 remote 内容与本地 payload 完全相同，
  *    说明是幽灵保存，直接视为成功而非触发三方合并。
  *
- * 不做完整深比较（性能），只检查核心字段 items + title 的 JSON 指纹。
+ * 只比较本次待同步 payload 明确携带的字段：
+ * 周测、班级等字段可能与大型考试 items/title 独立变化，不能只用大型考试镜像字段判断成功。
  */
 function detectGhostSave(
   pending: PendingExamSync,
@@ -176,12 +177,46 @@ function detectGhostSave(
   if (remote.updatedAt <= base) return false;
   // 且在最近 120s 内（超过则是其他人修改）
   if (Date.now() - remote.updatedAt > 120_000) return false;
-  // 轻量检查：items + title 一致
-  const sameItems =
-    JSON.stringify(pending.payload.items) ===
-    JSON.stringify(remote.items);
-  const sameTitle = pending.payload.title === remote.title;
-  return sameItems && sameTitle;
+  const sameJson = (left: unknown, right: unknown) =>
+    JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  const sameRequired = [
+    sameJson(pending.payload.items, remote.items),
+    pending.payload.title === remote.title,
+    sameJson(pending.payload.majors, remote.majors),
+    pending.payload.activeMajorId === remote.activeMajorId,
+    sameJson(pending.payload.alerts, remote.alerts),
+  ];
+  if (pending.payload.scheduleMode !== undefined)
+    sameRequired.push(pending.payload.scheduleMode === remote.scheduleMode);
+  if (pending.payload.weeklyPlans !== undefined)
+    sameRequired.push(sameJson(pending.payload.weeklyPlans, remote.weeklyPlans));
+  if (pending.payload.activeWeeklyPlanId !== undefined)
+    sameRequired.push(
+      pending.payload.activeWeeklyPlanId === remote.activeWeeklyPlanId,
+    );
+  if (pending.payload.activeWeeklyPlanIdByClassId !== undefined)
+    sameRequired.push(
+      sameJson(
+        pending.payload.activeWeeklyPlanIdByClassId,
+        remote.activeWeeklyPlanIdByClassId,
+      ),
+    );
+  if (pending.payload.grades !== undefined)
+    sameRequired.push(sameJson(pending.payload.grades, remote.grades));
+  if (pending.payload.classes !== undefined)
+    sameRequired.push(sameJson(pending.payload.classes, remote.classes));
+  if (pending.payload.initialization !== undefined)
+    sameRequired.push(
+      sameJson(pending.payload.initialization, remote.initialization),
+    );
+  if (pending.payload.weeklyConflictPolicy !== undefined)
+    sameRequired.push(
+      sameJson(
+        pending.payload.weeklyConflictPolicy,
+        remote.weeklyConflictPolicy,
+      ),
+    );
+  return sameRequired.every(Boolean);
 }
 
 /** 恢复网络后冲刷本地离线编辑；若云端也变更则自动三方合并并重试。 */
