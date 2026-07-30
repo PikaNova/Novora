@@ -2694,12 +2694,18 @@ export default function AdminPage() {
                   切换年级只改变后台管理内容；大屏始终按设备绑定班级所属年级自动匹配适用考试。
                 </p>
                 {activeMajorTrackSubjects.length > 0 && (
-                  <div className="admin-warning-banner">
-                    {subjectTrackModeEnabled ? <>
-                      选科分发：语数外全班显示，选考科目按班级选科显示，未分科班级读取全部科目。
-                      已设置 {activeMajorTrackScopedCount}/{activeMajorTrackSubjects.length} 个选考科目；旧数据会自动按选科兜底过滤。
-                      {activeMajorUnsetTrackClassCount > 0 ? ` ${activeMajorUnsetTrackClassCount} 个未分科班级会读取全部科目。` : ""}
-                    </> : "分科模式已关闭：所有分考试按考试范围直接下放，不按班级选科过滤。"}
+                  <div className="admin-warning-banner admin-warning-banner--structured">
+                    {subjectTrackModeEnabled ? (
+                      <>
+                        <span><strong>规则</strong>语数外全班显示，选考科目按班级选科显示。</span>
+                        <span><strong>进度</strong>已设置 {activeMajorTrackScopedCount}/{activeMajorTrackSubjects.length} 个选考科目，旧数据自动兜底过滤。</span>
+                        {activeMajorUnsetTrackClassCount > 0 && (
+                          <span><strong>未分科</strong>{activeMajorUnsetTrackClassCount} 个班级读取全部科目。</span>
+                        )}
+                      </>
+                    ) : (
+                      <span><strong>分科关闭</strong>所有分考试按考试范围直接下放，不按班级选科过滤。</span>
+                    )}
                   </div>
                 )}
               </div>

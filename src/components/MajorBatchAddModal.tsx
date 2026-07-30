@@ -625,11 +625,18 @@ export default function MajorBatchAddModal({
               {error && <div className="admin-error">{error}</div>}
               {step === 0 && (
                 <div className="admin-workflow-pane">
-                  <div className="admin-warning-banner">
-                    {subjectTrackModeEnabled ? <>
-                      批量添加会按班级选科自动细分选择性科目：语文、数学、外语默认下发到全部适用班级；物化地班级只会收到物理、化学、地理等命中的分考试。
-                      {unsetTrackClassCount > 0 ? ` 当前范围内有 ${unsetTrackClassCount} 个未分科班级，会按全部科目分发。` : ""}
-                    </> : "分科模式已关闭：批量添加会把所有科目直接下放到当前考试范围内的班级。"}
+                  <div className="admin-warning-banner admin-warning-banner--structured">
+                    {subjectTrackModeEnabled ? (
+                      <>
+                        <span><strong>规则</strong>语数外全班下发，选考科目按班级选科分发。</span>
+                        <span><strong>示例</strong>物化地班级只收到物理、化学、地理。</span>
+                        {unsetTrackClassCount > 0 && (
+                          <span><strong>未分科</strong>{unsetTrackClassCount} 个班级读取全部 9 门。</span>
+                        )}
+                      </>
+                    ) : (
+                      <span><strong>分科关闭</strong>所有科目按考试范围直接下发。</span>
+                    )}
                   </div>
                   <div className="major-batch-template-groups">
                     <div className="major-batch-template-group">
