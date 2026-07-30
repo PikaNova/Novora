@@ -151,9 +151,10 @@ function BoundExamPage() {
   const examLiveRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 数据链接：30s Neon 同步，所有设计共用同一份数据（含提醒管理配置）
+  // 数据链接：考试前端保持快速同步，后台切换分科模式后无需手动刷新。
   const { refresh: refreshExamData, syncState: examDataSyncState, lastSyncAt: examDataLastSyncAt, hasPendingSync } = useExamSync({
-    intervalMs: 30000,
+    intervalMs: 5000,
+    minRefreshMs: 3000,
     onUpdate: ({ items: newItems, title: newTitle, alerts: newAlerts }) => {
       setItems(getResolvedExamItems()); if (newTitle) setTitle(newTitle);
       if (newAlerts) setAlerts(newAlerts);

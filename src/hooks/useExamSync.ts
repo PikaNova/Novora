@@ -11,6 +11,7 @@ import { notify } from '../services/notify';
 interface Options {
   onUpdate?: (data: { items: ExamItem[]; title: string; alerts: AlertsSettings }) => void;
   intervalMs?: number;
+  minRefreshMs?: number;
   bootstrapInstanceId?: string;
   onBootstrapBinding?: (binding: DeviceBinding | null) => void;
 }
@@ -18,7 +19,7 @@ interface Options {
 export type ExamDataSyncState = 'local' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error' | 'auth-required' | 'max-retries';
 const AUTO_REFRESH_COOLDOWN_MS = 10_000;
 
-export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId, onBootstrapBinding }: Options = {}) {
+export function useExamSync({ onUpdate, intervalMs = 60000, minRefreshMs = AUTO_REFRESH_COOLDOWN_MS, bootstrapInstanceId, onBootstrapBinding }: Options = {}) {
   const lastApplied = useRef(0);
   const lastPullAt = useRef(0);
   const pulling = useRef(false);
@@ -104,7 +105,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
   const refresh = useCallback(async (force = false) => {
     if (pulling.current) return;
     const pullStartedAt = Date.now();
-    if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < AUTO_REFRESH_COOLDOWN_MS) return;
+    if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < minRefreshMs) return;
     applyLocal();
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     lastPullAt.current = pullStartedAt;
@@ -181,7 +182,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     } finally {
       pulling.current = false;
     }
-  }, [applyLocal, applyPayload, reportSyncError]);
+  }, [applyLocal, applyPayload, reportSyncError, minRefreshMs]);
 
   useEffect(() => {
     let cancelled = false;

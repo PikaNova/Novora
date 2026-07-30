@@ -1859,7 +1859,7 @@ export default function SettingsPage() {
           )}
         </section>
         <footer className="set-author-watermark">
-          Novora · Made by {AUTHOR_NAME}
+          Made by {AUTHOR_NAME}
         </footer>
       </div>
     </div>

@@ -118,6 +118,7 @@ export default function QuickMajorPublishModal({
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
   const [subjectTrackModeEnabled, setSubjectTrackModeEnabled] = useState(() => getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
+  const [trackDispatchEnabled, setTrackDispatchEnabled] = useState(true);
 
   useEffect(() => {
     const sync = () => setSubjectTrackModeEnabled(getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
@@ -139,19 +140,22 @@ export default function QuickMajorPublishModal({
   const finalSubject =
     subject === OTHER_SUBJECT ? customSubject.trim() : subject;
   const isElectiveSubject = subjectTrackModeEnabled && ALL_TRACK_SUBJECTS.includes(subject);
+  const canUseTrackDispatch = isElectiveSubject && !schoolWide && !lockedClassId && targetGradeIds.length > 0;
   const trackMatchedClassIds = useMemo(() => {
     if (!isElectiveSubject) return [] as string[];
     return classes
       .filter((item) => item.enabled && targetGradeIds.includes(item.gradeId) && subjectAppliesToClass(subject, item))
       .map((item) => item.id);
   }, [classes, isElectiveSubject, subject, targetGradeIds]);
-  const applyTrackMatch = () => setTargetClassIds(trackMatchedClassIds);
+  const effectiveTrackDispatch = canUseTrackDispatch && trackDispatchEnabled;
   const effectiveTargetGradeIds = schoolWide ? [] : targetGradeIds;
   const effectiveTargetClassIds = schoolWide
     ? []
     : lockedClassId
       ? [lockedClassId]
-      : targetClassIds;
+      : effectiveTrackDispatch
+        ? trackMatchedClassIds
+        : targetClassIds;
   const classOptions = useMemo<ClassPickerOption[]>(() => {
     const gradeNames = new Map(grades.map((grade) => [grade.id, grade.name]));
     return classes
@@ -421,14 +425,24 @@ export default function QuickMajorPublishModal({
                   />
                 </label>
               )}
-              {isElectiveSubject && !schoolWide && !lockedClassId && targetGradeIds.length > 0 && (
+              {canUseTrackDispatch && (
                 <div className="quick-major-track-match">
+                  <label className="quick-major-track-match__switch">
+                    <span>
+                      <strong>按选科下发</strong>
+                      <small>{trackDispatchEnabled ? `只发给包含${finalSubject}的班级` : "当前范围内班级都会收到"}</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={trackDispatchEnabled}
+                      onChange={(event) => setTrackDispatchEnabled(event.target.checked)}
+                    />
+                  </label>
                   <p>
-                    {finalSubject} 为选择性科目，可按班级选科组合自动匹配需要参考该科目的班级，无需手动逐个勾选。
+                    {trackDispatchEnabled
+                      ? `预计下发 ${trackMatchedClassIds.length} 个班级；未分科班级默认接收所有科目。`
+                      : "已关闭选科过滤，将按上一步选择的年级/班级统一下发。"}
                   </p>
-                  <button type="button" className="admin-btn" onClick={applyTrackMatch}>
-                    按选科自动匹配班级（{trackMatchedClassIds.length} 个）
-                  </button>
                 </div>
               )}
             </div>
