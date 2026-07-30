@@ -87,7 +87,8 @@ import type {
   WeeklyConflictPolicy,
 } from "../types/exam";
 import type { SchoolClass, SchoolGrade } from "../types/school";
-import { genClassId, genGradeId } from "../types/school";
+import { genClassId, genGradeId, subjectAppliesToClass } from "../types/school";
+import { COMMON_EXAM_SUBJECTS, isTrackSubject, normalizeSubjectName } from "../data/subjects";
 import "../styles/admin.css";
 import "../styles/admin-track-additions.css";
 import {
@@ -135,9 +136,6 @@ const STATUS = {
   ongoing: { label: "进行中", color: "#27ae60", bg: "rgba(39,174,96,.15)" },
   ended: { label: "已结束", color: "#6c757d", bg: "rgba(108,117,125,.15)" },
 };
-const COMMON_EXAM_SUBJECTS = [
-  "语文", "数学", "英语", "物理", "化学", "生物", "政治", "历史", "地理", "信息技术", "体育", "音乐", "美术",
-];
 const CUSTOM_SUBJECT_VALUE = "__custom_subject__";
 const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 
@@ -665,6 +663,24 @@ export default function AdminPage() {
       targetGradeIds: selectedGradeId ? [selectedGradeId] : [],
     };
   const items = activeMajor?.items ?? [];
+  const classesInMajorScope = (major: MajorExam) =>
+    visibleClasses.filter((item) => {
+      if (!item.enabled) return false;
+      if (major.targetClassIds?.length) return major.targetClassIds.includes(item.id);
+      if (major.targetGradeIds?.length) return major.targetGradeIds.includes(item.gradeId);
+      return true;
+    });
+  const autoTrackClassIdsForMajorItem = (major: MajorExam, subject: string) => {
+    const normalized = normalizeSubjectName(subject);
+    if (!isTrackSubject(normalized)) return undefined;
+    const ids = classesInMajorScope(major)
+      .filter((item) => item.track?.length && subjectAppliesToClass(normalized, item))
+      .map((item) => item.id);
+    return ids.length ? ids : ["__no_matching_track_class__"];
+  };
+  const activeMajorTrackSubjects = items.filter((item) => isTrackSubject(item.name));
+  const activeMajorTrackScopedCount = activeMajorTrackSubjects.filter((item) => item.targetClassIds?.length).length;
+  const activeMajorUnsetTrackClassCount = classesInMajorScope(activeMajor).filter((item) => !item.track?.length).length;
   useEffect(() => {
     if (!orderedScopedMajors.length) return;
     if (orderedScopedMajors.some((major) => major.id === editingMajorId))
@@ -1728,7 +1744,7 @@ export default function AdminPage() {
       items: [
         {
           id: makeId(),
-          name: input.subject,
+          name: normalizeSubjectName(input.subject),
           startTime: input.startTime,
           endTime: toLocalInput(start + input.durationMinutes * 60_000),
           enabled: true,
@@ -1871,11 +1887,13 @@ export default function AdminPage() {
       setEditError("本场时长超过 6 小时，请确认这是跨天或特殊安排。");
       return;
     }
+    const normalizedName = normalizeSubjectName(editing.name.trim());
+    const targetClassIds = autoTrackClassIdsForMajorItem(activeMajor, normalizedName);
     let next: ExamItem[];
     if (editing.id)
       next = items.map((x) =>
         x.id === editing.id
-          ? { ...x, ...editing, id: x.id, order: x.order }
+          ? { ...x, ...editing, name: normalizedName, targetClassIds, id: x.id, order: x.order }
           : x,
       );
     else
@@ -1884,14 +1902,15 @@ export default function AdminPage() {
         {
           id: makeId(),
           order: items.length ? Math.max(...items.map((x) => x.order)) + 1 : 0,
-          name: editing.name.trim(),
+          name: normalizedName,
           startTime: toISO(editing.startTime),
           endTime: toISO(editing.endTime),
           enabled: editing.enabled,
+          targetClassIds,
         },
       ];
     next = normalizeExamItems(next);
-    commitItems(next, editing.id ? `编辑「${editing.name.trim()}」` : `新增「${editing.name.trim()}」`);
+    commitItems(next, editing.id ? `编辑「${normalizedName}」` : `新增「${normalizedName}」`);
     setEditing(null);
     setEditError("");
     setLongDurationConfirmed(false);
@@ -2671,6 +2690,13 @@ export default function AdminPage() {
                 <p className="admin-major-card__hint">
                   切换年级只改变后台管理内容；大屏始终按设备绑定班级所属年级自动匹配适用考试。
                 </p>
+                {activeMajorTrackSubjects.length > 0 && (
+                  <div className="admin-warning-banner">
+                    已按班级选科分发选择性科目：语文、数学、外语默认全员可见；物化地等班级只显示命中的物理、化学、地理等分考试。
+                    当前 {activeMajorTrackScopedCount}/{activeMajorTrackSubjects.length} 个选择性分考试已带班级范围；未带范围的旧数据会在展示端按班级选科兜底过滤。
+                    {activeMajorUnsetTrackClassCount > 0 ? ` 另有 ${activeMajorUnsetTrackClassCount} 个适用班级未设置选科，请到班级管理补齐后再批量添加选考科目。` : ""}
+                  </div>
+                )}
               </div>
 
               {quickScopedMajors.length > 0 && (
@@ -3144,6 +3170,7 @@ export default function AdminPage() {
         <MajorBatchAddModal
           major={activeMajor}
           existingItems={items}
+          classes={visibleClasses}
           onClose={() => setMajorBatchAddOpen(false)}
           onCommit={commitBatchMajorItems}
         />

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Clock3 } from "lucide-react";
 import type { ExamItem, MajorExam } from "../types";
+import type { SchoolClass } from "../types/school";
+import { subjectAppliesToClass } from "../types/school";
+import { COMMON_EXAM_SUBJECTS, isTrackSubject, normalizeSubjectName } from "../data/subjects";
 import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchTimeSlot } from "../utils/appSettings";
 import { APP_SETTINGS_CHANGED_EVENT, getAppSettings } from "../utils/appSettings";
 import AdminModalPortal from "./AdminModalPortal";
@@ -19,6 +22,7 @@ type BatchDraftItem = {
   end: string;
   enabled: boolean;
   allowCrossDay: boolean;
+  targetClassIds?: string[];
 };
 
 type TemplateCategory = "gaokao" | "school" | "custom";
@@ -45,6 +49,7 @@ type DayPattern = {
 
 const GAOKAO_THREE_DAY_PATTERN_ID = "gaokao-three-day";
 const GAOKAO_THREE_DAY_SUBJECTS_ID = "gaokao-three-day-subjects";
+const NO_MATCHING_TRACK_CLASS_ID = "__no_matching_track_class__";
 
 const CATEGORY_LABELS: Record<Exclude<TemplateCategory, "custom">, string> = {
   gaokao: "高考常用",
@@ -174,25 +179,7 @@ const DAY_PATTERNS: DayPattern[] = [
   },
 ];
 
-const COMMON_SUBJECTS = [
-  "语文",
-  "数学",
-  "外语",
-  "英语",
-  "物理",
-  "历史",
-  "化学",
-  "地理",
-  "思想政治",
-  "生物",
-  "信息技术",
-  "通用技术",
-  "体育",
-  "音乐",
-  "美术",
-  "文科综合",
-  "理科综合",
-];
+const COMMON_SUBJECTS = COMMON_EXAM_SUBJECTS;
 
 function makeDraftId() {
   return `batch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -320,11 +307,13 @@ function customTimeToPattern(item: MajorBatchTimeGroup): DayPattern {
 export default function MajorBatchAddModal({
   major,
   existingItems,
+  classes,
   onClose,
   onCommit,
 }: {
   major: MajorExam;
   existingItems: ExamItem[];
+  classes: SchoolClass[];
   onClose: () => void;
   onCommit: (nextItems: ExamItem[]) => void;
 }) {
@@ -370,6 +359,25 @@ export default function MajorBatchAddModal({
   const designDays = patternDaySpan(pattern);
   const arrangedSubjects = useMemo(() => arrangedSubjectsForPattern(subjects, pattern), [subjects, pattern]);
   const needsMoreSlots = arrangedSubjects.length > pattern.slots.length;
+  const scopedClasses = useMemo(
+    () =>
+      classes.filter((item) => {
+        if (!item.enabled) return false;
+        if (major.targetClassIds?.length) return major.targetClassIds.includes(item.id);
+        if (major.targetGradeIds?.length) return major.targetGradeIds.includes(item.gradeId);
+        return true;
+      }),
+    [classes, major.targetClassIds, major.targetGradeIds],
+  );
+  const unsetTrackClassCount = scopedClasses.filter((item) => !item.track?.length).length;
+  const autoTargetClassIdsForSubject = (subject: string) => {
+    const normalized = normalizeSubjectName(subject);
+    if (!isTrackSubject(normalized)) return undefined;
+    const ids = scopedClasses
+      .filter((item) => item.track?.length && subjectAppliesToClass(normalized, item))
+      .map((item) => item.id);
+    return ids.length ? ids : [NO_MATCHING_TRACK_CLASS_ID];
+  };
 
   const validation = useMemo(() => {
     const errors = new Map<string, string[]>();
@@ -516,7 +524,13 @@ export default function MajorBatchAddModal({
     }
     setError("");
     setOverflowAck(false);
-    setDraftItems(buildDraftItems(subjects, startDate, pattern));
+    setDraftItems(
+      buildDraftItems(subjects, startDate, pattern).map((item) => ({
+        ...item,
+        name: normalizeSubjectName(item.name),
+        targetClassIds: autoTargetClassIdsForSubject(item.name),
+      })),
+    );
     setStep(2);
   };
 
@@ -565,6 +579,7 @@ export default function MajorBatchAddModal({
           endTime: toLocalIso(item.date, item.end, endNextDay),
           enabled: item.enabled,
           order: maxOrder + index + 1,
+          targetClassIds: item.targetClassIds?.length ? item.targetClassIds : undefined,
         };
       }),
     ];
@@ -607,6 +622,10 @@ export default function MajorBatchAddModal({
               {error && <div className="admin-error">{error}</div>}
               {step === 0 && (
                 <div className="admin-workflow-pane">
+                  <div className="admin-warning-banner">
+                    批量添加会按班级选科自动细分选择性科目：语文、数学、外语默认下发到全部适用班级；物化地班级只会收到物理、化学、地理等命中的分考试。
+                    {unsetTrackClassCount > 0 ? ` 当前范围内有 ${unsetTrackClassCount} 个班级未设置选科，选择性科目不会自动分发到这些班级。` : ""}
+                  </div>
                   <div className="major-batch-template-groups">
                     <div className="major-batch-template-group">
                       <div className="major-batch-group-title">{CATEGORY_LABELS.gaokao}</div>

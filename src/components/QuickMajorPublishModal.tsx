@@ -3,6 +3,7 @@ import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolClass, SchoolGrade } from "../types/school";
 import { ALL_TRACK_SUBJECTS, subjectAppliesToClass } from "../types/school";
+import { COMMON_EXAM_SUBJECTS } from "../data/subjects";
 import { DateTimeField } from "./touch-datetime-picker";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import SubjectIcon from "./SubjectIcon";
@@ -32,18 +33,7 @@ interface Props {
   onPublish: (input: QuickMajorPublishInput) => void;
 }
 
-const SUBJECTS = [
-  "语文",
-  "数学",
-  "英语",
-  "物理",
-  "化学",
-  "生物",
-  "政治",
-  "历史",
-  "地理",
-  "其他",
-];
+const SUBJECTS = [...COMMON_EXAM_SUBJECTS, "其他"];
 const DELAYS = [
   { label: "立即开始", minutes: 0 },
   { label: "5 分钟后", minutes: 5 },

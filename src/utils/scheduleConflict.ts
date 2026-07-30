@@ -1,4 +1,6 @@
 import type { ExamItem } from '../types/index.js';
+import { subjectAppliesToClass } from '../types/school.js';
+import { isTrackSubject } from '../data/subjects.js';
 import type {
   WeeklyConflictPolicy,
   WeeklyOccurrence,
@@ -174,6 +176,7 @@ export interface ResolveScheduleInput {
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   selectedGradeId?: string;
   selectedClassId?: string;
+  selectedClassTrack?: string[];
   weeklyConflictPolicy?: WeeklyConflictPolicy;
 }
 
@@ -188,16 +191,27 @@ export function resolveEffectiveSchedule(
 ): ResolvedSchedule {
   const selectedGradeId = (data.selectedGradeId || '').trim();
   const selectedClassId = (data.selectedClassId || '').trim();
+  const selectedClassTrack = Array.isArray(data.selectedClassTrack) ? data.selectedClassTrack : [];
   const applicableMajors = data.majors.filter(major => {
     const gradeApplies = !major.targetGradeIds?.length || (!!selectedGradeId && major.targetGradeIds.includes(selectedGradeId));
     const classApplies = !major.targetClassIds?.length || (!!selectedClassId && major.targetClassIds.includes(selectedClassId));
     return gradeApplies && classApplies;
   });
+  const itemAppliesToScope = (item: ExamItem) => {
+    const gradeApplies = !item.targetGradeIds?.length || (!!selectedGradeId && item.targetGradeIds.includes(selectedGradeId));
+    const classApplies = !item.targetClassIds?.length || (!!selectedClassId && item.targetClassIds.includes(selectedClassId));
+    const trackApplies =
+      item.targetClassIds?.length ||
+      !selectedClassTrack.length ||
+      !isTrackSubject(item.name) ||
+      subjectAppliesToClass(item.name, { track: selectedClassTrack });
+    return gradeApplies && classApplies && trackApplies;
+  };
   const candidates = applicableMajors.flatMap(major => {
     const scopePriority = major.targetClassIds?.length ? 2 : major.targetGradeIds?.length ? 1 : 0;
     const temporaryRank = major.temporary ? (major.priorityOverSchedule ? 100 : -100) : 0;
     const priorityRank = scopePriority + temporaryRank;
-    return major.items.filter(item => item.enabled).map(item => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, priorityRank }));
+    return major.items.filter(item => item.enabled && itemAppliesToScope(item)).map(item => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, priorityRank }));
   });
   // 同时存在全校、年级和班级安排时，仅在实际时间重叠处使用更具体的安排；
   // 临时统一考试默认低于正式大型考试；只有明确勾选优先覆盖时才在重叠时段覆盖正式考试。

@@ -1,4 +1,5 @@
 import type { ExamItem } from '../types/index.js';
+import { normalizeSubjectName } from '../data/subjects.js';
 import { parseZonedTime } from './zonedTime.js';
 
 /** 考试时间线只由真实时间决定，旧 order 字段仅为兼容保存。 */
@@ -13,4 +14,12 @@ export function sortExamItemsByTime<T extends ExamItem>(items: T[]): T[] {
     return a.id.localeCompare(b.id);
   });
 }
-export function normalizeExamItems(items: ExamItem[]): ExamItem[] { return sortExamItemsByTime(items).map((item, order) => ({ ...item, order })); }
+export function normalizeExamItems(items: ExamItem[]): ExamItem[] {
+  return sortExamItemsByTime(items).map((item, order) => ({
+    ...item,
+    name: normalizeSubjectName(item.name),
+    targetGradeIds: Array.isArray(item.targetGradeIds) ? item.targetGradeIds.map(String).filter(Boolean) : undefined,
+    targetClassIds: Array.isArray(item.targetClassIds) ? item.targetClassIds.map(String).filter(Boolean) : undefined,
+    order,
+  }));
+}

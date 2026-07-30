@@ -44,6 +44,7 @@ import InlineSelect from "./InlineSelect";
 import { DateTimeField } from "./touch-datetime-picker";
 import { CalendarDays, CircleHelp } from "lucide-react";
 import TimeRangePickerModal from "./TimeRangePickerModal";
+import { COMMON_EXAM_SUBJECTS } from "../data/subjects";
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   1: "周一",
@@ -55,9 +56,7 @@ const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   7: "周日",
 };
 const WEEKDAY_ORDER: IsoWeekday[] = [1, 2, 3, 4, 5, 6, 7];
-const COMMON_WEEKLY_SUBJECTS = [
-  "语文", "数学", "英语", "物理", "化学", "生物", "政治", "历史", "地理", "信息技术", "体育", "音乐", "美术",
-];
+const COMMON_WEEKLY_SUBJECTS = COMMON_EXAM_SUBJECTS;
 const CUSTOM_WEEKLY_SUBJECT = "__custom_weekly_subject__";
 const SCOPE_LABEL: Record<WeeklyConflictPolicy["scope"], string> = {
   "time-overlap": "仅实际时间重叠时暂停周测",

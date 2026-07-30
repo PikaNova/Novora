@@ -1,5 +1,5 @@
-const SHELL_CACHE = "novora-shell-v2.8.0-sync-queue";
-const RUNTIME_CACHE = "novora-runtime-v2.8.0-sync-queue";
+const SHELL_CACHE = "novora-shell-v2.7.1";
+const RUNTIME_CACHE = "novora-runtime-v2.7.1";
 const SHELL_ASSETS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -18,7 +18,12 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key !== SHELL_CACHE && key !== RUNTIME_CACHE)
+            .filter(
+              (key) =>
+                key !== SHELL_CACHE &&
+                key !== RUNTIME_CACHE &&
+                (key.startsWith('novora-shell-') || key.startsWith('novora-runtime-')),
+            )
             .map((key) => caches.delete(key)),
         ),
       )
