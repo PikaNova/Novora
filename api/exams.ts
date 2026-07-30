@@ -462,13 +462,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await ensureTableOnce();
       const existing = await sql`SELECT client_secret_hash FROM classisland_plugin_instances WHERE plugin_instance_id=${credentials.instanceId}` as unknown as PluginInstanceRow[];
       const secretHash = sha256(credentials.secret);
-      if (existing[0] && !equalHash(existing[0].client_secret_hash, secretHash)) { res.status(401).json({ ok: false, error: 'Plugin credentials rejected' }); return; }
+      if (existing[0]?.client_secret_hash && !equalHash(existing[0].client_secret_hash, secretHash)) { res.status(401).json({ ok: false, error: 'Plugin credentials rejected' }); return; }
       const now = Date.now();
       await sql`
         INSERT INTO classisland_plugin_instances
           (plugin_instance_id, client_secret_hash, pair_token_hash, pair_expires_at, paired, created_at, updated_at)
         VALUES (${credentials.instanceId}, ${secretHash}, ${sha256(pairToken)}, ${now + PLUGIN_PAIR_TTL_MS}, FALSE, ${now}, ${now})
         ON CONFLICT (plugin_instance_id) DO UPDATE SET
+          client_secret_hash=CASE
+            WHEN classisland_plugin_instances.client_secret_hash='' THEN EXCLUDED.client_secret_hash
+            ELSE classisland_plugin_instances.client_secret_hash
+          END,
           pair_token_hash=EXCLUDED.pair_token_hash, pair_expires_at=EXCLUDED.pair_expires_at,
           paired=FALSE, updated_at=EXCLUDED.updated_at
       `;
