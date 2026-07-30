@@ -402,6 +402,8 @@ export default function AdminPage() {
     };
   }, [moreOpen, placeMoreMenu]);
   const pendingRef = useRef(false); // 是否有尚未推送到服务器的本地变更
+  // pushToServer 与 pushWeeklyToServer 共享的串行执行链：保证任何时刻只有一次推送（含冲突合并与重试）在执行。
+  const examPushChainRef = useRef<Promise<void>>(Promise.resolve());
   const stateRef = useRef({ majors, activeMajorId });
   stateRef.current = { majors, activeMajorId };
   const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -729,8 +731,8 @@ export default function AdminPage() {
     };
   };
 
-  // 将变更推送到服务器（已先行写入本地）
-  const pushToServer = useCallback(
+  // 将变更推送到服务器（已先行写入本地）：真正执行函数，仅供共享串行链的 pushToServer 包装器调用。
+  const pushToServerExec = useCallback(
     async (ms: MajorExam[], activeId: string, syncLabel = "保存考试安排") => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         pendingRef.current = true;
@@ -742,144 +744,166 @@ export default function AdminPage() {
       const queued = getPendingExamSync();
       const payload = queued?.payload ?? buildPayload(ms, activeId);
       // 必须在请求前读取共同基线；409 返回后云端已是较新版本，不能再拿它当 base。
+      // 基线取较新者：outbox 记录的基线可能晚于实时快照，也可能早于它，取较新值能减少不必要的 409。
       const baseSnapshot = getCloudSnapshot();
+      const baseUpdatedAt = Math.max(
+        queued?.baseSnapshot?.updatedAt ?? 0,
+        baseSnapshot?.updatedAt ?? 0,
+      );
       let expectedSavedAt = queued?.savedAt;
       const isStalePush = () =>
         expectedSavedAt != null &&
         getPendingExamSync()?.savedAt !== expectedSavedAt;
-      const result = await saveExamsToServer({
-        ...payload,
-        baseUpdatedAt:
-          queued?.baseSnapshot?.updatedAt ?? baseSnapshot?.updatedAt ?? 0,
-        clientQueueKey: "admin-exam-save",
-        clientSyncLabel: syncLabel,
-      });
-      if (isStalePush()) return;
-      if (result === "unauthorized") {
-        navigate("/login?next=/admin", { replace: true });
-        return;
-      }
-      if (result && typeof result === "object" && result.kind === "conflict") {
-        if (!result.remote) {
+      const MAX_ATTEMPTS = 3;
+      let currentPayload = payload;
+      let currentBaseUpdatedAt = baseUpdatedAt;
+      let currentBaseline = baseSnapshot;
+      let totalConflicts = 0;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const result = await saveExamsToServer({
+          ...currentPayload,
+          baseUpdatedAt: currentBaseUpdatedAt,
+          clientQueueKey: "admin-exam-save",
+          clientSyncLabel:
+            attempt === 0 ? syncLabel : `${syncLabel} · 合并后重试(${attempt})`,
+        });
+        if (isStalePush()) return;
+        if (result === "unauthorized") {
+          navigate("/login?next=/admin", { replace: true });
+          return;
+        }
+        if (
+          result &&
+          typeof result === "object" &&
+          result.kind === "conflict"
+        ) {
+          if (!result.remote) {
+            pendingRef.current = true;
+            setSync("error");
+            notify(
+              "error",
+              "云端冲突数据不完整，本机修改已保留；请刷新后台后再保存。",
+              "同步失败",
+              { id: "admin-exam-sync-error" },
+            );
+            return;
+          }
+          const local = {
+            ...currentPayload,
+            updatedAt: currentBaseUpdatedAt,
+          };
+          const merged = threeWayMergeExam(
+            currentBaseline ?? result.remote,
+            local,
+            result.remote,
+          );
+          if (merged.conflictCount)
+            void recordSyncConflict(
+              merged.conflictCount,
+              local,
+              result.remote,
+            );
+          const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
+          const normalizedMergedExam = {
+            ...mergedExam,
+            weeklyConflictPolicy:
+              mergedExam.weeklyConflictPolicy ??
+              weeklyStateRef.current.weeklyConflictPolicy,
+          };
+          // 关键修复：先确认这次推送仍然新鲜（未被新的本机编辑/删除取代），才写入 outbox 与本机状态；
+          // 否则直接中止，避免用过期的合并结果覆盖用户在等待期间又做的新编辑/删除（“删除后又恢复”的根因）。
+          if (isStalePush()) return;
+          const mergedQueuedAt = Date.now();
+          queuePendingExamSync({
+            payload: merged.payload,
+            baseSnapshot: result.remote,
+            savedAt: mergedQueuedAt,
+          });
+          expectedSavedAt = mergedQueuedAt;
+          setMajors(merged.payload.majors);
+          setActiveMajorId(merged.payload.activeMajorId);
+          updateExamSettings({
+            ...normalizedMergedExam,
+            updatedAt: result.remote.updatedAt,
+          });
+          if (mergedAlerts) {
+            updateAlertsSettings({
+              ...mergedAlerts,
+              updatedAt: result.remote.updatedAt,
+            });
+            setAlerts(getAppSettings().alerts);
+          }
+          totalConflicts += merged.conflictCount;
+          currentPayload = merged.payload;
+          currentBaseUpdatedAt = result.remote.updatedAt;
+          currentBaseline = result.remote;
+          if (attempt < MAX_ATTEMPTS - 1) continue;
           pendingRef.current = true;
-          setSync("error");
+          setSync(
+            typeof navigator !== "undefined" && !navigator.onLine
+              ? "offline"
+              : "error",
+          );
           notify(
             "error",
-            "云端冲突数据不完整，本机修改已保留；请刷新后台后再保存。",
+            "云端数据变化较频繁，自动合并已重试多次仍未成功，结果已保留在本机，请稍后重新保存。",
             "同步失败",
             { id: "admin-exam-sync-error" },
           );
           return;
         }
-        const local = {
-          ...payload,
-          updatedAt:
-            queued?.baseSnapshot?.updatedAt ?? baseSnapshot?.updatedAt ?? 0,
-        };
-        const merged = threeWayMergeExam(
-          baseSnapshot ?? result.remote,
-          local,
-          result.remote,
-        );
-        if (merged.conflictCount)
-          void recordSyncConflict(merged.conflictCount, local, result.remote);
-        const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
-        const normalizedMergedExam = {
-          ...mergedExam,
-          weeklyConflictPolicy:
-            mergedExam.weeklyConflictPolicy ??
-            weeklyStateRef.current.weeklyConflictPolicy,
-        };
-        // 先把合并结果持久化到本机；同字段并发冲突时自动保留当前操作者的值。
-        setMajors(merged.payload.majors);
-        setActiveMajorId(merged.payload.activeMajorId);
-        const mergedQueuedAt = Date.now();
-        queuePendingExamSync({
-          payload: merged.payload,
-          baseSnapshot: result.remote,
-          savedAt: mergedQueuedAt,
-        });
-        expectedSavedAt = mergedQueuedAt;
-        updateExamSettings({
-          ...normalizedMergedExam,
-          updatedAt: result.remote.updatedAt,
-        });
-        if (mergedAlerts) {
-          updateAlertsSettings({
-            ...mergedAlerts,
-            updatedAt: result.remote.updatedAt,
-          });
-          setAlerts(getAppSettings().alerts);
-        }
-        const retry = await saveExamsToServer({
-          ...merged.payload,
-          baseUpdatedAt: result.remote.updatedAt,
-          clientQueueKey: "admin-exam-save",
-          clientSyncLabel: `${syncLabel} · 合并后重试`,
-        });
-        if (isStalePush()) return;
-        if (typeof retry === "number") {
-          pendingRef.current = false;
-          clearPendingExamSync(mergedQueuedAt);
-          updateExamSettings({ ...normalizedMergedExam, updatedAt: retry });
-          if (mergedAlerts)
-            updateAlertsSettings({ ...mergedAlerts, updatedAt: retry });
-          setSync("saved");
-          if (merged.conflictCount)
+        if (typeof result !== "number") {
+          pendingRef.current = true;
+          setSync(
+            typeof navigator !== "undefined" && !navigator.onLine
+              ? "offline"
+              : "error",
+          );
+          if (result && result.kind === "error")
             notify(
-              "warning",
-              `已合并本机与云端修改；${merged.conflictCount} 个同字段冲突保留本机值。`,
-              "数据冲突已处理",
+              "error",
+              formatApiError(result.error, "保存考试数据失败"),
+              result.error.code.startsWith("DATABASE_")
+                ? "数据库连接失败"
+                : "同步失败",
+              { id: "admin-exam-sync-error" },
             );
           return;
         }
-        pendingRef.current = true;
-        setSync(
-          typeof navigator !== "undefined" && !navigator.onLine
-            ? "offline"
-            : "error",
-        );
-        notify(
-          "error",
-          "自动合并后云端再次发生变化，结果已保留在本机，请稍后重新保存。",
-          "同步失败",
-          { id: "admin-exam-sync-error" },
-        );
-        return;
-      }
-      if (typeof result !== "number") {
-        if (isStalePush()) return;
-        pendingRef.current = true;
-        setSync(
-          typeof navigator !== "undefined" && !navigator.onLine
-            ? "offline"
-            : "error",
-        );
-        if (result && result.kind === "error")
+        pendingRef.current = false;
+        clearPendingExamSync(expectedSavedAt);
+        const { alerts: pAlerts, ...examPayload } = currentPayload;
+        updateExamSettings({
+          ...examPayload,
+          weeklyConflictPolicy:
+            examPayload.weeklyConflictPolicy ??
+            weeklyStateRef.current.weeklyConflictPolicy,
+          updatedAt: result,
+        });
+        if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
+        setSync("saved");
+        if (totalConflicts)
           notify(
-            "error",
-            formatApiError(result.error, "保存考试数据失败"),
-            result.error.code.startsWith("DATABASE_")
-              ? "数据库连接失败"
-              : "同步失败",
-            { id: "admin-exam-sync-error" },
+            "warning",
+            `已合并本机与云端修改；${totalConflicts} 个同字段冲突保留本机值。`,
+            "数据冲突已处理",
           );
         return;
       }
-      pendingRef.current = false;
-      clearPendingExamSync(queued?.savedAt);
-      const { alerts: pAlerts, ...examPayload } = payload;
-      updateExamSettings({
-        ...examPayload,
-        weeklyConflictPolicy:
-          queued?.payload.weeklyConflictPolicy ??
-          weeklyStateRef.current.weeklyConflictPolicy,
-        updatedAt: result,
-      });
-      if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
-      setSync("saved");
     },
     [navigate],
+  );
+
+  // 对外暴露的大型考试推送入口：与 pushWeeklyToServer 共享同一条串行链，避免并发推送互相竞争。
+  const pushToServer = useCallback(
+    (ms: MajorExam[], activeId: string, syncLabel = "保存考试安排") => {
+      const run = examPushChainRef.current.then(() =>
+        pushToServerExec(ms, activeId, syncLabel),
+      );
+      examPushChainRef.current = run.catch(() => {});
+      return run;
+    },
+    [pushToServerExec],
   );
 
   // 任何修改：立即写入本地（离线保证）+ 防抖推送云端
@@ -932,7 +956,8 @@ export default function AdminPage() {
   };
 
   // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
-  const pushWeeklyToServer = useCallback(
+  // 真正执行函数，仅供共享串行链的 pushWeeklyToServer 包装器调用。
+  const pushWeeklyToServerExec = useCallback(
     async (weekly: {
       scheduleMode: ScheduleMode;
       weeklyPlans: WeeklyPlan[];
@@ -965,7 +990,13 @@ export default function AdminPage() {
       // separate stale baselines causes avoidable 409 loops under heavy batches.
       const queued = getPendingExamSync();
       const base = queued?.payload ?? buildPayload(ms, activeId);
-      const baseSnapshot = queued?.baseSnapshot ?? getCloudSnapshot();
+      // 基线取较新者：outbox 记录的基线与实时快照可能互有新旧，取较新值作为共同基线。
+      const queuedBaseSnapshot = queued?.baseSnapshot;
+      const liveBaseSnapshot = getCloudSnapshot();
+      const baseSnapshot =
+        (queuedBaseSnapshot?.updatedAt ?? 0) >= (liveBaseSnapshot?.updatedAt ?? 0)
+          ? queuedBaseSnapshot ?? liveBaseSnapshot
+          : liveBaseSnapshot ?? queuedBaseSnapshot;
       const payload = { ...base, ...weekly };
       const isStaleWeeklyPush = () =>
         queued?.savedAt != null &&
@@ -1053,7 +1084,7 @@ export default function AdminPage() {
         pendingRef.current = true;
         queuePendingExamSync({
           payload,
-          baseSnapshot,
+          baseSnapshot: baseSnapshot ?? null,
           savedAt: queued?.savedAt ?? Date.now(),
         });
         setSync(
@@ -1078,6 +1109,26 @@ export default function AdminPage() {
       setSync("saved");
     },
     [navigate],
+  );
+
+  // 对外暴露的周测推送入口：与 pushToServer 共享同一条串行链，避免并发推送互相竞争。
+  const pushWeeklyToServer = useCallback(
+    (weekly: {
+      scheduleMode: ScheduleMode;
+      weeklyPlans: WeeklyPlan[];
+      activeWeeklyPlanId: string | null;
+      activeWeeklyPlanIdByClassId: Record<string, string | null>;
+      grades: SchoolGrade[];
+      classes: SchoolClass[];
+      weeklyConflictPolicy: WeeklyConflictPolicy;
+    }) => {
+      const run = examPushChainRef.current.then(() =>
+        pushWeeklyToServerExec(weekly),
+      );
+      examPushChainRef.current = run.catch(() => {});
+      return run;
+    },
+    [pushWeeklyToServerExec],
   );
 
   const commitWeekly = useCallback(
