@@ -1,0 +1,102 @@
+/* 选科组合功能新增样式：班级选科标签、选科编辑弹窗、单科考试自动匹配提示。
+   独立于 admin.css，避免直接改动原始大文件。 */
+
+.class-management__track-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(52, 152, 219, 0.12);
+  color: #3498db;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button.class-management__track-tag {
+  font: inherit;
+}
+
+.class-management__track-tag.is-empty {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+  border-style: dashed;
+}
+
+.class-management__track-tag:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+span.class-management__track-tag {
+  cursor: default;
+}
+
+.class-management__track-editor {
+  max-width: 480px;
+}
+
+.class-management__track-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.class-management__track-groups > div > span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.class-management__track-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.class-management__track-options button {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.class-management__track-options button:hover {
+  border-color: rgba(52, 152, 219, 0.4);
+}
+
+.class-management__track-options button.is-selected {
+  border-color: #3498db;
+  background: rgba(52, 152, 219, 0.16);
+  color: #3498db;
+}
+
+.quick-major-track-match {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(52, 152, 219, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-major-track-match p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.quick-major-track-match button {
+  align-self: flex-start;
+}

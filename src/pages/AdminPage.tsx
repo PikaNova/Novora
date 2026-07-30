@@ -89,6 +89,7 @@ import type {
 import type { SchoolClass, SchoolGrade } from "../types/school";
 import { genClassId, genGradeId } from "../types/school";
 import "../styles/admin.css";
+import "../styles/admin-track-additions.css";
 import {
   ArrowLeft,
   Bell,
@@ -731,6 +732,10 @@ export default function AdminPage() {
     };
   };
 
+  // 重试前的退避延迟，避免冲突重试在短时间内形成请求风暴。
+  const retryBackoffDelay = (attempt: number) =>
+    new Promise((resolve) => setTimeout(resolve, Math.min(4000, 400 * 2 ** attempt)));
+
   // 将变更推送到服务器（已先行写入本地）：真正执行函数，仅供共享串行链的 pushToServer 包装器调用。
   const pushToServerExec = useCallback(
     async (ms: MajorExam[], activeId: string, syncLabel = "保存考试安排") => {
@@ -837,7 +842,10 @@ export default function AdminPage() {
           currentPayload = merged.payload;
           currentBaseUpdatedAt = result.remote.updatedAt;
           currentBaseline = result.remote;
-          if (attempt < MAX_ATTEMPTS - 1) continue;
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await retryBackoffDelay(attempt);
+            continue;
+          }
           pendingRef.current = true;
           setSync(
             typeof navigator !== "undefined" && !navigator.onLine
@@ -958,15 +966,18 @@ export default function AdminPage() {
   // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
   // 真正执行函数，仅供共享串行链的 pushWeeklyToServer 包装器调用。
   const pushWeeklyToServerExec = useCallback(
-    async (weekly: {
-      scheduleMode: ScheduleMode;
-      weeklyPlans: WeeklyPlan[];
-      activeWeeklyPlanId: string | null;
-      activeWeeklyPlanIdByClassId: Record<string, string | null>;
-      grades: SchoolGrade[];
-      classes: SchoolClass[];
-      weeklyConflictPolicy: WeeklyConflictPolicy;
-    }) => {
+    async (
+      weekly: {
+        scheduleMode: ScheduleMode;
+        weeklyPlans: WeeklyPlan[];
+        activeWeeklyPlanId: string | null;
+        activeWeeklyPlanIdByClassId: Record<string, string | null>;
+        grades: SchoolGrade[];
+        classes: SchoolClass[];
+        weeklyConflictPolicy: WeeklyConflictPolicy;
+      },
+      syncLabel = "保存周测与班级安排",
+    ) => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         pendingRef.current = true;
         setSync("offline");
@@ -1005,7 +1016,7 @@ export default function AdminPage() {
         ...payload,
         baseUpdatedAt: baseSnapshot?.updatedAt ?? 0,
         clientQueueKey: "admin-exam-save",
-        clientSyncLabel: "保存周测与班级安排",
+        clientSyncLabel: syncLabel,
       });
       if (isStaleWeeklyPush()) return;
       if (result === "unauthorized") {
@@ -1023,11 +1034,12 @@ export default function AdminPage() {
             { ...payload, updatedAt: baseSnapshot?.updatedAt ?? 0 },
             result.remote,
           );
+          await retryBackoffDelay(0);
           const retry = await saveExamsToServer({
             ...merged.payload,
             baseUpdatedAt: result.remote.updatedAt,
             clientQueueKey: "admin-exam-save",
-            clientSyncLabel: "保存周测与班级安排 · 合并后重试",
+            clientSyncLabel: `${syncLabel} · 合并后重试`,
           });
           if (isStaleWeeklyPush()) return;
           if (typeof retry === "number") {
@@ -1074,7 +1086,7 @@ export default function AdminPage() {
         setSync("error");
         notify(
           "error",
-          "周测保存遇到云端变化，自动重试仍失败；请刷新后台后重新保存。",
+          `${syncLabel}遇到云端变化，自动重试仍失败；请刷新后台后重新保存。`,
           "同步失败",
           { id: "admin-exam-sync-error" },
         );
@@ -1095,7 +1107,7 @@ export default function AdminPage() {
         if (result && result.kind === "error")
           notify(
             "error",
-            formatApiError(result.error, "保存周测与班级数据失败"),
+            formatApiError(result.error, `${syncLabel}失败`),
             result.error.code.startsWith("DATABASE_")
               ? "数据库连接失败"
               : "同步失败",
@@ -1113,17 +1125,20 @@ export default function AdminPage() {
 
   // 对外暴露的周测推送入口：与 pushToServer 共享同一条串行链，避免并发推送互相竞争。
   const pushWeeklyToServer = useCallback(
-    (weekly: {
-      scheduleMode: ScheduleMode;
-      weeklyPlans: WeeklyPlan[];
-      activeWeeklyPlanId: string | null;
-      activeWeeklyPlanIdByClassId: Record<string, string | null>;
-      grades: SchoolGrade[];
-      classes: SchoolClass[];
-      weeklyConflictPolicy: WeeklyConflictPolicy;
-    }) => {
+    (
+      weekly: {
+        scheduleMode: ScheduleMode;
+        weeklyPlans: WeeklyPlan[];
+        activeWeeklyPlanId: string | null;
+        activeWeeklyPlanIdByClassId: Record<string, string | null>;
+        grades: SchoolGrade[];
+        classes: SchoolClass[];
+        weeklyConflictPolicy: WeeklyConflictPolicy;
+      },
+      syncLabel?: string,
+    ) => {
       const run = examPushChainRef.current.then(() =>
-        pushWeeklyToServerExec(weekly),
+        pushWeeklyToServerExec(weekly, syncLabel),
       );
       examPushChainRef.current = run.catch(() => {});
       return run;
@@ -1143,6 +1158,7 @@ export default function AdminPage() {
         weeklyConflictPolicy: WeeklyConflictPolicy;
       }>,
       immediate = false,
+      syncLabel?: string,
     ) => {
       const next = { ...weeklyStateRef.current, ...weekly };
       setScheduleMode(next.scheduleMode);
@@ -1167,7 +1183,7 @@ export default function AdminPage() {
       pendingRef.current = true;
       if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current);
       if (immediate) {
-        void pushWeeklyToServer(next);
+        void pushWeeklyToServer(next, syncLabel);
         return;
       }
       setSync(
@@ -1176,7 +1192,7 @@ export default function AdminPage() {
           : "saving",
       );
       weeklySaveTimer.current = setTimeout(() => {
-        void pushWeeklyToServer(next);
+        void pushWeeklyToServer(next, syncLabel);
       }, 650);
     },
     [pushWeeklyToServer],
@@ -1380,6 +1396,7 @@ export default function AdminPage() {
     setMajors(nextMajors);
     stateRef.current = { majors: nextMajors, activeMajorId };
     updateExamSettings({ majors: nextMajors });
+    const removedClass = classes.find((item) => item.id === classId);
     commitWeekly(
       {
         classes: classes.filter((item) => item.id !== classId),
@@ -1387,6 +1404,7 @@ export default function AdminPage() {
         activeWeeklyPlanIdByClassId: nextMap,
       },
       true,
+      removedClass ? `删除班级「${removedClass.name}」` : "删除班级",
     );
   };
   const removeClasses = (classIds: string[]) => {
@@ -1401,6 +1419,9 @@ export default function AdminPage() {
     setMajors(nextMajors);
     stateRef.current = { majors: nextMajors, activeMajorId };
     updateExamSettings({ majors: nextMajors });
+    const removedNames = classes
+      .filter((item) => removing.has(item.id))
+      .map((item) => item.name);
     commitWeekly(
       {
         classes: classes.filter((item) => !removing.has(item.id)),
@@ -1408,6 +1429,7 @@ export default function AdminPage() {
         activeWeeklyPlanIdByClassId: nextMap,
       },
       true,
+      `批量删除 ${removing.size} 个班级（${removedNames.slice(0, 5).join("、")}${removedNames.length > 5 ? "等" : ""}）`,
     );
     notify("success", `已删除 ${removing.size} 个班级及其关联计划。`);
   };
@@ -1426,6 +1448,7 @@ export default function AdminPage() {
     setMajors(nextMajors);
     stateRef.current = { majors: nextMajors, activeMajorId };
     updateExamSettings({ majors: nextMajors });
+    const removedGrade = grades.find((item) => item.id === gradeId);
     commitWeekly(
       {
         grades: grades.filter((item) => item.id !== gradeId),
@@ -1434,6 +1457,18 @@ export default function AdminPage() {
         activeWeeklyPlanIdByClassId: nextMap,
       },
       true,
+      removedGrade ? `删除年级「${removedGrade.name}」` : "删除年级",
+    );
+  };
+  const updateClassesTrack = (classIds: string[], track: string[]) => {
+    const idSet = new Set(classIds);
+    const nextClasses = classes.map((item) =>
+      idSet.has(item.id) ? { ...item, track: track.length ? track : undefined } : item,
+    );
+    commitWeekly(
+      { classes: nextClasses },
+      true,
+      classIds.length > 1 ? `设置 ${classIds.length} 个班级选科` : "设置班级选科",
     );
   };
 
@@ -2519,6 +2554,7 @@ export default function AdminPage() {
             onAddClasses={addClasses}
             onRemoveClass={removeClass}
             onRemoveClasses={removeClasses}
+            onUpdateClassesTrack={updateClassesTrack}
             canManageGrades={can("school.grade_manage")}
             canManageClasses={can("school.class_manage")}
           />

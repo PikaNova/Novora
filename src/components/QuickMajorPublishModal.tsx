@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolClass, SchoolGrade } from "../types/school";
+import { ALL_TRACK_SUBJECTS, subjectAppliesToClass } from "../types/school";
 import { DateTimeField } from "./touch-datetime-picker";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import SubjectIcon from "./SubjectIcon";
@@ -135,6 +136,14 @@ export default function QuickMajorPublishModal({
     : "";
   const finalSubject =
     subject === OTHER_SUBJECT ? customSubject.trim() : subject;
+  const isElectiveSubject = ALL_TRACK_SUBJECTS.includes(subject);
+  const trackMatchedClassIds = useMemo(() => {
+    if (!isElectiveSubject) return [] as string[];
+    return classes
+      .filter((item) => item.enabled && targetGradeIds.includes(item.gradeId) && subjectAppliesToClass(subject, item))
+      .map((item) => item.id);
+  }, [classes, isElectiveSubject, subject, targetGradeIds]);
+  const applyTrackMatch = () => setTargetClassIds(trackMatchedClassIds);
   const effectiveTargetGradeIds = schoolWide ? [] : targetGradeIds;
   const effectiveTargetClassIds = schoolWide
     ? []
@@ -409,6 +418,16 @@ export default function QuickMajorPublishModal({
                     autoFocus
                   />
                 </label>
+              )}
+              {isElectiveSubject && !schoolWide && !lockedClassId && targetGradeIds.length > 0 && (
+                <div className="quick-major-track-match">
+                  <p>
+                    {finalSubject} 为选择性科目，可按班级选科组合自动匹配需要参考该科目的班级，无需手动逐个勾选。
+                  </p>
+                  <button type="button" className="admin-btn" onClick={applyTrackMatch}>
+                    按选科自动匹配班级（{trackMatchedClassIds.length} 个）
+                  </button>
+                </div>
               )}
             </div>
             <div className="quick-major-modal__section">
