@@ -5,6 +5,7 @@ import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
+import { runQueued } from './syncQueue';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -90,7 +91,7 @@ export function getCloudSnapshot(): ExamPayload | null {
   } catch { return null; }
 }
 
-// ── 统一的网络错误分类 ────────────────────────────────────────────
+// ── 统一的网络错误分类 ─────────────────────────────────────────────────
 function classifyFetchError(err: unknown): ApiError {
   if (err instanceof ApiError) return err;
   if (err instanceof TypeError && /fetch|network|load/i.test(err.message)) {
@@ -174,30 +175,6 @@ export interface SaveExamsInput {
 
 export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remote: ExamPayload | null } | { kind: 'error'; error: ApiError } | null;
 
-const CLOUD_EXAM_WRITE_INTERVAL_MS = 1_000;
-let examWriteChain: Promise<void> = Promise.resolve();
-let lastExamWriteAt = 0;
-
-function wait(ms: number) {
-  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
-}
-
-async function runQueuedExamWrite<T>(task: () => Promise<T>): Promise<T> {
-  const run = examWriteChain.then(async () => {
-    const elapsed = Date.now() - lastExamWriteAt;
-    if (elapsed < CLOUD_EXAM_WRITE_INTERVAL_MS)
-      await wait(CLOUD_EXAM_WRITE_INTERVAL_MS - elapsed);
-    const result = await task();
-    lastExamWriteAt = Date.now();
-    return result;
-  });
-  examWriteChain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
-
 async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -276,15 +253,16 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
   }
 }
 
+/** 经全局 syncQueue 排队（高优先级）：与设备写入共享同一最小请求间隔，避免并发打爆 Neon 免费额度。 */
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
-  return runQueuedExamWrite(() => saveExamsToServerNow(input));
+  return runQueued(() => saveExamsToServerNow(input), { priority: 'high' });
 }
 
-/** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。 */
+/** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。同样经全局队列排队（普通优先级）。 */
 export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<DesignPolicy> {
   const token = localStorage.getItem(TOKEN_KEY) ?? '';
   try {
-    const response = await fetchWithTimeout(
+    const response = await runQueued(() => fetchWithTimeout(
       API_URL,
       {
         method: 'POST',
@@ -292,7 +270,7 @@ export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<Desi
         body: JSON.stringify({ action: 'design-policy', designPolicy }),
       },
       20_000,
-    );
+    ));
     if (!response.ok) {
       const error = await apiErrorFromResponse(response, '考试端设计规则保存失败');
       saveDesignPolicyDraft(designPolicy, error.message);
