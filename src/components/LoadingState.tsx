@@ -5,19 +5,19 @@ type LoadingStateKind = "loading" | "auth" | "sync" | "design";
 const COPY: Record<LoadingStateKind, { title: string; message: string }> = {
   loading: {
     title: "正在载入",
-    message: "正在准备 Novora…",
+    message: "请稍候",
   },
   auth: {
     title: "正在获取权限",
-    message: "正在确认你的管理范围…",
+    message: "正在确认管理范围",
   },
   sync: {
     title: "正在同步数据",
-    message: "正在读取云端考试安排…",
+    message: "正在读取云端安排",
   },
   design: {
     title: "正在载入展示设计",
-    message: "正在准备考试大屏界面…",
+    message: "正在进入考试大屏",
   },
 };
 
@@ -35,8 +35,8 @@ export default function LoadingState({
     <main className={`loading-state loading-state--${kind}`} aria-live="polite" role="status">
       <section className="loading-state__card">
         <div className="loading-state__brand" aria-hidden="true">
-          <span className="loading-state__wordmark">Novora</span>
-          <span className="loading-state__tagline">EXAM OPERATIONS</span>
+          <span className="loading-state__wordmark">NOVORA</span>
+          <span className="loading-state__tagline">考试管理与教室大屏</span>
         </div>
         <div className="loading-state__copy">
           <h1>{title || copy.title}</h1>
