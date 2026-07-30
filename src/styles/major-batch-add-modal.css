@@ -1,0 +1,276 @@
+/* Styles for the redesigned batch-add-subexam modal: grouped templates,
+   custom-preset reordering, and the card-based preview. Scoped under
+   major-batch-* class names so it layers on top of admin.css without
+   needing to edit that file. */
+
+.major-batch-template-groups {
+  display: grid;
+  gap: 16px;
+}
+
+.major-batch-template-group {
+  display: grid;
+  gap: 8px;
+}
+
+.major-batch-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8ed5ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.major-batch-template-shell {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+
+.major-batch-preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.major-batch-preset-actions .major-batch-delete-preset {
+  flex: 1;
+}
+
+.major-batch-move-preset {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfe6f5;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.major-batch-move-preset:hover:not(:disabled) {
+  border-color: #3498db;
+  background: rgba(52, 152, 219, 0.16);
+}
+
+.major-batch-move-preset:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ---- Preview cards ---- */
+
+.major-batch-preview-card {
+  display: grid;
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.major-batch-preview-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: rgba(52, 152, 219, 0.07);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.major-batch-preview-card__head h3 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: #f2f8fc;
+  font-size: 14px;
+}
+
+.major-batch-preview-card__day {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(52, 152, 219, 0.2);
+  color: #dff2ff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.major-batch-preview-card__count {
+  flex: none;
+  color: rgba(235, 244, 250, 0.62);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.major-batch-preview-card__flag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.major-batch-preview-card__flag.is-danger {
+  background: rgba(231, 76, 60, 0.18);
+  color: #ffaaa2;
+}
+
+.major-batch-preview-card__chevron {
+  flex: none;
+  color: rgba(235, 244, 250, 0.5);
+  font-size: 12px;
+}
+
+.major-batch-preview-card.is-collapsed .major-batch-preview-card__head {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.major-batch-preview-list--cards {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.major-batch-preview-list--cards .major-batch-preview-item {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.3fr) minmax(220px, 1.4fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.major-batch-preview-list--cards .major-batch-preview-item.has-error {
+  border-color: rgba(231, 76, 60, 0.55);
+  background: rgba(231, 76, 60, 0.08);
+}
+
+.major-batch-preview-item__subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.major-batch-preview-item__subject svg {
+  flex: none;
+  color: #7cc8f5;
+}
+
+.major-batch-preview-item__name {
+  min-width: 0;
+  min-height: 34px;
+  font-weight: 600;
+}
+
+.major-batch-preview-item__badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(230, 162, 60, 0.16);
+  color: #f4c977;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.major-batch-preview-item__time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.major-batch-preview-item__date {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  color: rgba(235, 244, 250, 0.62);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.major-batch-preview-item__date .admin-input {
+  min-height: 30px;
+  width: auto;
+}
+
+.major-batch-preview-item__time-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid rgba(52, 152, 219, 0.32);
+  border-radius: 999px;
+  background: rgba(52, 152, 219, 0.09);
+  color: #9bd8ff;
+}
+
+.major-batch-preview-item__time-badge svg {
+  flex: none;
+}
+
+.major-batch-preview-item__time-badge .admin-input {
+  min-height: 26px;
+  width: 74px;
+  padding: 2px 4px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+}
+
+.major-batch-preview-item__duration {
+  flex: none;
+  color: #9bd8ff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.major-batch-preview-item__duration.is-danger {
+  color: #ffaaa2;
+  font-weight: 700;
+}
+
+.major-batch-preview-item__flags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: end;
+}
+
+.major-batch-preview-item__errors {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #ff8c83;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .major-batch-preview-list--cards .major-batch-preview-item {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .major-batch-preview-item__flags {
+    justify-self: start;
+  }
+}

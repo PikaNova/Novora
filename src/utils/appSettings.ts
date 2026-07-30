@@ -67,6 +67,7 @@ export interface MajorBatchSubjectGroup {
   subjects: string[];
   custom: true;
   updatedAt: number;
+  order?: number;
 }
 
 export interface MajorBatchTimeSlot {
@@ -81,6 +82,7 @@ export interface MajorBatchTimeGroup {
   slots: MajorBatchTimeSlot[];
   custom: true;
   updatedAt: number;
+  order?: number;
 }
 
 export interface MajorBatchSettings {
@@ -189,7 +191,7 @@ function genMajorBatchPresetId(prefix: string): string {
 }
 
 function normalizeMajorBatchSubjectGroups(raw: unknown): MajorBatchSubjectGroup[] {
-  return (Array.isArray(raw) ? raw : [])
+  const parsed = (Array.isArray(raw) ? raw : [])
     .filter(Boolean)
     .map((item, index) => {
       const source = item as Partial<MajorBatchSubjectGroup>;
@@ -202,10 +204,13 @@ function normalizeMajorBatchSubjectGroups(raw: unknown): MajorBatchSubjectGroup[
         subjects,
         custom: true as const,
         updatedAt: Number.isFinite(source.updatedAt) ? Number(source.updatedAt) : 0,
+        order: Number.isFinite(source.order) ? Number(source.order) : index,
       };
     })
     .filter(item => item.name && item.subjects.length > 0)
+    .sort((a, b) => a.order - b.order)
     .slice(0, 24);
+  return parsed.map((item, index) => ({ ...item, order: index }));
 }
 
 function normalizeMajorBatchTimeSlots(raw: unknown): MajorBatchTimeSlot[] {
@@ -226,7 +231,7 @@ function normalizeMajorBatchTimeSlots(raw: unknown): MajorBatchTimeSlot[] {
 
 export function normalizeMajorBatchSettings(raw: unknown): MajorBatchSettings {
   const source = (raw ?? {}) as Partial<MajorBatchSettings>;
-  const timeGroups = (Array.isArray(source.timeGroups) ? source.timeGroups : [])
+  const parsedTimeGroups = (Array.isArray(source.timeGroups) ? source.timeGroups : [])
     .filter(Boolean)
     .map((item, index) => {
       const value = item as Partial<MajorBatchTimeGroup>;
@@ -236,10 +241,13 @@ export function normalizeMajorBatchSettings(raw: unknown): MajorBatchSettings {
         slots: normalizeMajorBatchTimeSlots(value.slots),
         custom: true as const,
         updatedAt: Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : 0,
+        order: Number.isFinite(value.order) ? Number(value.order) : index,
       };
     })
     .filter(item => item.name && item.slots.length > 0)
+    .sort((a, b) => a.order - b.order)
     .slice(0, 24);
+  const timeGroups = parsedTimeGroups.map((item, index) => ({ ...item, order: index }));
   return {
     subjectGroups: normalizeMajorBatchSubjectGroups(source.subjectGroups),
     timeGroups,

@@ -25,6 +25,7 @@ import { getDesignId, setDesignId } from "../utils/designPref";
 import { DESIGNS } from "../designs/registry";
 import { renderMarkdown } from "../utils/renderMarkdown";
 import AnnouncementList from "../components/AnnouncementList";
+import BatchPresetSettingsPanel from "../components/BatchPresetSettingsPanel";
 import HelpTip from "../components/HelpTip";
 import InlineSelect from "../components/InlineSelect";
 import { DateTimeField } from "../components/touch-datetime-picker";
@@ -71,6 +72,7 @@ import {
   Clock3,
   DatabaseZap,
   Info,
+  ListChecks,
   Megaphone,
   Palette,
   RadioTower,
@@ -963,6 +965,18 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* ―― 批量添加分考试预设 ―― */}
+        <section className="set-card">
+          <h2 className="set-card__title">
+            <ListChecks size={18} />
+            批量添加分考试预设
+          </h2>
+          <p className="set-note">
+            管理批量添加分考试时可复用的常用科目组和常用时间组，与批量添加弹窗中的设置共享，可在此新建、排序或删除。
+          </p>
+          <BatchPresetSettingsPanel canEdit={canEditSettings} />
+        </section>
+
         {/* ―― 时间同步 ―― */}
         <section className="set-card">
           <div className="set-card__head">
@@ -1415,7 +1429,7 @@ export default function SettingsPage() {
               测试数据入口只在设置页向超级管理员显示。导入内容带有独立标识，可以单独移除。
             </p>
             <div className="set-row">
-              <label className="set-label">演示考试安排数据</label>
+              <label className="set-label">演示考试安��数据</label>
               <div className="set-inline-actions">
                 <button
                   className="set-btn"
