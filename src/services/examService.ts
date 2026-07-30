@@ -159,6 +159,8 @@ export interface SaveExamsInput {
   items: ExamItem[];
   action?: 'initialize';
   baseUpdatedAt?: number;
+  clientSyncLabel?: string;
+  clientQueueKey?: string;
   title?: string;
   majors?: MajorExam[];
   activeMajorId?: string;
@@ -255,7 +257,12 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
 
 /** 经全局 syncQueue 排队（高优先级）：与设备写入共享同一最小请求间隔，避免并发打爆 Neon 免费额度。 */
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
-  return runQueued(() => saveExamsToServerNow(input), { priority: 'high' });
+  return runQueued(() => saveExamsToServerNow(input), {
+    priority: 'high',
+    key: input.clientQueueKey,
+    label: input.clientSyncLabel ?? '保存考试安排',
+    supersededValue: input.clientQueueKey ? null : undefined,
+  });
 }
 
 /** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。同样经全局队列排队（普通优先级）。 */

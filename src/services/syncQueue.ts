@@ -10,6 +10,8 @@ export interface SyncQueueSnapshot {
   pendingCount: number;
   /** 当前是否有同步活动，用于指示器显示动画 */
   syncing: boolean;
+  /** 当前正在提交或下一项待提交的用户可读说明 */
+  currentLabel?: string;
 }
 
 type Listener = (snapshot: SyncQueueSnapshot) => void;
@@ -20,7 +22,10 @@ const DEFAULT_MAX_WAIT_MS = 6000; // 防抖最大等待上限
 
 interface BusinessTask {
   priority: number; // 0 = high, 1 = normal
+  key?: string;
+  label?: string;
   run: () => Promise<void>;
+  cancel?: () => void;
 }
 
 interface DebounceEntry {
@@ -36,6 +41,7 @@ const deferredInBatch = new Set<string>();
 
 let dispatching = false;
 let inFlight = 0;
+let currentLabel: string | undefined;
 let lastBusinessSendAt = 0;
 let batchDepth = 0;
 
@@ -50,7 +56,11 @@ function notifyListeners(): void {
 
 export function getSyncQueueSnapshot(): SyncQueueSnapshot {
   const pendingCount = debounceMap.size + businessQueue.length + inFlight;
-  return { pendingCount, syncing: pendingCount > 0 };
+  return {
+    pendingCount,
+    syncing: pendingCount > 0,
+    currentLabel: currentLabel ?? businessQueue[0]?.label,
+  };
 }
 
 export function subscribeSyncQueue(listener: Listener): () => void {
@@ -118,12 +128,22 @@ export function scheduleDebounced(
  */
 export function runQueued<T>(
   task: () => Promise<T>,
-  opts: { priority?: SyncPriority } = {},
+  opts: { priority?: SyncPriority; key?: string; label?: string; supersededValue?: T } = {},
 ): Promise<T> {
   const priority = opts.priority === 'high' ? 0 : 1;
   return new Promise<T>((resolve, reject) => {
+    if (opts.key && opts.supersededValue !== undefined) {
+      for (let index = businessQueue.length - 1; index >= 0; index -= 1) {
+        const queued = businessQueue[index];
+        if (queued.key !== opts.key) continue;
+        businessQueue.splice(index, 1);
+        queued.cancel?.();
+      }
+    }
     businessQueue.push({
       priority,
+      key: opts.key,
+      label: opts.label,
       run: async () => {
         try {
           resolve(await task());
@@ -131,6 +151,9 @@ export function runQueued<T>(
           reject(error);
         }
       },
+      cancel: opts.supersededValue !== undefined
+        ? () => resolve(opts.supersededValue as T)
+        : undefined,
     });
     businessQueue.sort((a, b) => a.priority - b.priority);
     notifyListeners();
@@ -147,10 +170,12 @@ async function dispatch(): Promise<void> {
       const elapsed = Date.now() - lastBusinessSendAt;
       if (elapsed < MIN_BUSINESS_INTERVAL_MS) await wait(MIN_BUSINESS_INTERVAL_MS - elapsed);
       inFlight = 1;
+      currentLabel = next.label;
       notifyListeners();
       await next.run();
       lastBusinessSendAt = Date.now();
       inFlight = 0;
+      currentLabel = undefined;
       notifyListeners();
     }
   } finally {

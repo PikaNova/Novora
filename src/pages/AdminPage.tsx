@@ -731,7 +731,7 @@ export default function AdminPage() {
 
   // 将变更推送到服务器（已先行写入本地）
   const pushToServer = useCallback(
-    async (ms: MajorExam[], activeId: string) => {
+    async (ms: MajorExam[], activeId: string, syncLabel = "保存考试安排") => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         pendingRef.current = true;
         setSync("offline");
@@ -743,10 +743,18 @@ export default function AdminPage() {
       const payload = queued?.payload ?? buildPayload(ms, activeId);
       // 必须在请求前读取共同基线；409 返回后云端已是较新版本，不能再拿它当 base。
       const baseSnapshot = getCloudSnapshot();
+      let expectedSavedAt = queued?.savedAt;
+      const isStalePush = () =>
+        expectedSavedAt != null &&
+        getPendingExamSync()?.savedAt !== expectedSavedAt;
       const result = await saveExamsToServer({
         ...payload,
-        baseUpdatedAt: queued?.baseSnapshot?.updatedAt,
+        baseUpdatedAt:
+          queued?.baseSnapshot?.updatedAt ?? baseSnapshot?.updatedAt ?? 0,
+        clientQueueKey: "admin-exam-save",
+        clientSyncLabel: syncLabel,
       });
+      if (isStalePush()) return;
       if (result === "unauthorized") {
         navigate("/login?next=/admin", { replace: true });
         return;
@@ -759,6 +767,7 @@ export default function AdminPage() {
             "error",
             "云端冲突数据不完整，本机修改已保留；请刷新后台后再保存。",
             "同步失败",
+            { id: "admin-exam-sync-error" },
           );
           return;
         }
@@ -790,6 +799,7 @@ export default function AdminPage() {
           baseSnapshot: result.remote,
           savedAt: mergedQueuedAt,
         });
+        expectedSavedAt = mergedQueuedAt;
         updateExamSettings({
           ...normalizedMergedExam,
           updatedAt: result.remote.updatedAt,
@@ -804,7 +814,10 @@ export default function AdminPage() {
         const retry = await saveExamsToServer({
           ...merged.payload,
           baseUpdatedAt: result.remote.updatedAt,
+          clientQueueKey: "admin-exam-save",
+          clientSyncLabel: `${syncLabel} · 合并后重试`,
         });
+        if (isStalePush()) return;
         if (typeof retry === "number") {
           pendingRef.current = false;
           clearPendingExamSync(mergedQueuedAt);
@@ -830,10 +843,12 @@ export default function AdminPage() {
           "error",
           "自动合并后云端再次发生变化，结果已保留在本机，请稍后重新保存。",
           "同步失败",
+          { id: "admin-exam-sync-error" },
         );
         return;
       }
       if (typeof result !== "number") {
+        if (isStalePush()) return;
         pendingRef.current = true;
         setSync(
           typeof navigator !== "undefined" && !navigator.onLine
@@ -847,6 +862,7 @@ export default function AdminPage() {
             result.error.code.startsWith("DATABASE_")
               ? "数据库连接失败"
               : "同步失败",
+            { id: "admin-exam-sync-error" },
           );
         return;
       }
@@ -868,7 +884,7 @@ export default function AdminPage() {
 
   // 任何修改：立即写入本地（离线保证）+ 防抖推送云端
   const commit = useCallback(
-    (ms: MajorExam[], activeId: string, immediate = false) => {
+    (ms: MajorExam[], activeId: string, immediate = false, syncLabel = "保存考试安排") => {
       setMajors(ms);
       setActiveMajorId(activeId);
       // 本地先行持久化，即使离线/刷新也不丢数据
@@ -885,7 +901,7 @@ export default function AdminPage() {
       pendingRef.current = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (immediate) {
-        void pushToServer(ms, activeId);
+        void pushToServer(ms, activeId, syncLabel);
         return;
       }
       setSync(
@@ -894,7 +910,7 @@ export default function AdminPage() {
           : "saving",
       );
       saveTimer.current = setTimeout(() => {
-        void pushToServer(ms, activeId);
+        void pushToServer(ms, activeId, syncLabel);
       }, 650);
     },
     [pushToServer],
@@ -902,16 +918,16 @@ export default function AdminPage() {
 
   // 修改当前大型考试的分考试列表
   const commitItems = useCallback(
-    (nextItems: ExamItem[]) => {
+    (nextItems: ExamItem[], syncLabel = "保存考试安排") => {
       const ms = stateRef.current.majors.map((m) =>
         m.id === editingMajorId ? { ...m, items: nextItems } : m,
       );
-      commit(ms, stateRef.current.activeMajorId);
+      commit(ms, stateRef.current.activeMajorId, false, syncLabel);
     },
     [commit, editingMajorId],
   );
   const commitBatchMajorItems = (nextItems: ExamItem[]) => {
-    commitItems(normalizeExamItems(nextItems));
+    commitItems(normalizeExamItems(nextItems), "批量更新分考试");
     setMajorBatchAddOpen(false);
   };
 
@@ -951,10 +967,16 @@ export default function AdminPage() {
       const base = queued?.payload ?? buildPayload(ms, activeId);
       const baseSnapshot = queued?.baseSnapshot ?? getCloudSnapshot();
       const payload = { ...base, ...weekly };
+      const isStaleWeeklyPush = () =>
+        queued?.savedAt != null &&
+        getPendingExamSync()?.savedAt !== queued.savedAt;
       const result = await saveExamsToServer({
         ...payload,
         baseUpdatedAt: baseSnapshot?.updatedAt ?? 0,
+        clientQueueKey: "admin-exam-save",
+        clientSyncLabel: "保存周测与班级安排",
       });
+      if (isStaleWeeklyPush()) return;
       if (result === "unauthorized") {
         navigate("/login?next=/admin", { replace: true });
         return;
@@ -973,7 +995,10 @@ export default function AdminPage() {
           const retry = await saveExamsToServer({
             ...merged.payload,
             baseUpdatedAt: result.remote.updatedAt,
+            clientQueueKey: "admin-exam-save",
+            clientSyncLabel: "保存周测与班级安排 · 合并后重试",
           });
+          if (isStaleWeeklyPush()) return;
           if (typeof retry === "number") {
             const mergedWeekly = {
               scheduleMode: merged.payload.scheduleMode ?? weekly.scheduleMode,
@@ -1020,6 +1045,7 @@ export default function AdminPage() {
           "error",
           "周测保存遇到云端变化，自动重试仍失败；请刷新后台后重新保存。",
           "同步失败",
+          { id: "admin-exam-sync-error" },
         );
         return;
       }
@@ -1042,6 +1068,7 @@ export default function AdminPage() {
             result.error.code.startsWith("DATABASE_")
               ? "数据库连接失败"
               : "同步失败",
+            { id: "admin-exam-sync-error" },
           );
         return;
       }
@@ -1563,14 +1590,14 @@ export default function AdminPage() {
           ...value,
           [selectedGradeId]: nm.id,
         }));
-      commit(ms, activeMajorId, true);
+      commit(ms, nm.id, true, `新增大型考试「${name}」`);
     } else {
       const ms = majors.map((m) =>
         m.id === activeMajor.id
           ? { ...m, name, targetGradeIds: majorModal.targetGradeIds }
           : m,
       );
-      commit(ms, activeMajorId, true);
+      commit(ms, activeMajorId, true, `更新大型考试「${name}」`);
     }
     setMajorModal(null);
     setMajorError("");
@@ -1597,7 +1624,7 @@ export default function AdminPage() {
       if (selectedGradeId) next[selectedGradeId] = nextEditing.id;
       return next;
     });
-    commit(ms, nextActiveId, true);
+    commit(ms, nextActiveId, true, `删除大型考试「${activeMajor.name}」`);
     setDeleteMajorOpen(false);
   };
   const publishQuickMajor = (input: QuickMajorPublishInput) => {
@@ -1637,7 +1664,7 @@ export default function AdminPage() {
         ...value,
         [selectedGradeId]: quick.id,
       }));
-    commit(next, activeMajorId, true);
+    commit(next, quick.id, true, `快速发布「${quick.name}」`);
     setQuickMajorOpen(false);
     notify(
       "success",
@@ -1653,7 +1680,7 @@ export default function AdminPage() {
     const next = majors.map((major) =>
       major.id === id ? { ...major, ...patch } : major,
     );
-    commit(next, activeMajorId, true);
+    commit(next, activeMajorId, true, successMessage);
     notify("success", successMessage, "临时统一考试已更新");
   };
   const extendQuickMajor = (major: MajorExam) =>
@@ -1776,18 +1803,21 @@ export default function AdminPage() {
         },
       ];
     next = normalizeExamItems(next);
-    commitItems(next);
+    commitItems(next, editing.id ? `编辑「${editing.name.trim()}」` : `新增「${editing.name.trim()}」`);
     setEditing(null);
     setEditError("");
     setLongDurationConfirmed(false);
   };
   /** 按明确的目标状态保存，按钮文案永远表达“下一步操作”，避免“已启用”被误认为点击后启用。 */
   const setExamEnabled = (id: string, enabled: boolean) =>
-    commitItems(items.map((x) => (x.id === id ? { ...x, enabled } : x)));
+    commitItems(
+      items.map((x) => (x.id === id ? { ...x, enabled } : x)),
+      `${enabled ? "启用" : "停用"}「${items.find((x) => x.id === id)?.name ?? "分考试"}」`,
+    );
   const remove = (item: ExamItem) => {
     const index = items.findIndex((x) => x.id === item.id);
     setLastDeletedExam({ item, index });
-    commitItems(items.filter((x) => x.id !== item.id));
+    commitItems(items.filter((x) => x.id !== item.id), `删除「${item.name}」`);
     setDeleteTarget(null);
   };
   const restoreExam = () => {
@@ -1798,7 +1828,7 @@ export default function AdminPage() {
       0,
       lastDeletedExam.item,
     );
-    commitItems(next);
+    commitItems(next, `撤销删除「${lastDeletedExam.item.name}」`);
     setLastDeletedExam(null);
   };
 
@@ -1929,7 +1959,7 @@ export default function AdminPage() {
           ? { ...m, name: majorImportPreview.title, items: selectedItems }
           : m,
       );
-      commit(ms, activeMajorId);
+    commit(ms, activeMajorId, false, `导入「${majorImportPreview.title}」`);
       setImportText("");
       setImportOpen(false);
       setMajorImportPreview(null);
