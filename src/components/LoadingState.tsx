@@ -31,6 +31,7 @@ export default function LoadingState({
   message?: string;
 }) {
   const copy = COPY[kind];
+  const copyKey = `${kind}-${title || copy.title}-${message || copy.message}`;
   return (
     <main className={`loading-state loading-state--${kind}`} aria-live="polite" role="status">
       <section className="loading-state__card">
@@ -38,7 +39,7 @@ export default function LoadingState({
           <span className="loading-state__wordmark">NOVORA</span>
           <span className="loading-state__tagline">考试管理与教室大屏</span>
         </div>
-        <div className="loading-state__copy">
+        <div className="loading-state__copy" key={copyKey}>
           <h1>{title || copy.title}</h1>
           <p>{message || copy.message}</p>
         </div>

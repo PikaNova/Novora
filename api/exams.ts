@@ -116,7 +116,16 @@ function ensureTableOnce(): Promise<void> {
         sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_actor_id BIGINT NOT NULL DEFAULT 0`,
         sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_role_name TEXT NOT NULL DEFAULT ''`,
         sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS client_secret_hash TEXT NOT NULL DEFAULT ''`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_token_hash TEXT`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_expires_at BIGINT`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS grade_id TEXT NOT NULL DEFAULT ''`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS class_id TEXT NOT NULL DEFAULT ''`,
         sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_instance_id TEXT NOT NULL DEFAULT ''`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS paired BOOLEAN NOT NULL DEFAULT FALSE`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS viewer_last_seen_at BIGINT NOT NULL DEFAULT 0`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`,
+        sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`,
       ]);
       await sql`
         INSERT INTO exam_data (id, items, title, updated_at)
@@ -437,13 +446,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!applyCors(req, res, { methods: ['GET', 'POST'], public: publicRequest })) return;
 
   try {
-    const sql = database();
-
     if (action === 'plugin-api') {
       res.setHeader('Cache-Control', 'public, max-age=300');
       if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
       res.status(200).json({ ok: true, ...classIslandApiMeta() }); return;
     }
+
+    const sql = database();
     if (action === 'plugin-pair-start') {
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
