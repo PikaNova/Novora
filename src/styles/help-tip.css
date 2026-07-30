@@ -1,4 +1,4 @@
-.help-tip{position:relative;display:inline-flex;flex:0 0 auto;align-items:center;margin-left:5px;vertical-align:middle;line-height:1}
+.help-tip{position:relative;display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;margin-left:5px;vertical-align:middle;line-height:1}
 .help-tip__trigger{display:inline-grid;place-items:center;box-sizing:border-box;width:19px;height:19px;min-width:19px;min-height:19px;flex:0 0 auto;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#72bce9;font:700 12px/1 Georgia,serif;cursor:pointer}
 .help-tip__backdrop{position:fixed;inset:0;z-index:19500;border:0;background:transparent}
 .help-tip__panel{position:fixed;z-index:19510;top:0;left:0;width:280px;max-width:calc(100vw - 16px);padding:14px;border:1px solid rgba(110,190,240,.35);border-radius:7px;background:#17212a;color:#eaf2f7;box-shadow:0 14px 40px rgba(0,0,0,.38);font-size:13px;line-height:1.65;text-align:left;white-space:normal}
@@ -6,4 +6,4 @@
 .help-tip__panel>strong{margin-bottom:5px;font-size:14px}
 .help-tip__panel>span{color:#aebdc8}
 .help-tip__close{display:none}
-@media(max-width:600px){.help-tip__backdrop{background:rgba(0,0,0,.55)}.help-tip__panel{inset:auto 0 0;top:auto;left:0;width:auto;max-width:none;padding:20px 18px calc(16px + env(safe-area-inset-bottom));border-radius:8px 8px 0 0}.help-tip__panel>strong{font-size:17px}.help-tip__close{display:block;width:100%;min-height:42px;margin-top:14px;border:0;border-radius:6px;background:#318bd9;color:#fff;font:inherit;font-weight:700}}
+@media(max-width:600px){.help-tip{width:28px;height:28px;margin-left:6px;align-self:center}.help-tip__trigger{width:24px;height:24px;min-width:24px;min-height:24px;font-size:13px}.help-tip__backdrop{background:rgba(0,0,0,.55)}.help-tip__panel{inset:auto 0 0;top:auto!important;left:0!important;width:auto;max-width:none;padding:20px 18px calc(16px + env(safe-area-inset-bottom));border-radius:8px 8px 0 0}.help-tip__panel>strong{font-size:17px}.help-tip__close{display:block;width:100%;min-height:42px;margin-top:14px;border:0;border-radius:6px;background:#318bd9;color:#fff;font:inherit;font-weight:700}}

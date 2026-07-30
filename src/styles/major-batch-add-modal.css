@@ -33,22 +33,55 @@
 
 .major-batch-template {
   position: relative;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  padding-right: 14px;
 }
 
 .major-batch-template em {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  position: static;
+  justify-self: end;
+  align-self: start;
   font-style: normal;
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.12);
   color: #6366f1;
+  white-space: nowrap;
+}
+
+.major-batch-template > span {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.major-batch-template > small {
+  min-width: 0;
 }
 
 .major-batch-pattern-grid {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.major-batch-pattern-grid .quick-major-choice {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.major-batch-pattern-grid .quick-major-choice em {
+  justify-self: end;
+  align-self: start;
+  font-style: normal;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  white-space: nowrap;
+}
+
+.major-batch-pattern-grid .quick-major-choice small {
+  grid-column: 1 / -1;
 }
 
 .major-batch-subjects {
@@ -350,6 +383,64 @@
   .major-batch-template-grid,
   .major-batch-pattern-grid {
     grid-template-columns: 1fr;
+  }
+
+  .major-batch-modal .major-batch-group-title {
+    align-items: center;
+    min-height: 34px;
+    gap: 8px;
+    line-height: 1.3;
+  }
+
+  .major-batch-modal .major-batch-group-title .help-tip {
+    margin-left: 2px;
+    transform: none;
+  }
+
+  .major-batch-modal .major-batch-template {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 14px 16px;
+  }
+
+  .major-batch-modal .major-batch-template em {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: end;
+  }
+
+  .major-batch-modal .major-batch-template > span {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .major-batch-modal .major-batch-template > small {
+    grid-column: 1 / 2;
+    grid-row: 2;
+    padding-right: 0;
+  }
+
+  .major-batch-modal .major-batch-pattern-grid .quick-major-choice {
+    gap: 6px 10px;
+    padding: 14px 16px;
+  }
+
+  .major-batch-modal .major-batch-pattern-grid .quick-major-choice em {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: end;
+  }
+
+  .major-batch-modal .major-batch-pattern-grid .quick-major-choice > span {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    white-space: nowrap;
+  }
+
+  .major-batch-modal .major-batch-pattern-grid .quick-major-choice > small {
+    grid-column: 1 / 2;
+    grid-row: 2;
   }
 
   .major-batch-preview-head {
