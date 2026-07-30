@@ -17,10 +17,8 @@ export default function SyncQueueIndicator() {
       if (snapshot.syncing) {
         notify(
           "warning",
-          snapshot.pendingCount > 1
-            ? `正在提交：还有 ${snapshot.pendingCount} 项待提交，请等待完成后再关闭页面。`
-            : "正在提交云端数据，请等待完成后再关闭页面。",
-          "云端提交中",
+          `正在提交云端数据，剩余 ${snapshot.pendingCount} 项待提交。`,
+          `云端提交中 · 剩余 ${snapshot.pendingCount} 项`,
           { id: SYNC_QUEUE_NOTICE_ID, variant: "queue", durationMs: SYNC_QUEUE_DURATION_MS },
         );
       } else if (wasSyncingRef.current) {
