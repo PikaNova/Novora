@@ -27,18 +27,35 @@
 
 .major-batch-template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 10px;
 }
 
 .major-batch-template {
   position: relative;
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title count"
+    "desc badge";
   align-items: start;
-  padding-right: 14px;
+  gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px;
+}
+
+.major-batch-template > strong {
+  grid-area: title;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .major-batch-template em {
+  grid-area: badge;
   position: static;
   justify-self: end;
   align-self: start;
@@ -52,23 +69,54 @@
 }
 
 .major-batch-template > span {
+  grid-area: count;
   justify-self: end;
+  align-self: center;
   white-space: nowrap;
 }
 
 .major-batch-template > small {
+  grid-area: desc;
   min-width: 0;
+  max-width: 100%;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .major-batch-pattern-grid {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
 }
 
 .major-batch-pattern-grid .quick-major-choice {
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title count"
+    "desc badge";
+  align-items: start;
+  gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px;
+}
+
+.major-batch-pattern-grid .quick-major-choice > strong {
+  grid-area: title;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.major-batch-pattern-grid .quick-major-choice > span {
+  grid-area: count;
+  justify-self: end;
+  align-self: center;
+  white-space: nowrap;
 }
 
 .major-batch-pattern-grid .quick-major-choice em {
+  grid-area: badge;
   justify-self: end;
   align-self: start;
   font-style: normal;
@@ -81,7 +129,11 @@
 }
 
 .major-batch-pattern-grid .quick-major-choice small {
-  grid-column: 1 / -1;
+  grid-area: desc;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .major-batch-subjects {
@@ -422,9 +474,10 @@
 }
 
 @media (max-width: 640px) {
-  .major-batch-template-grid,
-  .major-batch-pattern-grid {
-    grid-template-columns: 1fr;
+  .major-batch-modal .major-batch-template-grid,
+  .major-batch-modal .major-batch-pattern-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px;
   }
 
   .major-batch-modal .major-batch-group-title {
@@ -441,48 +494,37 @@
 
   .major-batch-modal .major-batch-template {
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 10px;
-    padding: 14px 16px;
+    grid-template-areas:
+      "title count"
+      "desc desc"
+      "badge badge";
+    gap: 7px 12px;
+    min-height: auto;
+    padding: 16px 18px;
   }
 
-  .major-batch-modal .major-batch-template em {
-    grid-column: 2;
-    grid-row: 2;
-    align-self: end;
-  }
-
-  .major-batch-modal .major-batch-template > span {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .major-batch-modal .major-batch-template > small {
-    grid-column: 1 / 2;
-    grid-row: 2;
-    padding-right: 0;
+  .major-batch-modal .major-batch-template em,
+  .major-batch-modal .major-batch-pattern-grid .quick-major-choice em {
+    justify-self: start;
+    align-self: start;
   }
 
   .major-batch-modal .major-batch-pattern-grid .quick-major-choice {
-    gap: 6px 10px;
-    padding: 14px 16px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title count"
+      "desc desc"
+      "badge badge";
+    gap: 7px 12px;
+    min-height: auto;
+    padding: 16px 18px;
   }
 
-  .major-batch-modal .major-batch-pattern-grid .quick-major-choice em {
-    grid-column: 2;
-    grid-row: 2;
-    align-self: end;
-  }
-
-  .major-batch-modal .major-batch-pattern-grid .quick-major-choice > span {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    white-space: nowrap;
-  }
-
+  .major-batch-modal .major-batch-template > small,
   .major-batch-modal .major-batch-pattern-grid .quick-major-choice > small {
-    grid-column: 1 / 2;
-    grid-row: 2;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: break-word;
   }
 
   .major-batch-preview-head {
