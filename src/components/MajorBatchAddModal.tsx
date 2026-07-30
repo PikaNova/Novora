@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clock3 } from "lucide-react";
+import { Check, Clock3 } from "lucide-react";
 import type { ExamItem, MajorExam } from "../types";
 import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchTimeSlot } from "../utils/appSettings";
 import { APP_SETTINGS_CHANGED_EVENT, getAppSettings } from "../utils/appSettings";
@@ -757,14 +757,17 @@ export default function MajorBatchAddModal({
                       <p>
                         科目数量超过「{pattern.name}」设计的 {designDays} 天场次容量，本次实际排布到了 {scheduledDays} 天。请确认日期安排符合预期后再添加。
                       </p>
-                      <label className="major-batch-preview__check">
-                        <input
-                          type="checkbox"
-                          checked={overflowAck}
-                          onChange={(event) => setOverflowAck(event.target.checked)}
-                        />
+                      <button
+                        type="button"
+                        className={`major-batch-preview__check major-batch-preview__check--ack${overflowAck ? " is-selected" : ""}`}
+                        aria-pressed={overflowAck}
+                        onClick={() => setOverflowAck((value) => !value)}
+                      >
+                        <span className="major-batch-checkmark" aria-hidden="true">
+                          {overflowAck && <Check size={14} strokeWidth={3} />}
+                        </span>
                         我已确认以上顺延排布无误
-                      </label>
+                      </button>
                     </div>
                   )}
                   <div className="major-batch-preview-summary">
@@ -845,14 +848,17 @@ export default function MajorBatchAddModal({
                                       </span>
                                     </div>
                                     <div className="major-batch-preview-item__flags">
-                                      <label className="major-batch-preview__check">
-                                        <input
-                                          type="checkbox"
-                                          checked={item.enabled}
-                                          onChange={(event) => updateDraft(item.id, { enabled: event.target.checked })}
-                                        />
+                                      <button
+                                        type="button"
+                                        className={`major-batch-preview__check${item.enabled ? " is-selected" : ""}`}
+                                        aria-pressed={item.enabled}
+                                        onClick={() => updateDraft(item.id, { enabled: !item.enabled })}
+                                      >
+                                        <span className="major-batch-checkmark" aria-hidden="true">
+                                          {item.enabled && <Check size={14} strokeWidth={3} />}
+                                        </span>
                                         启用
-                                      </label>
+                                      </button>
                                       <button className="admin-item-btn admin-item-btn--delete" type="button" onClick={() => removeDraft(item.id)}>
                                         删除
                                       </button>

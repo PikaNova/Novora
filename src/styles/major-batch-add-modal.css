@@ -292,9 +292,10 @@
 }
 
 .major-batch-preview-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(300px, 1.3fr) auto;
+  align-items: center;
+  gap: 10px 12px;
   padding: 10px;
   border-radius: 10px;
   border: 1px solid transparent;
@@ -310,6 +311,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .major-batch-preview-item__name {
@@ -329,6 +331,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .major-batch-preview-item__date {
@@ -364,16 +367,55 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  justify-self: end;
 }
 
 .major-batch-preview__check {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  font-size: 12px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(128, 145, 158, 0.24);
+  border-radius: 6px;
+  background: rgba(128, 145, 158, 0.08);
+  color: inherit;
+  font: 700 12px/1 system-ui;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  white-space: nowrap;
+}
+
+.major-batch-preview__check.is-selected {
+  border-color: #3498db;
+  background: rgba(52, 152, 219, 0.2);
+}
+
+.major-batch-preview__check--ack {
+  min-height: 36px;
+  color: #f5f8fb;
+}
+
+.major-batch-checkmark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(128, 145, 158, 0.45);
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+  flex: 0 0 auto;
+}
+
+.major-batch-preview__check.is-selected .major-batch-checkmark {
+  border-color: #3498db;
+  background: #3498db;
 }
 
 .major-batch-preview-item__errors {
+  grid-column: 1 / -1;
   margin: 0;
   font-size: 12px;
   color: #dc2626;
@@ -446,6 +488,19 @@
   .major-batch-preview-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .major-batch-preview-item {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .major-batch-preview-item__flags {
+    justify-self: stretch;
+  }
+
+  .major-batch-preview__check {
+    min-height: 42px;
   }
 
   .major-batch-preview-summary {
