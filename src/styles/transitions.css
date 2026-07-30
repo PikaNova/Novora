@@ -103,12 +103,9 @@
   .admin-device-setup > section,
   .help-tip__panel,
   .time-range-modal,
-  .tdp-root[data-density="sheet"] .tdp-panel {
-    animation: app-drawer-in 190ms cubic-bezier(.2, .75, .25, 1) both;
-  }
-
+  .tdp-root[data-density="sheet"] .tdp-panel,
   .overview-device-drawer aside {
-    animation-duration: 170ms;
+    animation: app-drawer-in 190ms cubic-bezier(.2, .75, .25, 1) both;
   }
 }
 
