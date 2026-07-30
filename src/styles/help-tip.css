@@ -1,7 +1,52 @@
-.help-tip{display:inline-flex;align-items:center;flex:none;margin-left:5px;vertical-align:middle}
-.help-tip__trigger{display:inline-grid;place-items:center;width:22px;height:22px;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#72bce9;font:700 13px/1 Georgia,serif;cursor:pointer;touch-action:manipulation}
-.help-tip__layer{position:fixed;inset:0;z-index:12000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.62);pointer-events:auto}
-.help-tip__panel{width:min(440px,100%);max-height:min(70vh,560px);overflow:auto;padding:22px;border:1px solid rgba(110,190,240,.38);border-radius:10px;background:#17212a;color:#eaf2f7;box-shadow:0 20px 60px rgba(0,0,0,.48);font-size:15px;line-height:1.7;text-align:left}
-.help-tip__panel>strong{display:block;margin-bottom:8px;font-size:20px}.help-tip__content{color:#b8c5cf}.help-tip__close{display:block;width:100%;min-height:46px;margin-top:20px;border:0;border-radius:7px;background:#318bd9;color:#fff;font:inherit;font-weight:700;cursor:pointer;touch-action:manipulation}
-.help-tip__close:focus-visible,.help-tip__trigger:focus-visible{outline:3px solid rgba(114,188,233,.45);outline-offset:2px}
-@media(max-width:600px){.help-tip__layer{align-items:end;padding:0}.help-tip__panel{width:100%;max-height:min(72vh,620px);padding:24px 20px calc(18px + env(safe-area-inset-bottom));border-radius:12px 12px 0 0}.help-tip__panel>strong{font-size:22px}.help-tip__close{min-height:52px}}
+.help-tip {
+  display: inline-flex;
+  position: relative;
+  vertical-align: middle;
+}
+
+.help-tip__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: none;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  font-size: 12px;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.help-tip__popover {
+  position: absolute;
+  z-index: 40;
+  max-width: min(280px, calc(100vw - 32px));
+  width: max-content;
+  transform: none;
+  font-size: 13px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .help-tip__trigger {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    font-size: 13px;
+  }
+
+  .help-tip__popover {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    max-width: none;
+    width: auto;
+  }
+}
