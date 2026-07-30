@@ -7,7 +7,6 @@ import AdminModalPortal from "./AdminModalPortal";
 import AdminWizardSteps, { AdminWorkflowClose } from "./AdminWizardSteps";
 import HelpTip from "./HelpTip";
 import SubjectIcon from "./SubjectIcon";
-import SyncQueueIndicator from "./SyncQueueIndicator";
 import TimeRangePickerModal from "./TimeRangePickerModal";
 import { DateTimeField } from "./touch-datetime-picker";
 import "../styles/major-batch-add-modal.css";
@@ -890,7 +889,6 @@ export default function MajorBatchAddModal({
             </div>
           </div>
           <div className="admin-modal__actions">
-            {step === 2 && <SyncQueueIndicator />}
             <button
               className="admin-btn"
               type="button"

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import SyncQueueIndicator from './SyncQueueIndicator';
 
 type AdminModalPortalProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode;
@@ -23,6 +24,7 @@ export default function AdminModalPortal({ children, ...props }: AdminModalPorta
       }}
     >
       {children}
+      <SyncQueueIndicator />
     </div>
   );
 

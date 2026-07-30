@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, CheckCircle2 } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import {
   getSyncQueueSnapshot,
   subscribeSyncQueue,
@@ -7,10 +7,7 @@ import {
 } from "../services/syncQueue";
 import "../styles/sync-queue-indicator.css";
 
-/**
- * 全局云端同步队列状态指示器：显示在触发云端写入的弹窗内，
- * 复用统一的 syncQueue 状态，无需每个弹窗各自维护同步提示文案。
- */
+/** 显示在后台弹窗右上角，仅在同步进行中出现。 */
 export default function SyncQueueIndicator() {
   const [snapshot, setSnapshot] = useState<SyncQueueSnapshot>(() =>
     getSyncQueueSnapshot(),
@@ -18,31 +15,14 @@ export default function SyncQueueIndicator() {
 
   useEffect(() => subscribeSyncQueue(setSnapshot), []);
 
+  if (!snapshot.syncing) return null;
+
   return (
-    <div
-      className={`sync-queue-indicator${snapshot.syncing ? " is-syncing" : " is-idle"}`}
-      role="status"
-      aria-live="polite"
-    >
-      {snapshot.syncing ? (
-        <LoaderCircle
-          className="sync-queue-indicator__icon is-spinning"
-          size={14}
-          aria-hidden="true"
-        />
-      ) : (
-        <CheckCircle2
-          className="sync-queue-indicator__icon"
-          size={14}
-          aria-hidden="true"
-        />
-      )}
-      <span className="sync-queue-indicator__text">
-        {snapshot.syncing
-          ? snapshot.pendingCount > 1
-            ? `正在同步云端 · 剩余 ${snapshot.pendingCount} 项`
-            : "正在同步云端…"
-          : "已全部同步"}
+    <div className="sync-queue-badge" role="status" aria-live="polite">
+      <span className="sync-queue-badge__pulse" aria-hidden="true" />
+      <LoaderCircle className="sync-queue-badge__icon" size={13} aria-hidden="true" />
+      <span className="sync-queue-badge__text">
+        {snapshot.pendingCount > 1 ? `同步中 · ${snapshot.pendingCount} 项` : "同步中…"}
       </span>
     </div>
   );
