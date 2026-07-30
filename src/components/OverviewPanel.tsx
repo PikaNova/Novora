@@ -32,8 +32,31 @@ const HIGH_RISK_ACTIONS = new Set([
   "role.delete",
 ]);
 
-function formatDetailTime(value: number) {
-  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+function formatDetailTime(value: unknown) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  const normalized = Number.isFinite(numeric) && numeric > 0 && numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  if (!Number.isFinite(normalized)) return "时间未知";
+  const date = new Date(normalized);
+  if (!Number.isFinite(date.getTime())) return "时间未知";
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function auditDetailSummary(detail: unknown, fallback = "云端数据已更新") {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return fallback;
+  const source = detail as Record<string, unknown>;
+  const parts: string[] = [];
+  const updatedAt = source.updatedAt ?? source.updated_at;
+  if (updatedAt) parts.push(`更新时间 ${formatDetailTime(updatedAt)}`);
+  const names = ["majorName", "className", "gradeName", "subject", "title"]
+    .map((key) => source[key])
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (names.length) parts.push(names.slice(0, 2).join(" · "));
+  const countKeys = ["count", "added", "removed", "updated", "items"];
+  countKeys.forEach((key) => {
+    const value = source[key];
+    if (Number.isFinite(Number(value))) parts.push(`${key}: ${value}`);
+  });
+  return parts.length ? parts.slice(0, 3).join("；") : fallback;
 }
 
 function cloudChangeLabel(log: AuditLog) {
@@ -473,7 +496,7 @@ export default function OverviewPanel({
                       <article key={log.id}>
                         <strong>{cloudChangeLabel(log)}</strong>
                         <span>{log.username || "系统"} · {formatDetailTime(log.createdAt)}</span>
-                        <small>{log.detail && typeof log.detail === "object" ? JSON.stringify(log.detail) : "云端数据已更新"}</small>
+                        <small>{auditDetailSummary(log.detail)}</small>
                       </article>
                     )) : <p>暂未找到考试、班级或设置的云端改动记录。</p>
                   ) : (
@@ -503,7 +526,7 @@ export default function OverviewPanel({
                         <article key={log.id}>
                           <strong>{highRiskLabel(log)}</strong>
                           <span>{log.username || "系统"} · {formatDetailTime(log.createdAt)}</span>
-                          <small>{log.detail && typeof log.detail === "object" ? JSON.stringify(log.detail) : log.resourceId || log.resourceType}</small>
+                          <small>{auditDetailSummary(log.detail, log.resourceId || log.resourceType || "操作详情已记录")}</small>
                         </article>
                       )) : <p>暂无近期高风险操作。</p>}
                     </div>

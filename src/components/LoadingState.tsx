@@ -34,13 +34,16 @@ export default function LoadingState({
   return (
     <main className={`loading-state loading-state--${kind}`} aria-live="polite" role="status">
       <section className="loading-state__card">
-        <div className="loading-state__logo-wrap" aria-hidden="true">
-          <span className="loading-state__halo" />
-          <img className="loading-state__logo" src="/icon-192.png" alt="" />
+        <div className="loading-state__brand" aria-hidden="true">
+          <span className="loading-state__wordmark">Novora</span>
+          <span className="loading-state__tagline">EXAM OPERATIONS</span>
         </div>
         <div className="loading-state__copy">
           <h1>{title || copy.title}</h1>
           <p>{message || copy.message}</p>
+        </div>
+        <div className="loading-state__bar" aria-hidden="true">
+          <span />
         </div>
         <div className="loading-state__dots" aria-hidden="true">
           <span />
