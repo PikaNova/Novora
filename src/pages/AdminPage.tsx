@@ -944,12 +944,16 @@ export default function AdminPage() {
       setSync("saving");
       const ms = stateRef.current.majors;
       const activeId = stateRef.current.activeMajorId;
-      const base = buildPayload(ms, activeId);
-      const baseUpdatedAt = getCloudSnapshot()?.updatedAt ?? 0;
+      // Use the durable outbox as the single source of truth. Major-exam edits and
+      // weekly-plan edits can be triggered close together; sending them from
+      // separate stale baselines causes avoidable 409 loops under heavy batches.
+      const queued = getPendingExamSync();
+      const base = queued?.payload ?? buildPayload(ms, activeId);
+      const baseSnapshot = queued?.baseSnapshot ?? getCloudSnapshot();
+      const payload = { ...base, ...weekly };
       const result = await saveExamsToServer({
-        ...base,
-        baseUpdatedAt,
-        ...weekly,
+        ...payload,
+        baseUpdatedAt: baseSnapshot?.updatedAt ?? 0,
       });
       if (result === "unauthorized") {
         navigate("/login?next=/admin", { replace: true });
@@ -959,11 +963,11 @@ export default function AdminPage() {
         if (result.remote) {
           const baseline = getCloudSnapshot() ?? {
             ...result.remote,
-            updatedAt: baseUpdatedAt,
+            updatedAt: baseSnapshot?.updatedAt ?? 0,
           };
           const merged = threeWayMergeExam(
             baseline,
-            { ...base, ...weekly, updatedAt: baseUpdatedAt },
+            { ...payload, updatedAt: baseSnapshot?.updatedAt ?? 0 },
             result.remote,
           );
           const retry = await saveExamsToServer({
@@ -1005,6 +1009,7 @@ export default function AdminPage() {
               updatedAt: retry,
             });
             pendingRef.current = false;
+            clearPendingExamSync(queued?.savedAt);
             setSync("saved");
             return;
           }
@@ -1020,6 +1025,11 @@ export default function AdminPage() {
       }
       if (typeof result !== "number") {
         pendingRef.current = true;
+        queuePendingExamSync({
+          payload,
+          baseSnapshot,
+          savedAt: queued?.savedAt ?? Date.now(),
+        });
         setSync(
           typeof navigator !== "undefined" && !navigator.onLine
             ? "offline"
@@ -1036,7 +1046,8 @@ export default function AdminPage() {
         return;
       }
       pendingRef.current = false;
-      updateExamSettings({ ...weekly, updatedAt: result });
+      clearPendingExamSync(queued?.savedAt);
+      updateExamSettings({ ...payload, updatedAt: result });
       setSync("saved");
     },
     [navigate],

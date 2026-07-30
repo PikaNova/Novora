@@ -15,10 +15,15 @@ export default function SyncQueueIndicator() {
   useEffect(() => {
     const handle = (snapshot: SyncQueueSnapshot) => {
       if (snapshot.syncing) {
+        const pendingLabel = snapshot.pendingCount > 1
+          ? `剩余 ${snapshot.pendingCount} 项`
+          : "正在提交最后 1 项";
         notify(
           "warning",
-          `正在提交云端数据，剩余 ${snapshot.pendingCount} 项待提交。`,
-          `云端提交中 · 剩余 ${snapshot.pendingCount} 项`,
+          snapshot.pendingCount > 1
+            ? `正在按顺序提交云端数据，${snapshot.pendingCount} 项待完成。`
+            : "正在提交云端数据，完成后会自动关闭提醒。",
+          `云端提交中 · ${pendingLabel}`,
           { id: SYNC_QUEUE_NOTICE_ID, variant: "queue", durationMs: SYNC_QUEUE_DURATION_MS },
         );
       } else if (wasSyncingRef.current) {
