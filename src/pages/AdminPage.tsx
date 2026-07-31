@@ -328,6 +328,7 @@ export default function AdminPage() {
   const [majorModalStep, setMajorModalStep] = useState(0);
   const [majorError, setMajorError] = useState("");
   const [deleteMajorOpen, setDeleteMajorOpen] = useState(false);
+  const [quickMajorDeleteTarget, setQuickMajorDeleteTarget] = useState<MajorExam | null>(null);
   const [majorPrintOpen, setMajorPrintOpen] = useState(false);
   const [quickMajorOpen, setQuickMajorOpen] = useState(false);
   const [majorBatchAddOpen, setMajorBatchAddOpen] = useState(false);
@@ -1738,6 +1739,24 @@ export default function AdminPage() {
     commit(ms, nextActiveId, true, `删除大型考试「${activeMajor.name}」`);
     setDeleteMajorOpen(false);
   };
+  const removeQuickMajor = (major: MajorExam) => {
+    const ms = majors
+      .filter((item) => item.id !== major.id)
+      .map((item, index) => ({ ...item, order: index }));
+    const nextActiveId = activeMajorId === major.id ? (ms[0]?.id ?? "") : activeMajorId;
+    const nextEditing = ms.find((item) => majorAppliesToGrade(item, selectedGradeId)) ?? ms[0];
+    setEditingMajorId(nextEditing?.id ?? "");
+    setEditingMajorIdByGrade((value) => {
+      const next = { ...value };
+      for (const gradeId of Object.keys(next)) {
+        if (next[gradeId] === major.id) delete next[gradeId];
+      }
+      if (selectedGradeId && nextEditing) next[selectedGradeId] = nextEditing.id;
+      return next;
+    });
+    commit(ms, nextActiveId, true, `删除临时考试「${major.name}」`);
+    setQuickMajorDeleteTarget(null);
+  };
   const publishQuickMajor = (input: QuickMajorPublishInput) => {
     const start = new Date(input.startTime).getTime();
     if (!Number.isFinite(start)) {
@@ -2171,6 +2190,17 @@ export default function AdminPage() {
 
   const syncMeta = SYNC_META[sync];
   const can = (permission: string) => adminCan(permission, adminUser);
+  const isOwnQuickTemporaryMajor = (major: MajorExam) =>
+    !!adminUser &&
+    major.source === "quick" &&
+    major.temporary === true &&
+    major.createdBy === adminUser.id;
+  const canEditActiveMajor =
+    can("major.edit") ||
+    (can("major.quick_create") && isOwnQuickTemporaryMajor(activeMajor));
+  const canDeleteActiveMajor =
+    can("major.delete") ||
+    (can("major.quick_create") && isOwnQuickTemporaryMajor(activeMajor));
   const canQuickPublish = can("major.create") || can("major.quick_create");
   const openMyAccount = () => {
     setDeniedModule("");
@@ -2710,7 +2740,7 @@ export default function AdminPage() {
                       设置
                     </button>
                   )}
-                  {hasScopedMajor && can("major.delete") && (
+                  {hasScopedMajor && canDeleteActiveMajor && (
                     <button
                       className="admin-btn admin-btn--danger"
                       onClick={() => setDeleteMajorOpen(true)}
@@ -2758,6 +2788,12 @@ export default function AdminPage() {
                       adminNow,
                       visibleClasses,
                     );
+                    const canManageQuickMajor =
+                      can("major.edit") ||
+                      (can("major.quick_create") && isOwnQuickTemporaryMajor(major));
+                    const canDeleteQuickMajor =
+                      can("major.delete") ||
+                      (can("major.quick_create") && isOwnQuickTemporaryMajor(major));
                     return (
                       <article key={major.id}>
                         <div>
@@ -2780,26 +2816,34 @@ export default function AdminPage() {
                             <span>{displayStatus.detail}</span>
                           </div>
                         )}
-                        {can("major.edit") && (
+                        {(canManageQuickMajor || canDeleteQuickMajor) && (
                           <div className="quick-major-running__actions">
-                            <button
-                              className="admin-item-btn"
-                              onClick={() => extendQuickMajor(major)}
-                            >
-                              延长 5 分钟
-                            </button>
-                            <button
-                              className="admin-item-btn admin-item-btn--delete"
-                              onClick={() => endQuickMajor(major)}
-                            >
-                              提前结束
-                            </button>
-                            <button
+                            {canManageQuickMajor && <>
+                              <button
+                                className="admin-item-btn"
+                                onClick={() => extendQuickMajor(major)}
+                              >
+                                延长 5 分钟
+                              </button>
+                              <button
+                                className="admin-item-btn admin-item-btn--delete"
+                                onClick={() => endQuickMajor(major)}
+                              >
+                                提前结束
+                              </button>
+                            </>}
+                            {can("major.edit") && <button
                               className="admin-item-btn"
                               onClick={() => promoteQuickMajor(major)}
                             >
                               转正式
-                            </button>
+                            </button>}
+                            {canDeleteQuickMajor && <button
+                              className="admin-item-btn admin-item-btn--delete"
+                              onClick={() => setQuickMajorDeleteTarget(major)}
+                            >
+                              删除
+                            </button>}
                           </div>
                         )}
                       </article>
@@ -2809,7 +2853,7 @@ export default function AdminPage() {
               )}
 
               {hasScopedMajor &&
-                can("major.edit") &&
+                canEditActiveMajor &&
                 (editing ? (
                   <div className="admin-form-card">
                     <h2 className="admin-form-card__title">
@@ -2944,7 +2988,7 @@ export default function AdminPage() {
                   {activeMajor.name} · 考试安排
                 </h2>
                 <span className="admin-list-count">{items.length} 项</span>
-                {selectedItemIds.size > 0 && can("major.delete") && (
+                {selectedItemIds.size > 0 && canDeleteActiveMajor && (
                   <button
                     className="admin-btn admin-btn--danger"
                     onClick={() => setDeleteSelectedOpen(true)}
@@ -3004,7 +3048,7 @@ export default function AdminPage() {
                         className={`admin-item${!item.enabled ? " admin-item--disabled" : ""}`}
                         key={item.id}
                       >
-                        {can("major.delete") && (
+                        {canDeleteActiveMajor && (
                           <label
                             className="admin-item__select"
                             style={{ display: "flex", alignItems: "center", marginRight: 8 }}
@@ -3066,7 +3110,7 @@ export default function AdminPage() {
                             </span>
                           </div>
                         </div>
-                        {can("major.edit") && (
+                        {canEditActiveMajor && (
                           <div className="admin-item__actions">
                             <button
                               type="button"
@@ -3093,7 +3137,7 @@ export default function AdminPage() {
                             >
                               编辑
                             </button>
-                            {can("major.delete") && (
+                            {canDeleteActiveMajor && (
                               <button
                                 className="admin-item-btn admin-item-btn--delete"
                                 onClick={() => setDeleteTarget(item)}
@@ -3295,6 +3339,33 @@ export default function AdminPage() {
               <button
                 className="admin-btn"
                 onClick={() => setDeleteMajorOpen(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </AdminModalPortal>
+      )}
+      {quickMajorDeleteTarget && (
+        <AdminModalPortal
+          className="admin-modal-overlay"
+          {...backdropProps(() => setQuickMajorDeleteTarget(null))}
+        >
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="admin-modal__title">删除临时考试</h2>
+            <p className="admin-modal__body">
+              确定删除“{quickMajorDeleteTarget.name}”吗？删除后无法恢复。
+            </p>
+            <div className="admin-modal__actions">
+              <button
+                className="admin-btn admin-btn--danger"
+                onClick={() => removeQuickMajor(quickMajorDeleteTarget)}
+              >
+                删除
+              </button>
+              <button
+                className="admin-btn"
+                onClick={() => setQuickMajorDeleteTarget(null)}
               >
                 取消
               </button>

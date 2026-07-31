@@ -38,6 +38,31 @@ export function validateMutation(
     actions.push(permission);
     return null;
   };
+  const isOwnedQuickTemporaryMajor = (major: unknown) => {
+    if (!major || typeof major !== "object") return false;
+    const value = major as Record<string, unknown>;
+    return value.source === "quick" && value.temporary === true && value.createdBy === actor.id;
+  };
+  const needEither = (
+    primary: Permission,
+    alternative: Permission,
+    label: string,
+    allowAlternative: boolean,
+  ) => {
+    if (hasPermission(actor, primary)) {
+      actions.push(primary);
+      return null;
+    }
+    if (allowAlternative && hasPermission(actor, alternative)) {
+      actions.push(alternative);
+      return null;
+    }
+    return {
+      ok: false as const,
+      error: `当前账号无权修改${label}`,
+      permission: primary,
+    };
+  };
   const nextMajors = Array.isArray(body.majors) ? body.majors : current.majors;
   const nextGrades = Array.isArray(body.grades) ? body.grades : current.grades;
   const nextClasses = Array.isArray(body.classes)
@@ -56,21 +81,46 @@ export function validateMutation(
     current.title !== String(body.title ?? "") ||
     current.activeMajorId !== String(body.activeMajorId ?? "");
   if (majorChanged) {
-    if (majorDiff.added.length) {
-      const onlyQuick = majorDiff.added.every(
-        (major: any) =>
-          major?.source === "quick" &&
-          major?.temporary === true &&
-          Array.isArray(major?.targetClassIds) &&
-          major.targetClassIds.length > 0,
+    const currentMajorsById = new Map(
+      (current.majors as any[]).map((major) => [String(major?.id ?? ""), major]),
+    );
+    const nextMajorId = String(body.activeMajorId ?? current.activeMajorId ?? "");
+    const nextActiveMajor = (nextMajors as any[]).find(
+      (major) => String(major?.id ?? "") === nextMajorId,
+    );
+    const payloadMatchesNextActiveMajor =
+      sameJson(body.items ?? [], nextActiveMajor?.items ?? []) &&
+      String(body.title ?? "") === String(nextActiveMajor?.name ?? "");
+    const onlyOwnedQuickTemporaryChanges =
+      majorDiff.added.every(isOwnedQuickTemporaryMajor) &&
+      majorDiff.removed.every(isOwnedQuickTemporaryMajor) &&
+      majorDiff.updated.every((major: any) =>
+        isOwnedQuickTemporaryMajor(currentMajorsById.get(String(major?.id ?? ""))) &&
+        isOwnedQuickTemporaryMajor(major),
       );
-      const denied = onlyQuick
-        ? need("major.quick_create", "快速发布班级考试")
-        : need("major.create", "新建大型考试");
+    const canManageOwnQuickTemporaryChanges =
+      (majorDiff.added.length > 0 || majorDiff.removed.length > 0 || majorDiff.updated.length > 0) &&
+      onlyOwnedQuickTemporaryChanges &&
+      payloadMatchesNextActiveMajor;
+
+    if (majorDiff.added.length) {
+      const denied = needEither(
+        "major.create",
+        "major.quick_create",
+        "新建大型考试",
+        canManageOwnQuickTemporaryChanges && majorDiff.added.every(
+          (major: any) => Array.isArray(major?.targetClassIds) && major.targetClassIds.length > 0,
+        ),
+      );
       if (denied) return denied;
     }
     if (majorDiff.removed.length || itemDiff.removed.length) {
-      const denied = need("major.delete", "删除考试");
+      const denied = needEither(
+        "major.delete",
+        "major.quick_create",
+        "删除考试",
+        canManageOwnQuickTemporaryChanges,
+      );
       if (denied) return denied;
     }
     if (
@@ -80,7 +130,12 @@ export function validateMutation(
       current.title !== String(body.title ?? "") ||
       current.activeMajorId !== String(body.activeMajorId ?? "")
     ) {
-      const denied = need("major.edit", "大型考试");
+      const denied = needEither(
+        "major.edit",
+        "major.quick_create",
+        "大型考试",
+        canManageOwnQuickTemporaryChanges,
+      );
       if (denied) return denied;
     }
     const classes = new Map(
