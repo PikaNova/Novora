@@ -7,25 +7,7 @@ import type { WeeklyPlan, WeeklyExamItem } from '../../types/exam';
 import {
   genWeeklyItemId,
 } from '../../utils/weeklySchedule';
-
-const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
-
-function padHM(v: string) {
-  const [h = '0', m = '0'] = v.split(':');
-  return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
-}
-
-function sortWeeklyItems(list: WeeklyExamItem[]): WeeklyExamItem[] {
-  return [...list]
-    .sort(
-      (a, b) =>
-        a.weekday - b.weekday ||
-        a.startTime.localeCompare(b.startTime) ||
-        a.endTime.localeCompare(b.endTime) ||
-        a.name.localeCompare(b.name, 'zh-CN'),
-    )
-    .map((item, order) => ({ ...item, order }));
-}
+import { HM_RE, padHM, sortWeeklyItems } from '../../utils/settings/weekly';
 
 export type ItemEdit = Omit<WeeklyExamItem, 'id' | 'order'> & { id?: string };
 

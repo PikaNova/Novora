@@ -14,15 +14,11 @@ import type {
 import { ALL_CONFLICT_SCOPES } from "../types/exam";
 import {
   createEmptyWeeklyPlan,
-  genWeeklyItemId,
-  genWeeklyOverrideId,
   resolveWeeklyOccurrences,
   addDaysToDateKey,
   getShanghaiDateKey,
   getWeekTypeForDate,
-  genWeeklyPlanId,
   isoWeekdayOfDateKey,
-  normalizeWeeklyPlan,
 } from "../utils/weeklySchedule";
 import { resolveMajorWeeklyConflicts } from "../utils/scheduleConflict";
 import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
@@ -35,8 +31,6 @@ import SubjectIcon from "./SubjectIcon";
 import SchedulePrintPreview, {
   type PrintScheduleDocument,
 } from "./SchedulePrintPreview";
-import { confirmDialog } from "../services/appDialog";
-import { notify } from "../services/notify";
 import AiImportGuide from "./AiImportGuide";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import AdminWizardSteps, { AdminWorkflowClose } from "./AdminWizardSteps";
@@ -52,7 +46,10 @@ import {
 import { useWeeklyItemModal } from "../hooks/weekly/useWeeklyItemModal";
 import { useWeeklyImport } from "../hooks/weekly/useWeeklyImport";
 import { useWeeklyExceptions } from "../hooks/weekly/useWeeklyExceptions";
-import { useWeeklyBatchOps } from "../hooks/weekly/useWeeklyBatchOps";
+import {
+  useWeeklyBatchOps,
+  lastLabelSegment,
+} from "../hooks/weekly/useWeeklyBatchOps";
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   1: "周一",
@@ -92,10 +89,6 @@ type PreviewOcc = {
 function fmtDT(iso?: string) {
   return iso ? iso.slice(0, 16).replace("T", " ") : "—";
 }
-function lastLabelSegment(label: string): string {
-  const parts = label.split(" · ");
-  return parts[parts.length - 1] || label;
-}
 
 function weeklyPlanDetailName(
   planName: string,
@@ -121,26 +114,6 @@ function weeklyPlanDetailName(
   return detail || original;
 }
 
-function makeItemId() {
-  return genWeeklyItemId();
-}
-function padHM(v: string) {
-  const [h = "0", m = "0"] = v.split(":");
-  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
-}
-function sortWeeklyItems(list: WeeklyExamItem[]): WeeklyExamItem[] {
-  return [...list]
-    .sort(
-      (a, b) =>
-        a.weekday - b.weekday ||
-        a.startTime.localeCompare(b.startTime) ||
-        a.endTime.localeCompare(b.endTime) ||
-        a.name.localeCompare(b.name, "zh-CN"),
-    )
-    .map((item, order) => ({ ...item, order }));
-}
-const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WEEK_TYPE_LABEL: Record<WeeklyWeekType, string> = {
   all: "每周",
   a: "A 周",
@@ -234,28 +207,41 @@ export default function WeeklyPanel({
     openWeeklyTimeFlow, cancelWeeklyTimeFlow, commitItemModal, removeItem, toggleItemEnabled,
   } = itemModal$;
 
-  const import$ = useWeeklyImport();
+  const import$ = useWeeklyImport({
+    weeklyPlans, activePlan, items, selectedClassId, pickerOptions,
+    activeWeeklyPlanIdByClassId, onSavePlans,
+  });
   const {
     importOpen, setImportOpen, importText, setImportText,
     importError, setImportError, importClassIds, setImportClassIds,
     importStep, setImportStep, importSummary, setImportSummary,
     importExcludedIndexes, setImportExcludedIndexes,
+    openImport, closeImport, validateImportJson, importJson, exportJson,
   } = import$;
 
-  const exceptions$ = useWeeklyExceptions<PreviewOcc>();
+  const exceptions$ = useWeeklyExceptions<PreviewOcc>({
+    weeklyPlans, activePlan, selectedClassId, onSavePlans, setLastDeleted,
+  });
   const {
     exceptionsOpen, setExceptionsOpen, newExcludeDate, setNewExcludeDate,
     conflictTarget, setConflictTarget, rescheduleTarget, setRescheduleTarget,
     rescheduleError, setRescheduleError, rescheduleTimeOpen, setRescheduleTimeOpen,
+    upsertOverride, removeOverride, addExcludedDate, removeExcludedDate,
+    cancelOccurrence, openReschedule, commitReschedule, keepSuppressed,
+    forceRunOccurrence, unforceOccurrence,
   } = exceptions$;
 
-  const batchOps$ = useWeeklyBatchOps();
+  const batchOps$ = useWeeklyBatchOps({
+    weeklyPlans, classOptions, activeWeeklyPlanIdByClassId, activePlan,
+    selectedClassId, onSavePlans, setLastDeleted,
+  });
   const {
     copyModal, setCopyModal, copyWizardStep, setCopyWizardStep,
     batchDeleteOpen, setBatchDeleteOpen, batchDeleteStep, setBatchDeleteStep,
     batchDeletePlanIds, setBatchDeletePlanIds,
     printOpen, setPrintOpen, printPickerOpen, setPrintPickerOpen,
     printPickerStep, setPrintPickerStep, printClassIds, setPrintClassIds,
+    commitCopyPlan, removeSelectedPlans,
   } = batchOps$;
   const planPickerOptions = useMemo<ClassPickerOption[]>(
     () =>
@@ -495,119 +481,6 @@ export default function WeeklyPanel({
 
 
 
-  async function removeSelectedPlans() {
-    if (!batchDeletePlanIds.length) return;
-    const selected = new Set(batchDeletePlanIds);
-    const removed = weeklyPlans.flatMap((plan, index) =>
-      selected.has(plan.id) ? [{ plan, index }] : [],
-    );
-    if (!removed.length) return;
-    if (
-      !(await confirmDialog({
-        title: `删除 ${removed.length} 个周测计划`,
-        message:
-          "所选计划及其中的全部周测、例外日期和临时调整都会删除。此操作可在页面顶部整批撤销。",
-        tone: "danger",
-        confirmLabel: "批量删除",
-      }))
-    )
-      return;
-    const remaining = weeklyPlans
-      .filter((plan) => !selected.has(plan.id))
-      .map((plan, order) => ({ ...plan, order }));
-    const nextActiveByClass = { ...activeWeeklyPlanIdByClassId };
-    for (const classId of new Set(removed.map((item) => item.plan.classId))) {
-      if (selected.has(nextActiveByClass[classId] ?? ""))
-        nextActiveByClass[classId] =
-          remaining.find((plan) => plan.classId === classId)?.id ?? null;
-    }
-    setLastDeleted({
-      kind: "plans",
-      plans: removed,
-      activeByClass: { ...activeWeeklyPlanIdByClassId },
-    });
-    onSavePlans(
-      remaining,
-      nextActiveByClass[selectedClassId] ?? null,
-      selectedClassId,
-      true,
-      nextActiveByClass,
-    );
-    setBatchDeleteOpen(false);
-    setBatchDeletePlanIds([]);
-    notify("success", `已删除 ${removed.length} 个周测计划。`);
-  }
-
-
-  function upsertOverride(next: WeeklyExamOverride) {
-    const exists = activePlan.overrides.some((o) => o.id === next.id);
-    const overrides = exists
-      ? activePlan.overrides.map((o) => (o.id === next.id ? next : o))
-      : [...activePlan.overrides, next];
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id ? { ...p, overrides } : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-  }
-
-  function removeOverride(id: string) {
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id
-        ? { ...p, overrides: p.overrides.filter((o) => o.id !== id) }
-        : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-  }
-
-  function addExcludedDate() {
-    if (
-      !DATE_RE.test(newExcludeDate) ||
-      activePlan.excludedDates.includes(newExcludeDate)
-    )
-      return;
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id
-        ? { ...p, excludedDates: [...p.excludedDates, newExcludeDate].sort() }
-        : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-    setNewExcludeDate("");
-  }
-
-  function removeExcludedDate(date: string) {
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id
-        ? { ...p, excludedDates: p.excludedDates.filter((d) => d !== date) }
-        : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-  }
-
-  async function cancelOccurrence(o: PreviewOcc) {
-    if (
-      !(await confirmDialog({
-        title: "取消本次周测",
-        message: `确定取消「${o.name}」${o.date} 这一次吗？\n此操作仅影响这一次，不影响周期规则。`,
-        tone: "warning",
-        confirmLabel: "确认取消",
-      }))
-    )
-      return;
-    const overrideId = genWeeklyOverrideId(o.weeklyItemId, o.date);
-    upsertOverride({
-      id: overrideId,
-      sourceItemId: o.weeklyItemId,
-      date: o.date,
-      action: "cancel",
-      reason: "管理员单次取消",
-    });
-    setLastDeleted({
-      kind: "occurrence",
-      overrideId,
-      name: `${o.date} ${o.name}`,
-    });
-  }
-
   function restoreLastDeleted() {
     if (!lastDeleted) return;
     if (lastDeleted.kind === "plan") {
@@ -648,358 +521,6 @@ export default function WeeklyPanel({
       removeOverride(lastDeleted.overrideId);
     }
     setLastDeleted(null);
-  }
-
-  function openReschedule(o: PreviewOcc) {
-    setRescheduleTarget({
-      occ: o,
-      name: o.name,
-      date: o.date,
-      startTime: o.startTime,
-      endTime: o.endTime,
-    });
-    setRescheduleError("");
-  }
-
-  function commitReschedule() {
-    if (!rescheduleTarget) return;
-    const { occ, name, date, startTime, endTime } = rescheduleTarget;
-    if (!name.trim()) {
-      setRescheduleError("请输入名称");
-      return;
-    }
-    if (!DATE_RE.test(date)) {
-      setRescheduleError("请填写正确日期");
-      return;
-    }
-    if (!HM_RE.test(startTime) || !HM_RE.test(endTime)) {
-      setRescheduleError("请输入正确的时间（HH:mm）");
-      return;
-    }
-    if (padHM(endTime) <= padHM(startTime)) {
-      setRescheduleError("结束时间必须晚于开始时间，请重新选择。");
-      return;
-    }
-    upsertOverride({
-      id: genWeeklyOverrideId(occ.weeklyItemId, occ.date),
-      sourceItemId: occ.weeklyItemId,
-      date: occ.date,
-      targetDate: date,
-      action: "replace",
-      name: name.trim(),
-      startTime: padHM(startTime),
-      endTime: padHM(endTime),
-      reason: "管理员临时调课",
-    });
-    notify(
-      "success",
-      date === occ.date ? "本次周测时间已调整。" : `本次周测已调至 ${date}。`,
-    );
-    setRescheduleTarget(null);
-  }
-
-  function keepSuppressed() {
-    setConflictTarget(null);
-  }
-
-  function forceRunOccurrence() {
-    if (!conflictTarget) return;
-    upsertOverride({
-      id: genWeeklyOverrideId(conflictTarget.weeklyItemId, conflictTarget.date),
-      sourceItemId: conflictTarget.weeklyItemId,
-      date: conflictTarget.date,
-      action: "replace",
-      forceRunDuringMajorExam: true,
-      reason: "管理员确认仍然进行",
-    });
-    setConflictTarget(null);
-  }
-
-  function unforceOccurrence(o: PreviewOcc) {
-    removeOverride(genWeeklyOverrideId(o.weeklyItemId, o.date));
-  }
-
-
-  function closeImport(clearText = false) {
-    setImportOpen(false);
-    setImportError("");
-    setImportClassIds([]);
-    setImportStep("paste");
-    setImportSummary(null);
-    setImportExcludedIndexes([]);
-    if (clearText) setImportText("");
-  }
-
-  function validateImportJson() {
-    setImportError("");
-    try {
-      const source = JSON.parse(importText);
-      const importedPlan =
-        source?.plan && typeof source.plan === "object" ? source.plan : source;
-      const list = Array.isArray(importedPlan)
-        ? importedPlan
-        : importedPlan?.items;
-      if (!Array.isArray(list)) {
-        throw new Error("JSON 必须是周测数组，或包含 items 数组");
-      }
-      const invalidIndex = list.findIndex((raw: unknown) => {
-        const item = raw as Record<string, unknown>;
-        return (
-          !item?.name ||
-          !HM_RE.test(String(item.startTime ?? "")) ||
-          !HM_RE.test(String(item.endTime ?? ""))
-        );
-      });
-      if (invalidIndex >= 0) {
-        throw new Error(
-          `第 ${invalidIndex + 1} 项需要有效的 name、startTime 和 endTime`,
-        );
-      }
-      const previewItems = list.map((raw: unknown) => {
-        const item = raw as Record<string, unknown>;
-        const weekday = ([1, 2, 3, 4, 5, 6, 7] as number[]).includes(item.weekday as number)
-          ? (item.weekday as IsoWeekday)
-          : 1;
-        const startTime = padHM(String(item.startTime));
-        const endTime = padHM(String(item.endTime));
-        return {
-          name: String(item.name),
-          weekday,
-          startTime,
-          endTime,
-          warning: !item.endNextDay && endTime <= startTime ? "结束时间不晚于开始时间" : undefined,
-        };
-      });
-      const warnings = previewItems.flatMap((item, index) => item.warning ? [`第 ${index + 1} 项：${item.warning}`] : []);
-      setImportSummary({
-        itemCount: list.length,
-        planName:
-          typeof importedPlan?.name === "string"
-            ? importedPlan.name
-            : undefined,
-        items: previewItems,
-        warnings,
-      });
-      setImportExcludedIndexes([]);
-      setImportStep("preview");
-    } catch (error) {
-      setImportError(error instanceof Error ? error.message : "JSON 格式错误");
-    }
-  }
-
-  function importJson() {
-    setImportError("");
-    try {
-      const source = JSON.parse(importText);
-      const targets = importClassIds.length
-        ? importClassIds
-        : [selectedClassId];
-      if (!targets.length) throw new Error("请至少选择一个目标班级");
-      if (source?.plan && typeof source.plan === "object") {
-        const imported = normalizeWeeklyPlan(source.plan, weeklyPlans.length);
-        const includedItems = imported.items.filter((_, index) => !importExcludedIndexes.includes(index));
-        const importedPlans = targets.map((classId, offset) => {
-          const target = pickerOptions.find((item) => item.id === classId)!;
-          const idMap = new Map(
-            includedItems.map((item) => [item.id, makeItemId()]),
-          );
-          return {
-            ...imported,
-            id: genWeeklyPlanId(),
-            name: `${target.className} · ${imported.name.replace(/（导入）$/u, "")}`,
-            gradeId: target.gradeId,
-            classId,
-            order: weeklyPlans.length + offset,
-            items: includedItems.map((item, index) => ({
-              ...item,
-              id: idMap.get(item.id)!,
-              order: index,
-            })),
-            overrides: imported.overrides
-              .filter((item) => idMap.has(item.sourceItemId))
-              .map((item) => ({
-                ...item,
-                id: genWeeklyOverrideId(
-                  idMap.get(item.sourceItemId)!,
-                  item.date,
-                ),
-                sourceItemId: idMap.get(item.sourceItemId)!,
-              })),
-          };
-        });
-        const nextActive = {
-          ...activeWeeklyPlanIdByClassId,
-          ...Object.fromEntries(
-            importedPlans.map((plan) => [plan.classId, plan.id]),
-          ),
-        };
-        onSavePlans(
-          [...weeklyPlans, ...importedPlans],
-          importedPlans[0].id,
-          importedPlans[0].classId,
-          true,
-          nextActive,
-        );
-        closeImport(true);
-        notify("success", `已向 ${importedPlans.length} 个班级导入独立计划。`);
-        return;
-      }
-      const list = Array.isArray(source) ? source : source.items;
-      if (!Array.isArray(list))
-        throw new Error("JSON 必须是周测数组，或包含 items 数组");
-      const nextItems: WeeklyExamItem[] = list.filter((_: unknown, index: number) => !importExcludedIndexes.includes(index)).map(
-        (raw: unknown, index: number) => {
-          const row = raw as Record<string, unknown>;
-          const weekday = ([1, 2, 3, 4, 5, 6, 7] as number[]).includes(
-            row.weekday as number,
-          )
-            ? (row.weekday as IsoWeekday)
-            : 1;
-          if (!row.name || !row.startTime || !row.endTime)
-            throw new Error(
-              `第 ${index + 1} 项缺少 name、startTime 或 endTime`,
-            );
-          return {
-            id: String(row.id ?? makeItemId()),
-            name: String(row.name),
-            weekday,
-            startTime: padHM(String(row.startTime)),
-            endTime: padHM(String(row.endTime)),
-            endNextDay: !!row.endNextDay,
-            enabled: row.enabled !== false,
-            order: typeof row.order === "number" ? row.order : index,
-            location:
-              typeof row.location === "string" ? row.location : undefined,
-            note: typeof row.note === "string" ? row.note : undefined,
-            weekType: (["all", "a", "b"] as WeeklyWeekType[]).includes(
-              row.weekType as WeeklyWeekType,
-            )
-              ? (row.weekType as WeeklyWeekType)
-              : "all",
-          };
-        },
-      );
-      const targetPlanIds = new Set(
-        targets
-          .map(
-            (classId) =>
-              activeWeeklyPlanIdByClassId[classId] ??
-              weeklyPlans.find((plan) => plan.classId === classId)?.id,
-          )
-          .filter(Boolean),
-      );
-      if (targetPlanIds.size !== targets.length)
-        throw new Error("部分目标班级尚无周测计划，请先批量新建计划");
-      const plans = weeklyPlans.map((plan) =>
-        targetPlanIds.has(plan.id)
-          ? {
-              ...plan,
-              items: sortWeeklyItems(
-                nextItems.map((item, index) => ({
-                  ...item,
-                  id: makeItemId(),
-                  order: index,
-                })),
-              ),
-            }
-          : plan,
-      );
-      onSavePlans(plans, activePlan.id, selectedClassId, true);
-      closeImport(true);
-      notify("success", `已向 ${targets.length} 个班级导入周测项目。`);
-    } catch (error) {
-      setImportError(error instanceof Error ? error.message : "JSON 格式错误");
-    }
-  }
-
-  function exportJson() {
-    const file = new Blob(
-      [
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            plan: activePlan,
-            items,
-            exportedAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-      ],
-      { type: "application/json;charset=utf-8" },
-    );
-    const url = URL.createObjectURL(file);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${activePlan.name || "weekly"}-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function commitCopyPlan() {
-    if (!copyModal?.targetClassIds.length) return;
-    const source = weeklyPlans.find(
-      (plan) => plan.id === copyModal.sourcePlanId,
-    );
-    if (!source) return;
-    const copyName =
-      copyModal.name.trim() || source.name.replace(/（复制）$/u, "");
-    const copies = copyModal.targetClassIds.map((classId, offset) => {
-      const target = classOptions.find((item) => item.id === classId)!;
-      const idMap = new Map(
-        source.items.map((item) => [item.id, makeItemId()]),
-      );
-      const sourceClass = classOptions.find(
-        (item) => item.id === source.classId,
-      );
-      const sourceClassName = sourceClass
-        ? lastLabelSegment(sourceClass.label)
-        : "";
-      const targetClassName = lastLabelSegment(target.label);
-      const targetName =
-        sourceClassName && copyName.includes(sourceClassName)
-          ? copyName.replace(sourceClassName, targetClassName)
-          : `${targetClassName} · ${copyName}`;
-      return {
-        ...source,
-        id: genWeeklyPlanId(),
-        gradeId: target.gradeId,
-        classId,
-        name: targetName,
-        enabled: true,
-        order: weeklyPlans.length + offset,
-        items: source.items.map((item, index) => ({
-          ...item,
-          id: idMap.get(item.id)!,
-          order: index,
-        })),
-        overrides: source.overrides
-          .filter((item) => idMap.has(item.sourceItemId))
-          .map((item) => ({
-            ...item,
-            sourceItemId: idMap.get(item.sourceItemId)!,
-            id: genWeeklyOverrideId(idMap.get(item.sourceItemId)!, item.date),
-          })),
-      };
-    });
-    const nextActiveByClass = {
-      ...activeWeeklyPlanIdByClassId,
-      ...Object.fromEntries(copies.map((plan) => [plan.classId, plan.id])),
-    };
-    onSavePlans(
-      [...weeklyPlans, ...copies],
-      activePlan.id,
-      selectedClassId,
-      true,
-      nextActiveByClass,
-    );
-    notify(
-      "success",
-      `计划已应用到 ${copies.length} 个班级，并设为各班当前启用计划。`,
-    );
-    setCopyModal(null);
   }
 
   const grouped = WEEKDAY_ORDER.map((wd) => ({
@@ -1380,14 +901,7 @@ export default function WeeklyPanel({
           <div className="weekly-list-actions">
             <button
               className="admin-btn"
-              onClick={() => {
-                setImportText("");
-                setImportError("");
-                setImportSummary(null);
-                setImportStep("paste");
-                setImportClassIds(selectedClassId ? [selectedClassId] : []);
-                setImportOpen(true);
-              }}
+              onClick={openImport}
             >
               导入周测 JSON
             </button>

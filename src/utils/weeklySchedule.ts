@@ -8,7 +8,7 @@ import type {
 } from '../types/exam.js';
 import { getZonedParts, DISPLAY_TIME_ZONE } from './zonedTime.js';
 import { expandOfficialHolidayDates } from '../data/officialHolidays.js';
-import { DATE_RE, genWeeklyPlanId, genWeeklyItemId, genWeeklyOverrideId, normalizeWeeklyPlan } from './settings/weekly.js';
+import { DATE_RE, HM_RE, genWeeklyPlanId, genWeeklyItemId, genWeeklyOverrideId, normalizeWeeklyPlan, padHM } from './settings/weekly.js';
 
 export { genWeeklyPlanId, genWeeklyItemId, genWeeklyOverrideId, normalizeWeeklyPlan };
 
@@ -60,12 +60,6 @@ export function getWeekTypeForDate(plan: Pick<WeeklyPlan, 'anchorDate'>, dateKey
 
 function mod(a: number, n: number): number {
   return ((a % n) + n) % n;
-}
-
-/** 规范化 'H:mm' / 'HH:mm' -> 'HH:mm'。 */
-function padHM(t: string): string {
-  const [h = '0', m = '0'] = String(t).split(':');
-  return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
 }
 
 /** 生成裸本地 ISO 时间串（与既有 ExamItem.startTime 完全同格式，由 parseZonedTime 按上海解释）。 */
@@ -190,7 +184,6 @@ export function createEmptyWeeklyPlan(now: number, name = '周测计划'): Weekl
   };
 }
 
-const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 /**
  * 结构校验（对应设计 §12 的可静态判定项）。
  * 返回 error/warn 列表；不含需要交互确认的“同天重叠提示”等运行时项。

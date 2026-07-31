@@ -12,6 +12,7 @@ import { ALL_CONFLICT_SCOPES, DEFAULT_WEEKLY_CONFLICT_POLICY } from '../../types
 import type { SchoolClass } from '../../types/school.js';
 
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
 export function genWeeklyPlanId(): string {
   return `weekly_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -30,9 +31,21 @@ function clampRepeat(n: number): number {
   return Math.min(8, Math.max(1, Math.round(n)));
 }
 
-function padHM(t: string): string {
+export function padHM(t: string): string {
   const [h = '0', m = '0'] = String(t).split(':');
   return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+}
+
+export function sortWeeklyItems(list: WeeklyExamItem[]): WeeklyExamItem[] {
+  return [...list]
+    .sort(
+      (a, b) =>
+        a.weekday - b.weekday ||
+        a.startTime.localeCompare(b.startTime) ||
+        a.endTime.localeCompare(b.endTime) ||
+        a.name.localeCompare(b.name, 'zh-CN'),
+    )
+    .map((item, order) => ({ ...item, order }));
 }
 
 export function normalizeWeeklyPlan(raw: unknown, index = 0): WeeklyPlan {

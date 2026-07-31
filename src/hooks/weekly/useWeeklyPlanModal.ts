@@ -14,8 +14,7 @@ import {
 } from '../../utils/weeklySchedule';
 import { notify } from '../../services/notify';
 import type { ClassPickerOption } from '../../components/ClassMultiPicker';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+import { DATE_RE } from '../../utils/settings/weekly';
 
 export type PlanModal = {
   mode: 'add' | 'settings';
