@@ -23,9 +23,6 @@ function database() {
 // 以前每次 GET/POST 都做 6 次 DDL 往返→累计 2-3 秒。现改为按需且仅一次。)
 let migratePromise: Promise<void> | null = null;
 let updatedAtMigrationPromise: Promise<void> | null = null;
-type CachedGet = { body: string; etag: string; expiresAt: number };
-let getCache: CachedGet | null = null;
-const GET_CACHE_MS = 3_000;
 
 // 早期版本曾将 updated_at 建为 INTEGER；毫秒时间戳超过其上限时，将旧列无损扩展为 BIGINT。
 // 仅在旧表首次写入溢出、或按需建表迁移时执行，避免每次请求增加 DDL 往返。
@@ -442,8 +439,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const publicRequest = req.method === 'OPTIONS'
     || (req.method === 'GET' && action !== 'device-bindings')
     || (req.method === 'POST' && publicPostActions.has(action));
-  // Short edge cache reduces repeated US→Singapore database reads while keeping updates prompt.
-  if (req.method === 'GET') res.setHeader('Cache-Control', 'public, s-maxage=3, stale-while-revalidate=10');
+  // 只做“协商缓存”（ETag/If-None-Match），不再声明 public 共享缓存：
+  // 之前的 `public, s-maxage=3` 允许 Vercel 边缘节点在写入后的几秒内，把旧数据返回给
+  // 任意用户；配合下面已移除的实例内存缓存，会出现「明明已创建班级，第一次进入却显示未创建，
+  // 刷新后才恢复」的问题。改为 private + no-cache 后，每次请求都必须向源站校验 ETag，
+  // 数据永远来自当次真实查询，只是命中 304 时不重复传输正文。
+  if (req.method === 'GET') res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
   else res.setHeader('Cache-Control', 'no-store');
   if (!applyCors(req, res, { methods: ['GET', 'POST'], public: publicRequest })) return;
 
@@ -898,7 +899,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const designPolicy = { rules, updatedAt };
       const run = async () => sql`UPDATE exam_data SET design_policy=${JSON.stringify(designPolicy)}::jsonb, updated_at=${updatedAt} WHERE id=1`;
       try { await run(); } catch (error) { if (!missingRelation(error)) throw error; await ensureTableOnce(); await run(); }
-      getCache = null;
       await writeAudit(designActor, 'settings.design-policy', 'exam_data', '1', { ruleCount: rules.length });
       res.status(200).json({ ok: true, designPolicy, updatedAt }); return;
     }
@@ -938,19 +938,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         sql`DELETE FROM device_instances`,
         sql`DELETE FROM classisland_plugin_instances`,
       ]);
-      getCache = null;
       await writeAudit(resetActor, 'database.reset', 'exam_data', '1', { categories });
       res.status(200).json({ ok: true, updatedAt: at }); return;
     }
 
     if (req.method === 'GET') {
-      // Warm cache and ETag avoid repeat database reads for unchanged display data.
-      if (getCache && getCache.expiresAt > Date.now()) {
-        res.setHeader('ETag', getCache.etag);
-        if (req.headers['if-none-match'] === getCache.etag) { res.status(304).end(); return; }
-        res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.setHeader('Content-Type', 'application/json'); res.status(200).send(getCache.body); return;
-      }
-      // 快路径：直接查询（一次往返）；仅当表/列缺失时才迁移后重试。
+      // 已移除按实例内存缓存 GET 响应体的机制（原 getCache/GET_CACHE_MS）：
+      // Vercel 上同一部署会有多个独立的“热”函数实例，写入只会让
+      // 处理这次写入的那个实例清空自己的内存缓存，其余实例仍会在最多 3 秒内
+      // 继续把自己之前缓存的旧数据（例如年级/班级还是空的）返回给恰好被路由过去的请求，
+      // 这正是“刚建好班级、第一次进后台却提示未创建，刷新一次才出现”的根本原因。
+      // 现在每次 GET 都直接查库，只用 ETag 做协商缓存（304），保证任何时刻返回的
+      // 都是当次真实查询到的最新数据。
       const selectRow = async (): Promise<ExamRow[]> => (
         await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id = 1`
       ) as unknown as ExamRow[];
@@ -965,7 +964,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const row = rows[0] ?? { items: [], title: '', majors: [], active_major_id: '', alerts: null, weekly_plans: [], schedule_mode: 'major-only', active_weekly_plan_id: '', active_weekly_plan_by_class: {}, weekly_conflict_policy: null, updated_at: 0 };
       const payload = examPayload(row);
       const body = JSON.stringify(payload); const etag = `\"exam-${payload.updatedAt}\"`;
-      getCache = { body, etag, expiresAt: Date.now() + GET_CACHE_MS };
       res.setHeader('ETag', etag);
       if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
       res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.setHeader('Content-Type', 'application/json'); res.status(200).send(body);
@@ -1055,7 +1053,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.status(409).json({ ok: false, code: 'DATA_CONFLICT', error: '云端数据已发生变化', remote, requestId: res.getHeader('X-Request-Id') });
         return;
       }
-      getCache = null;
       const recoveryKey = action === 'initialize' ? await ensureGeneratedRecoveryKey() : null;
       if (actor) await writeAudit(actor, 'exam-data.update', 'exam_data', '1', { updatedAt });
       res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`); res.status(200).json({ ok: true, updatedAt, ...(recoveryKey ? { recoveryKey } : {}) });
