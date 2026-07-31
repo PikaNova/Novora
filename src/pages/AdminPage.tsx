@@ -3045,13 +3045,12 @@ export default function AdminPage() {
                     const status = STATUS[phase(item)];
                     return (
                       <li
-                        className={`admin-item${!item.enabled ? " admin-item--disabled" : ""}`}
+                        className={`admin-item${canDeleteActiveMajor ? " admin-item--selectable" : ""}${!item.enabled ? " admin-item--disabled" : ""}`}
                         key={item.id}
                       >
                         {canDeleteActiveMajor && (
                           <label
                             className="admin-item__select"
-                            style={{ display: "flex", alignItems: "center", marginRight: 8 }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <input
