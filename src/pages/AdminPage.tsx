@@ -100,39 +100,20 @@ import {
   CircleHelp,
   Megaphone,
 } from "lucide-react";
+import { fmtAnnTime, makeId, fmtLocal, toISO, toLocalInput, duration, phase } from "../hooks/admin/adminPageUtils";
+import type { SyncState } from "../hooks/admin/adminPageUtils";
+import { useAdminAuthSession } from "../hooks/admin/useAdminAuthSession";
+import { useAnnouncements } from "../hooks/admin/useAnnouncements";
+import { useAdminModals, ADMIN_NAV } from "../hooks/admin/useAdminModals";
+import { useInitializationWizard } from "../hooks/admin/useInitializationWizard";
+import { useAlertsSettings } from "../hooks/admin/useAlertsSettings";
+import { useWeeklyScheduleSync, type WeeklyState } from "../hooks/admin/useWeeklyScheduleSync";
+import { useMajorScheduleActions, type MajorModal } from "../hooks/admin/useMajorScheduleActions";
+import { useExamItemActions, type EditItem } from "../hooks/admin/useExamItemActions";
+import { useSchoolStructureActions } from "../hooks/admin/useSchoolStructureActions";
+import { useMajorImportExport } from "../hooks/admin/useMajorImportExport";
+import { useAdminSyncEngine, OPEN_ADMIN } from "../hooks/admin/useAdminSyncEngine";
 
-function fmtAnnTime(ms: number) {
-  if (!ms) return "";
-  return new Date(Number(ms)).toLocaleString("zh-CN", { hour12: false });
-}
-
-function makeId() {
-  return `exam_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
-function fmtLocal(iso: string) {
-  return iso?.replace("T", " ")?.slice(0, 16) ?? "";
-}
-function toISO(value: string) {
-  return value.replace(" ", "T").trim();
-}
-function toLocalInput(time: number) {
-  const date = new Date(time - new Date().getTimezoneOffset() * 60_000);
-  return date.toISOString().slice(0, 16);
-}
-function duration(start: string, end: string) {
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return "";
-  const minutes = Math.round(ms / 60000);
-  return minutes >= 60
-    ? `${Math.floor(minutes / 60)}h${minutes % 60 ? `${minutes % 60}m` : ""}`
-    : `${minutes}m`;
-}
-function phase(item: ExamItem): "waiting" | "ongoing" | "ended" {
-  const now = Date.now();
-  if (now < new Date(item.startTime).getTime()) return "waiting";
-  if (now <= new Date(item.endTime).getTime()) return "ongoing";
-  return "ended";
-}
 const STATUS = {
   waiting: { label: "待考", color: "#3498db", bg: "rgba(52,152,219,.15)" },
   ongoing: { label: "进行中", color: "#27ae60", bg: "rgba(39,174,96,.15)" },
@@ -141,8 +122,6 @@ const STATUS = {
 const CUSTOM_SUBJECT_VALUE = "__custom_subject__";
 const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 
-// 云服务同步状态
-type SyncState = "loading" | "saving" | "saved" | "offline" | "error";
 const SYNC_META: Record<SyncState, { label: string; cls: string }> = {
   loading: { label: "连接中", cls: "is-loading" },
   saving: { label: "同步中", cls: "is-saving" },
@@ -150,14 +129,6 @@ const SYNC_META: Record<SyncState, { label: string; cls: string }> = {
   offline: { label: "离线 · 待同步", cls: "is-offline" },
   error: { label: "同步失败", cls: "is-error" },
 };
-
-type EditItem = Omit<ExamItem, "id" | "order"> & { id?: string };
-type MajorModal = {
-  mode: "add" | "rename";
-  name: string;
-  targetGradeIds: string[];
-  next?: "import";
-} | null;
 
 // 内置提醒状态的展示顺序与触发时机说明
 const ALERT_STATE_ORDER: AlertState[] = [
@@ -184,59 +155,6 @@ const TONE_OPTIONS: Array<{ value: AlertState; label: string }> = [
   { value: "ended", label: "冷调·结束" },
   { value: "next", label: "紫蓝·下一科" },
 ];
-const OPEN_ADMIN: AdminUserContext = {
-  id: 0,
-  username: "local-admin",
-  displayName: "本地管理员",
-  roleId: "super_admin",
-  roleName: "超级管理员",
-  permissions: ["*"],
-  scopes: [{ type: "all", gradeId: "", classId: "" }],
-  mustChangePassword: false,
-};
-const ADMIN_NAV: Array<{
-  id: AdminTab;
-  label: string;
-  mobileLabel: string;
-  permission: string;
-}> = [
-  {
-    id: "overview",
-    label: "运行总览",
-    mobileLabel: "总览",
-    permission: "overview.read",
-  },
-  {
-    id: "major",
-    label: "大型考试",
-    mobileLabel: "考试",
-    permission: "major.read",
-  },
-  {
-    id: "weekly",
-    label: "周测计划",
-    mobileLabel: "周测",
-    permission: "weekly.read",
-  },
-  {
-    id: "classes",
-    label: "年级与班级",
-    mobileLabel: "班级",
-    permission: "school.read",
-  },
-  {
-    id: "devices",
-    label: "设备管理",
-    mobileLabel: "设备",
-    permission: "device.read",
-  },
-  {
-    id: "users",
-    label: "用户与权限",
-    mobileLabel: "用户",
-    permission: "user.read",
-  },
-];
 const ANCHOR_OPTIONS: Array<{
   value: CustomReminder["anchor"];
   label: string;
@@ -252,1012 +170,382 @@ export default function AdminPage() {
   const location = useLocation();
   const initial = getAppSettings().exam;
 
-  const [majors, setMajors] = useState<MajorExam[]>(initial.majors);
-  const [activeMajorId, setActiveMajorId] = useState<string>(
-    initial.activeMajorId,
-  );
-  const [editingMajorId, setEditingMajorId] = useState<string>(
-    initial.activeMajorId,
-  );
-  const [adminTab, setAdminTab] = useState<AdminTab>(
-    initial.grades.length === 0 || initial.classes.length === 0
-      ? "classes"
-      : "overview",
-  );
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
-    initial.scheduleMode,
-  );
-  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(
-    initial.weeklyPlans,
-  );
-  const [activeWeeklyPlanId, setActiveWeeklyPlanId] = useState<string | null>(
-    initial.activeWeeklyPlanId,
-  );
-  const [activeWeeklyPlanIdByClassId, setActiveWeeklyPlanIdByClassId] =
-    useState<Record<string, string | null>>(
-      initial.activeWeeklyPlanIdByClassId,
-    );
-  const [grades, setGrades] = useState<SchoolGrade[]>(initial.grades);
-  const [classes, setClasses] = useState<SchoolClass[]>(initial.classes);
-  const [selectedGradeId, setSelectedGradeId] = useState(
-    initial.selectedGradeId || initial.grades[0]?.id || "",
-  );
-  const [selectedClassId, setSelectedClassId] = useState(
-    initial.selectedClassId,
-  );
-  const [weeklyConflictPolicy, setWeeklyConflictPolicy] =
-    useState<WeeklyConflictPolicy>(initial.weeklyConflictPolicy);
-  const [initialization, setInitialization] = useState(initial.initialization);
-  // Never open from local cache alone. The home page only links here after a successful
-  // cloud read confirms that no school structure exists.
-  const [wizardOpen, setWizardOpen] = useState(false);
-  // 有本地令牌时初始即就绪，立即渲染后台（本地缓存数据），鉴权与拉取在后台并行进行。
-  const [ready, setReady] = useState<boolean>(() => hasValidLocalToken());
-  const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() =>
-    getAdminUser(),
-  );
-  const [currentDeviceBinding, setCurrentDeviceBinding] = useState(() =>
-    getCachedDeviceBinding() ?? null,
-  );
-  const [editing, setEditing] = useState<EditItem | null>(null);
-  const [customSubjectActive, setCustomSubjectActive] = useState(false);
-  const [majorTimeFlowOpen, setMajorTimeFlowOpen] = useState(false);
-  const [majorTimeFlowInitialStart, setMajorTimeFlowInitialStart] = useState("");
-  const [majorTimeFlowInitialEnd, setMajorTimeFlowInitialEnd] = useState("");
-  const [editError, setEditError] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<ExamItem | null>(null);
-  // 分考试批量删除：勾选的分考试 id 集合，以及批量删除确认弹窗的开关
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
-  const [lastDeletedExam, setLastDeletedExam] = useState<{
-    item: ExamItem;
-    index: number;
-  } | null>(null);
-  const [collapsedList, setCollapsedList] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [majorImportStep, setMajorImportStep] = useState(0);
-  const [openImportGuide, setOpenImportGuide] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importError, setImportError] = useState("");
-  const [majorImportPreview, setMajorImportPreview] = useState<{
-    title: string;
-    items: Array<ExamItem & { include: boolean }>;
-    warnings: string[];
-  } | null>(null);
-  const [majorModal, setMajorModal] = useState<MajorModal>(null);
-  const [majorModalStep, setMajorModalStep] = useState(0);
-  const [majorError, setMajorError] = useState("");
-  const [deleteMajorOpen, setDeleteMajorOpen] = useState(false);
-  const [quickMajorDeleteTarget, setQuickMajorDeleteTarget] = useState<MajorExam | null>(null);
-  const [majorPrintOpen, setMajorPrintOpen] = useState(false);
-  const [quickMajorOpen, setQuickMajorOpen] = useState(false);
-  const [majorBatchAddOpen, setMajorBatchAddOpen] = useState(false);
-  const [adminNow, setAdminNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    if (majorModal) setMajorModalStep(0);
-  }, [majorModal !== null]);
-  useEffect(() => {
-    if (importOpen) {
-      setMajorImportStep(0);
-      setMajorImportPreview(null);
-    }
-  }, [importOpen]);
-  const [editingMajorIdByGrade, setEditingMajorIdByGrade] = useState<
-    Record<string, string>
-  >({});
+  // ---- 跨领域基础设施：indirection refs（打破 Hook 间的初始化顺序环依赖）----
+  const stateRef = useRef<{ majors: MajorExam[]; activeMajorId: string }>({
+    majors: initial.majors,
+    activeMajorId: initial.activeMajorId,
+  });
+  const pendingRef = useRef(false);
+  const examPushChainRef = useRef<Promise<void>>(Promise.resolve());
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commitRef = useRef<
+    (ms: MajorExam[], activeId: string, immediate?: boolean, syncLabel?: string) => void
+  >(() => {});
+  const buildPayloadRef = useRef<
+    (ms: MajorExam[], activeId: string) => Record<string, unknown>
+  >(() => ({}));
+  const setMajorsRef = useRef<(ms: MajorExam[]) => void>(() => {});
+  const setActiveMajorIdRef = useRef<(id: string) => void>(() => {});
+  const editingRef = useRef<{ name: string } | null>(null);
+  const setEditingRef = useRef<(value: unknown) => void>(() => {});
+
+  // ---- 云同步基础状态（多个领域 Hook 都需要写入，故不归属单个 Hook）----
   const [sync, setSync] = useState<SyncState>("loading");
   const [cloudReadConfirmed, setCloudReadConfirmed] = useState(false);
   const [online, setOnline] = useState<boolean>(
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
-  // 统一提醒管理
-  const [alerts, setAlerts] = useState<AlertsSettings>(
-    () => getAppSettings().alerts,
-  );
-  const [alertsOpen, setAlertsOpen] = useState(false);
-  const [alertsSection, setAlertsSection] = useState<"builtin" | "custom">(
-    "builtin",
-  );
-  // 公告展示（作者端统一发布，本端只读）
-  const [announceOpen, setAnnounceOpen] = useState(false);
-  const [anns, setAnns] = useState<Announcement[]>([]);
-  const [annLoading, setAnnLoading] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [moreMenuStyle, setMoreMenuStyle] = useState<React.CSSProperties>({});
-  const [longDurationConfirmed, setLongDurationConfirmed] = useState(false);
-  const [deniedModule, setDeniedModule] = useState("");
-  const [gradeAdminSetupPromptOpen, setGradeAdminSetupPromptOpen] =
-    useState(false);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(
     null,
   );
-
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const placeMoreMenu = useCallback(() => {
-    const rect = moreTriggerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const edge = 14;
-    const width = Math.min(280, window.innerWidth - edge * 2);
-    const estimatedHeight = 280;
-    const below = window.innerHeight - rect.bottom - edge;
-    const above = rect.top - edge;
-    const openUp = below < Math.min(estimatedHeight, 180) && above > below;
-    setMoreMenuStyle({
-      position: "fixed",
-      width,
-      left: Math.max(edge, Math.min(rect.right - width, window.innerWidth - width - edge)),
-      ...(openUp ? { bottom: window.innerHeight - rect.top + 8 } : { top: rect.bottom + 8 }),
-      maxHeight: `${Math.max(160, (openUp ? above : below) - 8)}px`,
-    });
+  const [adminNow, setAdminNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!moreOpen) return;
-    placeMoreMenu();
-    window.addEventListener("resize", placeMoreMenu);
-    window.addEventListener("scroll", placeMoreMenu, true);
-    return () => {
-      window.removeEventListener("resize", placeMoreMenu);
-      window.removeEventListener("scroll", placeMoreMenu, true);
-    };
-  }, [moreOpen, placeMoreMenu]);
-  const pendingRef = useRef(false); // 是否有尚未推送到服务器的本地变更
-  // pushToServer 与 pushWeeklyToServer 共享的串行执行链：保证任何时刻只有一次推送（含冲突合并与重试）在执行。
-  const examPushChainRef = useRef<Promise<void>>(Promise.resolve());
-  const stateRef = useRef({ majors, activeMajorId });
-  stateRef.current = { majors, activeMajorId };
-  const weeklySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const weeklyStateRef = useRef({
-    scheduleMode,
-    weeklyPlans,
-    activeWeeklyPlanId,
-    activeWeeklyPlanIdByClassId,
-    grades,
-    classes,
-    weeklyConflictPolicy,
-  });
-  weeklyStateRef.current = {
-    scheduleMode,
-    weeklyPlans,
-    activeWeeklyPlanId,
-    activeWeeklyPlanIdByClassId,
-    grades,
-    classes,
-    weeklyConflictPolicy,
-  };
-  const initializationRef = useRef(initialization);
-  initializationRef.current = initialization;
-  const alertsRef = useRef(alerts);
-  alertsRef.current = alerts;
+  // ---- 领域 Hook 编排（顺序即依赖顺序）----
+  const auth = useAdminAuthSession();
+  const { ready, setReady, adminUser, setAdminUser, currentDeviceBinding, gradeAdminSetupPromptOpen, setGradeAdminSetupPromptOpen } = auth;
 
-  // 从设置页「前往提醒管理」直达：URL 带 ?alerts=1 时自动打开提醒管理弹窗
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const requestedTab = params.get("tab") as AdminTab | null;
-    if (requestedTab && ADMIN_NAV.some((item) => item.id === requestedTab)) {
-      const item = ADMIN_NAV.find((value) => value.id === requestedTab)!;
-      if (requestedTab === "users" || adminCan(item.permission, adminUser)) {
-        setAdminTab(requestedTab);
-        setDeniedModule("");
-      } else setDeniedModule(item.label);
-    }
-    if (params.get("alerts") === "1" && adminCan("alerts.read", adminUser))
-      setAlertsOpen(true);
-    if (params.get("announce") === "1") setAnnounceOpen(true);
-    const setupRequired =
-      !initialization.completedAt ||
-      grades.length === 0 ||
-      classes.length === 0;
-    const allowIncomplete = params.get("allowIncomplete") === "1";
-    if (
-      params.get("initialize") === "1" &&
-      !allowIncomplete &&
-      cloudReadConfirmed &&
-      setupRequired &&
-      adminCan("initialization.run", adminUser)
-    )
-      setWizardOpen(true);
-    if (
-      allowIncomplete &&
-      cloudReadConfirmed &&
-      adminCan("initialization.run", adminUser)
-    )
-      void getAdminRecoveryStatus()
-        .then(setRecoveryConfigured)
-        .catch(() => setRecoveryConfigured(null));
-  }, [
+  const announcements = useAnnouncements();
+  const { announceOpen, setAnnounceOpen, anns, annLoading } = announcements;
+
+  const defaultTab: AdminTab =
+    initial.grades.length === 0 || initial.classes.length === 0
+      ? "classes"
+      : "overview";
+  const modals = useAdminModals({
     adminUser,
-    location.search,
-    cloudReadConfirmed,
-    initialization.completedAt,
-    grades.length,
-    classes.length,
-  ]);
-
-  useEffect(() => {
-    if (shouldPromptGradeAdminSetup(adminUser))
-      setGradeAdminSetupPromptOpen(true);
-  }, [adminUser]);
-
-  useEffect(() => {
-    const refreshBinding = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail : undefined;
-      setCurrentDeviceBinding(detail ?? getCachedDeviceBinding() ?? null);
-    };
-    window.addEventListener("exam-board:binding-updated", refreshBinding);
-    window.addEventListener("exam-board:device-revoked", refreshBinding);
-    return () => {
-      window.removeEventListener("exam-board:binding-updated", refreshBinding);
-      window.removeEventListener("exam-board:device-revoked", refreshBinding);
-    };
-  }, []);
-
-  // 打开公告弹窗时拉取最新公告
-  useEffect(() => {
-    if (!announceOpen) return;
-    let alive = true;
-    setAnnLoading(true);
-    fetchAnnouncements(true)
-      .then((list) => {
-        if (alive) setAnns(list);
-      })
-      .finally(() => {
-        if (alive) setAnnLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [announceOpen]);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const closeOnOutside = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest(".admin-more")
-      )
-        setMoreOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMoreOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [moreOpen]);
-
-  const hasAllScope =
-    !!adminUser &&
-    (adminUser.permissions.includes("*") ||
-      adminUser.scopes.some((scope) => scope.type === "all"));
-  const visibleGrades = grades.filter((grade) =>
-    adminCanGrade(grade.id, adminUser),
-  );
-  const visibleClasses = classes.filter((item) =>
-    adminCanClass(item.gradeId, item.id, adminUser),
-  );
-  const visibleClassIds = new Set(visibleClasses.map((item) => item.id));
-  const visibleWeeklyPlans = weeklyPlans.filter((plan) =>
-    visibleClassIds.has(plan.classId),
-  );
-  const visibleMajors = majors.filter((major) => {
-    if (hasAllScope) return true;
-    const gradeMatch =
-      !major.targetGradeIds?.length ||
-      major.targetGradeIds.some((id) =>
-        visibleGrades.some((grade) => grade.id === id),
-      );
-    const classMatch =
-      !major.targetClassIds?.length ||
-      major.targetClassIds.some((id) => visibleClassIds.has(id));
-    return gradeMatch && classMatch;
+    defaultTab,
+    navigate,
+    locationSearch: location.search,
   });
-  const majorAppliesToGrade = useCallback(
-    (major: MajorExam, gradeId: string) => {
-      if (!gradeId) return false;
-      if (major.targetGradeIds?.length)
-        return major.targetGradeIds.includes(gradeId);
-      if (major.targetClassIds?.length) {
-        return major.targetClassIds.some((classId) =>
-          classes.some(
-            (item) => item.id === classId && item.gradeId === gradeId,
-          ),
-        );
-      }
-      return true;
+  const {
+    adminTab,
+    setAdminTab,
+    deniedModule,
+    setDeniedModule,
+    moreOpen,
+    setMoreOpen,
+    moreMenuStyle,
+    moreTriggerRef,
+    placeMoreMenu,
+  } = modals;
+
+  const wizard = useInitializationWizard({
+    initialValue: initial.initialization,
+    setAdminTab,
+    navigate,
+  });
+  const {
+    initialization,
+    setInitialization,
+    initializationRef,
+    wizardOpen,
+    setWizardOpen,
+    finalizeInitialization,
+  } = wizard;
+
+  const alertsSettings = useAlertsSettings({ stateRef, commitRef });
+  const {
+    alerts,
+    setAlerts,
+    alertsRef,
+    alertsOpen,
+    setAlertsOpen,
+    alertsSection,
+    setAlertsSection,
+    setAlertsEnabled,
+    setAlertsDuration,
+    updateStateCfg,
+    addCustomReminder,
+    updateCustomReminder,
+    removeCustomReminder,
+    resetAlerts,
+  } = alertsSettings;
+
+  const weekly = useWeeklyScheduleSync({
+    adminUser,
+    initial: {
+      scheduleMode: initial.scheduleMode,
+      weeklyPlans: initial.weeklyPlans,
+      activeWeeklyPlanId: initial.activeWeeklyPlanId,
+      activeWeeklyPlanIdByClassId: initial.activeWeeklyPlanIdByClassId,
+      grades: initial.grades,
+      classes: initial.classes,
+      weeklyConflictPolicy: initial.weeklyConflictPolicy,
     },
-    [classes],
-  );
-
-  useEffect(() => {
-    if (!adminUser || !visibleGrades.length) return;
-    if (!visibleGrades.some((grade) => grade.id === selectedGradeId)) {
-      const gradeId = visibleGrades[0].id;
-      const classId =
-        adminUser.roleId === "class_admin"
-          ? (visibleClasses.find((item) => item.gradeId === gradeId)?.id ?? "")
-          : "";
-      setSelectedGradeId(gradeId);
-      setSelectedClassId(classId);
-      updateExamSettings({
-        selectedGradeId: gradeId,
-        selectedClassId: classId,
-      });
-      return;
-    }
-    if (
-      (selectedClassId &&
-        !visibleClasses.some(
-          (item) =>
-            item.id === selectedClassId && item.gradeId === selectedGradeId,
-        )) ||
-      (!selectedClassId && adminUser.roleId === "class_admin")
-    ) {
-      const classId =
-        adminUser.roleId === "class_admin"
-          ? (visibleClasses.find((item) => item.gradeId === selectedGradeId)
-              ?.id ?? "")
-          : "";
-      setSelectedClassId(classId);
-      updateExamSettings({ selectedGradeId, selectedClassId: classId });
-    }
-  }, [
-    adminUser,
-    selectedGradeId,
-    selectedClassId,
+    navigate,
+    stateRef,
+    pendingRef,
+    examPushChainRef,
+    weeklySaveTimer,
+    buildPayloadRef,
+    setMajorsRef,
+    setActiveMajorIdRef,
+    setSync,
+  });
+  const {
+    scheduleMode,
+    setScheduleMode,
+    weeklyPlans,
+    setWeeklyPlans,
+    activeWeeklyPlanId,
+    setActiveWeeklyPlanId,
+    activeWeeklyPlanIdByClassId,
+    setActiveWeeklyPlanIdByClassId,
+    grades,
+    setGrades,
+    classes,
+    setClasses,
+    weeklyConflictPolicy,
+    setWeeklyConflictPolicy,
+    weeklyStateRef,
+    hasAllScope,
     visibleGrades,
     visibleClasses,
-  ]);
+    visibleClassIds,
+    visibleWeeklyPlans,
+    pushWeeklyToServerExec,
+    pushWeeklyToServer,
+    commitWeekly,
+    handleScheduleModeChange,
+    handleSaveWeeklyPlans,
+    handleConflictPolicyChange,
+  } = weekly;
 
-  const scopedMajors = selectedGradeId
-    ? visibleMajors.filter((major) =>
-        majorAppliesToGrade(major, selectedGradeId),
-      )
-    : [];
-  const orderedScopedMajors = [...scopedMajors].sort((a, b) => {
-    const aSpecific = a.targetGradeIds?.includes(selectedGradeId) ? 0 : 1;
-    const bSpecific = b.targetGradeIds?.includes(selectedGradeId) ? 0 : 1;
-    if (aSpecific !== bSpecific) return aSpecific - bSpecific;
-    const now = Date.now();
-    const score = (major: MajorExam) => {
-      const enabled = major.items.filter((item) => item.enabled);
-      const start = Math.min(
-        ...enabled.map((item) => new Date(item.startTime).getTime()),
-      );
-      const end = Math.max(
-        ...enabled.map((item) => new Date(item.endTime).getTime()),
-      );
-      if (Number.isFinite(start) && now >= start && now <= end) return 0;
-      if (Number.isFinite(start) && start > now) return 1;
-      return 2;
-    };
-    const phaseDiff = score(a) - score(b);
-    if (phaseDiff) return phaseDiff;
-    const aStart = Math.min(
-      ...a.items
-        .map((item) => new Date(item.startTime).getTime())
-        .filter(Number.isFinite),
-    );
-    const bStart = Math.min(
-      ...b.items
-        .map((item) => new Date(item.startTime).getTime())
-        .filter(Number.isFinite),
-    );
-    return (
-      (Number.isFinite(aStart) ? aStart : Number.MAX_SAFE_INTEGER) -
-        (Number.isFinite(bStart) ? bStart : Number.MAX_SAFE_INTEGER) ||
-      a.order - b.order
-    );
+  const major = useMajorScheduleActions({
+    adminUser,
+    initialMajors: initial.majors,
+    initialActiveMajorId: initial.activeMajorId,
+    initialSelectedGradeId: initial.selectedGradeId || initial.grades[0]?.id || "",
+    initialSelectedClassId: initial.selectedClassId,
+    classes,
+    visibleGrades,
+    visibleClasses,
+    visibleClassIds,
+    hasAllScope,
+    alertsRef,
+    setAlerts,
+    weeklyStateRef,
+    initializationRef,
+    navigate,
+    pendingRef,
+    examPushChainRef,
+    saveTimer,
+    stateRef,
+    setSync,
+    editingRef,
+    setEditingRef,
   });
-  const hasScopedMajor = orderedScopedMajors.length > 0;
-  const activeMajor: MajorExam = orderedScopedMajors.find(
-    (m) => m.id === editingMajorId,
-  ) ??
-    orderedScopedMajors[0] ?? {
-      id: "",
-      name: "当前年级暂无大型考试",
-      items: [],
-      order: -1,
-      targetGradeIds: selectedGradeId ? [selectedGradeId] : [],
-  };
-  const items = activeMajor?.items ?? [];
-  const subjectTrackModeEnabled = initialization.subjectTrackModeEnabled !== false;
-  const classesInMajorScope = (major: MajorExam) =>
-    visibleClasses.filter((item) => {
-      if (!item.enabled) return false;
-      if (major.targetClassIds?.length) return major.targetClassIds.includes(item.id);
-      if (major.targetGradeIds?.length) return major.targetGradeIds.includes(item.gradeId);
-      return true;
-    });
-  const autoTrackClassIdsForMajorItem = (major: MajorExam, subject: string) => {
-    const normalized = normalizeSubjectName(subject);
-    if (!subjectTrackModeEnabled) return undefined;
-    if (!isTrackSubject(normalized)) return undefined;
-    const ids = classesInMajorScope(major)
-      .filter((item) => subjectAppliesToClass(normalized, item))
-      .map((item) => item.id);
-    return ids.length ? ids : ["__no_matching_track_class__"];
-  };
-  const activeMajorTrackSubjects = items.filter((item) => isTrackSubject(item.name));
-  const activeMajorTrackScopedCount = activeMajorTrackSubjects.filter((item) => item.targetClassIds?.length).length;
-  const activeMajorUnsetTrackClassCount = classesInMajorScope(activeMajor).filter((item) => !item.track?.length).length;
-  useEffect(() => {
-    if (!orderedScopedMajors.length) return;
-    if (orderedScopedMajors.some((major) => major.id === editingMajorId))
-      return;
-    const remembered = editingMajorIdByGrade[selectedGradeId];
-    const next =
-      orderedScopedMajors.find((major) => major.id === remembered) ??
-      orderedScopedMajors[0];
-    setEditingMajorId(next.id);
-  }, [
+  const {
+    majors,
+    setMajors,
+    activeMajorId,
+    setActiveMajorId,
     editingMajorId,
+    setEditingMajorId,
     editingMajorIdByGrade,
-    orderedScopedMajors,
+    setEditingMajorIdByGrade,
     selectedGradeId,
-  ]);
+    setSelectedGradeId,
+    selectedClassId,
+    setSelectedClassId,
+    majorModal,
+    setMajorModal,
+    majorModalStep,
+    setMajorModalStep,
+    majorError,
+    setMajorError,
+    deleteMajorOpen,
+    setDeleteMajorOpen,
+    quickMajorDeleteTarget,
+    setQuickMajorDeleteTarget,
+    majorPrintOpen,
+    setMajorPrintOpen,
+    quickMajorOpen,
+    setQuickMajorOpen,
+    majorBatchAddOpen,
+    setMajorBatchAddOpen,
+    visibleMajors,
+    majorAppliesToGrade,
+    scopedMajors,
+    orderedScopedMajors,
+    hasScopedMajor,
+    activeMajor,
+    items,
+    subjectTrackModeEnabled,
+    classesInMajorScope,
+    autoTrackClassIdsForMajorItem,
+    activeMajorTrackSubjects,
+    activeMajorTrackScopedCount,
+    activeMajorUnsetTrackClassCount,
+    changeSelectedGrade,
+    changeSelectedClass,
+    buildPayload,
+    pushToServerExec,
+    pushToServer,
+    commit,
+    commitItems,
+    commitBatchMajorItems,
+    switchMajor,
+    commitMajorModal,
+    removeMajor,
+    removeQuickMajor,
+    publishQuickMajor,
+    updateQuickMajor,
+    extendQuickMajor,
+    endQuickMajor,
+    promoteQuickMajor,
+  } = major;
+  // 打通间接引用：其余 Hook 通过这些 ref 反向调用大型考试领域的最新实现
+  commitRef.current = commit;
+  buildPayloadRef.current = buildPayload;
+  setMajorsRef.current = setMajors;
+  setActiveMajorIdRef.current = setActiveMajorId;
 
-  const changeSelectedGrade = (gradeId: string) => {
-    if (gradeId === selectedGradeId) return;
-    if (editing) {
-      const subject = editing.name.trim() || "未命名分考试";
-      notify(
-        "warning",
-        `“${subject}”仍在编辑中，请先确认并保存，或取消本次编辑后再切换年级。`,
-        "请先保存分考试",
-      );
-      return;
-    }
-    if (gradeId && !visibleGrades.some((grade) => grade.id === gradeId)) return;
-    setSelectedGradeId(gradeId);
-    setSelectedClassId("");
-    const candidates = visibleMajors.filter((major) =>
-      majorAppliesToGrade(major, gradeId),
-    );
-    const remembered = editingMajorIdByGrade[gradeId];
-    const nextMajor =
-      candidates.find((major) => major.id === remembered) ??
-      candidates.find((major) => major.targetGradeIds?.includes(gradeId)) ??
-      candidates[0];
-    if (nextMajor) setEditingMajorId(nextMajor.id);
-    updateExamSettings({ selectedGradeId: gradeId, selectedClassId: "" });
-  };
-  const changeSelectedClass = (classId: string) => {
-    if (
-      classId &&
-      !visibleClasses.some(
-        (item) => item.id === classId && item.gradeId === selectedGradeId,
-      )
-    )
-      return;
-    setSelectedClassId(classId);
-    updateExamSettings({ selectedGradeId, selectedClassId: classId });
-  };
+  const examItem = useExamItemActions({
+    items,
+    activeMajor,
+    commitItems,
+    editingMajorId,
+    autoTrackClassIdsForMajorItem,
+  });
+  const {
+    editing,
+    setEditing,
+    customSubjectActive,
+    setCustomSubjectActive,
+    majorTimeFlowOpen,
+    setMajorTimeFlowOpen,
+    setMajorTimeFlowInitialEnd,
+    editError,
+    setEditError,
+    deleteTarget,
+    setDeleteTarget,
+    selectedItemIds,
+    setSelectedItemIds,
+    deleteSelectedOpen,
+    setDeleteSelectedOpen,
+    lastDeletedExam,
+    setLastDeletedExam,
+    collapsedList,
+    setCollapsedList,
+    longDurationConfirmed,
+    setLongDurationConfirmed,
+    openMajorStartTimeFlow,
+    cancelMajorTimeFlow,
+    commitEdit,
+    setExamEnabled,
+    remove,
+    removeItems,
+    restoreExam,
+  } = examItem;
+  editingRef.current = editing;
+  setEditingRef.current = setEditing as (value: unknown) => void;
 
-  // 构造待推送的完整载荷（items/title 镜像激活大型考试）
-  const buildPayload = (ms: MajorExam[], activeId: string) => {
-    const active = ms.find((m) => m.id === activeId) ?? ms[0];
-    return {
-      items: active?.items ?? [],
-      title: active?.name ?? "",
-      majors: ms,
-      activeMajorId: activeId,
-      alerts: alertsRef.current,
-      ...weeklyStateRef.current,
-      initialization: initializationRef.current,
-    };
-  };
+  const school = useSchoolStructureActions({
+    weeklyStateRef,
+    commitWeekly,
+    grades,
+    classes,
+    weeklyPlans,
+    selectedGradeId,
+    selectedClassId,
+    changeSelectedGrade,
+    changeSelectedClass,
+    majors,
+    setMajors,
+    activeMajorId,
+    stateRef,
+  });
+  const {
+    addGrade,
+    addClass,
+    addClasses,
+    removeClass,
+    removeClasses,
+    removeGrade,
+    updateClassesTrack,
+  } = school;
 
-  // 重试前的退避延迟，避免冲突重试在短时间内形成请求风暴。
-  const retryBackoffDelay = (attempt: number) =>
-    new Promise((resolve) => setTimeout(resolve, Math.min(4000, 400 * 2 ** attempt)));
+  const majorImportExport = useMajorImportExport({
+    adminUser,
+    hasScopedMajor,
+    activeMajor,
+    activeMajorId,
+    items,
+    majors,
+    selectedGradeId,
+    commit,
+    setMoreOpen,
+    setMajorError,
+    setMajorModal,
+  });
+  const {
+    importOpen,
+    setImportOpen,
+    majorImportStep,
+    setMajorImportStep,
+    openImportGuide,
+    setOpenImportGuide,
+    importText,
+    setImportText,
+    importError,
+    setImportError,
+    majorImportPreview,
+    setMajorImportPreview,
+    validateMajorImportJson,
+    importJson,
+    exportJson,
+    openMajorImport,
+  } = majorImportExport;
 
-  // 将变更推送到服务器（已先行写入本地）：真正执行函数，仅供共享串行链的 pushToServer 包装器调用。
-  const pushToServerExec = useCallback(
-    async (ms: MajorExam[], activeId: string, syncLabel = "保存考试安排") => {
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        pendingRef.current = true;
-        setSync("offline");
-        return;
-      }
-      setSync("saving");
-      // 以持久 outbox 为准，旧防抖请求也不会把较新的本机编辑覆盖成旧载荷。
-      const queued = getPendingExamSync();
-      const payload = queued?.payload ?? buildPayload(ms, activeId);
-      // 必须在请求前读取共同基线；409 返回后云端已是较新版本，不能再拿它当 base。
-      // 基线取较新者：outbox 记录的基线可能晚于实时快照，也可能早于它，取较新值能减少不必要的 409。
-      const baseSnapshot = getCloudSnapshot();
-      const baseUpdatedAt = Math.max(
-        queued?.baseSnapshot?.updatedAt ?? 0,
-        baseSnapshot?.updatedAt ?? 0,
-      );
-      let expectedSavedAt = queued?.savedAt;
-      const isStalePush = () =>
-        expectedSavedAt != null &&
-        getPendingExamSync()?.savedAt !== expectedSavedAt;
-      const MAX_ATTEMPTS = 3;
-      let currentPayload = payload;
-      let currentBaseUpdatedAt = baseUpdatedAt;
-      let currentBaseline = baseSnapshot;
-      let totalConflicts = 0;
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        const result = await saveExamsToServer({
-          ...currentPayload,
-          baseUpdatedAt: currentBaseUpdatedAt,
-          clientQueueKey: "admin-exam-save",
-          clientSyncLabel:
-            attempt === 0 ? syncLabel : `${syncLabel} · 合并后重试(${attempt})`,
-        });
-        if (isStalePush()) return;
-        if (result === "unauthorized") {
-          navigate("/login?next=/admin", { replace: true });
-          return;
-        }
-        if (
-          result &&
-          typeof result === "object" &&
-          result.kind === "conflict"
-        ) {
-          if (!result.remote) {
-            pendingRef.current = true;
-            setSync("error");
-            notify(
-              "error",
-              "云端冲突数据不完整，本机修改已保留；请刷新后台后再保存。",
-              "同步失败",
-              { id: "admin-exam-sync-error" },
-            );
-            return;
-          }
-          const local = {
-            ...currentPayload,
-            updatedAt: currentBaseUpdatedAt,
-          };
-          const merged = threeWayMergeExam(
-            currentBaseline ?? result.remote,
-            local,
-            result.remote,
-          );
-          if (merged.conflictCount)
-            void recordSyncConflict(
-              merged.conflictCount,
-              local,
-              result.remote,
-            );
-          const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
-          const normalizedMergedExam = {
-            ...mergedExam,
-            weeklyConflictPolicy:
-              mergedExam.weeklyConflictPolicy ??
-              weeklyStateRef.current.weeklyConflictPolicy,
-          };
-          // 关键修复：先确认这次推送仍然新鲜（未被新的本机编辑/删除取代），才写入 outbox 与本机状态；
-          // 否则直接中止，避免用过期的合并结果覆盖用户在等待期间又做的新编辑/删除（“删除后又恢复”的根因）。
-          if (isStalePush()) return;
-          const mergedQueuedAt = Date.now();
-          queuePendingExamSync({
-            payload: merged.payload,
-            baseSnapshot: result.remote,
-            savedAt: mergedQueuedAt,
-          });
-          expectedSavedAt = mergedQueuedAt;
-          setMajors(merged.payload.majors);
-          setActiveMajorId(merged.payload.activeMajorId);
-          updateExamSettings({
-            ...normalizedMergedExam,
-            updatedAt: result.remote.updatedAt,
-          });
-          if (mergedAlerts) {
-            updateAlertsSettings({
-              ...mergedAlerts,
-              updatedAt: result.remote.updatedAt,
-            });
-            setAlerts(getAppSettings().alerts);
-          }
-          totalConflicts += merged.conflictCount;
-          currentPayload = merged.payload;
-          currentBaseUpdatedAt = result.remote.updatedAt;
-          currentBaseline = result.remote;
-          if (attempt < MAX_ATTEMPTS - 1) {
-            await retryBackoffDelay(attempt);
-            continue;
-          }
-          pendingRef.current = true;
-          setSync(
-            typeof navigator !== "undefined" && !navigator.onLine
-              ? "offline"
-              : "error",
-          );
-          notify(
-            "error",
-            "云端数据变化较频繁，自动合并已重试多次仍未成功，结果已保留在本机，请稍后重新保存。",
-            "同步失败",
-            { id: "admin-exam-sync-error" },
-          );
-          return;
-        }
-        if (typeof result !== "number") {
-          pendingRef.current = true;
-          setSync(
-            typeof navigator !== "undefined" && !navigator.onLine
-              ? "offline"
-              : "error",
-          );
-          if (result && result.kind === "error")
-            notify(
-              "error",
-              formatApiError(result.error, "保存考试数据失败"),
-              result.error.code.startsWith("DATABASE_")
-                ? "数据库连接失败"
-                : "同步失败",
-              { id: "admin-exam-sync-error" },
-            );
-          return;
-        }
-        pendingRef.current = false;
-        clearPendingExamSync(expectedSavedAt);
-        const { alerts: pAlerts, ...examPayload } = currentPayload;
-        updateExamSettings({
-          ...examPayload,
-          weeklyConflictPolicy:
-            examPayload.weeklyConflictPolicy ??
-            weeklyStateRef.current.weeklyConflictPolicy,
-          updatedAt: result,
-        });
-        if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
-        setSync("saved");
-        if (totalConflicts)
-          notify(
-            "warning",
-            `已合并本机与云端修改；${totalConflicts} 个同字段冲突保留本机值。`,
-            "数据冲突已处理",
-          );
-        return;
-      }
-    },
-    [navigate],
-  );
+  const syncEngine = useAdminSyncEngine({
+    navigate,
+    location,
+    adminUser,
+    setAdminUser,
+    setReady,
+    setSync,
+    setOnline,
+    cloudReadConfirmed,
+    setCloudReadConfirmed,
+    setRecoveryConfigured,
+    pendingRef,
+    stateRef,
+    weeklyStateRef,
+    initializationCompletedAt: initialization.completedAt,
+    gradesLength: grades.length,
+    classesLength: classes.length,
+    adminTab,
+    setAdminTab,
+    setAlertsOpen,
+    setDeniedModule,
+    setAnnounceOpen,
+    setWizardOpen,
+    setAlerts,
+    setInitialization: (value) => setInitialization(value as never),
+    pushToServer,
+    pushWeeklyToServer,
+    setMajors,
+    setActiveMajorId,
+    setEditingMajorId,
+    setScheduleMode,
+    setWeeklyPlans,
+    setActiveWeeklyPlanId,
+    setActiveWeeklyPlanIdByClassId,
+    setGrades,
+    setClasses,
+    setSelectedGradeId,
+    setSelectedClassId,
+    setWeeklyConflictPolicy,
+  });
+  void syncEngine;
 
-  // 对外暴露的大型考试推送入口：与 pushWeeklyToServer 共享同一条串行链，避免并发推送互相竞争。
-  const pushToServer = useCallback(
-    (ms: MajorExam[], activeId: string, syncLabel = "保存考试安排") => {
-      const run = examPushChainRef.current.then(() =>
-        pushToServerExec(ms, activeId, syncLabel),
-      );
-      examPushChainRef.current = run.catch(() => {});
-      return run;
-    },
-    [pushToServerExec],
-  );
-
-  // 任何修改：立即写入本地（离线保证）+ 防抖推送云端
-  const commit = useCallback(
-    (ms: MajorExam[], activeId: string, immediate = false, syncLabel = "保存考试安排") => {
-      setMajors(ms);
-      setActiveMajorId(activeId);
-      // 本地先行持久化，即使离线/刷新也不丢数据
-      const now = Date.now();
-      const { alerts: pAlerts, ...examPayload } = buildPayload(ms, activeId);
-      updateExamSettings({ ...examPayload, updatedAt: now });
-      if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: now });
-      // 本地持久 outbox：后台/PWA 被关闭后仍能在恢复联网时继续推送。
-      queuePendingExamSync({
-        payload: { ...examPayload, alerts: pAlerts ?? null },
-        baseSnapshot: getCloudSnapshot(),
-        savedAt: now,
-      });
-      pendingRef.current = true;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (immediate) {
-        void pushToServer(ms, activeId, syncLabel);
-        return;
-      }
-      setSync(
-        typeof navigator !== "undefined" && !navigator.onLine
-          ? "offline"
-          : "saving",
-      );
-      saveTimer.current = setTimeout(() => {
-        void pushToServer(ms, activeId, syncLabel);
-      }, 650);
-    },
-    [pushToServer],
-  );
-
-  // 修改当前大型考试的分考试列表
-  const commitItems = useCallback(
-    (nextItems: ExamItem[], syncLabel = "保存考试安排") => {
-      const ms = stateRef.current.majors.map((m) =>
-        m.id === editingMajorId ? { ...m, items: nextItems } : m,
-      );
-      commit(ms, stateRef.current.activeMajorId, false, syncLabel);
-    },
-    [commit, editingMajorId],
-  );
-  const commitBatchMajorItems = (nextItems: ExamItem[]) => {
-    commitItems(normalizeExamItems(nextItems), "批量更新分考试");
-    setMajorBatchAddOpen(false);
-  };
-
-  // ===== 周测：与大型考试独立的推送通道，复用 /api/exams 与其冲突返回结构 =====
-  // 真正执行函数，仅供共享串行链的 pushWeeklyToServer 包装器调用。
-  const pushWeeklyToServerExec = useCallback(
-    async (
-      weekly: {
-        scheduleMode: ScheduleMode;
-        weeklyPlans: WeeklyPlan[];
-        activeWeeklyPlanId: string | null;
-        activeWeeklyPlanIdByClassId: Record<string, string | null>;
-        grades: SchoolGrade[];
-        classes: SchoolClass[];
-        weeklyConflictPolicy: WeeklyConflictPolicy;
-      },
-      syncLabel = "保存周测与班级安排",
-    ) => {
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        pendingRef.current = true;
-        setSync("offline");
-        // 持久化到本地 outbox，确保离线时的周测编辑在应用重启后仍能在恢复联网时推送。
-        const queued = getPendingExamSync();
-        const basePayload =
-          queued?.payload ??
-          buildPayload(stateRef.current.majors, stateRef.current.activeMajorId);
-        queuePendingExamSync({
-          payload: { ...basePayload, ...weekly },
-          baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),
-          savedAt: Date.now(),
-        });
-        return;
-      }
-      setSync("saving");
-      const ms = stateRef.current.majors;
-      const activeId = stateRef.current.activeMajorId;
-      // Use the durable outbox as the single source of truth. Major-exam edits and
-      // weekly-plan edits can be triggered close together; sending them from
-      // separate stale baselines causes avoidable 409 loops under heavy batches.
-      const queued = getPendingExamSync();
-      const base = queued?.payload ?? buildPayload(ms, activeId);
-      // 基线取较新者：outbox 记录的基线与实时快照可能互有新旧，取较新值作为共同基线。
-      const queuedBaseSnapshot = queued?.baseSnapshot;
-      const liveBaseSnapshot = getCloudSnapshot();
-      const baseSnapshot =
-        (queuedBaseSnapshot?.updatedAt ?? 0) >= (liveBaseSnapshot?.updatedAt ?? 0)
-          ? queuedBaseSnapshot ?? liveBaseSnapshot
-          : liveBaseSnapshot ?? queuedBaseSnapshot;
-      const payload = { ...base, ...weekly };
-      const isStaleWeeklyPush = () =>
-        queued?.savedAt != null &&
-        getPendingExamSync()?.savedAt !== queued.savedAt;
-      const result = await saveExamsToServer({
-        ...payload,
-        baseUpdatedAt: baseSnapshot?.updatedAt ?? 0,
-        clientQueueKey: "admin-exam-save",
-        clientSyncLabel: syncLabel,
-      });
-      if (isStaleWeeklyPush()) return;
-      if (result === "unauthorized") {
-        navigate("/login?next=/admin", { replace: true });
-        return;
-      }
-      if (result && typeof result === "object" && result.kind === "conflict") {
-        if (result.remote) {
-          const baseline = getCloudSnapshot() ?? {
-            ...result.remote,
-            updatedAt: baseSnapshot?.updatedAt ?? 0,
-          };
-          const merged = threeWayMergeExam(
-            baseline,
-            { ...payload, updatedAt: baseSnapshot?.updatedAt ?? 0 },
-            result.remote,
-          );
-          await retryBackoffDelay(0);
-          const retry = await saveExamsToServer({
-            ...merged.payload,
-            baseUpdatedAt: result.remote.updatedAt,
-            clientQueueKey: "admin-exam-save",
-            clientSyncLabel: `${syncLabel} · 合并后重试`,
-          });
-          if (isStaleWeeklyPush()) return;
-          if (typeof retry === "number") {
-            const mergedWeekly = {
-              scheduleMode: merged.payload.scheduleMode ?? weekly.scheduleMode,
-              weeklyPlans: merged.payload.weeklyPlans ?? weekly.weeklyPlans,
-              activeWeeklyPlanId: merged.payload.activeWeeklyPlanId ?? null,
-              activeWeeklyPlanIdByClassId:
-                merged.payload.activeWeeklyPlanIdByClassId ?? {},
-              grades: merged.payload.grades ?? weekly.grades,
-              classes: merged.payload.classes ?? weekly.classes,
-              weeklyConflictPolicy:
-                merged.payload.weeklyConflictPolicy ??
-                weekly.weeklyConflictPolicy,
-            };
-            if (merged.payload.majors.length) {
-              setMajors(merged.payload.majors);
-              setActiveMajorId(
-                merged.payload.activeMajorId || merged.payload.majors[0].id,
-              );
-            }
-            setScheduleMode(mergedWeekly.scheduleMode);
-            setWeeklyPlans(mergedWeekly.weeklyPlans);
-            setActiveWeeklyPlanId(mergedWeekly.activeWeeklyPlanId);
-            setActiveWeeklyPlanIdByClassId(
-              mergedWeekly.activeWeeklyPlanIdByClassId,
-            );
-            setGrades(mergedWeekly.grades);
-            setClasses(mergedWeekly.classes);
-            setWeeklyConflictPolicy(mergedWeekly.weeklyConflictPolicy);
-            weeklyStateRef.current = mergedWeekly;
-            updateExamSettings({
-              ...merged.payload,
-              ...mergedWeekly,
-              updatedAt: retry,
-            });
-            pendingRef.current = false;
-            clearPendingExamSync(queued?.savedAt);
-            setSync("saved");
-            return;
-          }
-        }
-        pendingRef.current = true;
-        setSync("error");
-        notify(
-          "error",
-          `${syncLabel}遇到云端变化，自动重试仍失败；请刷新后台后重新保存。`,
-          "同步失败",
-          { id: "admin-exam-sync-error" },
-        );
-        return;
-      }
-      if (typeof result !== "number") {
-        pendingRef.current = true;
-        queuePendingExamSync({
-          payload,
-          baseSnapshot: baseSnapshot ?? null,
-          savedAt: queued?.savedAt ?? Date.now(),
-        });
-        setSync(
-          typeof navigator !== "undefined" && !navigator.onLine
-            ? "offline"
-            : "error",
-        );
-        if (result && result.kind === "error")
-          notify(
-            "error",
-            formatApiError(result.error, `${syncLabel}失败`),
-            result.error.code.startsWith("DATABASE_")
-              ? "数据库连接失败"
-              : "同步失败",
-            { id: "admin-exam-sync-error" },
-          );
-        return;
-      }
-      pendingRef.current = false;
-      clearPendingExamSync(queued?.savedAt);
-      updateExamSettings({ ...payload, updatedAt: result });
-      setSync("saved");
-    },
-    [navigate],
-  );
-
-  // 对外暴露的周测推送入口：与 pushToServer 共享同一条串行链，避免并发推送互相竞争。
-  const pushWeeklyToServer = useCallback(
-    (
-      weekly: {
-        scheduleMode: ScheduleMode;
-        weeklyPlans: WeeklyPlan[];
-        activeWeeklyPlanId: string | null;
-        activeWeeklyPlanIdByClassId: Record<string, string | null>;
-        grades: SchoolGrade[];
-        classes: SchoolClass[];
-        weeklyConflictPolicy: WeeklyConflictPolicy;
-      },
-      syncLabel?: string,
-    ) => {
-      const run = examPushChainRef.current.then(() =>
-        pushWeeklyToServerExec(weekly, syncLabel),
-      );
-      examPushChainRef.current = run.catch(() => {});
-      return run;
-    },
-    [pushWeeklyToServerExec],
-  );
-
-  const commitWeekly = useCallback(
-    (
-      weekly: Partial<{
-        scheduleMode: ScheduleMode;
-        weeklyPlans: WeeklyPlan[];
-        activeWeeklyPlanId: string | null;
-        activeWeeklyPlanIdByClassId: Record<string, string | null>;
-        grades: SchoolGrade[];
-        classes: SchoolClass[];
-        weeklyConflictPolicy: WeeklyConflictPolicy;
-      }>,
-      immediate = false,
-      syncLabel?: string,
-    ) => {
-      const next = { ...weeklyStateRef.current, ...weekly };
-      setScheduleMode(next.scheduleMode);
-      setWeeklyPlans(next.weeklyPlans);
-      setActiveWeeklyPlanId(next.activeWeeklyPlanId);
-      setActiveWeeklyPlanIdByClassId(next.activeWeeklyPlanIdByClassId);
-      setGrades(next.grades);
-      setClasses(next.classes);
-      setWeeklyConflictPolicy(next.weeklyConflictPolicy);
-      weeklyStateRef.current = next;
-      const now = Date.now();
-      updateExamSettings({ ...next, updatedAt: now });
-      const queued = getPendingExamSync();
-      const basePayload =
-        queued?.payload ??
-        buildPayload(stateRef.current.majors, stateRef.current.activeMajorId);
-      queuePendingExamSync({
-        payload: { ...basePayload, ...next },
-        baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),
-        savedAt: now,
-      });
-      pendingRef.current = true;
-      if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current);
-      if (immediate) {
-        void pushWeeklyToServer(next, syncLabel);
-        return;
-      }
-      setSync(
-        typeof navigator !== "undefined" && !navigator.onLine
-          ? "offline"
-          : "saving",
-      );
-      weeklySaveTimer.current = setTimeout(() => {
-        void pushWeeklyToServer(next, syncLabel);
-      }, 650);
-    },
-    [pushWeeklyToServer],
-  );
-
-  const handleScheduleModeChange = (mode: ScheduleMode) =>
-    commitWeekly({ scheduleMode: mode }, true);
-  const handleSaveWeeklyPlans = (
-    plans: WeeklyPlan[],
-    activeId: string | null,
-    classId: string,
-    immediate = false,
-    activeByClass?: Record<string, string | null>,
-  ) => {
-    const mergedPlans = hasAllScope
-      ? plans
-      : [
-          ...weeklyStateRef.current.weeklyPlans.filter(
-            (plan) => !visibleClassIds.has(plan.classId),
-          ),
-          ...plans.filter((plan) => visibleClassIds.has(plan.classId)),
-        ];
-    const nextByClass = activeByClass ?? {
-      ...weeklyStateRef.current.activeWeeklyPlanIdByClassId,
-      [classId]: activeId,
-    };
-    commitWeekly(
-      {
-        weeklyPlans: mergedPlans,
-        activeWeeklyPlanId: classId
-          ? weeklyStateRef.current.activeWeeklyPlanId
-          : activeId,
-        activeWeeklyPlanIdByClassId: nextByClass,
-      },
-      immediate,
-    );
-  };
-  const handleConflictPolicyChange = (
-    policy: WeeklyConflictPolicy,
-    immediate = false,
-  ) => commitWeekly({ weeklyConflictPolicy: policy }, immediate);
+  // ---- 横跨多个领域、留在编排层的逻辑 ----
   const completeInitialization = async (
     result: InitializationResult,
     passwordChange: InitializationPasswordChange,
@@ -1349,830 +637,6 @@ export default function AdminPage() {
       return { ok: false, error: `学校信息已保存，但密码修改失败：${message}` };
     }
     return { ok: true, recoveryKey: takeGeneratedRecoveryKey() || undefined };
-  };
-  const finalizeInitialization = () => {
-    setWizardOpen(false);
-    setAdminTab("classes");
-    logoutAdmin();
-    navigate("/login?next=/admin&passwordChanged=1", { replace: true });
-  };
-  const addGrade = (name: string) => {
-    const item = {
-      id: genGradeId(),
-      name,
-      order: grades.length,
-      enabled: true,
-    };
-    commitWeekly({ grades: [...grades, item] }, true);
-    if (!selectedGradeId) changeSelectedGrade(item.id);
-  };
-  const addClass = (gradeId: string, name: string) => {
-    const item = {
-      id: genClassId(),
-      gradeId,
-      name,
-      order: classes.filter((value) => value.gradeId === gradeId).length,
-      enabled: true,
-    };
-    commitWeekly(
-      {
-        classes: [...classes, item],
-        activeWeeklyPlanIdByClassId: {
-          ...weeklyStateRef.current.activeWeeklyPlanIdByClassId,
-          [item.id]: null,
-        },
-      },
-      true,
-    );
-  };
-  const addClasses = (gradeId: string, names: string[]) => {
-    if (!names.length) return;
-    const start = classes.filter((value) => value.gradeId === gradeId).length;
-    const created = names.map((name, index) => ({
-      id: genClassId(),
-      gradeId,
-      name,
-      order: start + index,
-      enabled: true,
-    }));
-    const nextActive = {
-      ...weeklyStateRef.current.activeWeeklyPlanIdByClassId,
-      ...Object.fromEntries(created.map((item) => [item.id, null])),
-    };
-    commitWeekly(
-      {
-        classes: [...classes, ...created],
-        activeWeeklyPlanIdByClassId: nextActive,
-      },
-      true,
-    );
-    notify("success", `已创建 ${created.length} 个班级。`);
-  };
-  const removeClass = (classId: string) => {
-    const nextMap = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId };
-    delete nextMap[classId];
-    const nextPlans = weeklyPlans.filter((plan) => plan.classId !== classId);
-    const nextMajors = majors.map((major) => ({
-      ...major,
-      targetClassIds: major.targetClassIds?.filter((id) => id !== classId),
-    }));
-    if (selectedClassId === classId) changeSelectedClass("");
-    setMajors(nextMajors);
-    stateRef.current = { majors: nextMajors, activeMajorId };
-    updateExamSettings({ majors: nextMajors });
-    const removedClass = classes.find((item) => item.id === classId);
-    commitWeekly(
-      {
-        classes: classes.filter((item) => item.id !== classId),
-        weeklyPlans: nextPlans,
-        activeWeeklyPlanIdByClassId: nextMap,
-      },
-      true,
-      removedClass ? `删除班级「${removedClass.name}」` : "删除班级",
-    );
-  };
-  const removeClasses = (classIds: string[]) => {
-    const removing = new Set(classIds);
-    const nextMap = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId };
-    removing.forEach((id) => delete nextMap[id]);
-    const nextMajors = majors.map((major) => ({
-      ...major,
-      targetClassIds: major.targetClassIds?.filter((id) => !removing.has(id)),
-    }));
-    if (removing.has(selectedClassId)) changeSelectedClass("");
-    setMajors(nextMajors);
-    stateRef.current = { majors: nextMajors, activeMajorId };
-    updateExamSettings({ majors: nextMajors });
-    const removedNames = classes
-      .filter((item) => removing.has(item.id))
-      .map((item) => item.name);
-    commitWeekly(
-      {
-        classes: classes.filter((item) => !removing.has(item.id)),
-        weeklyPlans: weeklyPlans.filter((plan) => !removing.has(plan.classId)),
-        activeWeeklyPlanIdByClassId: nextMap,
-      },
-      true,
-      `批量删除 ${removing.size} 个班级（${removedNames.slice(0, 5).join("、")}${removedNames.length > 5 ? "等" : ""}）`,
-    );
-    notify("success", `已删除 ${removing.size} 个班级及其关联计划。`);
-  };
-  const removeGrade = (gradeId: string) => {
-    const classIds = new Set(
-      classes.filter((item) => item.gradeId === gradeId).map((item) => item.id),
-    );
-    const nextMap = { ...weeklyStateRef.current.activeWeeklyPlanIdByClassId };
-    classIds.forEach((id) => delete nextMap[id]);
-    const nextMajors = majors.map((major) => ({
-      ...major,
-      targetGradeIds: major.targetGradeIds?.filter((id) => id !== gradeId),
-      targetClassIds: major.targetClassIds?.filter((id) => !classIds.has(id)),
-    }));
-    if (selectedGradeId === gradeId) changeSelectedGrade("");
-    setMajors(nextMajors);
-    stateRef.current = { majors: nextMajors, activeMajorId };
-    updateExamSettings({ majors: nextMajors });
-    const removedGrade = grades.find((item) => item.id === gradeId);
-    commitWeekly(
-      {
-        grades: grades.filter((item) => item.id !== gradeId),
-        classes: classes.filter((item) => item.gradeId !== gradeId),
-        weeklyPlans: weeklyPlans.filter((plan) => !classIds.has(plan.classId)),
-        activeWeeklyPlanIdByClassId: nextMap,
-      },
-      true,
-      removedGrade ? `删除年级「${removedGrade.name}」` : "删除年级",
-    );
-  };
-  const updateClassesTrack = (classIds: string[], track: string[]) => {
-    const idSet = new Set(classIds);
-    const nextClasses = classes.map((item) =>
-      idSet.has(item.id) ? { ...item, track: track.length ? track : undefined } : item,
-    );
-    commitWeekly(
-      { classes: nextClasses },
-      true,
-      classIds.length > 1 ? `设置 ${classIds.length} 个班级选科` : "设置班级选科",
-    );
-  };
-
-  // 开机：鉴权 + 拉取服务器数据
-  useEffect(() => {
-    let cancelled = false;
-    const boot = async () => {
-      const hasToken = hasValidLocalToken();
-      // 并行发起鉴权判断与数据拉取，避免美国↔新加坡跨洲往返串行叠加；
-      // 有本地令牌时无需再等 isLoginRequired，可直接进入。
-      const requiredP = hasToken ? Promise.resolve(true) : isLoginRequired();
-      const remoteP = fetchExamsFromServer();
-      const userP = hasToken ? refreshAdminUser() : Promise.resolve(null);
-
-      const required = await requiredP;
-      if (cancelled) return;
-      if (required && !hasValidLocalToken()) {
-        navigate("/login?next=/admin", { replace: true });
-        return;
-      }
-      const verifiedUser = await userP;
-      if (cancelled) return;
-      if (required && !verifiedUser) {
-        navigate("/login?next=/admin", { replace: true });
-        return;
-      }
-      if (verifiedUser?.mustChangePassword) {
-        setAdminUser(verifiedUser);
-        setAdminTab("users");
-        setReady(true);
-        if (location.search !== "?tab=users&password=1")
-          navigate("/admin?tab=users&password=1", { replace: true });
-        return;
-      }
-      setAdminUser(verifiedUser ?? OPEN_ADMIN);
-      setReady(true);
-
-      const remote = await remoteP;
-      if (cancelled) return;
-      if (remote) setCloudReadConfirmed(true);
-      const localAt = getAppSettings().exam?.updatedAt ?? 0;
-      const pendingSync = getPendingExamSync();
-
-      if (
-        remote &&
-        (remote.updatedAt > localAt ||
-          (remote.updatedAt === localAt && !pendingSync) ||
-          (remote.updatedAt < localAt && !pendingSync))
-      ) {
-        // 服务器更新：应用远端
-        const remoteUpdates: Record<string, unknown> = {
-          items: remote.items,
-          title: remote.title,
-          majors:
-            remote.majors && remote.majors.length ? remote.majors : undefined,
-          activeMajorId: remote.activeMajorId || undefined,
-          updatedAt: remote.updatedAt,
-        };
-        // 同步服务端周测字段到本地（仅在返回时写入，避免 undefined 抹除）。
-        if (remote.scheduleMode !== undefined)
-          remoteUpdates.scheduleMode = remote.scheduleMode;
-        if (remote.weeklyPlans !== undefined)
-          remoteUpdates.weeklyPlans = remote.weeklyPlans;
-        if (remote.activeWeeklyPlanId !== undefined)
-          remoteUpdates.activeWeeklyPlanId = remote.activeWeeklyPlanId;
-        if (remote.activeWeeklyPlanIdByClassId !== undefined)
-          remoteUpdates.activeWeeklyPlanIdByClassId =
-            remote.activeWeeklyPlanIdByClassId;
-        if (remote.grades !== undefined) remoteUpdates.grades = remote.grades;
-        if (remote.classes !== undefined)
-          remoteUpdates.classes = remote.classes;
-        if (remote.initialization !== undefined)
-          remoteUpdates.initialization = remote.initialization;
-        if (remote.weeklyConflictPolicy !== undefined)
-          remoteUpdates.weeklyConflictPolicy = remote.weeklyConflictPolicy;
-        updateExamSettings(remoteUpdates as any);
-        if (remote.alerts) {
-          updateAlertsSettings(remote.alerts);
-          setAlerts(getAppSettings().alerts);
-        }
-        const merged = getAppSettings().exam;
-        setMajors(merged.majors);
-        setActiveMajorId(merged.activeMajorId);
-        setEditingMajorId((current) =>
-          merged.majors.some((item) => item.id === current)
-            ? current
-            : merged.activeMajorId,
-        );
-        setScheduleMode(merged.scheduleMode);
-        setWeeklyPlans(merged.weeklyPlans);
-        setActiveWeeklyPlanId(merged.activeWeeklyPlanId);
-        setActiveWeeklyPlanIdByClassId(merged.activeWeeklyPlanIdByClassId);
-        setGrades(merged.grades);
-        setClasses(merged.classes);
-        setSelectedGradeId(merged.selectedGradeId);
-        setSelectedClassId(merged.selectedClassId);
-        setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
-        setInitialization(merged.initialization);
-        pendingRef.current = false;
-        setSync("saved");
-      } else if (pendingSync && localAt > (remote?.updatedAt ?? 0)) {
-        // 本地更新（之前离线编辑）：回连后回推（大型考试 + 周测，此前周测字段遗漏，现已补齐）
-        pendingRef.current = true;
-        const localExam = getAppSettings().exam;
-        void pushToServer(localExam.majors, localExam.activeMajorId);
-        void pushWeeklyToServer({
-          scheduleMode: localExam.scheduleMode,
-          weeklyPlans: localExam.weeklyPlans,
-          activeWeeklyPlanId: localExam.activeWeeklyPlanId,
-          activeWeeklyPlanIdByClassId: localExam.activeWeeklyPlanIdByClassId,
-          grades: localExam.grades,
-          classes: localExam.classes,
-          weeklyConflictPolicy: localExam.weeklyConflictPolicy,
-        });
-      } else {
-        setSync(remote ? "saved" : "offline");
-      }
-    };
-    void boot();
-    return () => {
-      cancelled = true;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (weeklySaveTimer.current) clearTimeout(weeklySaveTimer.current);
-    };
-  }, [location.search, navigate, pushToServer, pushWeeklyToServer]);
-
-  // 网络状态：回线时自动回推未同步变更
-  useEffect(() => {
-    const goOnline = () => {
-      setOnline(true);
-      if (pendingRef.current) {
-        void pushToServer(
-          stateRef.current.majors,
-          stateRef.current.activeMajorId,
-        );
-        void pushWeeklyToServer(weeklyStateRef.current);
-      }
-    };
-    const goOffline = () => {
-      setOnline(false);
-      setSync("offline");
-    };
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, [pushToServer, pushWeeklyToServer]);
-
-  useEffect(() => {
-    if (!adminUser) return;
-    if (adminUser.mustChangePassword) {
-      if (adminTab !== "users") setAdminTab("users");
-      return;
-    }
-    const accountView =
-      new URLSearchParams(location.search).get("account") === "1";
-    if (adminTab === "users" && accountView) return;
-    const permissionByTab: Record<AdminTab, string> = {
-      overview: "overview.read",
-      major: "major.read",
-      weekly: "weekly.read",
-      classes: "school.read",
-      devices: "device.read",
-      users: "user.read",
-    };
-    if (adminCan(permissionByTab[adminTab], adminUser)) return;
-    const next = (Object.keys(permissionByTab) as AdminTab[]).find((tab) =>
-      adminCan(permissionByTab[tab], adminUser),
-    );
-    if (next) setAdminTab(next);
-  }, [adminTab, adminUser, location.search]);
-
-  // ===== 大型考试：添加 / 切换 / 重命名 / 删除 =====
-  const switchMajor = (id: string) => {
-    if (id === editingMajorId) return;
-    setEditing(null);
-    setEditingMajorId(id);
-    if (selectedGradeId)
-      setEditingMajorIdByGrade((value) => ({
-        ...value,
-        [selectedGradeId]: id,
-      }));
-  };
-  const commitMajorModal = () => {
-    if (!majorModal) return;
-    const name = majorModal.name.trim();
-    if (!name) {
-      setMajorError("请输入大型考试名称");
-      return;
-    }
-    const continueToImport =
-      majorModal.mode === "add" && majorModal.next === "import";
-    if (majorModal.mode === "add") {
-      const nm: MajorExam = {
-        id: genMajorId(),
-        name,
-        items: [],
-        order: majors.length,
-        targetGradeIds: majorModal.targetGradeIds,
-      };
-      const ms = [...majors, nm];
-      setEditingMajorId(nm.id);
-      if (selectedGradeId)
-        setEditingMajorIdByGrade((value) => ({
-          ...value,
-          [selectedGradeId]: nm.id,
-        }));
-      commit(ms, nm.id, true, `新增大型考试「${name}」`);
-    } else {
-      const ms = majors.map((m) =>
-        m.id === activeMajor.id
-          ? { ...m, name, targetGradeIds: majorModal.targetGradeIds }
-          : m,
-      );
-      commit(ms, activeMajorId, true, `更新大型考试「${name}」`);
-    }
-    setMajorModal(null);
-    setMajorError("");
-    if (continueToImport) {
-      setImportError("");
-      setOpenImportGuide(true);
-      setImportOpen(true);
-    }
-  };
-  const removeMajor = () => {
-    if (majors.length <= 1) return;
-    const removedId = activeMajor.id;
-    const ms = majors
-      .filter((m) => m.id !== removedId)
-      .map((m, i) => ({ ...m, order: i }));
-    const nextActiveId = removedId === activeMajorId ? ms[0].id : activeMajorId;
-    const nextEditing =
-      ms.find((major) => majorAppliesToGrade(major, selectedGradeId)) ?? ms[0];
-    setEditingMajorId(nextEditing.id);
-    setEditingMajorIdByGrade((value) => {
-      const next = { ...value };
-      for (const gradeId of Object.keys(next))
-        if (next[gradeId] === removedId) delete next[gradeId];
-      if (selectedGradeId) next[selectedGradeId] = nextEditing.id;
-      return next;
-    });
-    commit(ms, nextActiveId, true, `删除大型考试「${activeMajor.name}」`);
-    setDeleteMajorOpen(false);
-  };
-  const removeQuickMajor = (major: MajorExam) => {
-    const ms = majors
-      .filter((item) => item.id !== major.id)
-      .map((item, index) => ({ ...item, order: index }));
-    const nextActiveId = activeMajorId === major.id ? (ms[0]?.id ?? "") : activeMajorId;
-    const nextEditing = ms.find((item) => majorAppliesToGrade(item, selectedGradeId)) ?? ms[0];
-    setEditingMajorId(nextEditing?.id ?? "");
-    setEditingMajorIdByGrade((value) => {
-      const next = { ...value };
-      for (const gradeId of Object.keys(next)) {
-        if (next[gradeId] === major.id) delete next[gradeId];
-      }
-      if (selectedGradeId && nextEditing) next[selectedGradeId] = nextEditing.id;
-      return next;
-    });
-    commit(ms, nextActiveId, true, `删除临时考试「${major.name}」`);
-    setQuickMajorDeleteTarget(null);
-  };
-  const publishQuickMajor = (input: QuickMajorPublishInput) => {
-    const start = new Date(input.startTime).getTime();
-    if (!Number.isFinite(start)) {
-      notify("error", "开始时间无效，请重新设置。", "无法发布");
-      return;
-    }
-    const now = Date.now();
-    const quick: MajorExam = {
-      id: genMajorId(),
-      name: input.name,
-      items: [
-        {
-          id: makeId(),
-          name: normalizeSubjectName(input.subject),
-          startTime: input.startTime,
-          endTime: toLocalInput(start + input.durationMinutes * 60_000),
-          enabled: true,
-          order: 0,
-        },
-      ],
-      order: majors.length,
-      targetGradeIds: input.targetGradeIds,
-      targetClassIds: input.targetClassIds,
-      source: "quick",
-      temporary: true,
-      priorityOverSchedule: input.priorityOverSchedule,
-      createdAt: now,
-      createdBy: adminUser?.id,
-      endedAt: null,
-    };
-    const next = [...majors, quick];
-    setEditingMajorId(quick.id);
-    if (selectedGradeId && input.targetGradeIds.includes(selectedGradeId))
-      setEditingMajorIdByGrade((value) => ({
-        ...value,
-        [selectedGradeId]: quick.id,
-      }));
-    commit(next, quick.id, true, `快速发布「${quick.name}」`);
-    setQuickMajorOpen(false);
-    notify(
-      "success",
-      `已下发「${quick.name}」，看板将在下一次同步时收到安排。`,
-      "统一考试已发布",
-    );
-  };
-  const updateQuickMajor = (
-    id: string,
-    patch: Partial<MajorExam>,
-    successMessage: string,
-  ) => {
-    const next = majors.map((major) =>
-      major.id === id ? { ...major, ...patch } : major,
-    );
-    commit(next, activeMajorId, true, successMessage);
-    notify("success", successMessage, "临时统一考试已更新");
-  };
-  const extendQuickMajor = (major: MajorExam) =>
-    updateQuickMajor(
-      major.id,
-      {
-        items: major.items.map((item) => ({
-          ...item,
-          endTime: toLocalInput(new Date(item.endTime).getTime() + 5 * 60_000),
-        })),
-      },
-      `「${major.name}」已延长 5 分钟。`,
-    );
-  const endQuickMajor = (major: MajorExam) =>
-    updateQuickMajor(
-      major.id,
-      {
-        endedAt: Date.now(),
-        items: major.items.map((item) => ({ ...item, enabled: false })),
-      },
-      `「${major.name}」已提前结束。`,
-    );
-  const promoteQuickMajor = (major: MajorExam) =>
-    updateQuickMajor(
-      major.id,
-      {
-        source: "regular",
-        temporary: false,
-        priorityOverSchedule: false,
-      },
-      `「${major.name}」已转存为正式大型考试。`,
-    );
-
-  // ===== 分考试：添加 / 编辑 / 启用 / 删除 / 排序 =====
-  const openMajorStartTimeFlow = () => {
-    if (!editing) return;
-    const startTime = editing.startTime || toISO(toLocalInput(Date.now()));
-    const start = new Date(startTime).getTime();
-    const currentEnd = new Date(editing.endTime).getTime();
-    const endTime = Number.isFinite(currentEnd) && currentEnd > start
-      ? editing.endTime
-      : toISO(toLocalInput(start + 60 * 60_000));
-    setMajorTimeFlowInitialStart(editing.startTime);
-    setMajorTimeFlowInitialEnd(editing.endTime);
-    setEditing((value) => value ? { ...value, startTime, endTime } : value);
-    setMajorTimeFlowOpen(true);
-  };
-
-  const cancelMajorTimeFlow = () => {
-    setEditing((value) =>
-      value
-        ? {
-            ...value,
-            startTime: majorTimeFlowInitialStart,
-            endTime: majorTimeFlowInitialEnd,
-          }
-        : value,
-    );
-    setMajorTimeFlowOpen(false);
-  };
-
-  const commitEdit = async () => {
-    if (!editing) return;
-    if (!editing.name.trim()) {
-      setEditError("请输入考试名称");
-      return;
-    }
-    if (!editing.startTime || !editing.endTime) {
-      setEditError("请输入开始与结束时间");
-      return;
-    }
-    if (new Date(editing.startTime) >= new Date(editing.endTime)) {
-      setEditError("结束时间必须晚于开始时间");
-      return;
-    }
-    const overlaps = items.some(
-      (x) =>
-        x.id !== editing.id &&
-        x.enabled &&
-        editing.enabled &&
-        new Date(editing.startTime) < new Date(x.endTime) &&
-        new Date(editing.endTime) > new Date(x.startTime),
-    );
-    if (
-      overlaps &&
-      !(await confirmDialog({
-        title: "考试时间重叠",
-        message: "此科目与已启用科目时间重叠，仍要保存吗？",
-        tone: "warning",
-        confirmLabel: "仍然保存",
-      }))
-    )
-      return;
-    if (
-      new Date(editing.endTime).getTime() -
-        new Date(editing.startTime).getTime() >
-        6 * 60 * 60 * 1000 &&
-      !longDurationConfirmed
-    ) {
-      setEditError("本场时长超过 6 小时，请确认这是跨天或特殊安排。");
-      return;
-    }
-    const normalizedName = normalizeSubjectName(editing.name.trim());
-    const targetClassIds = autoTrackClassIdsForMajorItem(activeMajor, normalizedName);
-    let next: ExamItem[];
-    if (editing.id)
-      next = items.map((x) =>
-        x.id === editing.id
-          ? { ...x, ...editing, name: normalizedName, targetClassIds, id: x.id, order: x.order }
-          : x,
-      );
-    else
-      next = [
-        ...items,
-        {
-          id: makeId(),
-          order: items.length ? Math.max(...items.map((x) => x.order)) + 1 : 0,
-          name: normalizedName,
-          startTime: toISO(editing.startTime),
-          endTime: toISO(editing.endTime),
-          enabled: editing.enabled,
-          targetClassIds,
-        },
-      ];
-    next = normalizeExamItems(next);
-    commitItems(next, editing.id ? `编辑「${normalizedName}」` : `新增「${normalizedName}」`);
-    setEditing(null);
-    setEditError("");
-    setLongDurationConfirmed(false);
-  };
-  /** 按明确的目标状态保存，按钮文案永远表达“下一步操作”，避免“已启用”被误认为点击后启用。 */
-  const setExamEnabled = (id: string, enabled: boolean) =>
-    commitItems(
-      items.map((x) => (x.id === id ? { ...x, enabled } : x)),
-      `${enabled ? "启用" : "停用"}「${items.find((x) => x.id === id)?.name ?? "分考试"}」`,
-    );
-  const remove = (item: ExamItem) => {
-    const index = items.findIndex((x) => x.id === item.id);
-    setLastDeletedExam({ item, index });
-    commitItems(items.filter((x) => x.id !== item.id), `删除「${item.name}」`);
-    setDeleteTarget(null);
-  };
-  // 批量删除分考试：与 removeClasses 相同的思路——一次性合并成单个 commitItems 调用，
-  // 避免像逐项删除那样每项各自触发一次 650ms 防抖提交，导致同步队列状态栏只显示“最后一项”。
-  const removeItems = (ids: string[]) => {
-    const removing = new Set(ids);
-    if (removing.size === 0) return;
-    const removedNames = items
-      .filter((item) => removing.has(item.id))
-      .map((item) => item.name);
-    commitItems(
-      items.filter((item) => !removing.has(item.id)),
-      `批量删除 ${removing.size} 项分考试（${removedNames.slice(0, 5).join("、")}${removedNames.length > 5 ? "等" : ""}）`,
-    );
-    setSelectedItemIds(new Set());
-    setDeleteSelectedOpen(false);
-    notify("success", `已删除 ${removing.size} 项分考试。`);
-  };
-  // 切换大型考试时清空选择，避免误删不属于当前列表的分考试
-  useEffect(() => {
-    setSelectedItemIds(new Set());
-  }, [editingMajorId]);
-  const restoreExam = () => {
-    if (!lastDeletedExam) return;
-    const next = [...items];
-    next.splice(
-      Math.min(lastDeletedExam.index, next.length),
-      0,
-      lastDeletedExam.item,
-    );
-    commitItems(next, `撤销删除「${lastDeletedExam.item.name}」`);
-    setLastDeletedExam(null);
-  };
-
-  // ===== 统一提醒管理：保存时同步至云（与考试数据共用一个载荷） =====
-  const commitAlerts = useCallback(
-    (next: AlertsSettings) => {
-      alertsRef.current = next;
-      setAlerts(next);
-      commit(stateRef.current.majors, stateRef.current.activeMajorId);
-    },
-    [commit],
-  );
-  const setAlertsEnabled = (enabled: boolean) =>
-    commitAlerts({ ...alertsRef.current, enabled });
-  const setAlertsDuration = (durationSec: number) =>
-    commitAlerts({ ...alertsRef.current, durationSec });
-  const updateStateCfg = (
-    state: AlertState,
-    patch: Partial<AlertsSettings["states"][AlertState]>,
-  ) =>
-    commitAlerts({
-      ...alertsRef.current,
-      states: {
-        ...alertsRef.current.states,
-        [state]: { ...alertsRef.current.states[state], ...patch },
-      },
-    });
-  const addCustomReminder = () => {
-    const rmd: CustomReminder = {
-      id: genReminderId(),
-      name: "新提醒",
-      enabled: true,
-      anchor: "beforeStart",
-      offsetMin: 30,
-      tone: "15min",
-      label: "提醒",
-      title: "距开考还有一段时间",
-      subtext: "请提前做好准备",
-    };
-    commitAlerts({
-      ...alertsRef.current,
-      custom: [...alertsRef.current.custom, rmd],
-    });
-  };
-  const updateCustomReminder = (id: string, patch: Partial<CustomReminder>) =>
-    commitAlerts({
-      ...alertsRef.current,
-      custom: alertsRef.current.custom.map((c) =>
-        c.id === id ? { ...c, ...patch } : c,
-      ),
-    });
-  const removeCustomReminder = (id: string) =>
-    commitAlerts({
-      ...alertsRef.current,
-      custom: alertsRef.current.custom.filter((c) => c.id !== id),
-    });
-  const resetAlerts = () => commitAlerts(normalizeAlerts(DEFAULT_ALERTS));
-
-  const validateMajorImportJson = () => {
-    setImportError("");
-    if (!hasScopedMajor || !activeMajor.id) {
-      setImportError("请先填写标题并创建大型考试，再导入分考试安排。");
-      return;
-    }
-    try {
-      const source = JSON.parse(importText);
-      const list = Array.isArray(source) ? source : source.items;
-      if (!Array.isArray(list))
-        throw new Error("JSON 必须是考试数组，或包含 items 数组");
-      const next = list.map((raw: unknown, index: number) => {
-        const row = raw as Record<string, unknown>;
-        if (!row.name || !row.startTime || !row.endTime)
-          throw new Error(`第 ${index + 1} 项缺少 name、startTime 或 endTime`);
-        const startTime = String(row.startTime);
-        const endTime = String(row.endTime);
-        const start = new Date(startTime).getTime();
-        const end = new Date(endTime).getTime();
-        if (!Number.isFinite(start) || !Number.isFinite(end))
-          throw new Error(`第 ${index + 1} 项的开始或结束时间格式无效`);
-        if (end <= start)
-          throw new Error(`第 ${index + 1} 项的结束时间必须晚于开始时间`);
-        return {
-          id: String(row.id ?? makeId()),
-          name: String(row.name),
-          startTime,
-          endTime,
-          enabled: row.enabled !== false,
-          order: typeof row.order === "number" ? row.order : index,
-          include: true,
-        };
-      });
-      const chronological = normalizeExamItems(next);
-      // 可选：导入文件重命名当前大型考试
-      const nextName =
-        typeof source.title === "string" && source.title.trim()
-          ? source.title.trim()
-          : activeMajor.name;
-      const warnings: string[] = [];
-      chronological.forEach((item, index) => {
-        const previous = chronological[index - 1];
-        if (previous && new Date(item.startTime) < new Date(previous.endTime))
-          warnings.push(`“${item.name}”与“${previous.name}”时间重叠`);
-      });
-      setMajorImportPreview({
-        title: nextName,
-        items: chronological.map((item) => ({ ...item, include: true })),
-        warnings,
-      });
-      setMajorImportStep(2);
-    } catch (error) {
-      setImportError(error instanceof Error ? error.message : "JSON 格式错误");
-    }
-  };
-
-  const importJson = () => {
-    setImportError("");
-    if (!majorImportPreview) {
-      validateMajorImportJson();
-      return;
-    }
-    try {
-      const selectedItems = majorImportPreview.items
-        .filter((item) => item.include)
-        .map(({ include: _include, ...item }) => item);
-      if (!selectedItems.length) throw new Error("请至少保留一项分考试安排");
-      const ms = majors.map((m) =>
-        m.id === activeMajor.id
-          ? { ...m, name: majorImportPreview.title, items: selectedItems }
-          : m,
-      );
-    commit(ms, activeMajorId, false, `导入「${majorImportPreview.title}」`);
-      setImportText("");
-      setImportOpen(false);
-      setMajorImportPreview(null);
-    } catch (error) {
-      setImportError(error instanceof Error ? error.message : "JSON 格式错误");
-    }
-  };
-
-  const exportJson = () => {
-    const file = new Blob(
-      [
-        JSON.stringify(
-          {
-            title: activeMajor.name,
-            items,
-            exportedAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-      ],
-      { type: "application/json;charset=utf-8" },
-    );
-    const url = URL.createObjectURL(file);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${activeMajor.name || "exam-board"}-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const openMajorImport = () => {
-    setMoreOpen(false);
-    setImportError("");
-    if (!selectedGradeId) {
-      notify("warning", "请先选择要导入考试安排的年级。", "请选择年级");
-      return;
-    }
-    if (hasScopedMajor) {
-      setOpenImportGuide(false);
-      setImportOpen(true);
-      return;
-    }
-    if (!adminCan("major.create", adminUser)) {
-      notify(
-        "error",
-        "当前年级尚无大型考试，且当前账号没有新建考试权限。",
-        "无法导入",
-      );
-      return;
-    }
-    setMajorError("");
-    setMajorModal({
-      mode: "add",
-      name: "",
-      targetGradeIds: selectedGradeId ? [selectedGradeId] : [],
-      next: "import",
-    });
   };
 
   if (!ready || !adminUser)
@@ -2457,7 +921,7 @@ export default function AdminPage() {
                     </button>
                   )}
                 {adminTab === "major" && can("major.import") && (
-                  <button onClick={openMajorImport}>导入大型考试 JSON</button>
+                  <button onClick={() => openMajorImport()}>导入大型考试 JSON</button>
                 )}
                 {adminTab === "major" && can("major.export") && (
                   <button
@@ -3045,12 +1509,13 @@ export default function AdminPage() {
                     const status = STATUS[phase(item)];
                     return (
                       <li
-                        className={`admin-item${canDeleteActiveMajor ? " admin-item--selectable" : ""}${!item.enabled ? " admin-item--disabled" : ""}`}
+                        className={`admin-item${!item.enabled ? " admin-item--disabled" : ""}`}
                         key={item.id}
                       >
                         {canDeleteActiveMajor && (
                           <label
                             className="admin-item__select"
+                            style={{ display: "flex", alignItems: "center", marginRight: 8 }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <input
@@ -3258,7 +1723,7 @@ export default function AdminPage() {
             </div>
             <div className="admin-modal__actions">
               <button className="admin-btn" onClick={() => { if (majorModalStep) setMajorModalStep(0); else { setMajorModal(null); setMajorError(""); } }}>{majorModalStep ? "上一步" : "取消"}</button>
-              {majorModalStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (!majorModal.name.trim()) { setMajorError("请输入大型考试名称"); return; } setMajorError(""); setMajorModalStep(1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitMajorModal}>{majorModal.next === "import" ? "创建并继续导入" : "确认保存"}</button>}
+              {majorModalStep === 0 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (!majorModal.name.trim()) { setMajorError("请输入大型考试名称"); return; } setMajorError(""); setMajorModalStep(1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => commitMajorModal(() => setImportOpen(true))}>{majorModal.next === "import" ? "创建并继续导入" : "确认保存"}</button>}
             </div>
           </div>
         </AdminModalPortal>
