@@ -196,7 +196,20 @@ function examPayload(row: ExamRow) {
   };
 }
 
-const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+function canonicalizeForCompare(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeForCompare);
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).sort().reduce((result: Record<string, unknown>, key) => {
+      result[key] = canonicalizeForCompare((value as Record<string, unknown>)[key]);
+      return result;
+    }, {});
+  }
+  return value;
+}
+
+// jsonb does not preserve object-key insertion order, so compare a canonical form.
+const sameJson = (left: unknown, right: unknown) =>
+  JSON.stringify(canonicalizeForCompare(left ?? null)) === JSON.stringify(canonicalizeForCompare(right ?? null));
 // 权限判断逻辑统一来自 src/shared/permissionRules.ts，与 api/_auth.ts、src/services/examService.ts 保持一致。
 const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
