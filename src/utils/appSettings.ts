@@ -1,28 +1,55 @@
 import type { ExamItem, MajorExam, AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
 import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
-import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES, ALL_CONFLICT_SCOPES } from '../types/exam';
-import { normalizeWeeklyPlan } from './weeklySchedule';
+import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES } from '../types/exam';
 import { logger } from './logger';
 import { normalizeExamItems } from './examSchedule';
 import { mirrorAppSettings } from '../services/offlineStore';
 import type { SchoolClass, SchoolGrade } from '../types/school';
-import { normalizeSubjectList } from '../data/subjects';
 import type { TimeSyncSettings } from './settings/timeSync';
 import { DEFAULT_TIME_SYNC_SETTINGS } from './settings/timeSync';
-import type { TypographyFontId, TypographySettings, MotionMode } from './settings/typography';
+import type { TypographyFontId, TypographySettings } from './settings/typography';
 import { DEFAULT_TYPOGRAPHY } from './settings/typography';
+import type { MotionMode } from './settings/motion';
+import { DEFAULT_MOTION_MODE } from './settings/motion';
 import type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch';
 import { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch';
+import { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design';
+import type { InitializationState } from './settings/school';
+import {
+  DEFAULT_INITIALIZATION,
+  normalizeGrades,
+  normalizeClasses,
+  normalizeSelectedGradeId,
+  normalizeSelectedClassId,
+  normalizeInitialization,
+} from './settings/school';
+import {
+  normalizeWeeklyPlan,
+  normalizeConflictPolicy,
+  resolveActiveWeeklyPlanIdByClass,
+} from './settings/weekly';
 
 export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
 
-// 时间同步/字体排版/动效模式/批量预设 的具体类型定义与规范化逻辑已拆分到 ./settings/ 下的独立模块，
-// 这里重新导出以保持对现有引用方（其他组件、页面）的向后兼容，避免逐一修改导入路径。
+// 各设置领域的类型和规范化逻辑已经拆分到 ./settings/；在这里重导出以保持既有调用方兼容。
 export type { TimeSyncSettings } from './settings/timeSync';
-export type { TypographyFontId, TypographySettings, MotionMode } from './settings/typography';
+export type { TypographyFontId, TypographySettings } from './settings/typography';
 export { DEFAULT_TYPOGRAPHY } from './settings/typography';
+export type { MotionMode } from './settings/motion';
+export { DEFAULT_MOTION_MODE } from './settings/motion';
 export type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch';
 export { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch';
+export { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design';
+export type { InitializationState } from './settings/school';
+export {
+  DEFAULT_INITIALIZATION,
+  normalizeGrades,
+  normalizeClasses,
+  normalizeSelectedGradeId,
+  normalizeSelectedClassId,
+  normalizeInitialization,
+} from './settings/school';
+export { normalizeWeeklyPlan, normalizeConflictPolicy, resolveActiveWeeklyPlanIdByClass } from './settings/weekly';
 
 export interface ExamSettings {
   /** 当前激活的大型考试名称（= 大屏标题，为兼容旧版保留）。 */
@@ -44,15 +71,7 @@ export interface ExamSettings {
   classes: SchoolClass[];
   selectedGradeId: string;
   selectedClassId: string;
-  initialization: {
-    completedAt: number;
-    wizardVersion: number;
-    demoDataImported: boolean;
-    province: string;
-    schoolName: string;
-    schoolFullName: string;
-    subjectTrackModeEnabled: boolean;
-  };
+  initialization: InitializationState;
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
   designPolicy: DesignPolicy;
@@ -145,7 +164,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   hasVisited: false,
   general: {
     typography: DEFAULT_TYPOGRAPHY,
-    motionMode: 'auto',
+    motionMode: DEFAULT_MOTION_MODE,
     timeSync: DEFAULT_TIME_SYNC_SETTINGS,
   },
   exam: {
@@ -161,9 +180,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     classes: [],
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '', subjectTrackModeEnabled: true },
+    initialization: DEFAULT_INITIALIZATION,
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
-    designPolicy: { rules: [], updatedAt: 0 },
+    designPolicy: DEFAULT_DESIGN_POLICY,
     alertEnabled: true,
     announcementPermanentlyHidden: false,
     updatedAt: 0,
@@ -233,37 +252,13 @@ export function normalizeExam(raw: unknown): ExamSettings {
   let activeWeeklyPlanId: string | null = src.activeWeeklyPlanId ?? null;
   if (activeWeeklyPlanId && !weeklyPlans.some(p => p.id === activeWeeklyPlanId)) activeWeeklyPlanId = null;
   if (!activeWeeklyPlanId && weeklyPlans.length) activeWeeklyPlanId = weeklyPlans[0].id;
-  const grades = (Array.isArray(src.grades) ? src.grades : []).filter(Boolean).map((grade, index) => ({ id: String(grade.id), name: String(grade.name), order: Number.isFinite(grade.order) ? grade.order : index, enabled: grade.enabled !== false }));
-  const classes = (Array.isArray(src.classes) ? src.classes : []).filter(Boolean).map((item, index) => ({
-    id: String(item.id),
-    gradeId: String(item.gradeId),
-    name: String(item.name),
-    order: Number.isFinite(item.order) ? item.order : index,
-    enabled: item.enabled !== false,
-    track: Array.isArray(item.track) ? normalizeSubjectList(item.track.map(String)) : undefined,
-  })).filter(item => grades.some(grade => grade.id === item.gradeId));
-  const rawByClass = src.activeWeeklyPlanIdByClassId && typeof src.activeWeeklyPlanIdByClassId === 'object' ? src.activeWeeklyPlanIdByClassId : {};
-  const activeWeeklyPlanIdByClassId: Record<string, string | null> = {};
-  for (const item of classes) {
-    const value = rawByClass[item.id];
-    activeWeeklyPlanIdByClassId[item.id] = typeof value === 'string' && weeklyPlans.some(plan => plan.id === value && plan.classId === item.id) ? value : (weeklyPlans.find(plan => plan.classId === item.id)?.id ?? null);
-  }
-  const selectedGradeId = grades.some(grade => grade.id === src.selectedGradeId) ? String(src.selectedGradeId) : '';
-  const selectedClassId = classes.some(item => item.id === src.selectedClassId && item.gradeId === selectedGradeId) ? String(src.selectedClassId) : '';
-  const rawInitialization = (src.initialization && typeof src.initialization === 'object' ? src.initialization : {}) as Partial<ExamSettings['initialization']>;
-  const initialization = {
-    completedAt: Number(rawInitialization.completedAt ?? 0),
-    wizardVersion: Math.max(1, Number(rawInitialization.wizardVersion ?? 1)),
-    demoDataImported: rawInitialization.demoDataImported === true,
-    province: String(rawInitialization.province ?? '').trim(),
-    schoolName: String(rawInitialization.schoolName ?? '').trim(),
-    schoolFullName: String(rawInitialization.schoolFullName ?? rawInitialization.schoolName ?? '').trim(),
-    subjectTrackModeEnabled: rawInitialization.subjectTrackModeEnabled !== false,
-  };
-  base.designPolicy = {
-    rules: Array.isArray(src.designPolicy?.rules) ? src.designPolicy.rules.filter(rule => rule && typeof rule.designId === 'string') : [],
-    updatedAt: Number(src.designPolicy?.updatedAt ?? 0),
-  };
+  const grades = normalizeGrades(src.grades);
+  const classes = normalizeClasses(src.classes, grades);
+  const activeWeeklyPlanIdByClassId = resolveActiveWeeklyPlanIdByClass(classes, weeklyPlans, src.activeWeeklyPlanIdByClassId);
+  const selectedGradeId = normalizeSelectedGradeId(src.selectedGradeId, grades);
+  const selectedClassId = normalizeSelectedClassId(src.selectedClassId, classes, selectedGradeId);
+  const initialization = normalizeInitialization(src.initialization);
+  base.designPolicy = normalizeDesignPolicy(src.designPolicy);
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 
   return {
@@ -283,20 +278,6 @@ export function normalizeExam(raw: unknown): ExamSettings {
     // items/title 始终镜像激活大型考试，保证展示端无需改动。
     title: active.name,
     items: active.items,
-  };
-}
-
-/** 规范化冲突策略，补齐缺省并纠正非法值。 */
-export function normalizeConflictPolicy(raw: unknown): WeeklyConflictPolicy {
-  const s = (raw ?? {}) as Partial<WeeklyConflictPolicy>;
-  const scope = ALL_CONFLICT_SCOPES.includes(s.scope as never)
-    ? (s.scope as WeeklyConflictPolicy['scope'])
-    : DEFAULT_WEEKLY_CONFLICT_POLICY.scope;
-  return {
-    enabled: s.enabled !== false,
-    scope,
-    bufferBeforeMinutes: Number.isFinite(s.bufferBeforeMinutes) ? Math.max(0, Math.round(s.bufferBeforeMinutes as number)) : 0,
-    bufferAfterMinutes: Number.isFinite(s.bufferAfterMinutes) ? Math.max(0, Math.round(s.bufferAfterMinutes as number)) : 0,
   };
 }
 

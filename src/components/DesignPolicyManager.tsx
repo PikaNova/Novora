@@ -6,6 +6,7 @@ import type { DeviceBindingInfo } from '../services/classBinding';
 import type { DesignAssignmentRule, DesignPolicy, DesignRuleScope } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
+import { normalizeDesignPolicy } from '../utils/settings/design';
 import { notify } from '../services/notify';
 import { confirmDialog } from '../services/appDialog';
 import InlineSelect from './InlineSelect';
@@ -13,19 +14,14 @@ import InlineSelect from './InlineSelect';
 const SCOPE_LABEL: Record<DesignRuleScope, string> = { school: '全校设计', grade: '年级', class: '班级', device: '设备实例' };
 const SCHOOL_LOCK_MESSAGE = '全校设计正在生效，请先删除全校设计后再设置其他范围。';
 
-function normalizePolicy(policy: DesignPolicy): DesignPolicy {
-  const schoolRule = [...policy.rules].reverse().find(rule => rule.scope === 'school');
-  return schoolRule ? { ...policy, rules: [schoolRule] } : policy;
-}
-
 export default function DesignPolicyManager({ grades, classes, devices, canEdit }: { grades: SchoolGrade[]; classes: SchoolClass[]; devices: DeviceBindingInfo[]; canEdit: boolean }) {
-  const [policy, setPolicy] = useState<DesignPolicy>(() => normalizePolicy(getAppSettings().exam.designPolicy));
+  const [policy, setPolicy] = useState<DesignPolicy>(() => normalizeDesignPolicy(getAppSettings().exam.designPolicy));
   const [scope, setScope] = useState<DesignRuleScope>('school');
   const [scopeId, setScopeId] = useState('*');
   const [designId, setDesignId] = useState(DESIGNS[0].id);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { void fetchExamsFromServer().then(payload => { if (payload?.designPolicy) setPolicy(normalizePolicy(payload.designPolicy)); }); }, []);
+  useEffect(() => { void fetchExamsFromServer().then(payload => { if (payload?.designPolicy) setPolicy(normalizeDesignPolicy(payload.designPolicy)); }); }, []);
   useEffect(() => {
     if (scope === 'school') setScopeId('*');
     else if (scope === 'grade') setScopeId(grades[0]?.id || '');
@@ -45,7 +41,7 @@ export default function DesignPolicyManager({ grades, classes, devices, canEdit 
     setSaving(true);
     try {
       const saved = await saveDesignPolicy({ rules, updatedAt: Date.now() });
-      const normalized = normalizePolicy(saved);
+      const normalized = normalizeDesignPolicy(saved);
       setPolicy(normalized);
       updateExamSettings({ designPolicy: normalized, updatedAt: normalized.updatedAt });
       notify('success', '考试端设计规则已下发');

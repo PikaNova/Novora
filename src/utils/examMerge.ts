@@ -1,7 +1,8 @@
 import type { AlertsSettings, ExamItem, MajorExam } from '../types';
 import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
 import type { SchoolClass, SchoolGrade } from '../types/school';
-import type { ExamSettings } from './appSettings';
+import type { InitializationState } from './settings/school';
+import { DEFAULT_INITIALIZATION } from './settings/school';
 
 export interface MergeableExamPayload {
   items: ExamItem[];
@@ -15,7 +16,7 @@ export interface MergeableExamPayload {
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   grades?: SchoolGrade[];
   classes?: SchoolClass[];
-  initialization?: ExamSettings['initialization'];
+  initialization?: InitializationState;
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
   updatedAt: number;
 }
@@ -115,8 +116,7 @@ export function threeWayMergeExam(base: MergeableExamPayload, local: MergeableEx
   const activeWeeklyPlanIdByClassId = mergeValue(base.activeWeeklyPlanIdByClassId ?? {}, local.activeWeeklyPlanIdByClassId ?? {}, remote.activeWeeklyPlanIdByClassId ?? {}, ctx) as Record<string, string | null>;
   const grades = mergeValue(base.grades ?? [], local.grades ?? [], remote.grades ?? [], ctx) as SchoolGrade[];
   const classes = mergeValue(base.classes ?? [], local.classes ?? [], remote.classes ?? [], ctx) as SchoolClass[];
-  const defaultInitialization: ExamSettings['initialization'] = { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '', subjectTrackModeEnabled: true };
-  const initialization = mergeValue(base.initialization ?? defaultInitialization, local.initialization ?? defaultInitialization, remote.initialization ?? defaultInitialization, ctx) as ExamSettings['initialization'];
+  const initialization = mergeValue(base.initialization ?? DEFAULT_INITIALIZATION, local.initialization ?? DEFAULT_INITIALIZATION, remote.initialization ?? DEFAULT_INITIALIZATION, ctx) as InitializationState;
   const scheduleMode = mergeValue(base.scheduleMode ?? 'major-only', local.scheduleMode ?? 'major-only', remote.scheduleMode ?? 'major-only', ctx) as ScheduleMode;
   const weeklyConflictPolicy = mergeValue(base.weeklyConflictPolicy ?? null, local.weeklyConflictPolicy ?? null, remote.weeklyConflictPolicy ?? null, ctx) as WeeklyConflictPolicy | null;
 
