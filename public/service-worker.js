@@ -1,5 +1,5 @@
-const SHELL_CACHE = "novora-shell-v2.7.1-loading";
-const RUNTIME_CACHE = "novora-runtime-v2.7.1-loading";
+const SHELL_CACHE = "novora-shell-v2.7.1-api-network";
+const RUNTIME_CACHE = "novora-runtime-v2.7.1-api-network";
 const SHELL_ASSETS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -36,6 +36,14 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // API data must always come from the network. Cache Storage ignores HTTP
+  // cache directives, so cache-first here could return stale grades/classes
+  // even when the API responds with Cache-Control: private, no-cache.
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(
