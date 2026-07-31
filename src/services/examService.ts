@@ -466,3 +466,36 @@ export function logoutAdmin(): void {
   localStorage.removeItem(TOKEN_EXPIRES_KEY);
   localStorage.removeItem(ADMIN_USER_KEY);
 }
+
+// ─────────────────────────────────────────────────────────────────
+// resetCloudData
+// 重置云端指定类别数据。调用方只需传入 categories（"all"|"major"|...
+// ），内部统一处理 Token / 错误分类，不再散落在页面层用 raw fetch。
+// ─────────────────────────────────────────────────────────────────
+export type ResetCategory = 'all' | 'major' | 'weekly' | 'school' | 'settings' | 'devices';
+
+export async function resetCloudData(categories: ResetCategory[]): Promise<void> {
+  const token = localStorage.getItem(TOKEN_KEY) ?? '';
+  const response = await fetchWithTimeout(
+    API_URL,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ action: 'reset-data', categories }),
+    },
+    30_000,
+  );
+  if (!response.ok) {
+    // Preserve the original response body for apiErrorFromResponse
+    const body = await response.text();
+    const replay = new Response(body, { status: response.status, headers: response.headers });
+    throw await apiErrorFromResponse(replay, '数据库重置失败');
+  }
+  const data = await response.json().catch(() => null);
+  if (!data?.ok) {
+    throw new Error((data?.error as string | undefined) ?? '数据库重置失败');
+  }
+}

@@ -41,6 +41,8 @@ import {
   isLoginRequired,
   refreshAdminUser,
   saveExamsToServer,
+  resetCloudData as _resetCloudDataService,
+  type ResetCategory,
   type AdminUserContext,
 } from "../services/examService";
 import type { WeeklyPlan, WeeklyWeekMode } from "../types/exam";
@@ -466,26 +468,7 @@ export default function SettingsPage() {
     }
     setResettingCloud(true);
     try {
-      const token = localStorage.getItem("admin_auth_token") || "";
-      const response = await fetch("/api/exams", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          action: "reset-data",
-          categories: resetCategories,
-        }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok) {
-        const replay = new Response(JSON.stringify(data), {
-          status: response.status,
-          headers: response.headers,
-        });
-        throw await apiErrorFromResponse(replay, "数据库重置失败");
-      }
+      await _resetCloudDataService(resetCategories as ResetCategory[]);
       notify("success", "所选云端数据已重置，即将重新载入初始化状态。");
       localStorage.removeItem(APP_SETTINGS_KEY);
       localStorage.removeItem("exam_pending_sync");
@@ -653,18 +636,10 @@ export default function SettingsPage() {
     );
   };
 
-  const saveSubjectTrackMode = async (enabled: boolean) => {
-    if (!canEditSettings || subjectTrackModeSaving) return;
+  // ── Helper: 将当前 exam 状态组装成 SaveExamsInput （少写重复套话） ──
+  const buildExamSaveInput = (overrides?: Record<string, unknown>) => {
     const exam = getAppSettings().exam;
-    const initialization = {
-      ...exam.initialization,
-      subjectTrackModeEnabled: enabled,
-    };
-    setSubjectTrackModeEnabled(enabled);
-    setSubjectTrackModeSaving(true);
-    setSubjectTrackModeSave("正在保存到云端…");
-    updateExamSettings({ initialization, updatedAt: Date.now() });
-    const result = await saveExamsToServer({
+    return {
       items: exam.items,
       title: exam.title,
       majors: exam.majors,
@@ -677,11 +652,29 @@ export default function SettingsPage() {
       grades: exam.grades,
       classes: exam.classes,
       weeklyConflictPolicy: exam.weeklyConflictPolicy,
-      initialization,
       baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0,
-      clientSyncLabel: enabled ? "开启分科模式" : "关闭分科模式",
-      clientQueueKey: "settings:subject-track-mode",
-    });
+      ...overrides,
+    };
+  };
+
+  const saveSubjectTrackMode = async (enabled: boolean) => {
+    if (!canEditSettings || subjectTrackModeSaving) return;
+    const exam = getAppSettings().exam;
+    const initialization = {
+      ...exam.initialization,
+      subjectTrackModeEnabled: enabled,
+    };
+    setSubjectTrackModeEnabled(enabled);
+    setSubjectTrackModeSaving(true);
+    setSubjectTrackModeSave("正在保存到云端…");
+    updateExamSettings({ initialization, updatedAt: Date.now() });
+    const result = await saveExamsToServer(
+      buildExamSaveInput({
+        initialization,
+        clientSyncLabel: enabled ? "开启分科模式" : "关闭分科模式",
+        clientQueueKey: "settings:subject-track-mode",
+      })
+    );
     if (result === "unauthorized") {
       setSubjectTrackModeSaving(false);
       navigate("/login?next=/settings", { replace: true });
@@ -812,22 +805,9 @@ export default function SettingsPage() {
     };
     updateExamSettings({ initialization });
     setSchoolSave("正在保存到云端…");
-    const result = await saveExamsToServer({
-      items: exam.items,
-      title: exam.title,
-      majors: exam.majors,
-      activeMajorId: exam.activeMajorId,
-      alerts: getAppSettings().alerts,
-      scheduleMode: exam.scheduleMode,
-      weeklyPlans: exam.weeklyPlans,
-      activeWeeklyPlanId: exam.activeWeeklyPlanId,
-      activeWeeklyPlanIdByClassId: exam.activeWeeklyPlanIdByClassId,
-      grades: exam.grades,
-      classes: exam.classes,
-      weeklyConflictPolicy: exam.weeklyConflictPolicy,
-      initialization,
-      baseUpdatedAt: getCloudSnapshot()?.updatedAt ?? 0,
-    });
+    const result = await saveExamsToServer(
+      buildExamSaveInput({ initialization })
+    );
     if (result === "unauthorized") {
       navigate("/login?next=/settings", { replace: true });
       return;
