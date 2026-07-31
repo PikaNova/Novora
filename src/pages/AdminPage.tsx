@@ -2485,7 +2485,7 @@ export default function AdminPage() {
                 <span className="admin-tabbar__mode-label with-help-tip">
                   <span>运行模式</span>
                   <HelpTip title="运行模式">
-                    仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规���让周测避开大型考试。
+                    仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。
                   </HelpTip>
                 </span>
                 <InlineSelect
@@ -2986,7 +2986,7 @@ export default function AdminPage() {
                   <div className="admin-empty__icon">
                     <CalendarDays />
                   </div>
-                  <p>当前大���考试暂无分考试，点击左侧“添加分考试”开始</p>
+                  <p>当前大型考试暂无分考试，点击左侧“添加分考试”开始</p>
                 </div>
               ) : collapsedList ? (
                 <div className="admin-collapsed-hint">
@@ -3190,7 +3190,7 @@ export default function AdminPage() {
               <AdminWizardSteps
                 active={majorModalStep}
                 steps={[{ label: "考试名称", hint: "填写清晰的考试标题" }, { label: "适用范围", hint: "确认下发年级" }]}
-                summary={<><span>大型��试</span><strong>{majorModal.name || "尚未命名"}</strong><span>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</span></>}
+                summary={<><span>大型考试</span><strong>{majorModal.name || "尚未命名"}</strong><span>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</span></>}
               />
               <div className="admin-workflow-content" key={majorModalStep}>
                 {majorModalStep === 0 && <div className="admin-workflow-pane">

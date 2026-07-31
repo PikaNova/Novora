@@ -1544,7 +1544,7 @@ export default function SettingsPage() {
               测试数据入口只在设置页向超级管理员显示。导入内容带有独立标识，可以单独移除。
             </p>
             <div className="set-row">
-              <label className="set-label">演示考试安��数据</label>
+              <label className="set-label">演示考试安排数据</label>
               <div className="set-inline-actions">
                 <button
                   className="set-btn"
