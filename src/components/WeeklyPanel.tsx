@@ -45,6 +45,14 @@ import { DateTimeField } from "./touch-datetime-picker";
 import { CalendarDays, CircleHelp } from "lucide-react";
 import TimeRangePickerModal from "./TimeRangePickerModal";
 import { COMMON_EXAM_SUBJECTS } from "../data/subjects";
+import {
+  useWeeklyPlanModal,
+  type LastDeleted,
+} from "../hooks/weekly/useWeeklyPlanModal";
+import { useWeeklyItemModal } from "../hooks/weekly/useWeeklyItemModal";
+import { useWeeklyImport } from "../hooks/weekly/useWeeklyImport";
+import { useWeeklyExceptions } from "../hooks/weekly/useWeeklyExceptions";
+import { useWeeklyBatchOps } from "../hooks/weekly/useWeeklyBatchOps";
 
 const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   1: "周一",
@@ -64,20 +72,6 @@ const SCOPE_LABEL: Record<WeeklyConflictPolicy["scope"], string> = {
   "whole-major-period": "大型考试整个考期暂停全部周测",
 };
 
-type ItemEdit = Omit<WeeklyExamItem, "id" | "order"> & { id?: string };
-type PlanModal = {
-  mode: "add" | "settings";
-  name: string;
-  gradeId: string;
-  classIds: string[];
-  activeFrom: string;
-  activeUntil: string;
-  anchorDate: string;
-  forever: boolean;
-  repeatEveryWeeks: number;
-  weekMode: WeeklyWeekMode;
-  excludeOfficialHolidays: boolean;
-} | null;
 type PreviewOcc = {
   date: string;
   weekday: IsoWeekday;
@@ -204,72 +198,6 @@ export default function WeeklyPanel({
   const activePlan =
     scopedPlans.find((p) => p.id === classActiveId) ?? scopedPlans[0] ?? null;
   const items = activePlan?.items ?? [];
-
-  const [planModal, setPlanModal] = useState<PlanModal>(null);
-  const [planWizardStep, setPlanWizardStep] = useState(0);
-  const [planError, setPlanError] = useState("");
-  const [deletePlanOpen, setDeletePlanOpen] = useState(false);
-  const [policyOpen, setPolicyOpen] = useState(false);
-  const [editing, setEditing] = useState<ItemEdit | null>(null);
-  const [itemWizardStep, setItemWizardStep] = useState(0);
-  const [customWeeklySubjectActive, setCustomWeeklySubjectActive] = useState(false);
-  const [editError, setEditError] = useState("");
-  const [weeklyTimeFlowOpen, setWeeklyTimeFlowOpen] = useState(false);
-  const [weeklyTimeFlowInitialStart, setWeeklyTimeFlowInitialStart] = useState("");
-  const [weeklyTimeFlowInitialEnd, setWeeklyTimeFlowInitialEnd] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<WeeklyExamItem | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importError, setImportError] = useState("");
-  const [importClassIds, setImportClassIds] = useState<string[]>([]);
-  const [importStep, setImportStep] = useState<"paste" | "preview" | "targets">("paste");
-  const [importSummary, setImportSummary] = useState<{
-    itemCount: number;
-    planName?: string;
-    items: Array<{ name: string; weekday: IsoWeekday; startTime: string; endTime: string; warning?: string }>;
-    warnings: string[];
-  } | null>(null);
-  const [importExcludedIndexes, setImportExcludedIndexes] = useState<number[]>([]);
-  const [exceptionsOpen, setExceptionsOpen] = useState(false);
-  const [newExcludeDate, setNewExcludeDate] = useState("");
-  const [conflictTarget, setConflictTarget] = useState<PreviewOcc | null>(null);
-  const [rescheduleTarget, setRescheduleTarget] = useState<{
-    occ: PreviewOcc;
-    name: string;
-    date: string;
-    startTime: string;
-    endTime: string;
-  } | null>(null);
-  const [rescheduleError, setRescheduleError] = useState("");
-  const [rescheduleTimeOpen, setRescheduleTimeOpen] = useState(false);
-  const [copyModal, setCopyModal] = useState<{
-    sourcePlanId: string;
-    targetClassIds: string[];
-    name: string;
-  } | null>(null);
-  const [copyWizardStep, setCopyWizardStep] = useState(0);
-  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
-  const [batchDeleteStep, setBatchDeleteStep] = useState(0);
-  const [batchDeletePlanIds, setBatchDeletePlanIds] = useState<string[]>([]);
-  const [printOpen, setPrintOpen] = useState(false);
-  const [printPickerOpen, setPrintPickerOpen] = useState(false);
-  const [printPickerStep, setPrintPickerStep] = useState(0);
-  const [printClassIds, setPrintClassIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (planModal) setPlanWizardStep(0);
-  }, [planModal?.mode]);
-  useEffect(() => {
-    if (editing) setItemWizardStep(0);
-  }, [editing !== null]);
-  useEffect(() => {
-    if (copyModal) setCopyWizardStep(0);
-  }, [copyModal !== null]);
-  useEffect(() => {
-    if (batchDeleteOpen) setBatchDeleteStep(0);
-  }, [batchDeleteOpen]);
-  useEffect(() => {
-    if (printPickerOpen) setPrintPickerStep(0);
-  }, [printPickerOpen]);
   const pickerOptions = useMemo<ClassPickerOption[]>(
     () =>
       classOptions.map((item) => ({
@@ -280,6 +208,55 @@ export default function WeeklyPanel({
       })),
     [classOptions],
   );
+
+  // ━━ 拆分为五个领域 hook（WeeklyPanel 仅负责编排与渲染） ━━
+  const [lastDeleted, setLastDeleted] = useState<LastDeleted>(null);
+
+  const planModal$ = useWeeklyPlanModal({
+    weeklyPlans, activeWeeklyPlanIdByClassId, selectedGradeId, selectedClassId,
+    selectedClassName, pickerOptions, activePlan, onSavePlans, onSelectScope, setLastDeleted,
+  });
+  const {
+    planModal, setPlanModal, planWizardStep, setPlanWizardStep,
+    planError, setPlanError, deletePlanOpen, setDeletePlanOpen,
+    policyOpen, setPolicyOpen,
+    openNewPlan, openPlanSettings, commitPlanModal, removePlan, togglePlanEnabled, switchPlan,
+  } = planModal$;
+
+  const itemModal$ = useWeeklyItemModal({
+    weeklyPlans, activePlan, selectedClassId, items, onSavePlans, setLastDeleted,
+  });
+  const {
+    editing, setEditing, itemWizardStep, setItemWizardStep,
+    customWeeklySubjectActive, setCustomWeeklySubjectActive,
+    editError, setEditError, weeklyTimeFlowOpen, setWeeklyTimeFlowOpen,
+    deleteTarget, setDeleteTarget,
+    openWeeklyTimeFlow, cancelWeeklyTimeFlow, commitItemModal, removeItem, toggleItemEnabled,
+  } = itemModal$;
+
+  const import$ = useWeeklyImport();
+  const {
+    importOpen, setImportOpen, importText, setImportText,
+    importError, setImportError, importClassIds, setImportClassIds,
+    importStep, setImportStep, importSummary, setImportSummary,
+    importExcludedIndexes, setImportExcludedIndexes,
+  } = import$;
+
+  const exceptions$ = useWeeklyExceptions<PreviewOcc>();
+  const {
+    exceptionsOpen, setExceptionsOpen, newExcludeDate, setNewExcludeDate,
+    conflictTarget, setConflictTarget, rescheduleTarget, setRescheduleTarget,
+    rescheduleError, setRescheduleError, rescheduleTimeOpen, setRescheduleTimeOpen,
+  } = exceptions$;
+
+  const batchOps$ = useWeeklyBatchOps();
+  const {
+    copyModal, setCopyModal, copyWizardStep, setCopyWizardStep,
+    batchDeleteOpen, setBatchDeleteOpen, batchDeleteStep, setBatchDeleteStep,
+    batchDeletePlanIds, setBatchDeletePlanIds,
+    printOpen, setPrintOpen, printPickerOpen, setPrintPickerOpen,
+    printPickerStep, setPrintPickerStep, printClassIds, setPrintClassIds,
+  } = batchOps$;
   const planPickerOptions = useMemo<ClassPickerOption[]>(
     () =>
       weeklyPlans.map((plan) => {
@@ -300,59 +277,6 @@ export default function WeeklyPanel({
       }),
     [classOptions, weeklyPlans],
   );
-  const [lastDeleted, setLastDeleted] = useState<
-    | { kind: "plan"; plan: WeeklyPlan; index: number }
-    | {
-        kind: "plans";
-        plans: Array<{ plan: WeeklyPlan; index: number }>;
-        activeByClass: Record<string, string | null>;
-      }
-    | { kind: "item"; item: WeeklyExamItem; index: number; planId: string }
-    | { kind: "occurrence"; overrideId: string; name: string }
-    | null
-  >(null);
-
-  const openWeeklyTimeFlow = () => {
-    if (!editing) return;
-    setWeeklyTimeFlowInitialStart(editing.startTime);
-    setWeeklyTimeFlowInitialEnd(editing.endTime);
-    setWeeklyTimeFlowOpen(true);
-  };
-
-  const cancelWeeklyTimeFlow = () => {
-    setEditing((item) =>
-      item
-        ? {
-            ...item,
-            startTime: weeklyTimeFlowInitialStart,
-            endTime: weeklyTimeFlowInitialEnd,
-          }
-        : item,
-    );
-    setWeeklyTimeFlowOpen(false);
-  };
-
-  const openNewPlan = () => {
-    const today = getShanghaiDateKey(Date.now());
-    setPlanModal({
-      mode: "add",
-      name:
-        selectedClassName && selectedClassId
-          ? `${selectedClassName}周测计划`
-          : "",
-      gradeId: selectedGradeId,
-      classIds: selectedClassId ? [selectedClassId] : [],
-      activeFrom: today,
-      activeUntil: "",
-      anchorDate: today,
-      forever: true,
-      repeatEveryWeeks: 1,
-      weekMode: "single",
-      excludeOfficialHolidays: false,
-    });
-    setPlanError("");
-  };
-
   const preview = useMemo((): PreviewOcc[] => {
     if (!activePlan) return [];
     const today = getShanghaiDateKey(Date.now());
@@ -569,111 +493,7 @@ export default function WeeklyPanel({
     );
   }
 
-  function commitPlanModal() {
-    if (!planModal) return;
-    const name = planModal.name.trim();
-    if (!name) {
-      setPlanError("请输入计划名称");
-      return;
-    }
-    if (!planModal.gradeId || !planModal.classIds.length) {
-      setPlanError("请至少选择一个适用班级");
-      return;
-    }
-    if (!DATE_RE.test(planModal.activeFrom)) {
-      setPlanError("请填写生效日期");
-      return;
-    }
-    if (!DATE_RE.test(planModal.anchorDate)) {
-      setPlanError("请填写学期开始日期");
-      return;
-    }
-    if (
-      !planModal.forever &&
-      planModal.activeUntil &&
-      planModal.activeUntil < planModal.activeFrom
-    ) {
-      setPlanError("结束日期不得早于生效日期");
-      return;
-    }
-    const repeat = Math.min(
-      8,
-      Math.max(1, Math.round(planModal.repeatEveryWeeks) || 1),
-    );
-    if (planModal.mode === "add") {
-      const created = planModal.classIds.map((classId, offset) => {
-        const target = pickerOptions.find((item) => item.id === classId)!;
-        const className = target?.className || "班级";
-        const planName =
-          planModal.classIds.length > 1
-            ? name.includes(selectedClassName) && selectedClassName
-              ? name.replace(selectedClassName, className)
-              : `${className} · ${name}`
-            : name;
-        return {
-          ...createEmptyWeeklyPlan(Date.now() + offset, planName),
-          gradeId: target.gradeId,
-          classId,
-          activeFrom: planModal.activeFrom,
-          activeUntil: planModal.forever ? null : planModal.activeUntil || null,
-          anchorDate: planModal.anchorDate,
-          repeatEveryWeeks: repeat,
-          weekMode: planModal.weekMode,
-          excludeOfficialHolidays: planModal.excludeOfficialHolidays,
-          order: weeklyPlans.length + offset,
-        };
-      });
-      const activeByClass = {
-        ...activeWeeklyPlanIdByClassId,
-        ...Object.fromEntries(created.map((plan) => [plan.classId, plan.id])),
-      };
-      onSavePlans(
-        [...weeklyPlans, ...created],
-        created[0].id,
-        created[0].classId,
-        true,
-        activeByClass,
-      );
-      onSelectScope?.(created[0].gradeId, created[0].classId);
-      notify(
-        "success",
-        created.length > 1
-          ? `已为 ${created.length} 个班级创建独立周测计划。`
-          : "周测计划已创建。",
-      );
-    } else {
-      const plans = weeklyPlans.map((p) =>
-        p.id === activePlan.id
-          ? {
-              ...p,
-              name,
-              activeFrom: planModal.activeFrom,
-              activeUntil: planModal.forever
-                ? null
-                : planModal.activeUntil || null,
-              anchorDate: planModal.anchorDate,
-              repeatEveryWeeks: repeat,
-              weekMode: planModal.weekMode,
-              excludeOfficialHolidays: planModal.excludeOfficialHolidays,
-            }
-          : p,
-      );
-      onSavePlans(plans, activePlan.id, selectedClassId, true);
-    }
-    setPlanModal(null);
-    setPlanError("");
-  }
 
-  function removePlan() {
-    const index = weeklyPlans.findIndex((p) => p.id === activePlan.id);
-    const rest = weeklyPlans
-      .filter((p) => p.id !== activePlan.id)
-      .map((p, i) => ({ ...p, order: i }));
-    const nextId = rest.find((p) => p.classId === selectedClassId)?.id ?? null;
-    setLastDeleted({ kind: "plan", plan: activePlan, index });
-    onSavePlans(rest, nextId, selectedClassId, true);
-    setDeletePlanOpen(false);
-  }
 
   async function removeSelectedPlans() {
     if (!batchDeletePlanIds.length) return;
@@ -718,86 +538,6 @@ export default function WeeklyPanel({
     notify("success", `已删除 ${removed.length} 个周测计划。`);
   }
 
-  function togglePlanEnabled() {
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id ? { ...p, enabled: !p.enabled } : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-  }
-
-  function switchPlan(id: string) {
-    if (id === activePlan.id) return;
-    onSavePlans(weeklyPlans, id, selectedClassId, true);
-  }
-
-  function commitItemModal() {
-    if (!editing) return;
-    const name = editing.name.trim();
-    if (!name) {
-      setEditError("请输入周测名称");
-      return;
-    }
-    if (!HM_RE.test(editing.startTime) || !HM_RE.test(editing.endTime)) {
-      setEditError("请输入正确的时间（HH:mm）");
-      return;
-    }
-    const start = padHM(editing.startTime);
-    const end = padHM(editing.endTime);
-    if (!editing.endNextDay && end <= start) {
-      setEditError("结束时间必须晚于开始时间；跨日安排请在“时间设置”中勾选启用跨日考试。");
-      return;
-    }
-    let nextItems: WeeklyExamItem[];
-    if (editing.id) {
-      nextItems = items.map((x) =>
-        x.id === editing.id
-          ? {
-              ...x,
-              ...editing,
-              startTime: start,
-              endTime: end,
-              id: x.id,
-              order: x.order,
-            }
-          : x,
-      );
-    } else {
-      nextItems = [
-        ...items,
-        {
-          id: makeItemId(),
-          order: items.length ? Math.max(...items.map((x) => x.order)) + 1 : 0,
-          name,
-          weekday: editing.weekday,
-          startTime: start,
-          endTime: end,
-          endNextDay: editing.endNextDay,
-          enabled: editing.enabled,
-          location: editing.location,
-          note: editing.note,
-          weekType: editing.weekType ?? "all",
-        },
-      ];
-    }
-    nextItems = sortWeeklyItems(nextItems);
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id ? { ...p, items: nextItems } : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-    setEditing(null);
-    setEditError("");
-  }
-
-  function removeItem(item: WeeklyExamItem) {
-    const index = items.findIndex((x) => x.id === item.id);
-    const nextItems = items.filter((x) => x.id !== item.id);
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id ? { ...p, items: nextItems } : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-    setLastDeleted({ kind: "item", item, index, planId: activePlan.id });
-    setDeleteTarget(null);
-  }
 
   function upsertOverride(next: WeeklyExamOverride) {
     const exists = activePlan.overrides.some((o) => o.id === next.id);
@@ -979,15 +719,6 @@ export default function WeeklyPanel({
     removeOverride(genWeeklyOverrideId(o.weeklyItemId, o.date));
   }
 
-  function toggleItemEnabled(item: WeeklyExamItem) {
-    const nextItems = items.map((x) =>
-      x.id === item.id ? { ...x, enabled: !x.enabled } : x,
-    );
-    const plans = weeklyPlans.map((p) =>
-      p.id === activePlan.id ? { ...p, items: nextItems } : p,
-    );
-    onSavePlans(plans, activePlan.id, selectedClassId, true);
-  }
 
   function closeImport(clearText = false) {
     setImportOpen(false);
@@ -1551,26 +1282,10 @@ export default function WeeklyPanel({
             >
               + 新建
             </button>
-            <button
-              className="admin-btn"
-              onClick={() => {
-                setPlanModal({
-                  mode: "settings",
-                  name: activePlan.name,
-                  gradeId: activePlan.gradeId,
-                  classIds: [activePlan.classId],
-                  activeFrom: activePlan.activeFrom,
-                  activeUntil: activePlan.activeUntil ?? "",
-                  anchorDate: activePlan.anchorDate,
-                  forever: !activePlan.activeUntil,
-                  repeatEveryWeeks: activePlan.repeatEveryWeeks,
-                  weekMode: activePlan.weekMode ?? "single",
-                  excludeOfficialHolidays:
-                    activePlan.excludeOfficialHolidays === true,
-                });
-                setPlanError("");
-              }}
-            >
+              <button
+                className="admin-btn"
+                onClick={openPlanSettings}
+              >
               计划设置
             </button>
             <button
