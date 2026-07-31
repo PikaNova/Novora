@@ -1,0 +1,9 @@
+# 仅与 NAS / Docker 自托管部署相关，Vercel 部署不需要，排除以缩小上传构建包
+Dockerfile
+.dockerignore
+docker-compose.yml
+server.js
+tsconfig.server.json
+server-build
+docs/DEPLOY_NAS.md
+README-NAS-FILES.md
