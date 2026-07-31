@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { canAccessClass, canAccessGrade, ensureGeneratedRecoveryKey, hasPermission, isPasswordRequired, requireActor, SCHEMA_MIGRATION_LOCK_ID, writeAudit, type AdminActor, type Permission } from './_auth.js';
+import { hasAllScope as sharedHasAllScope } from '../src/shared/permissionRules.js';
 import { requestId, sendDatabaseError } from './_apiError.js';
 import { applyCors } from './_cors.js';
 import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
@@ -199,7 +200,8 @@ function examPayload(row: ExamRow) {
 }
 
 const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-const allScope = (actor: AdminActor) => actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all');
+// 权限判断逻辑统一来自 src/shared/permissionRules.ts，与 api/_auth.ts、src/services/examService.ts 保持一致。
+const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
 function changedRecords(before: any[], after: any[]): any[] {
   const left = new Map((Array.isArray(before) ? before : []).map(item => [String(item?.id ?? ''), item]));

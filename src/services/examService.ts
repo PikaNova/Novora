@@ -6,6 +6,12 @@ import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
 import { runQueued } from './syncQueue';
+import {
+  canAccessClass as sharedCanAccessClass,
+  canAccessGrade as sharedCanAccessGrade,
+  hasPermission as sharedHasPermission,
+  type PermissionScope,
+} from '../shared/permissionRules';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -91,7 +97,7 @@ export function getCloudSnapshot(): ExamPayload | null {
   } catch { return null; }
 }
 
-// ── 统一的网络错误分类 ─────────────────────────────────────────────────
+// ── 统一的网络错误分类 ────────────────────────────────────────────────────────────
 function classifyFetchError(err: unknown): ApiError {
   if (err instanceof ApiError) return err;
   if (err instanceof TypeError && /fetch|network|load/i.test(err.message)) {
@@ -353,7 +359,8 @@ export async function repairSuperAdminAccount(username: string, recoveryKey: str
   return { created: data.created === true };
 }
 
-export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
+// 与后端 AdminScope 形状一致（实际上就是共享的 PermissionScope），保留本地名字以向后兼容现有引用方。
+export type AdminScope = PermissionScope;
 export type AdminUserContext = {
   id: number;
   username: string;
@@ -381,17 +388,19 @@ export function clearGradeAdminSetupPrompt(): void {
   try { localStorage.removeItem(GRADE_ADMIN_FIRST_LOGIN_KEY); } catch { /* storage optional */ }
 }
 
+// 以下三个函数现在委托给 src/shared/permissionRules.ts 的共享实现，与后端 api/_auth.ts 的
+// hasPermission/canAccessGrade/canAccessClass 保持完全一致的判断逻辑（注意：旧版 adminCanGrade 对年级范围的
+// 判断曾与后端存在细微差异，现统一以后端的更严谨版本为准）。
 export function adminCan(permission: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.permissions.includes(permission));
+  return sharedHasPermission(user, permission);
 }
 
 export function adminCanGrade(gradeId: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.scopes.some(scope => scope.type === 'all' || scope.gradeId === gradeId));
+  return sharedCanAccessGrade(user, gradeId);
 }
 
 export function adminCanClass(gradeId: string, classId: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.scopes.some(scope =>
-    scope.type === 'all' || scope.type === 'grade' && scope.gradeId === gradeId || scope.type === 'class' && scope.classId === classId));
+  return sharedCanAccessClass(user, gradeId, classId);
 }
 
 /** V3：登录/进入管理页时主动刷新一次真实权限，消除前端 localStorage 缓存与服务端实际角色的漂移（见权限排查报告原因 5）。 */

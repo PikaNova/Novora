@@ -7,24 +7,22 @@ import { normalizeExamItems } from './examSchedule';
 import { mirrorAppSettings } from '../services/offlineStore';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { normalizeSubjectList } from '../data/subjects';
+import type { TimeSyncSettings } from './settings/timeSync';
+import { DEFAULT_TIME_SYNC_SETTINGS } from './settings/timeSync';
+import type { TypographyFontId, TypographySettings, MotionMode } from './settings/typography';
+import { DEFAULT_TYPOGRAPHY } from './settings/typography';
+import type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch';
+import { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch';
 
 export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
 
-export interface TimeSyncSettings {
-  enabled: boolean;
-  provider: 'httpDate' | 'timeApi' | 'ntp';
-  httpDateUrl: string;
-  timeApiUrl: string;
-  ntpHost: string;
-  ntpPort: number;
-  manualOffsetMs: number;
-  offsetMs: number;
-  autoSyncEnabled: boolean;
-  autoSyncIntervalSec: number;
-  lastSyncAt: number;
-  lastRttMs?: number;
-  lastError?: string;
-}
+// 时间同步/字体排版/动效模式/批量预设 的具体类型定义与规范化逻辑已拆分到 ./settings/ 下的独立模块，
+// 这里重新导出以保持对现有引用方（其他组件、页面）的向后兼容，避免逐一修改导入路径。
+export type { TimeSyncSettings } from './settings/timeSync';
+export type { TypographyFontId, TypographySettings, MotionMode } from './settings/typography';
+export { DEFAULT_TYPOGRAPHY } from './settings/typography';
+export type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch';
+export { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch';
 
 export interface ExamSettings {
   /** 当前激活的大型考试名称（= 大屏标题，为兼容旧版保留）。 */
@@ -62,49 +60,6 @@ export interface ExamSettings {
   announcementPermanentlyHidden: boolean;
   updatedAt?: number;
 }
-
-export interface MajorBatchSubjectGroup {
-  id: string;
-  name: string;
-  subjects: string[];
-  custom: true;
-  updatedAt: number;
-  order?: number;
-}
-
-export interface MajorBatchTimeSlot {
-  start: string;
-  end: string;
-  dayOffset?: number;
-}
-
-export interface MajorBatchTimeGroup {
-  id: string;
-  name: string;
-  slots: MajorBatchTimeSlot[];
-  custom: true;
-  updatedAt: number;
-  order?: number;
-}
-
-export interface MajorBatchSettings {
-  subjectGroups: MajorBatchSubjectGroup[];
-  timeGroups: MajorBatchTimeGroup[];
-}
-
-export type TypographyFontId = 'design' | 'alibaba' | 'sourceHan' | 'smiley' | 'wenkai' | 'general' | 'jbmono';
-export interface TypographySettings {
-  navigation: TypographyFontId;
-  display: TypographyFontId;
-  content: TypographyFontId;
-  numeric: TypographyFontId;
-}
-export const DEFAULT_TYPOGRAPHY: TypographySettings = {
-  navigation: 'sourceHan', display: 'design', content: 'sourceHan', numeric: 'jbmono',
-};
-
-/** 动效模式：auto=跟随系统“减少动态效果”偏好；best-effects=开满动效；best-performance=关停动画/过渡/毛玻璃以省性能。 */
-export type MotionMode = 'auto' | 'best-effects' | 'best-performance';
 
 export interface AppSettings {
   version: number;
@@ -181,81 +136,6 @@ export const APP_SETTINGS_KEY = 'AppSettings';
 /** 同一页面内 localStorage 写入不会触发 storage 事件，使用此事件通知正在运行的页面。 */
 export const APP_SETTINGS_CHANGED_EVENT = 'exam-board:settings-changed';
 
-const MAJOR_BATCH_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-export const DEFAULT_MAJOR_BATCH_SETTINGS: MajorBatchSettings = {
-  subjectGroups: [],
-  timeGroups: [],
-};
-
-function genMajorBatchPresetId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-}
-
-function normalizeMajorBatchSubjectGroups(raw: unknown): MajorBatchSubjectGroup[] {
-  const parsed = (Array.isArray(raw) ? raw : [])
-    .filter(Boolean)
-    .map((item, index) => {
-      const source = item as Partial<MajorBatchSubjectGroup>;
-      const subjects = Array.isArray(source.subjects)
-        ? [...new Set(source.subjects.map(value => String(value).trim()).filter(Boolean))]
-        : [];
-      return {
-        id: String(source.id || genMajorBatchPresetId('batch_subject_group')),
-        name: String(source.name || `自定义科目组 ${index + 1}`).trim(),
-        subjects,
-        custom: true as const,
-        updatedAt: Number.isFinite(source.updatedAt) ? Number(source.updatedAt) : 0,
-        order: Number.isFinite(source.order) ? Number(source.order) : index,
-      };
-    })
-    .filter(item => item.name && item.subjects.length > 0)
-    .sort((a, b) => a.order - b.order)
-    .slice(0, 24);
-  return parsed.map((item, index) => ({ ...item, order: index }));
-}
-
-function normalizeMajorBatchTimeSlots(raw: unknown): MajorBatchTimeSlot[] {
-  return (Array.isArray(raw) ? raw : [])
-    .filter(Boolean)
-    .map((item) => {
-      const source = item as Partial<MajorBatchTimeSlot>;
-      const dayOffset = Number(source.dayOffset ?? 0);
-      return {
-        start: String(source.start ?? '').trim(),
-        end: String(source.end ?? '').trim(),
-        dayOffset: Number.isFinite(dayOffset) ? Math.max(0, Math.min(30, Math.round(dayOffset))) : 0,
-      };
-    })
-    .filter(item => MAJOR_BATCH_TIME_RE.test(item.start) && MAJOR_BATCH_TIME_RE.test(item.end))
-    .slice(0, 40);
-}
-
-export function normalizeMajorBatchSettings(raw: unknown): MajorBatchSettings {
-  const source = (raw ?? {}) as Partial<MajorBatchSettings>;
-  const parsedTimeGroups = (Array.isArray(source.timeGroups) ? source.timeGroups : [])
-    .filter(Boolean)
-    .map((item, index) => {
-      const value = item as Partial<MajorBatchTimeGroup>;
-      return {
-        id: String(value.id || genMajorBatchPresetId('batch_time_group')),
-        name: String(value.name || `自定义时间组 ${index + 1}`).trim(),
-        slots: normalizeMajorBatchTimeSlots(value.slots),
-        custom: true as const,
-        updatedAt: Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : 0,
-        order: Number.isFinite(value.order) ? Number(value.order) : index,
-      };
-    })
-    .filter(item => item.name && item.slots.length > 0)
-    .sort((a, b) => a.order - b.order)
-    .slice(0, 24);
-  const timeGroups = parsedTimeGroups.map((item, index) => ({ ...item, order: index }));
-  return {
-    subjectGroups: normalizeMajorBatchSubjectGroups(source.subjectGroups),
-    timeGroups,
-  };
-}
-
 export function genMajorId(): string {
   return `major_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -266,19 +146,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   general: {
     typography: DEFAULT_TYPOGRAPHY,
     motionMode: 'auto',
-    timeSync: {
-      enabled: true,
-      provider: 'timeApi',
-      httpDateUrl: '/',
-      timeApiUrl: '/api/time',
-      ntpHost: 'ntp.aliyun.com',
-      ntpPort: 123,
-      manualOffsetMs: 0,
-      offsetMs: 0,
-      autoSyncEnabled: true,
-      autoSyncIntervalSec: 900,
-      lastSyncAt: 0,
-    },
+    timeSync: DEFAULT_TIME_SYNC_SETTINGS,
   },
   exam: {
     title: '2026年高考',

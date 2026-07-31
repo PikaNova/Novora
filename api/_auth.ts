@@ -2,6 +2,14 @@ import { neon } from '@neondatabase/serverless';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import {
+  ALL_PERMISSIONS,
+  canAccessClass as sharedCanAccessClass,
+  canAccessGrade as sharedCanAccessGrade,
+  hasPermission as sharedHasPermission,
+  type Permission,
+  type PermissionScope,
+} from '../src/shared/permissionRules.js';
 
 const scrypt = promisify(scryptCallback);
 const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -12,19 +20,11 @@ const REPAIR_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const REPAIR_RATE_LIMIT_MAX_ATTEMPTS = 5;
 export const SCHEMA_MIGRATION_LOCK_ID = 1649236847;
 
-export const ALL_PERMISSIONS = [
-  'overview.read',
-  'major.read', 'major.create', 'major.quick_create', 'major.edit', 'major.delete', 'major.import', 'major.export',
-  'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export',
-  'school.read', 'school.grade_manage', 'school.class_manage',
-  'device.read', 'device.bind', 'device.revoke',
-  'schedule.mode_edit', 'schedule.conflict_edit', 'schedule.term_edit', 'schedule.ab_week_edit', 'schedule.holiday_edit',
-  'alerts.read', 'alerts.edit', 'settings.read', 'settings.edit', 'settings.major_batch_edit', 'initialization.run', 'demo_data.delete',
-  'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password', 'role.manage', 'audit.read', 'deployment.trigger',
-] as const;
-
-export type Permission = typeof ALL_PERMISSIONS[number] | '*';
-export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
+// 权限常量与基础类型现统一定义在 src/shared/permissionRules.ts，前后端共用同一份，避免漂移。
+// 仍从本文件导出，保持其他 api/*.ts 文件 `from './_auth.js'` 的引用方式不变。
+export { ALL_PERMISSIONS };
+export type { Permission };
+export type AdminScope = PermissionScope;
 export type AdminActor = {
   id: number;
   username: string;
@@ -379,17 +379,15 @@ export async function verifyToken(token: string | undefined): Promise<boolean> {
 }
 
 export function hasPermission(actor: AdminActor, permission: Permission): boolean {
-  return actor.permissions.includes('*') || actor.permissions.includes(permission);
+  return sharedHasPermission(actor, permission);
 }
 
 export function canAccessGrade(actor: AdminActor, gradeId: string): boolean {
-  if (actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return true;
-  return actor.scopes.some(scope => (scope.type === 'grade' || scope.type === 'class') && scope.gradeId === gradeId);
+  return sharedCanAccessGrade(actor, gradeId);
 }
 
 export function canAccessClass(actor: AdminActor, gradeId: string, classId: string): boolean {
-  if (actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return true;
-  return actor.scopes.some(scope => (scope.type === 'grade' && scope.gradeId === gradeId) || (scope.type === 'class' && scope.classId === classId));
+  return sharedCanAccessClass(actor, gradeId, classId);
 }
 
 export async function requireActor(req: VercelRequest, res: VercelResponse, permission?: Permission, allowPasswordChange = false): Promise<AdminActor | null> {
