@@ -91,6 +91,7 @@ import type { SchoolClass, SchoolGrade } from "../types/school";
 import { genClassId, genGradeId, subjectAppliesToClass } from "../types/school";
 import { COMMON_EXAM_SUBJECTS, isTrackSubject, normalizeSubjectName } from "../data/subjects";
 import "../styles/admin.css";
+import "../styles/admin-wizard-mobile-fix.css";
 import "../styles/admin-track-additions.css";
 import {
   ArrowLeft,
@@ -305,6 +306,9 @@ export default function AdminPage() {
   const [majorTimeFlowInitialEnd, setMajorTimeFlowInitialEnd] = useState("");
   const [editError, setEditError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ExamItem | null>(null);
+  // 分考试批量删除：勾选的分考试 id 集合，以及批量删除确认弹窗的开关
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
   const [lastDeletedExam, setLastDeletedExam] = useState<{
     item: ExamItem;
     index: number;
@@ -1930,6 +1934,26 @@ export default function AdminPage() {
     commitItems(items.filter((x) => x.id !== item.id), `删除「${item.name}」`);
     setDeleteTarget(null);
   };
+  // 批量删除分考试：与 removeClasses 相同的思路——一次性合并成单个 commitItems 调用，
+  // 避免像逐项删除那样每项各自触发一次 650ms 防抖提交，导致同步队列状态栏只显示“最后一项”。
+  const removeItems = (ids: string[]) => {
+    const removing = new Set(ids);
+    if (removing.size === 0) return;
+    const removedNames = items
+      .filter((item) => removing.has(item.id))
+      .map((item) => item.name);
+    commitItems(
+      items.filter((item) => !removing.has(item.id)),
+      `批量删除 ${removing.size} 项分考试（${removedNames.slice(0, 5).join("、")}${removedNames.length > 5 ? "等" : ""}）`,
+    );
+    setSelectedItemIds(new Set());
+    setDeleteSelectedOpen(false);
+    notify("success", `已删除 ${removing.size} 项分考试。`);
+  };
+  // 切换大型考试时清空选择，避免误删不属于当前列表的分考试
+  useEffect(() => {
+    setSelectedItemIds(new Set());
+  }, [editingMajorId]);
   const restoreExam = () => {
     if (!lastDeletedExam) return;
     const next = [...items];
@@ -2180,6 +2204,12 @@ export default function AdminPage() {
           .map((id) => grades.find((grade) => grade.id === id)?.name || id)
           .join("、")
       : "全校";
+  // 预览与导出 PDF 时，若当前正查看某个具体班级，按该班级的选科结果实时过滤
+  // 科目，而不是展示整个大型考试范围内的全部科目（修复选科结果未下发到
+  // 考试安排预览的问题）。
+  const majorPrintClass = selectedClassId
+    ? visibleClasses.find((item) => item.id === selectedClassId)
+    : undefined;
   const quickScopedMajors = orderedScopedMajors.filter(
     (major) =>
       major.temporary &&
@@ -2455,7 +2485,7 @@ export default function AdminPage() {
                 <span className="admin-tabbar__mode-label with-help-tip">
                   <span>运行模式</span>
                   <HelpTip title="运行模式">
-                    仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。
+                    仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规���让周测避开大型考试。
                   </HelpTip>
                 </span>
                 <InlineSelect
@@ -2914,6 +2944,14 @@ export default function AdminPage() {
                   {activeMajor.name} · 考试安排
                 </h2>
                 <span className="admin-list-count">{items.length} 项</span>
+                {selectedItemIds.size > 0 && can("major.delete") && (
+                  <button
+                    className="admin-btn admin-btn--danger"
+                    onClick={() => setDeleteSelectedOpen(true)}
+                  >
+                    批量删除（{selectedItemIds.size}）
+                  </button>
+                )}
                 {items.length > 0 && (
                   <>
                     <button
@@ -2948,7 +2986,7 @@ export default function AdminPage() {
                   <div className="admin-empty__icon">
                     <CalendarDays />
                   </div>
-                  <p>当前大型考试暂无分考试，点击左侧“添加分考试”开始</p>
+                  <p>当前大���考试暂无分考试，点击左侧“添加分考试”开始</p>
                 </div>
               ) : collapsedList ? (
                 <div className="admin-collapsed-hint">
@@ -2966,6 +3004,27 @@ export default function AdminPage() {
                         className={`admin-item${!item.enabled ? " admin-item--disabled" : ""}`}
                         key={item.id}
                       >
+                        {can("major.delete") && (
+                          <label
+                            className="admin-item__select"
+                            style={{ display: "flex", alignItems: "center", marginRight: 8 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedItemIds.has(item.id)}
+                              onChange={(e) => {
+                                setSelectedItemIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(item.id);
+                                  else next.delete(item.id);
+                                  return next;
+                                });
+                              }}
+                              aria-label={`选择「${item.name}」`}
+                            />
+                          </label>
+                        )}
                         <div className="admin-item__order">
                           <span className="admin-item__order-num">
                             #{index + 1}
@@ -3131,7 +3190,7 @@ export default function AdminPage() {
               <AdminWizardSteps
                 active={majorModalStep}
                 steps={[{ label: "考试名称", hint: "填写清晰的考试标题" }, { label: "适用范围", hint: "确认下发年级" }]}
-                summary={<><span>大型考试</span><strong>{majorModal.name || "尚未命名"}</strong><span>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</span></>}
+                summary={<><span>大型��试</span><strong>{majorModal.name || "尚未命名"}</strong><span>{majorModal.targetGradeIds.length ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || "指定年级" : "全校统一"}</span></>}
               />
               <div className="admin-workflow-content" key={majorModalStep}>
                 {majorModalStep === 0 && <div className="admin-workflow-pane">
@@ -3195,6 +3254,11 @@ export default function AdminPage() {
           title={activeMajor.name}
           entries={items
             .filter((item) => item.enabled)
+            .filter(
+              (item) =>
+                !majorPrintClass ||
+                subjectAppliesToClass(item.name, majorPrintClass),
+            )
             .map((item) => ({
               date: item.startTime.slice(0, 10),
               name: item.name,
@@ -3206,7 +3270,7 @@ export default function AdminPage() {
             grades.find((grade) => grade.id === selectedGradeId)?.name ||
             activeMajorScopeLabel
           }
-          className="全年级"
+          className={majorPrintClass ? majorPrintClass.name : "全年级"}
           onClose={() => setMajorPrintOpen(false)}
         />
       )}
@@ -3231,6 +3295,33 @@ export default function AdminPage() {
               <button
                 className="admin-btn"
                 onClick={() => setDeleteMajorOpen(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </AdminModalPortal>
+      )}
+      {deleteSelectedOpen && (
+        <AdminModalPortal
+          className="admin-modal-overlay"
+          {...backdropProps(() => setDeleteSelectedOpen(false))}
+        >
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="admin-modal__title">批量删除分考试</h2>
+            <p className="admin-modal__body">
+              确定删除选中的 {selectedItemIds.size} 项分考试？此操作无法撤销。
+            </p>
+            <div className="admin-modal__actions">
+              <button
+                className="admin-btn admin-btn--danger"
+                onClick={() => removeItems([...selectedItemIds])}
+              >
+                删除
+              </button>
+              <button
+                className="admin-btn"
+                onClick={() => setDeleteSelectedOpen(false)}
               >
                 取消
               </button>
