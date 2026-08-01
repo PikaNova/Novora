@@ -1,6 +1,20 @@
-import type { ExamItem } from "../../types";
+import type { ExamItem, MajorExam } from "../../types";
 
 export type SyncState = "loading" | "saving" | "saved" | "offline" | "error";
+
+export type MajorStateRef = {
+  current: { majors: MajorExam[]; activeMajorId: string };
+};
+
+// Cross-domain saves compose a complete exam payload from this ref. Keep it in
+// lockstep with React state before another domain can queue its own save.
+export function syncMajorStateRef(
+  stateRef: MajorStateRef,
+  majors: MajorExam[],
+  activeMajorId: string,
+) {
+  stateRef.current = { majors, activeMajorId };
+}
 
 export function fmtAnnTime(ms: number) {
   if (!ms) return "";

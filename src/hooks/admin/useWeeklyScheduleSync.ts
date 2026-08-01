@@ -25,6 +25,7 @@ import { updateExamSettings } from "../../utils/appSettings";
 import { notify } from "../../services/notify";
 import { formatApiError } from "../../services/apiError";
 import type { SyncState } from "./adminPageUtils";
+import { syncMajorStateRef } from "./adminPageUtils";
 
 export type WeeklyState = {
   scheduleMode: ScheduleMode;
@@ -210,10 +211,15 @@ export function useWeeklyScheduleSync(params: {
                 mergedPayload.weeklyConflictPolicy ?? weekly.weeklyConflictPolicy,
             };
             if (mergedPayload.majors?.length) {
-              setMajorsRef.current(mergedPayload.majors);
-              setActiveMajorIdRef.current(
-                mergedPayload.activeMajorId || mergedPayload.majors[0].id,
+              const mergedActiveMajorId =
+                mergedPayload.activeMajorId || mergedPayload.majors[0].id;
+              syncMajorStateRef(
+                stateRef,
+                mergedPayload.majors,
+                mergedActiveMajorId,
               );
+              setMajorsRef.current(mergedPayload.majors);
+              setActiveMajorIdRef.current(mergedActiveMajorId);
             }
             setScheduleMode(mergedWeekly.scheduleMode);
             setWeeklyPlans(mergedWeekly.weeklyPlans);

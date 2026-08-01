@@ -30,7 +30,7 @@ import { normalizeExamItems } from "../../utils/examSchedule";
 import type { QuickMajorPublishInput } from "../../components/QuickMajorPublishModal";
 import type { WeeklyState } from "./useWeeklyScheduleSync";
 import type { SyncState } from "./adminPageUtils";
-import { makeId, toLocalInput } from "./adminPageUtils";
+import { makeId, syncMajorStateRef, toLocalInput } from "./adminPageUtils";
 
 export type MajorModal = {
   mode: "add" | "rename";
@@ -381,8 +381,12 @@ export function useMajorScheduleActions(params: {
             savedAt: mergedQueuedAt,
           });
           expectedSavedAt = mergedQueuedAt;
-          setMajors((merged.payload as { majors: MajorExam[] }).majors);
-          setActiveMajorId((merged.payload as { activeMajorId: string }).activeMajorId);
+          const mergedMajors = (merged.payload as { majors: MajorExam[] }).majors;
+          const mergedActiveMajorId =
+            (merged.payload as { activeMajorId: string }).activeMajorId;
+          syncMajorStateRef(stateRef, mergedMajors, mergedActiveMajorId);
+          setMajors(mergedMajors);
+          setActiveMajorId(mergedActiveMajorId);
           updateExamSettings({
             ...normalizedMergedExam,
             updatedAt: result.remote.updatedAt,
@@ -467,6 +471,7 @@ export function useMajorScheduleActions(params: {
 
   const commit = useCallback(
     (ms: MajorExam[], activeId: string, immediate = false, syncLabel = "保存考试安排") => {
+      syncMajorStateRef(stateRef, ms, activeId);
       setMajors(ms);
       setActiveMajorId(activeId);
       const now = Date.now();

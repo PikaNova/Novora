@@ -16,6 +16,7 @@ import type { AlertsSettings, MajorExam } from "../../types";
 import type { AdminTab } from "../../types/exam";
 import type { WeeklyState } from "./useWeeklyScheduleSync";
 import type { SyncState } from "./adminPageUtils";
+import { syncMajorStateRef } from "./adminPageUtils";
 
 export const OPEN_ADMIN: AdminUserContext = {
   id: 0,
@@ -253,6 +254,7 @@ export function useAdminSyncEngine(params: {
           setAlerts(getAppSettings().alerts);
         }
         const merged = getAppSettings().exam;
+        syncMajorStateRef(stateRef, merged.majors, merged.activeMajorId);
         setMajors(merged.majors);
         setActiveMajorId(merged.activeMajorId);
         setEditingMajorId((current) =>

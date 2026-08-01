@@ -100,7 +100,7 @@ import {
   CircleHelp,
   Megaphone,
 } from "lucide-react";
-import { fmtAnnTime, makeId, fmtLocal, toISO, toLocalInput, duration, phase } from "../hooks/admin/adminPageUtils";
+import { fmtAnnTime, makeId, fmtLocal, toISO, toLocalInput, duration, phase, syncMajorStateRef } from "../hooks/admin/adminPageUtils";
 import type { SyncState } from "../hooks/admin/adminPageUtils";
 import { useAdminAuthSession } from "../hooks/admin/useAdminAuthSession";
 import { useAnnouncements } from "../hooks/admin/useAnnouncements";
@@ -609,10 +609,7 @@ export default function AdminPage() {
       setSelectedGradeId("");
       setSelectedClassId("");
       setInitialization(result.initialization);
-      stateRef.current = {
-        majors: result.majors,
-        activeMajorId: result.activeMajorId,
-      };
+      syncMajorStateRef(stateRef, result.majors, result.activeMajorId);
       weeklyStateRef.current = nextWeekly;
       initializationRef.current = result.initialization;
       updateExamSettings({
