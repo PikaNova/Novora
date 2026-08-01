@@ -31,13 +31,16 @@ Do not commit `dist/`, credentials, Neon connection strings, recovery keys, toke
 | Need | Primary location |
 | --- | --- |
 | Admin permissions and roles | `api/_auth.ts`, `src/shared/permissionRules.ts` |
+| Built-in role permission contracts | `tests/builtinRoles.test.ts` |
 | Exam/weekly mutation authorization | `api/_exams/permissions.ts` |
 | Exam data writes and conflict response | `api/_exams/routes/examDataRoutes.ts` |
 | Admin page orchestration | `src/pages/AdminPage.tsx` |
 | Weekly-plan UI and domain hooks | `src/components/WeeklyPanel.tsx`, `src/hooks/weekly/` |
+| Weekly calendar rules and coverage | `src/utils/weeklySchedule.ts`, `tests/weeklySchedule.test.ts` |
 | Client cloud sync and retry UI | `src/hooks/useExamSync.ts`, `src/components/ExamSyncAction.tsx` |
 | Serialized write queue | `src/services/syncQueue.ts` |
 | System settings normalization | `src/utils/appSettings.ts`, `src/utils/settings/` |
+| Merge and display-time utilities | `src/utils/examMerge.ts`, `src/utils/zonedTime.ts` |
 | Tests | `tests/`, `tsconfig.test.json` |
 | Deployment/API type check | `vercel.json`, `tsconfig.api.json` |
 
@@ -66,7 +69,8 @@ All new permission work must change both the UI guard and `validateMutation()` w
 
 ### Important Recent Safeguards
 
-- A class administrator posts a full local exam snapshot. `isolateQuickMajorCreate()` in `api/_exams/permissions.ts` retains only that actor's newly created class-scoped quick exam before permission validation. This prevents unrelated stale exams from being interpreted as unauthorized `major.create` changes.
+- A class administrator posts a full local exam snapshot. `isolateQuickMajorCreate()` in `api/_exams/permissions.ts` retains only that actor's newly created class-scoped quick exam before permission validation. It also rebuilds an owned quick-temporary exam deletion from the server snapshot, so unrelated stale major records cannot make a valid deletion look unauthorized.
+- `sanitizeStaleSnapshot()` runs before `validateMutation()` for non-all-scope accounts. It preserves only in-scope weekly-plan and class changes, restores out-of-scope records from the server, and always restores grades. This prevents stale data for other classes from causing a false 403 when a class administrator deletes a temporary exam or edits their own weekly plan.
 - `computeRemovedScopeIds()` plus `examDataRoutes.ts` removes authorization scopes pointing to deleted grades/classes only after the structure update succeeds.
 - Quick temporary exams can be co-managed only when the actor is their creator or the target class/grade is inside the actor's visible scope.
 
@@ -78,6 +82,56 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - API reads use no shared public cache. Do not reintroduce in-memory multi-instance response caching for `/api/exams`.
 
 ## Latest Update
+
+### 2026-08-01: Weekly Schedule Test Coverage
+
+- Added direct coverage for Shanghai date helpers, weekly cadence, A/B week selection, exclusions, official holidays, one-off cancellation and rescheduling, and weekly-plan validation.
+- The replacement-override case confirms that a moved event keeps its original occurrence identity, applies the target date to an overnight end time, and carries the forced-run marker.
+- This is test-only coverage. `weeklySchedule.ts`, its settings helpers, and official holiday data were already in the Node test compiler scope, so no production or configuration code changed.
+- Validation: `274/274` tests passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Merge And Display-Time Test Coverage
+
+- Added six direct contracts for `threeWayMergeExam()`: independent edits, concurrent major additions, active-major deletion fallback, local conflict preference, optional defaults, and the remote version baseline.
+- Added eight direct contracts for Shanghai display-time conversion and formatting, explicit timezone selection, invalid-time handling, and local time parsing.
+- This is test-only coverage. No production merge or timezone behavior changed. `src/utils/examMerge.ts` is now explicitly included in the Node test compiler scope; `zonedTime.ts` was already included.
+- Validation: `256/256` tests passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Admin Page Utility Test Coverage
+
+- Extended `tests/adminPageUtils.test.ts` from the existing cross-domain save regression to cover ID generation, date-time formatting/conversion, duration formatting, phase calculation, and announcement timestamp formatting.
+- Time conversion tests use a round-trip assertion rather than a fixed timezone offset, so the suite is stable across developer machines and CI agents.
+- No production code or test configuration changed. This batch deliberately uses ASCII test fixture values to avoid adding encoding-sensitive text assertions.
+- Validation: `242/242` tests passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Plugin And Database Helper Test Coverage
+
+- Added direct tests for all database-free helpers in `api/_exams/plugin.ts`: hashing, constant-time hash equality guards, pairing credentials, API metadata, scope labels, and active exam projection.
+- Added tests for `missingRelation()` and `updatedAtIntegerOverflow()` in `api/_exams/db.ts`, including the strict Postgres code-and-message requirement for integer-overflow recovery.
+- No production code or test configuration changed. Database connection and migration behavior still needs integration coverage against a disposable PostgreSQL database.
+- Validation: `225/225` tests passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Settings Pure-Logic Test Coverage
+
+- Extracted the existing design-policy rule sanitizer and data-reset category resolver from `api/_exams/routes/settingsRoutes.ts` without changing authorization, database writes, audit logging, or HTTP responses.
+- Added pure-function coverage for design-policy normalization and reset-category cascades, plus contracts for motion, time synchronization, typography, and exam-save payload defaults.
+- Route handlers still require a real database before their authorization branches can run. Full handler integration coverage needs a disposable database or injected database/auth dependencies.
+- Validation: `192/192` tests passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Built-In Role Contract Tests
+
+- Exported `BUILTIN_ROLES` from `api/_auth.ts` for direct, database-free unit testing.
+- Added role-contract coverage for the fixed built-in role IDs, valid and duplicate-free permission values, exact permission snapshots, the super-admin wildcard, and the viewer read/export-only restriction.
+- Added the delegation invariant that `grade_admin` must include every `class_admin` permission. This prevents a regression of the missing `major.quick_create` permission that blocked grade administrators from delegating class-administrator accounts.
+- The existing `tests/**/*.ts` test configuration automatically includes this test; retain the current `api/globals.d.ts` entry required by API test compilation.
+- Validation: `171/171` tests passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Class Administrator Delete And Stale Snapshot Fix
+
+- Fixed false `403 PERMISSION_DENIED` responses when a class administrator deleted their own quick temporary exam while the browser held stale weekly-plan data for another class.
+- Extended quick-major isolation to reconstruct an owned temporary-exam deletion from the authoritative server major list.
+- Added scope-aware snapshot sanitization for weekly plans, classes, and grades before permission diffs are calculated. It preserves valid in-scope changes while replacing unrelated stale data with the current server value.
+- Added regression tests for temporary-exam deletion isolation, class-admin weekly-plan isolation, and grade-admin class edits. Full validation after merge: tests, API type check, and production build.
 
 ### 2026-08-01: Full Update Package Merge
 

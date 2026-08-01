@@ -10,6 +10,38 @@ import {
   writeAudit,
 } from "../../_auth.js";
 
+export type DesignPolicyRule = {
+  id: string;
+  scope: "school" | "grade" | "class" | "device";
+  scopeId: string;
+  designId: string;
+};
+
+export function sanitizeDesignPolicyRules(rawRules: unknown): DesignPolicyRule[] {
+  const rules = Array.isArray(rawRules) ? rawRules : [];
+  const allowedScopes = new Set(["school", "grade", "class", "device"]);
+  const parsedRules = rules
+    .slice(0, 500)
+    .flatMap((rule: any, index: number) => {
+      const scope = String(rule?.scope ?? "");
+      const scopeId = String(rule?.scopeId ?? "")
+        .trim()
+        .slice(0, 128);
+      const designId = String(rule?.designId ?? "")
+        .trim()
+        .slice(0, 80);
+      if (!allowedScopes.has(scope) || !designId || (scope !== "school" && !scopeId)) return [];
+      return [{
+        id: String(rule?.id ?? `design-${index}`).slice(0, 128),
+        scope: scope as DesignPolicyRule["scope"],
+        scopeId: scope === "school" ? "*" : scopeId,
+        designId,
+      }];
+    });
+  const schoolRule = [...parsedRules].reverse().find((rule) => rule.scope === "school");
+  return schoolRule ? [schoolRule] : parsedRules;
+}
+
 export async function handleDesignPolicy(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = database();
   let designActor: AdminActor | null = null;
@@ -24,37 +56,7 @@ export async function handleDesignPolicy(req: VercelRequest, res: VercelResponse
     }
   }
   const source = req.body?.designPolicy;
-  const rawRules = Array.isArray(source?.rules) ? source.rules : [];
-  const allowedScopes = new Set(["school", "grade", "class", "device"]);
-  const parsedRules = rawRules
-    .slice(0, 500)
-    .flatMap((rule: any, index: number) => {
-      const scope = String(rule?.scope ?? "");
-      const scopeId = String(rule?.scopeId ?? "")
-        .trim()
-        .slice(0, 128);
-      const designId = String(rule?.designId ?? "")
-        .trim()
-        .slice(0, 80);
-      if (
-        !allowedScopes.has(scope) ||
-        !designId ||
-        (scope !== "school" && !scopeId)
-      )
-        return [];
-      return [
-        {
-          id: String(rule?.id ?? `design-${index}`).slice(0, 128),
-          scope,
-          scopeId: scope === "school" ? "*" : scopeId,
-          designId,
-        },
-      ];
-    });
-  const schoolRule = [...parsedRules]
-    .reverse()
-    .find((rule) => rule.scope === "school");
-  const rules = schoolRule ? [schoolRule] : parsedRules;
+  const rules = sanitizeDesignPolicyRules(source?.rules);
   const updatedAt = Date.now();
   const designPolicy = { rules, updatedAt };
   const run = async () =>
@@ -77,6 +79,26 @@ export async function handleDesignPolicy(req: VercelRequest, res: VercelResponse
   return;
 }
 
+export type ResetCategoryFlags = {
+  resetMajor: boolean;
+  resetWeekly: boolean;
+  resetSchool: boolean;
+  resetSettings: boolean;
+  resetDevices: boolean;
+};
+
+export function resolveResetCategories(categories: readonly string[]): ResetCategoryFlags {
+  const resetAll = categories.includes("all");
+  const resetSchool = resetAll || categories.includes("school");
+  return {
+    resetMajor: resetAll || categories.includes("major"),
+    resetWeekly: resetAll || categories.includes("weekly"),
+    resetSchool,
+    resetSettings: resetAll || categories.includes("settings"),
+    resetDevices: resetAll || categories.includes("devices") || resetSchool,
+  };
+}
+
 export async function handleResetData(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = database();
   let resetActor: AdminActor | null = null;
@@ -94,22 +116,9 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
   const categories = Array.isArray(req.body?.categories)
     ? req.body.categories.map(String)
     : [];
-  const resetAll = categories.includes("all");
-  const resetMajor = resetAll || categories.includes("major");
-  const resetWeekly = resetAll || categories.includes("weekly");
-  const resetSchool = resetAll || categories.includes("school");
-  const resetSettings = resetAll || categories.includes("settings");
-  const resetDevices =
-    resetAll || categories.includes("devices") || resetSchool;
-  if (
-    ![
-      resetMajor,
-      resetWeekly,
-      resetSchool,
-      resetSettings,
-      resetDevices,
-    ].some(Boolean)
-  ) {
+  const resetFlags = resolveResetCategories(categories);
+  const { resetMajor, resetWeekly, resetSchool, resetSettings, resetDevices } = resetFlags;
+  if (!Object.values(resetFlags).some(Boolean)) {
     res.status(400).json({ ok: false, error: "请选择需要重置的数据" });
     return;
   }

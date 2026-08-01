@@ -11,6 +11,7 @@ import {
 import { examPayload } from "../payload.js";
 import {
   isolateQuickMajorCreate,
+  sanitizeStaleSnapshot,
   validateMutation,
 } from "../permissions.js";
 import { computeRemovedScopeIds } from "../scopeCleanup.js";
@@ -178,7 +179,11 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       }
     }
     if (actor) {
-      req.body = isolateQuickMajorCreate(actor, currentPayload, req.body ?? {});
+      req.body = sanitizeStaleSnapshot(
+        actor,
+        currentPayload,
+        isolateQuickMajorCreate(actor, currentPayload, req.body ?? {}),
+      );
       const permission = validateMutation(
         actor,
         currentPayload,

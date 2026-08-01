@@ -20,6 +20,12 @@ import type { ExamPayload } from "./payload.js";
 
 export const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
+const isOwnedQuickTemporaryMajor = (actor: AdminActor, major: any) =>
+  !!major &&
+  major.source === "quick" &&
+  major.temporary === true &&
+  major.createdBy === actor.id;
+
 export function isolateQuickMajorCreate(
   actor: AdminActor,
   current: ExamPayload,
@@ -42,23 +48,111 @@ export function isolateQuickMajorCreate(
   const ownsNewClassQuickMajor =
     activeMajor &&
     !alreadyExists &&
-    activeMajor.source === "quick" &&
-    activeMajor.temporary === true &&
-    activeMajor.createdBy === actor.id &&
+    isOwnedQuickTemporaryMajor(actor, activeMajor) &&
     Array.isArray(activeMajor.targetClassIds) &&
     activeMajor.targetClassIds.length > 0;
 
-  if (!ownsNewClassQuickMajor) return body;
+  if (ownsNewClassQuickMajor) {
+    return {
+      ...body,
+      majors: [...current.majors, activeMajor],
+      items: Array.isArray(activeMajor.items) ? activeMajor.items : [],
+      title: typeof activeMajor.name === "string" ? activeMajor.name : "",
+      activeMajorId,
+    };
+  }
 
-  // Class administrators post a full local snapshot. Keep only the new
-  // class-scoped quick major so stale records cannot alter the server payload.
+  const bodyMajorIds = new Set(
+    (body.majors as any[]).map((major) => String(major?.id ?? "")),
+  );
+  const removedIds = new Set(
+    (current.majors as any[])
+      .filter(
+        (major) =>
+          isOwnedQuickTemporaryMajor(actor, major) &&
+          !bodyMajorIds.has(String(major?.id ?? "")),
+      )
+      .map((major) => String(major?.id ?? "")),
+  );
+  if (!removedIds.size) return body;
+
   return {
     ...body,
-    majors: [...current.majors, activeMajor],
-    items: Array.isArray(activeMajor.items) ? activeMajor.items : [],
-    title: typeof activeMajor.name === "string" ? activeMajor.name : "",
-    activeMajorId,
+    majors: (current.majors as any[]).filter(
+      (major) => !removedIds.has(String(major?.id ?? "")),
+    ),
   };
+}
+
+export function sanitizeStaleSnapshot(
+  actor: AdminActor,
+  current: ExamPayload,
+  body: Record<string, any>,
+): Record<string, any> {
+  if (allScope(actor)) return body;
+  let next = body;
+
+  if (Array.isArray(next.weeklyPlans)) {
+    const submittedById = new Map(
+      next.weeklyPlans.map((plan: any) => [String(plan?.id ?? ""), plan]),
+    );
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const plan of current.weeklyPlans as any[]) {
+      const id = String(plan?.id ?? "");
+      seen.add(id);
+      if (canAccessClass(actor, String(plan?.gradeId ?? ""), String(plan?.classId ?? ""))) {
+        const submitted = submittedById.get(id);
+        if (submitted) merged.push(submitted);
+      } else {
+        merged.push(plan);
+      }
+    }
+    for (const plan of next.weeklyPlans as any[]) {
+      if (seen.has(String(plan?.id ?? ""))) continue;
+      if (canAccessClass(actor, String(plan?.gradeId ?? ""), String(plan?.classId ?? ""))) {
+        merged.push(plan);
+      }
+    }
+    next = { ...next, weeklyPlans: merged };
+  }
+
+  if (Array.isArray(next.grades) && !sameJson(current.grades, next.grades)) {
+    next = { ...next, grades: current.grades };
+  }
+
+  if (Array.isArray(next.classes)) {
+    if (!hasPermission(actor, "school.class_manage")) {
+      if (!sameJson(current.classes, next.classes)) {
+        next = { ...next, classes: current.classes };
+      }
+    } else {
+      const submittedById = new Map(
+        next.classes.map((schoolClass: any) => [String(schoolClass?.id ?? ""), schoolClass]),
+      );
+      const seen = new Set<string>();
+      const merged: any[] = [];
+      for (const schoolClass of current.classes as any[]) {
+        const id = String(schoolClass?.id ?? "");
+        seen.add(id);
+        if (canAccessGrade(actor, String(schoolClass?.gradeId ?? ""))) {
+          const submitted = submittedById.get(id);
+          if (submitted) merged.push(submitted);
+        } else {
+          merged.push(schoolClass);
+        }
+      }
+      for (const schoolClass of next.classes as any[]) {
+        if (seen.has(String(schoolClass?.id ?? ""))) continue;
+        if (canAccessGrade(actor, String(schoolClass?.gradeId ?? ""))) {
+          merged.push(schoolClass);
+        }
+      }
+      next = { ...next, classes: merged };
+    }
+  }
+
+  return next;
 }
 
 export function validateMutation(

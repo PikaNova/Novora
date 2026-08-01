@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isolateQuickMajorCreate, validateMutation, allScope } from '../api/_exams/permissions.js';
+import { isolateQuickMajorCreate, sanitizeStaleSnapshot, validateMutation, allScope } from '../api/_exams/permissions.js';
 import type { AdminActor, AdminScope, Permission } from '../api/_auth.js';
 import type { ExamPayload } from '../api/_exams/payload.js';
 
@@ -172,6 +172,62 @@ test('isolateQuickMajorCreate: keeps only a class admin\'s new quick major from 
   assert.deepEqual(isolated.majors, [formal, quick]);
   const result = validateMutation(actor, current, isolated);
   assert.equal(result.ok, true);
+});
+
+test('isolateQuickMajorCreate: rebuilds a quick-major deletion from the server snapshot', () => {
+  const actor = makeActor({
+    id: 7,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const formal = { id: 'formal', name: 'formal', items: [], targetGradeIds: ['g1'], targetClassIds: [] };
+  const retained = { id: 'retained', name: 'retained', items: [], targetGradeIds: ['g1'], targetClassIds: ['c1'], source: 'quick', temporary: true, createdBy: 8 };
+  const removed = { id: 'removed', name: 'removed', items: [], targetGradeIds: ['g1'], targetClassIds: ['c1'], source: 'quick', temporary: true, createdBy: 7 };
+  const current = makeCurrent({ majors: [formal, retained, removed], activeMajorId: 'formal', title: 'formal', classes: [{ id: 'c1', gradeId: 'g1' }] });
+  const isolated = isolateQuickMajorCreate(actor, current, {
+    majors: [{ ...formal, name: 'stale client formal' }],
+    items: [],
+    title: 'formal',
+    activeMajorId: 'formal',
+  });
+  assert.deepEqual(isolated.majors, [formal, retained]);
+  assert.equal(validateMutation(actor, current, isolated).ok, true);
+});
+
+test('sanitizeStaleSnapshot: keeps own weekly changes but restores other classes from the server', () => {
+  const actor = makeActor({
+    permissions: ['weekly.edit'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const own = { id: 'own', gradeId: 'g1', classId: 'c1', name: 'own server' };
+  const outside = { id: 'outside', gradeId: 'g2', classId: 'c2', name: 'outside server' };
+  const current = makeCurrent({
+    weeklyPlans: [own, outside],
+    grades: [{ id: 'g1' }, { id: 'g2' }],
+    classes: [{ id: 'c1', gradeId: 'g1' }, { id: 'c2', gradeId: 'g2' }],
+  });
+  const sanitized = sanitizeStaleSnapshot(actor, current, {
+    weeklyPlans: [{ ...own, name: 'own client' }, { ...outside, name: 'outside stale' }],
+    grades: [{ id: 'g1', name: 'stale' }],
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'stale' }],
+  });
+  assert.deepEqual(sanitized.weeklyPlans, [{ ...own, name: 'own client' }, outside]);
+  assert.deepEqual(sanitized.grades, current.grades);
+  assert.deepEqual(sanitized.classes, current.classes);
+});
+
+test('sanitizeStaleSnapshot: grade admins retain only class changes in their grade', () => {
+  const actor = makeActor({
+    permissions: ['school.class_manage'],
+    scopes: [scope({ type: 'grade', gradeId: 'g1' })],
+  });
+  const own = { id: 'c1', gradeId: 'g1', name: 'own server' };
+  const outside = { id: 'c2', gradeId: 'g2', name: 'outside server' };
+  const current = makeCurrent({ classes: [own, outside] });
+  const sanitized = sanitizeStaleSnapshot(actor, current, {
+    classes: [{ ...own, name: 'own client' }, { ...outside, name: 'outside stale' }],
+  });
+  assert.deepEqual(sanitized.classes, [{ ...own, name: 'own client' }, outside]);
 });
 test('validateMutation: quick_create does NOT cover a quick major with no target classes', () => {
   const actor = makeActor({
