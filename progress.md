@@ -42,6 +42,8 @@
 - Validation passed: `274/274` tests, API type check, and production build.
 - Packaged the current `274/274` validated working tree and standalone handover as new delivery archives.
 - Re-opened the archives and confirmed the source package has 473 structured entries, includes `tests/weeklySchedule.test.ts` and `PROJECT_HANDOVER.md`, and excludes dependencies, Git metadata, caches, and generated output.
+- Committed the validated aggregate change set as `592fe3d test: expand coverage and protect scoped writes`.
+- Pushed `592fe3d` to `origin/dev` successfully.
 - Packaged the latest source and standalone handover after all current test coverage updates; archive validation confirmed 399 source entries and no generated/dependency directories.
 - Inspected `novora-adminpageutils-test-coverage.zip`; it is compatible as a test-only addition and will extend the existing `syncMajorStateRef` test.
 - Added 17 AdminPage utility tests without changing production code or test configuration.

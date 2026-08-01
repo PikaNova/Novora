@@ -100,3 +100,8 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - Source archive: `C:\Users\Administrator\Documents\Codex\2026-07-23\nihao-2\deliveries\novora-v2.7.1-dev-local-20260801-274-tests-source.zip`.
 - Standalone handover archive: `C:\Users\Administrator\Documents\Codex\2026-07-23\nihao-2\deliveries\novora-v2.7.1-dev-local-20260801-274-tests-handover.zip`.
 - The source archive has 473 structured entries, includes the weekly-schedule test and handover, and excludes `.git`, `node_modules`, generated build/test output, npm caches, temporary directories, environment files, and logs.
+
+## Latest Remote Delivery
+
+- The validated aggregate change set was committed as `592fe3d test: expand coverage and protect scoped writes`.
+- `origin/dev` advanced from `4b2d65b` to `592fe3d` successfully.

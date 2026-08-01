@@ -39,7 +39,7 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 | 29. Merge and validate weekly-schedule coverage | Complete | Added the 18 test blocks in the supplied file; tests, API type check, and build passed. |
 | 30. Update handoff and clean artifacts | Complete | Updated handoff/process records and removed generated output before handoff. |
 | 31. Package latest source and handover | Complete | Created and structure-verified current source and standalone handover archives from the `274/274` baseline. |
-| 32. Commit and push validated change set | In progress | Commit the complete current worktree and push it to `origin/dev`. |
+| 32. Commit and push validated change set | Complete | Pushed commit `592fe3d` to `origin/dev`; a final documentation-status commit will record the delivery result. |
 
 ## Decisions
 
@@ -57,4 +57,4 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 
 ## Next Action
 
-Commit and push the validated `274/274` change set to `origin/dev`, then verify that the remote branch contains the new commit.
+On the next task turn, read this file with `findings.md` and `progress.md`, then address a new requested change from the updated `origin/dev` baseline.
