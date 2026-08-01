@@ -65,6 +65,10 @@
 .admin-item--selectable { grid-template-columns:auto 48px minmax(0,1fr) auto; }
 .admin-item__select { display:flex; align-items:center; margin:0; }
 .admin-item__select input { margin:0; }
+.admin-item__select input[type="checkbox"]{appearance:none;display:inline-grid;place-content:center;flex:none;width:18px;height:18px;margin:0;border:1px solid rgba(174,197,213,.55);border-radius:4px;background:rgba(255,255,255,.035);cursor:pointer;transition:background .14s,border-color .14s,transform .14s}
+.admin-item__select input[type="checkbox"]::after{content:"";width:8px;height:4px;border:solid #fff;border-width:0 0 2px 2px;transform:rotate(-45deg) scale(0);transition:transform .14s}
+.admin-item__select input[type="checkbox"]:checked{border-color:#3498db;background:#2586d7}
+.admin-item__select input[type="checkbox"]:checked::after{transform:rotate(-45deg) scale(1)}
 .admin-item:hover { background:rgba(255,255,255,0.06); }
 .admin-item--disabled { opacity:0.42; }
 .admin-item--editing { border-color:#3498db; background:rgba(52,152,219,0.06); }

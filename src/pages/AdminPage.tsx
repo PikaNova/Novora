@@ -1512,7 +1512,6 @@ export default function AdminPage() {
                         {canDeleteActiveMajor && (
                           <label
                             className="admin-item__select"
-                            style={{ display: "flex", alignItems: "center", marginRight: 8 }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <input
