@@ -90,6 +90,10 @@ All new permission work must change both the UI guard and `validateMutation()` w
 
 ## Latest Update
 
+### 2026-08-02: Ghost-Save Coverage Delivery
+
+- Commit `44b53f3 test: cover ghost save boundaries` was pushed to `origin/dev`. It contains the deterministic ghost-save boundary tests and their supporting handover records.
+
 ### 2026-08-02: Ghost-Save Detection Boundary Coverage
 
 - Added deterministic regression coverage for the sync outbox's ghost-save detector. The detector now accepts an optional clock only for unit tests and exposes a test-only named export; the production save flow continues to call it unchanged and therefore uses `Date.now()`.

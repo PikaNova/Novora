@@ -109,6 +109,11 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - Validation after merge: `npm test` `315/315` passed, `npm run typecheck:api` passed, and `npm run build` passed.
 - This batch changes no synchronisation threshold, retry behavior, server response, or production save flow.
 
+## Ghost-Save Remote Delivery
+
+- Commit `44b53f3 test: cover ghost save boundaries` was pushed to `origin/dev` on 2026-08-02.
+- The remote delivery contains the deterministic detector hook, nine boundary contracts, and the updated handover/process records.
+
 ## Latest Remote Delivery
 
 - The validated aggregate change set was committed as `592fe3d test: expand coverage and protect scoped writes`.
