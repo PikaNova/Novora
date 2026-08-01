@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   getAdminUser,
-  hasValidLocalToken,
   shouldPromptGradeAdminSetup,
   type AdminUserContext,
 } from "../../services/examService";
@@ -11,7 +10,9 @@ import { getCachedDeviceBinding } from "../../services/classBinding";
 // admin user context, the locally cached device-binding info shown in the
 // devices tab, and the one-shot "first grade admin should finish setup" nudge.
 export function useAdminAuthSession() {
-  const [ready, setReady] = useState<boolean>(() => hasValidLocalToken());
+  // The local user cache is only a bootstrap hint. Wait for the sync engine to
+  // validate it with the server before rendering permission-gated controls.
+  const [ready, setReady] = useState(false);
   const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() =>
     getAdminUser(),
   );

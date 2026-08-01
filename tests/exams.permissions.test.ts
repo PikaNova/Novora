@@ -226,6 +226,29 @@ test('validateMutation: a class-scoped actor cannot create a weekly plan for a c
   if (!result.ok) assert.match(result.error, /班级管理范围/);
 });
 
+test('validateMutation: a class-scoped actor can edit only their own weekly plan and activation', () => {
+  const actor = makeActor({
+    permissions: ['weekly.edit'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const current = makeCurrent({
+    classes: [{ id: 'c1', gradeId: 'g1' }, { id: 'c2', gradeId: 'g1' }],
+    weeklyPlans: [
+      { id: 'w1', gradeId: 'g1', classId: 'c1', name: 'before' },
+      { id: 'w2', gradeId: 'g1', classId: 'c2', name: 'other' },
+    ],
+    activeWeeklyPlanIdByClassId: { c1: 'w1', c2: 'w2' },
+  });
+  const result = validateMutation(actor, current, {
+    weeklyPlans: [
+      { id: 'w1', gradeId: 'g1', classId: 'c1', name: 'after' },
+      { id: 'w2', gradeId: 'g1', classId: 'c2', name: 'other' },
+    ],
+    activeWeeklyPlanIdByClassId: { c1: 'w1', c2: 'w2' },
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.ok(result.actions.includes('weekly.edit'));
+});
 test('validateMutation: changing the active weekly plan mapping needs weekly.edit and drops stale class ids', () => {
   const actor = makeActor({ permissions: ['weekly.edit'], scopes: [scope({ type: 'all' })] });
   const current = makeCurrent({

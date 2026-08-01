@@ -225,7 +225,7 @@ export default function QuickMajorPublishModal({
         setError("请填写本次统一考试名称。");
         return;
       }
-      if (!schoolWide && !targetGradeIds.length) {
+      if (!schoolWide && !lockedClassId && !targetGradeIds.length) {
         setError("请至少选择一个年级，或选择全校统一。");
         return;
       }
