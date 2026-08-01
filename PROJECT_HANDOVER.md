@@ -39,6 +39,7 @@ Do not commit `dist/`, credentials, Neon connection strings, recovery keys, toke
 | Weekly-plan UI and domain hooks | `src/components/WeeklyPanel.tsx`, `src/hooks/weekly/` |
 | Weekly calendar rules and coverage | `src/utils/weeklySchedule.ts`, `tests/weeklySchedule.test.ts` |
 | Client cloud sync and retry UI | `src/hooks/useExamSync.ts`, `src/components/ExamSyncAction.tsx` |
+| Ghost-save conflict detection and coverage | `src/services/examOutbox.ts`, `tests/detectGhostSave.test.ts` |
 | Serialized write queue | `src/services/syncQueue.ts` |
 | Cross-device write throttle | `api/_exams/writeThrottle.ts`, `api/_exams/db.ts`, `tests/writeThrottle.test.ts` |
 | Per-source entry rate limiting | `api/_rateLimiter.ts`, `api/exams.ts`, `tests/rateLimiter.test.ts` |
@@ -88,6 +89,13 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - API reads use no shared public cache. Do not reintroduce in-memory multi-instance response caching for `/api/exams`.
 
 ## Latest Update
+
+### 2026-08-02: Ghost-Save Detection Boundary Coverage
+
+- Added deterministic regression coverage for the sync outbox's ghost-save detector. The detector now accepts an optional clock only for unit tests and exposes a test-only named export; the production save flow continues to call it unchanged and therefore uses `Date.now()`.
+- The recent-save window is intentionally inclusive at exactly 120 seconds: a remote version at `120,000ms` is accepted, while one at `120,001ms` is treated as a normal conflict. Nine tests also cover base-version advancement, equal payload contents, and absent base snapshots.
+- No sync threshold, retry policy, API behavior, or user-facing behavior changed in this batch.
+- Validation: `npm test` `315/315` passed, `npm run typecheck:api` passed, and `npm run build` passed.
 
 ### 2026-08-02: Per-Source Entry Rate Limiting
 

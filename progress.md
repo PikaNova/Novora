@@ -63,6 +63,14 @@
 
 For every later turn, read `task_plan.md`, `findings.md`, and this file before performing new work. Update all three after each completed phase.
 
+### 2026-08-02: Ghost-Save Detection Boundary Coverage
+
+- Selectively merged the supplied boundary-test package without copying its stale process documents over the current project history.
+- `detectGhostSave()` now accepts an optional clock for deterministic tests and is exported through `__detectGhostSaveForTests`; the production call remains unchanged and still uses the real clock by default.
+- Added nine regression tests covering the 119-second, exact 120-second inclusive, and 120.001-second rejection boundaries, plus version, content, and missing-base cases.
+- Validation passed: `315/315` tests, API type check, and production build.
+- The batch is local only. No commit or push was requested.
+
 ### Latest Diagnosis
 
 - Investigated the report that large exams still ignore subject tracks using the deployed API and the current delivery code.

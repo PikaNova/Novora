@@ -101,6 +101,14 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - Standalone handover archive: `C:\Users\Administrator\Documents\Codex\2026-07-23\nihao-2\deliveries\novora-v2.7.1-dev-local-20260801-274-tests-handover.zip`.
 - The source archive has 473 structured entries, includes the weekly-schedule test and handover, and excludes `.git`, `node_modules`, generated build/test output, npm caches, temporary directories, environment files, and logs.
 
+## Ghost-Save Boundary Coverage
+
+- `detectGhostSave()` accepts an optional `now` value strictly for deterministic unit testing; the production caller still passes only the pending payload and remote payload, so it continues to use `Date.now()`.
+- The detector's existing recent-save window remains inclusive at exactly 120,000ms because the rejection condition remains `age > 120_000`, not `>=`.
+- `tests/detectGhostSave.test.ts` adds nine contracts for the valid window, exact and just-over boundaries, base-version progression, content equality, and an absent base snapshot.
+- Validation after merge: `npm test` `315/315` passed, `npm run typecheck:api` passed, and `npm run build` passed.
+- This batch changes no synchronisation threshold, retry behavior, server response, or production save flow.
+
 ## Latest Remote Delivery
 
 - The validated aggregate change set was committed as `592fe3d test: expand coverage and protect scoped writes`.

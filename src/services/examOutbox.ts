@@ -182,12 +182,13 @@ function markPendingFailure(
 function detectGhostSave(
   pending: PendingExamSync,
   remote: ExamPayload,
+  now = Date.now(),
 ): boolean {
   const base = pending.baseSnapshot?.updatedAt ?? 0;
   // remote 的 updatedAt 必须大于 base
   if (remote.updatedAt <= base) return false;
   // 且在最近 120s 内（超过则是其他人修改）
-  if (Date.now() - remote.updatedAt > 120_000) return false;
+  if (now - remote.updatedAt > 120_000) return false;
   const sameJson = (left: unknown, right: unknown) =>
     JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
   const sameRequired = [
@@ -383,3 +384,5 @@ export async function flushPendingExamSync(
   clearPendingExamSync(mergedPending.savedAt);
   return { kind: 'saved', payload: mergedPayload, updatedAt: retry };
 }
+
+export const __detectGhostSaveForTests = detectGhostSave;

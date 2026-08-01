@@ -58,6 +58,10 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 | 48. Inspect entry-rate-limit package | Complete | Incoming dispatcher would remove the current database write gate. Its memory limiter is useful only as a preceding, per-instance defensive layer and needs safer keying, configuration parsing, and action exemptions. |
 | 49. Merge, validate, and document entry rate limiting | Complete | Preserved the database gate, added hardened per-source entry limits, verified every stated behavior, passed all validation, and updated handoff documentation. |
 | 50. Delivery | Complete | Pushed `30600e3 feat: add layered API rate limits` to `origin/dev`; final documentation commit records the delivery state. |
+| 51. Inspect ghost-save boundary package | Complete | The package contains exactly four declared files. Only the optional clock and direct test export are production-file changes; its process documents predate the current branch and will not be overwritten. |
+| 52. Merge, validate, and document ghost-save coverage | Complete | Added deterministic boundary coverage; `315/315` tests, API type check, and production build passed. |
+| 53. Commit and push ghost-save coverage | In progress | User requested delivery to `origin/dev`; commit the validated changes and verify the remote head. |
+| 54. Package latest source | Pending | Create and inspect a clean source archive after the remote delivery completes. |
 
 ## Decisions
 
@@ -74,7 +78,8 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 - Delivery archives must include the current uncommitted, validated changes and exclude Git metadata, dependencies, generated output, caches, environment files, and logs.
 - Database integration tests must run only against an explicitly designated isolated database or an ephemeral branch created from an empty test parent. They must never fall back to `DATABASE_URL` or production data.
 - A supplied integration connection is used only as a transient process environment value and is never written to files, Git, logs, documentation, or delivery archives.
+- The ghost-save detector's optional clock and direct test export exist solely to make its existing time-window rule deterministic under unit tests. Production calls retain the default clock and the 120-second rule remains unchanged.
 
 ## Next Action
 
-Before production rollout, run both the two-device database-gate test and a same-source entry-rate-limit burst test on staging.
+Commit and push the validated ghost-save coverage batch, then package a clean latest-source archive.
