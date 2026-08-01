@@ -14,7 +14,7 @@ import {
 } from '../../utils/weeklySchedule';
 import { notify } from '../../services/notify';
 import type { ClassPickerOption } from '../../components/ClassMultiPicker';
-import { DATE_RE } from '../../utils/settings/weekly';
+import { DATE_RE, planTitleForClass } from '../../utils/settings/weekly';
 
 export type PlanModal = {
   mode: 'add' | 'settings';
@@ -88,7 +88,7 @@ export function useWeeklyPlanModal({
       mode: 'add',
       name:
         selectedClassName && selectedClassId
-          ? `${selectedClassName}周测计划`
+          ? planTitleForClass(selectedClassName)
           : '',
       gradeId: selectedGradeId,
       classIds: selectedClassId ? [selectedClassId] : [],
@@ -125,7 +125,10 @@ export function useWeeklyPlanModal({
   const commitPlanModal = () => {
     if (!planModal) return;
     const name = planModal.name.trim();
-    if (!name) { setPlanError('请输入计划名称'); return; }
+    if (planModal.mode === 'settings' && !name) {
+      setPlanError('请输入计划名称');
+      return;
+    }
     if (!planModal.gradeId || !planModal.classIds.length) { setPlanError('请至少选择一个适用班级'); return; }
     if (!DATE_RE.test(planModal.activeFrom)) { setPlanError('请填写生效日期'); return; }
     if (!DATE_RE.test(planModal.anchorDate)) { setPlanError('请填写学期开始日期'); return; }
@@ -137,13 +140,7 @@ export function useWeeklyPlanModal({
     if (planModal.mode === 'add') {
       const created = planModal.classIds.map((classId, offset) => {
         const target = pickerOptions.find((item) => item.id === classId)!;
-        const className = target?.className || '班级';
-        const planName =
-          planModal.classIds.length > 1
-            ? name.includes(selectedClassName) && selectedClassName
-              ? name.replace(selectedClassName, className)
-              : `${className} · ${name}`
-            : name;
+        const planName = planTitleForClass(target?.className);
         return {
           ...createEmptyWeeklyPlan(Date.now() + offset, planName),
           gradeId: target.gradeId,

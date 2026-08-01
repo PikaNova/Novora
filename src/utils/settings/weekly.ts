@@ -14,6 +14,10 @@ import type { SchoolClass } from '../../types/school.js';
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
+export function planTitleForClass(className: string | undefined) {
+  return className?.trim() || "\u73ed\u7ea7";
+}
+
 export function genWeeklyPlanId(): string {
   return `weekly_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }

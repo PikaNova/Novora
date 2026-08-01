@@ -7,6 +7,7 @@ import ClassMultiPicker, { type ClassPickerOption } from "../ClassMultiPicker";
 import type { WeeklyWeekMode } from "../../types/exam";
 import { useBackdropDismiss } from "../../hooks/useBackdropDismiss";
 import type { PlanModal } from "../../hooks/weekly/useWeeklyPlanModal";
+import { planTitleForClass } from "../../utils/settings/weekly";
 
 interface PlanFormModalProps {
   backdropProps: ReturnType<typeof useBackdropDismiss>;
@@ -37,13 +38,21 @@ export default function PlanFormModal({
 }: PlanFormModalProps) {
   if (!planModal) return null;
 
+  const selectedClassNames = planModal.classIds
+    .map((id) => pickerOptions.find((item) => item.id === id)?.className)
+    .filter((name): name is string => !!name);
+  const autoPlanTitle =
+    selectedClassNames.length === 1
+      ? planTitleForClass(selectedClassNames[0])
+      : selectedClassNames.join("、");
+
   const closePlanModal = () => {
     setPlanModal(null);
     setPlanError("");
   };
   const nextPlanStep = () => {
     if (planWizardStep === 0) {
-      if (!planModal.name.trim()) {
+      if (planModal.mode === "settings" && !planModal.name.trim()) {
         setPlanError("请填写计划名称。");
         return;
       }
@@ -74,7 +83,7 @@ export default function PlanFormModal({
               { label: "计划规则", hint: "日期、周次和节假日" },
               { label: "确认保存", hint: "检查计划配置" },
             ]}
-            summary={<><span>当前计划</span><strong>{planModal.name || "尚未命名"}</strong><span>{planModal.mode === "add" ? `${planModal.classIds.length} 个班级` : "当前班级"}</span></>}
+            summary={<><span>当前计划</span><strong>{planModal.mode === "add" ? autoPlanTitle || "尚未选择班级" : planModal.name || "尚未命名"}</strong><span>{planModal.mode === "add" ? `${planModal.classIds.length} 个班级` : "当前班级"}</span></>}
           />
           <div className="admin-workflow-content" key={planWizardStep}>
             {planWizardStep === 0 && <div className="admin-workflow-pane">
@@ -116,28 +125,41 @@ export default function PlanFormModal({
                           ...p,
                           classIds: ids,
                           name:
-                            p.name ||
-                            (ids.length === 1
-                              ? `${pickerOptions.find((item) => item.id === ids[0])?.className || ""}周测计划`
-                              : "周测计划"),
+                            ids.length === 1
+                              ? planTitleForClass(
+                                  pickerOptions.find((item) => item.id === ids[0])
+                                    ?.className,
+                                )
+                              : "",
                         },
                     )
                   }
                   disabled={!planModal.gradeId}
                   single={!allowBatchApply}
                 />
+                {selectedClassNames.length === 1 && (
+                  <p className="admin-major-card__hint">
+                    计划标题：<strong>{autoPlanTitle}</strong>
+                  </p>
+                )}
+                {selectedClassNames.length > 1 && (
+                  <p className="admin-major-card__hint">
+                    将分别创建 {selectedClassNames.length} 份独立计划，标题为：
+                    <strong>{autoPlanTitle}</strong>
+                  </p>
+                )}
               </div>
               </>}
-              <label className="admin-label">
+              {planModal.mode === "settings" && <label className="admin-label">
                 计划名称
                 <input
                   className="admin-input"
-                  autoFocus={planModal.mode !== "add"}
+                  autoFocus
                   value={planModal.name}
                   onChange={(e) => setPlanModal((p) => p && { ...p, name: e.target.value })}
                   placeholder="如：高三周测 / 晚自习周测"
                 />
-              </label>
+              </label>}
             </div>}
             {planWizardStep === 1 && <div className="admin-workflow-pane admin-workflow-pane--two-column">
             <label className="admin-label">
@@ -238,7 +260,7 @@ export default function PlanFormModal({
             </div>}
             {planWizardStep === 2 && <div className="admin-workflow-pane">
               <div className="admin-workflow-review">
-                <span>计划名称<strong>{planModal.name}</strong></span>
+                <span>计划标题<strong>{planModal.mode === "add" ? autoPlanTitle : planModal.name}</strong></span>
                 <span>应用范围<strong>{planModal.mode === "add" ? `${planModal.classIds.length} 个班级` : "当前班级"}</strong></span>
                 <span>生效日期<strong>{planModal.activeFrom} 至 {planModal.forever ? "长期" : planModal.activeUntil || "未设置"}</strong></span>
                 <span>周次规则<strong>{planModal.weekMode === "ab" ? "A/B 周交替" : planModal.repeatEveryWeeks === 1 ? "每周" : `每 ${planModal.repeatEveryWeeks} 周`}</strong></span>
