@@ -96,6 +96,7 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - Only true polling and heartbeat actions bypass the stricter write tier: pairing status/bootstrap, plugin-viewer heartbeat, and device heartbeat. Pairing start and confirmation remain write-limited because they change shared database state.
 - Rejected requests use the existing `429 RATE_LIMITED` shape with an accurate rounded-up `Retry-After` value. The database-backed 900ms write slot remains active after the entry limiter accepts a request, so this is defense in depth rather than a replacement for cross-instance protection.
 - Validation: `npm test` `306/306` passed, `npm run typecheck:api` passed, and `npm run build` passed. This limiter is per serverless instance and resets on cold start; it is not a globally consistent quota mechanism.
+- Delivery: commit `30600e3 feat: add layered API rate limits` was pushed to `origin/dev` on 2026-08-02.
 
 ### 2026-08-02: Global Write Throttling
 

@@ -100,3 +100,8 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 - Token-derived keys are SHA-256 hashes, bucket memory is capped through oldest-entry eviction, and `Retry-After` now reflects the remaining entry window. Only actual polling/heartbeats bypass the write tier; pairing creation and confirmation remain protected writes.
 - Added nine regression tests for thresholds, reset timing, retry duration, bounded storage, configuration, hashed keys, source fallback, and action exemptions.
 - Validation passed: `306/306` tests, API type check, and production build. Remaining production-only work is a staging burst test and multi-instance observation; no production database or credentials were used.
+
+### 2026-08-02: Remote Delivery
+
+- Committed the accumulated validated changes as `30600e3 feat: add layered API rate limits`.
+- Pushed `30600e3` successfully to `origin/dev`.

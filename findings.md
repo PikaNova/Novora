@@ -174,3 +174,8 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - The entry response uses the shared rate-limit formatter, but now passes the actual remaining fixed-window duration as `Retry-After`. Existing database-gate responses retain the default one-second header.
 - Heartbeats and pair-status/bootstrap polling bypass only the entry write tier; pairing start and confirmation remain limited because they write pairing state. The general tier still applies to every request.
 - Validation: `306/306` unit tests, API type check, and production build passed. Unit coverage establishes local fixed-window semantics, safe configuration/key behavior, and exemptions. It cannot establish Vercel's cross-instance behavior, so retain the database gate and perform a staging request-burst smoke test.
+
+## Latest Remote Delivery
+
+- Commit `30600e3 feat: add layered API rate limits` was pushed successfully to `origin/dev` on 2026-08-02.
+- The commit contains the current accumulated validated work: subject-track scope repair and guarded backfill support, time-picker boundary anchoring, device scope filtering, database-backed global write throttling, per-source entry limiting, integration-test infrastructure, test coverage, and updated handoff records.

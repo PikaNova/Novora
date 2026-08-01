@@ -57,7 +57,7 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 | 47. Delivery | Pending user direction | Changes are local and validated; do not commit or push without an explicit request. |
 | 48. Inspect entry-rate-limit package | Complete | Incoming dispatcher would remove the current database write gate. Its memory limiter is useful only as a preceding, per-instance defensive layer and needs safer keying, configuration parsing, and action exemptions. |
 | 49. Merge, validate, and document entry rate limiting | Complete | Preserved the database gate, added hardened per-source entry limits, verified every stated behavior, passed all validation, and updated handoff documentation. |
-| 50. Delivery | In progress | Commit and push the accumulated validated changes to `origin/dev`. |
+| 50. Delivery | Complete | Pushed `30600e3 feat: add layered API rate limits` to `origin/dev`; final documentation commit records the delivery state. |
 
 ## Decisions
 
@@ -77,4 +77,4 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 
 ## Next Action
 
-Commit and push the accumulated validated changes to `origin/dev`, then verify the remote commit. Before production rollout, run both the two-device database-gate test and a same-source entry-rate-limit burst test on staging.
+Before production rollout, run both the two-device database-gate test and a same-source entry-rate-limit burst test on staging.
