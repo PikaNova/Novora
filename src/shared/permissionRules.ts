@@ -51,5 +51,8 @@ export function canAccessGrade(subject: PermissionSubject | null | undefined, gr
 export function canAccessClass(subject: PermissionSubject | null | undefined, gradeId: string, classId: string): boolean {
 	if (!subject) return false;
 	if (hasAllScope(subject)) return true;
-	return subject.scopes.some(scope => (scope.type === 'grade' && scope.gradeId === gradeId) || (scope.type === 'class' && scope.classId === classId));
+	return subject.scopes.some(scope =>
+		(scope.type === 'grade' && scope.gradeId === gradeId) ||
+		(scope.type === 'class' && scope.gradeId === gradeId && scope.classId === classId),
+	);
 }

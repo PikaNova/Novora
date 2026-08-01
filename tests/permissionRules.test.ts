@@ -84,15 +84,10 @@ test('canAccessClass: grade-scope subject can access every class under that grad
   assert.equal(canAccessClass(s, 'g2', 'c1'), false);
 });
 
-// Pinned as current behavior per product decision (2026-08-01): the class-type branch of
-// canAccessClass only compares scope.classId against the requested classId; it never checks
-// the requested gradeId against scope.gradeId. A class-scoped grant therefore "matches" even
-// when called with an unrelated/incorrect gradeId. This is tracked separately for a possible
-// fix; this test locks in today's behavior so any future change here is deliberate and visible.
-test('canAccessClass: class-scope subject matches by classId only and ignores the passed gradeId (pinned current behavior)', () => {
+test('canAccessClass: class-scope subject must match both gradeId and classId', () => {
   const s = subject({ scopes: [{ type: 'class', gradeId: 'g1', classId: 'c1' }] });
   assert.equal(canAccessClass(s, 'g1', 'c1'), true);
-  assert.equal(canAccessClass(s, 'some-other-grade', 'c1'), true);
+  assert.equal(canAccessClass(s, 'some-other-grade', 'c1'), false);
   assert.equal(canAccessClass(s, 'g1', 'c2'), false);
 });
 
