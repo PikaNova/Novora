@@ -1,6 +1,6 @@
 # Novora Project Handover
 
-Updated: 2026-08-01
+Updated: 2026-08-02
 
 ## Table Of Contents
 
@@ -34,13 +34,19 @@ Do not commit `dist/`, credentials, Neon connection strings, recovery keys, toke
 | Built-in role permission contracts | `tests/builtinRoles.test.ts` |
 | Exam/weekly mutation authorization | `api/_exams/permissions.ts` |
 | Exam data writes and conflict response | `api/_exams/routes/examDataRoutes.ts` |
+| Database integration coverage | `tests/integration/examData.integration.test.ts`, `scripts/run-integration-tests.cjs` |
 | Admin page orchestration | `src/pages/AdminPage.tsx` |
 | Weekly-plan UI and domain hooks | `src/components/WeeklyPanel.tsx`, `src/hooks/weekly/` |
 | Weekly calendar rules and coverage | `src/utils/weeklySchedule.ts`, `tests/weeklySchedule.test.ts` |
 | Client cloud sync and retry UI | `src/hooks/useExamSync.ts`, `src/components/ExamSyncAction.tsx` |
 | Serialized write queue | `src/services/syncQueue.ts` |
+| Cross-device write throttle | `api/_exams/writeThrottle.ts`, `api/_exams/db.ts`, `tests/writeThrottle.test.ts` |
+| Per-source entry rate limiting | `api/_rateLimiter.ts`, `api/exams.ts`, `tests/rateLimiter.test.ts` |
 | System settings normalization | `src/utils/appSettings.ts`, `src/utils/settings/` |
 | Merge and display-time utilities | `src/utils/examMerge.ts`, `src/utils/zonedTime.ts` |
+| Modal and popover boundary anchoring | `src/utils/anchoredOverlay.ts`, `src/components/TimeRangePickerModal.tsx` |
+| Device-management scope filtering | `src/utils/deviceScope.ts`, `src/components/DeviceStatusPanel.tsx` |
+| Subject-track target scope and historical backfill | `src/utils/trackClassIds.ts`, `scripts/backfillTrackClassIds.ts` |
 | Tests | `tests/`, `tsconfig.test.json` |
 | Deployment/API type check | `vercel.json`, `tsconfig.api.json` |
 
@@ -82,6 +88,49 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - API reads use no shared public cache. Do not reintroduce in-memory multi-instance response caching for `/api/exams`.
 
 ## Latest Update
+
+### 2026-08-02: Per-Source Entry Rate Limiting
+
+- Added an in-process fixed-window limiter before API route dispatch and before the database-backed global write gate. It applies a general default of 30 requests per 10 seconds and a write default of 8 POST requests per 10 seconds; both tiers are configurable with `ENTRY_RATE_LIMIT_*` environment variables.
+- Sources are isolated by a SHA-256 bearer-token digest, then device `instanceId`, then the first forwarded IP or socket address. Tokens are never retained in the in-memory bucket keys. The limiter retains at most 5,000 source buckets and evicts the oldest bucket when full.
+- Only true polling and heartbeat actions bypass the stricter write tier: pairing status/bootstrap, plugin-viewer heartbeat, and device heartbeat. Pairing start and confirmation remain write-limited because they change shared database state.
+- Rejected requests use the existing `429 RATE_LIMITED` shape with an accurate rounded-up `Retry-After` value. The database-backed 900ms write slot remains active after the entry limiter accepts a request, so this is defense in depth rather than a replacement for cross-instance protection.
+- Validation: `npm test` `306/306` passed, `npm run typecheck:api` passed, and `npm run build` passed. This limiter is per serverless instance and resets on cold start; it is not a globally consistent quota mechanism.
+
+### 2026-08-02: Global Write Throttling
+
+- Added a shared database-backed write slot with a 900ms minimum interval. It uses an atomic PostgreSQL `UPDATE ... WHERE ... RETURNING` against the one-row `write_throttle` table, so it applies across browser tabs, devices, and serverless instances.
+- `api/exams.ts` now consumes that slot only for shared exam saves/initialization, managed-device mutations, design-policy saves, and data resets. Reads, device heartbeats, and plugin viewer heartbeats bypass it.
+- A rejected write returns `429 RATE_LIMITED`, `Retry-After: 1`, a request ID, and a retryable Chinese message. The exam outbox retries this condition at 1/2/4/8 seconds; device-management writes retry once after one second and retain the server message if the retry is also limited.
+- The supplied package added the table helper but did not call it from any route. The merge fixes that missing controller-level connection rather than copying its incomplete files wholesale.
+- Validation: `npm test` `297/297` passed, `npm run typecheck:api` passed, and `npm run build` passed. The atomic database behavior still needs an opt-in concurrent-write test against a disposable database before relying on it as production load evidence.
+
+### 2026-08-02: Subject-Track Scope Repair
+
+- Formal large-exam elective items now use a shared class-scope calculation when they are created, edited in batch, or affected by a class track change. The calculation first respects the large exam's assigned grade/class scope, then applies the class's current track.
+- Track changes update the major state before queueing the class save, so the resulting cloud payload cannot retain an older item scope. Quick temporary majors are deliberately excluded because their class assignment is a manual dispatch decision.
+- Historical records can be inspected with `npm run backfill:track-class-ids`. It is dry-run by default, requires `BACKFILL_DATABASE_URL`, never reads `DATABASE_URL`, and requires both `--commit` and `BACKFILL_CONFIRM=novora-track-backfill` before writing. The final update uses optimistic version checking.
+- Validation: `npm test` `287/287` passed, `npm run typecheck:api` passed, `npm run build` passed, and the no-database backfill guard refused safely while cleaning its temporary output.
+
+### 2026-08-01: Device Management Scope Filtering
+
+- Device management now derives one shared grade/class/device scope from the signed-in administrator. A grade administrator sees only their assigned grade and classes in the filters, device list, statistics, bulk actions, and design-policy selector.
+- Added `src/utils/deviceScope.ts` and regression coverage for grade, class, and all-school administrator scopes. Server-side device authorization remains authoritative.
+- Validation: `npm test` `280/280` passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Time Picker Boundary Anchoring
+
+- `TimeRangePickerModal` now uses the triggering control's owning modal as a placement boundary, in addition to the browser viewport.
+- The picker first opens beside its trigger, flips to the other side when needed, and clamps to a 10px safety edge when neither side has enough room. This prevents nested time selectors from escaping to the left of the workflow modal.
+- Added `src/utils/anchoredOverlay.ts` and three pure positioning regression tests covering normal placement, side flipping, and constrained dialog/viewport bounds.
+- Validation: `npm test` `277/277` passed, `npm run typecheck:api` passed, and `npm run build` passed.
+
+### 2026-08-01: Disposable Neon Permission Integration Tests
+
+- Added an opt-in `npm run test:integration` command. It only accepts `INTEGRATION_DATABASE_URL`; it never falls back to `DATABASE_URL`, requires `INTEGRATION_TEST_CONFIRM=novora-disposable`, injects an in-process temporary admin password, and deletes its compiled output on success or failure.
+- Added four real-database tests through `handleExamDataPost()`: grade/class deletion removes matching authorization scopes, stale out-of-scope snapshots cannot block or overwrite an owned quick temporary exam change, class administrators cannot alter formal exams, and concurrent writes produce one success plus one `409 DATA_CONFLICT`.
+- The suite starts from a blank database using the production migration functions and real bearer-token authentication. Its final cleanup assertion verifies zero users and zero scopes, with only the required default `exam_data` row remaining.
+- Validation: `npm test` `274/274` passed, `npm run test:integration` `4/4` passed against the disposable Neon database, `npm run typecheck:api` passed, and `npm run build` passed.
 
 ### 2026-08-01: Weekly Schedule Test Coverage
 
@@ -151,11 +200,14 @@ The provided package contained corrupted text in two page-level refactor files. 
 
 ```bash
 npm test
+npm run test:integration
 npm run build
 npm run typecheck:api
 ```
 
 The test suite is compiled with `tsconfig.test.json` to `.test-check/`, then executed with Node. Keep runtime ESM imports in test-covered modules explicit (`.js`) when required by emitted Node code.
+
+`npm run test:integration` is deliberately separate from the offline suite. It requires an empty, disposable Neon database configured as `INTEGRATION_DATABASE_URL` and the explicit environment value `INTEGRATION_TEST_CONFIRM=novora-disposable`. Never point it at production or allow it to fall back to `DATABASE_URL`.
 
 ## Required Manual Regression Before Deploy
 
@@ -165,6 +217,8 @@ The test suite is compiled with `tsconfig.test.json` to `.test-check/`, then exe
 4. Remove a class or grade and confirm a user previously scoped only to it no longer carries a stale scope.
 5. Simulate a failed sync and confirm the display changes to the manual-retry state after automatic retries are exhausted.
 6. Verify a fresh device/browser reads a recently saved grade/class/exam without a manual refresh.
+7. With two signed-in devices, save a change from each within one second. Confirm one response receives `429 RATE_LIMITED`, the pending exam save retries automatically, and a device-management write either succeeds after its one retry or shows the server message.
+8. On a staging deployment, issue a 30-request read burst and a 9-request write burst from the same source. Confirm the next request in each tier returns `429 RATE_LIMITED` with a nonzero `Retry-After`, while device/plugin heartbeats continue normally.
 
 ## Deployment
 
@@ -172,7 +226,10 @@ Push only verified commits to `dev`; Vercel is configured to deploy that branch.
 
 ## Current Follow-Up Areas
 
-- Add an integration test against a disposable Neon database for scope deletion and permission-protected writes.
+- Configure the disposable Neon integration command as a protected CI job using test-only secrets; do not run it on untrusted pull requests.
+- Extend database integration coverage to user-management routes, device bindings, reset-data behavior, and failure/rollback behavior.
+- Add an opt-in disposable-database concurrency test that invokes the top-level API handler twice and proves exactly one global write slot is granted in a 900ms window.
+- Add a staging smoke script for per-source entry-rate-limit thresholds because serverless cold starts and multiple instances cannot be represented by the unit tests.
 - Add React-level tests for critical administrator forms once jsdom and React Testing Library are introduced.
 - Keep the AdminPage and settings/weekly refactors incremental; validate each extraction with build and behavior tests before merging another package.
 

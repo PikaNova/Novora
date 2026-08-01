@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Clock3 } from "lucide-react";
 import type { ExamItem, MajorExam } from "../types";
 import type { SchoolClass } from "../types/school";
-import { subjectAppliesToClass } from "../types/school";
-import { COMMON_EXAM_SUBJECTS, isTrackSubject, normalizeSubjectName } from "../data/subjects";
+import { COMMON_EXAM_SUBJECTS, normalizeSubjectName } from "../data/subjects";
 import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchTimeSlot } from "../utils/appSettings";
 import { APP_SETTINGS_CHANGED_EVENT, getAppSettings } from "../utils/appSettings";
+import { classesInMajorScope, computeAutoTrackClassIds } from "../utils/trackClassIds";
 import AdminModalPortal from "./AdminModalPortal";
 import AdminWizardSteps, { AdminWorkflowClose } from "./AdminWizardSteps";
 import HelpTip from "./HelpTip";
@@ -49,8 +49,6 @@ type DayPattern = {
 
 const GAOKAO_THREE_DAY_PATTERN_ID = "gaokao-three-day";
 const GAOKAO_THREE_DAY_SUBJECTS_ID = "gaokao-three-day-subjects";
-const NO_MATCHING_TRACK_CLASS_ID = "__no_matching_track_class__";
-
 const CATEGORY_LABELS: Record<Exclude<TemplateCategory, "custom">, string> = {
   gaokao: "高考常用",
   school: "学校常规",
@@ -362,25 +360,12 @@ export default function MajorBatchAddModal({
   const arrangedSubjects = useMemo(() => arrangedSubjectsForPattern(subjects, pattern), [subjects, pattern]);
   const needsMoreSlots = arrangedSubjects.length > pattern.slots.length;
   const scopedClasses = useMemo(
-    () =>
-      classes.filter((item) => {
-        if (!item.enabled) return false;
-        if (major.targetClassIds?.length) return major.targetClassIds.includes(item.id);
-        if (major.targetGradeIds?.length) return major.targetGradeIds.includes(item.gradeId);
-        return true;
-      }),
-    [classes, major.targetClassIds, major.targetGradeIds],
+    () => classesInMajorScope(major, classes),
+    [classes, major],
   );
   const unsetTrackClassCount = scopedClasses.filter((item) => !item.track?.length).length;
-  const autoTargetClassIdsForSubject = (subject: string) => {
-    const normalized = normalizeSubjectName(subject);
-    if (!subjectTrackModeEnabled) return undefined;
-    if (!isTrackSubject(normalized)) return undefined;
-    const ids = scopedClasses
-      .filter((item) => subjectAppliesToClass(normalized, item))
-      .map((item) => item.id);
-    return ids.length ? ids : [NO_MATCHING_TRACK_CLASS_ID];
-  };
+  const autoTargetClassIdsForSubject = (subject: string) =>
+    computeAutoTrackClassIds(major, subject, classes, subjectTrackModeEnabled);
 
   const validation = useMemo(() => {
     const errors = new Map<string, string[]>();

@@ -20,6 +20,7 @@ import InlineSelect from "./InlineSelect";
 import DesignPolicyManager from "./DesignPolicyManager";
 import { getAdminUser, logoutAdmin } from "../services/examService";
 import DeviceDetailDialog from "./DeviceDetailDialog";
+import { deviceIsInScope, resolveDeviceScope } from "../utils/deviceScope";
 
 const ONLINE_MS = 90_000;
 const formatTime = (value: number) =>
@@ -80,11 +81,12 @@ export default function DeviceStatusPanel({
       : classDisplayName(grades, classes, scope.classId));
     return names.filter(Boolean).join("、") || "未分配范围";
   }, [classes, currentAdmin, grades]);
-  const selectableClasses = useMemo(() => {
-    if (!currentAdmin || currentAdmin.permissions.includes("*") || currentAdmin.scopes.some(scope => scope.type === "all")) return classes;
-    return classes.filter(item => currentAdmin.scopes.some(scope => scope.type === "grade" ? scope.gradeId === item.gradeId : scope.type === "class" && scope.classId === item.id));
-  }, [classes, currentAdmin]);
-  const selectableGrades = useMemo(() => grades.filter(grade => selectableClasses.some(item => item.gradeId === grade.id)), [grades, selectableClasses]);
+  const deviceScope = useMemo(
+    () => resolveDeviceScope(grades, classes, currentAdmin),
+    [classes, currentAdmin, grades],
+  );
+  const selectableClasses = deviceScope.classes;
+  const selectableGrades = deviceScope.grades;
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -139,7 +141,7 @@ export default function DeviceStatusPanel({
     return result;
   }, [bindings, plugins]);
 
-  const visibleClasses = classes.filter(
+  const visibleClasses = selectableClasses.filter(
     (item) => gradeFilter === "*" || item.gradeId === gradeFilter,
   );
   const pickerOptions = useMemo<ClassPickerOption[]>(
@@ -153,9 +155,13 @@ export default function DeviceStatusPanel({
       })),
     [grades, visibleClasses],
   );
+  const scopedGroups = useMemo(
+    () => groups.filter((item) => deviceIsInScope(item, deviceScope)),
+    [deviceScope, groups],
+  );
   const filtered = useMemo(
     () =>
-      groups.filter((item) => {
+      scopedGroups.filter((item) => {
         const name = classDisplayName(grades, classes, item.classId);
         const text = query.trim().toLowerCase();
         const pluginIds = item.plugins
@@ -171,7 +177,7 @@ export default function DeviceStatusPanel({
               .includes(text))
         );
       }),
-    [classFilters, classes, gradeFilter, grades, groups, query],
+    [classFilters, classes, gradeFilter, grades, query, scopedGroups],
   );
 
   const isRemovedGroup = (item: DeviceGroup) =>
@@ -224,7 +230,7 @@ export default function DeviceStatusPanel({
     ? [currentGroup, ...orderedFiltered.filter(item => item.key !== currentGroup.key)]
     : orderedFiltered;
   const detailDevice = groups.find(item => item.key === detailKey);
-  const onlineCount = groups.filter(groupOnline).length;
+  const onlineCount = scopedGroups.filter(groupOnline).length;
 
   const remove = async (item: DeviceGroup) => {
     const label =
@@ -254,7 +260,7 @@ export default function DeviceStatusPanel({
     }
   };
   const removeSelected = async () => {
-    const targets = groups.filter((item) => selectedKeys.includes(item.key));
+    const targets = scopedGroups.filter((item) => selectedKeys.includes(item.key));
     if (
       !targets.length ||
       !(await confirmDialog({
@@ -357,7 +363,7 @@ export default function DeviceStatusPanel({
           刷新
         </button>
       </div>
-      <DesignPolicyManager grades={grades} classes={classes} devices={bindings} canEdit={canEditDesign} />
+      <DesignPolicyManager grades={selectableGrades} classes={selectableClasses} devices={bindings} canEdit={canEditDesign} />
       <div className="device-status__stats">
         <div>
           <span>设备总数</span>
@@ -405,7 +411,7 @@ export default function DeviceStatusPanel({
             }}
             options={[
               { value: "*", label: "全部年级" },
-              ...grades.map((item) => ({ value: item.id, label: item.name })),
+              ...selectableGrades.map((item) => ({ value: item.id, label: item.name })),
             ]}
           />
         </label>

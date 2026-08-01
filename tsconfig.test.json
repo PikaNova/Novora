@@ -54,6 +54,9 @@
     "src/services/syncQueue.ts",
     "src/services/userManagementAccess.ts",
     "src/utils/majorOwnership.ts",
-    "src/utils/examSyncStatus.ts"
+    "src/utils/examSyncStatus.ts",
+    "src/utils/anchoredOverlay.ts",
+    "src/utils/deviceScope.ts",
+    "src/utils/trackClassIds.ts"
   ]
 }

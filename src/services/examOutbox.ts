@@ -18,12 +18,16 @@ const MAX_AUTO_RETRIES = 10;
 
 /** 网络类错误与服务器错误的分级重试基准时间 */
 const NETWORK_RETRY_BASE_MS = 3_000; // 网络类：3s 起步
+const RATE_LIMIT_RETRY_BASE_MS = 1_000;
+const RATE_LIMIT_RETRY_CAP_MS = 8_000;
 
 const isNetworkError = (error: ApiError) =>
   error.code === 'NETWORK_UNAVAILABLE' ||
   error.code === 'NETWORK_TIMEOUT' ||
   error.code === 'DATABASE_UNAVAILABLE' ||
   error.code === 'DATABASE_TIMEOUT';
+
+const isRateLimitedError = (error: ApiError) => error.code === 'RATE_LIMITED';
 
 export interface PendingExamSync {
   payload: {
@@ -116,6 +120,8 @@ function markPendingFailure(
     error instanceof ApiError ? error.retryable : true;
   const isNetwork =
     error instanceof ApiError && isNetworkError(error);
+  const isRateLimited =
+    error instanceof ApiError && isRateLimitedError(error);
   const retryCount = (pending.retryCount ?? 0) + 1;
 
   // 不可重试错误直接进入 max-retries 状态
@@ -141,10 +147,15 @@ function markPendingFailure(
     return;
   }
 
+  // 限流错误：1s*2^(n-1)，上限 8s（服务端窗口很短）
   // 网络错误：3s*2^(n-1)，上限 30s（恢复后快速重试）
   // 服务器错误：5s*2^(n-1)，上限 60s
-  const base = isNetwork ? NETWORK_RETRY_BASE_MS : 5_000;
-  const cap = isNetwork ? 30_000 : 60_000;
+  const base = isRateLimited
+    ? RATE_LIMIT_RETRY_BASE_MS
+    : isNetwork
+      ? NETWORK_RETRY_BASE_MS
+      : 5_000;
+  const cap = isRateLimited ? RATE_LIMIT_RETRY_CAP_MS : isNetwork ? 30_000 : 60_000;
   const waitMs = Math.min(cap, base * Math.pow(2, retryCount - 1));
   queuePendingExamSync({
     ...pending,

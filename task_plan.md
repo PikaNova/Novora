@@ -40,6 +40,24 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 | 30. Update handoff and clean artifacts | Complete | Updated handoff/process records and removed generated output before handoff. |
 | 31. Package latest source and handover | Complete | Created and structure-verified current source and standalone handover archives from the `274/274` baseline. |
 | 32. Commit and push validated change set | Complete | Pushed commit `592fe3d` to `origin/dev`; a final documentation-status commit will record the delivery result. |
+| 33. Design disposable Neon integration coverage | Complete | Mapped the authenticated database write path, test isolation requirements, and initial high-risk scenarios. |
+| 34. Provision isolated integration database | Complete | Confirmed a reachable blank Neon database and used it only for the isolated integration suite. |
+| 35. Implement and run database integration tests | Complete | Added opt-in route-level coverage; `4/4` Neon tests, `274/274` unit tests, API type check, and build passed. |
+| 36. Record integration coverage and clean artifacts | Complete | Updated handoff/process records and removed generated test/build output. |
+| 37. Diagnose subject-track exam delivery regression | Complete | Confirmed the live feature flag and class track are correct; stale item-level target scopes override the updated class tracks. |
+| 38. Add regression coverage and repair the shared filtering contract | Complete | Added shared formal-major target-scope logic, class-track resynchronization, temporary-major protection, and a guarded historical backfill command. |
+| 39. Revalidate and update handoff material | Complete | Added seven regression tests; full tests, API type check, production build, and the no-database safety guard passed. |
+| 40. Repair time-picker boundary anchoring | Complete | Added owner-modal-aware placement for the time-range picker portal. |
+| 41. Verify picker placement and record the UI fix | Complete | Added focused placement coverage; tests, API type check, and production build passed. |
+| 42. Restrict device filters to administrator scope | Complete | Applied one shared scoped view to device filters, operations, statistics, and design-policy inputs so grade administrators cannot see other grades. |
+| 43. Verify scoped-device UI and update handoff material | Complete | Added pure scope regression coverage; unit tests, API type check, and production build passed. |
+| 44. Package current source and handover | Complete | Created and structure-verified a fresh archive of the current working tree, including uncommitted validated fixes and updated handover documentation. |
+| 45. Inspect global write-throttle package | Complete | Package contains a useful database-slot helper and frontend retry ideas, but no server route invokes the helper, so it cannot throttle requests as delivered. |
+| 46. Merge, validate, and document write throttling | Complete | Added controller-level enforcement, clean 429 response/recovery behavior, ten regression tests, full validation, and handover documentation. |
+| 47. Delivery | Pending user direction | Changes are local and validated; do not commit or push without an explicit request. |
+| 48. Inspect entry-rate-limit package | Complete | Incoming dispatcher would remove the current database write gate. Its memory limiter is useful only as a preceding, per-instance defensive layer and needs safer keying, configuration parsing, and action exemptions. |
+| 49. Merge, validate, and document entry rate limiting | Complete | Preserved the database gate, added hardened per-source entry limits, verified every stated behavior, passed all validation, and updated handoff documentation. |
+| 50. Delivery | In progress | Commit and push the accumulated validated changes to `origin/dev`. |
 
 ## Decisions
 
@@ -54,7 +72,9 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 - The exam-merge/timezone package is test-only. Preserve the current production implementations unless a verified defect requires separate user direction.
 - The weekly-schedule package is test-only. Keep all existing scheduling behavior unchanged unless tests expose a demonstrable defect requiring separate approval.
 - Delivery archives must include the current uncommitted, validated changes and exclude Git metadata, dependencies, generated output, caches, environment files, and logs.
+- Database integration tests must run only against an explicitly designated isolated database or an ephemeral branch created from an empty test parent. They must never fall back to `DATABASE_URL` or production data.
+- A supplied integration connection is used only as a transient process environment value and is never written to files, Git, logs, documentation, or delivery archives.
 
 ## Next Action
 
-On the next task turn, read this file with `findings.md` and `progress.md`, then address a new requested change from the updated `origin/dev` baseline.
+Commit and push the accumulated validated changes to `origin/dev`, then verify the remote commit. Before production rollout, run both the two-device database-gate test and a same-source entry-rate-limit burst test on staging.

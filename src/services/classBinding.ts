@@ -10,6 +10,19 @@ const PENDING_MANAGEMENT_SETUP_KEY = 'novora_pending_management_setup';
 const ADMIN_TOKEN_KEY = 'admin_auth_token';
 let heartbeatInFlight = false;
 
+async function sendWithRateLimitRetry(
+  send: () => Promise<Response>,
+): Promise<{ response: Response; data: any }> {
+  let response = await send();
+  let data = await response.json().catch(() => null);
+  if (response.status === 429 && data?.code === 'RATE_LIMITED') {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    response = await send();
+    data = await response.json().catch(() => null);
+  }
+  return { response, data };
+}
+
 export interface DeviceBinding {
   gradeId: string;
   classId: string;
@@ -56,8 +69,7 @@ export async function fetchOccupiedClassIds(): Promise<string[]> {
   return Array.isArray(data?.occupiedClassIds) ? data.occupiedClassIds.filter((value: unknown): value is string => typeof value === 'string') : [];
 }
 export async function setupManagedDevice(input: { bindManagement: boolean; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<{ conflict?: DeviceSetupConflict }> {
-  const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) }, 20_000), { priority: 'high' });
-  const data = await response.json().catch(() => null);
+  const { response, data } = await sendWithRateLimitRetry(() => runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'managed-device-setup', instanceId: getInstanceId(), ...input }) }, 20_000), { priority: 'high' }));
   if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { conflict: data.existing as DeviceSetupConflict };
   if (!response.ok) throw new Error(data?.error || '设备登记失败');
   if (input.bindManagement) {
@@ -76,8 +88,7 @@ export async function setupManagedDevice(input: { bindManagement: boolean; grade
 
 export async function updateDeviceRole(input: { instanceId: string; targetRole: 'management' | 'class-terminal'; gradeId?: string; classId?: string; replaceExisting?: boolean }): Promise<DeviceRoleUpdateResult> {
   try {
-    const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-role-update', ...input }) }, 20_000), { priority: 'high' });
-    const data = await response.json().catch(() => null);
+    const { response, data } = await sendWithRateLimitRetry(() => runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-role-update', ...input }) }, 20_000), { priority: 'high' }));
     if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已有考试端' };
     if (!response.ok) return { ok: false, error: data?.error || '设备角色转换失败' };
     const binding: DeviceBinding = { gradeId: data?.binding?.gradeId ?? '', classId: data?.binding?.classId ?? '', revoked: false, isManagement: data?.binding?.isManagement === true };
@@ -148,8 +159,7 @@ export function cacheDeviceBinding(binding: DeviceBinding | null): void {
 
 export async function saveDeviceBinding(gradeId: string, classId: string, replaceExisting = false): Promise<DeviceBindingSaveResult> {
   try {
-    const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) }, 20_000), { priority: 'high' });
-    const data = await response.json().catch(() => null);
+    const { response, data } = await sendWithRateLimitRetry(() => runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'device-binding', instanceId: getInstanceId(), gradeId, classId, replaceExisting }) }, 20_000), { priority: 'high' }));
     if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS') return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已绑定其他考试端' };
     if (!response.ok) return { ok: false, error: data?.error || '班级绑定失败' };
     cacheDeviceBinding({ gradeId, classId, revoked: false, isManagement: false });
@@ -173,13 +183,13 @@ export async function fetchDeviceBindings(): Promise<{ bindings: DeviceBindingIn
 }
 
 export async function revokeDevice(instanceId: string, pluginInstanceIds: string[] = []): Promise<void> {
-  const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) }, 20_000), { priority: 'high' });
-  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : '删除设备失败');
+  const { response, data } = await sendWithRateLimitRetry(() => runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-revoke', instanceId, pluginInstanceIds }) }, 20_000), { priority: 'high' }));
+  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权删除此设备' : data?.error || '删除设备失败');
 }
 
 export async function sendDeviceCommand(instanceId: string, commandAction: DeviceCommand['action'], minutes?: number): Promise<void> {
-  const response = await runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) }, 20_000), { priority: 'high' });
-  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权管理此设备' : '临时考试指令发送失败');
+  const { response, data } = await sendWithRateLimitRetry(() => runQueued(() => fetchWithTimeout(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'device-command', instanceId, commandAction, minutes }) }, 20_000), { priority: 'high' }));
+  if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效' : response.status === 403 ? '当前账号无权管理此设备' : data?.error || '临时考试指令发送失败');
 }
 
 export async function sendDeviceHeartbeat(input: Omit<DeviceBindingInfo, 'instanceId' | 'gradeId' | 'classId' | 'revoked' | 'lastSeenAt' | 'updatedAt'> & { acknowledgedCommandId?: string }): Promise<{ revoked: boolean; binding: DeviceBinding | null; command: DeviceCommand | null }> {

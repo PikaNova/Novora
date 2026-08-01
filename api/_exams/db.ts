@@ -106,6 +106,11 @@ export function ensureTableOnce(): Promise<void> {
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
         )`,
+        transaction`CREATE TABLE IF NOT EXISTS write_throttle (
+          id INTEGER PRIMARY KEY DEFAULT 1,
+          next_allowed_at BIGINT NOT NULL DEFAULT 0,
+          CHECK (id = 1)
+        )`,
       ]);
       await Promise.all([
         ensureUpdatedAtBigIntOnce(),
@@ -130,6 +135,11 @@ export function ensureTableOnce(): Promise<void> {
         VALUES (1, '[]', '', 0)
         ON CONFLICT (id) DO NOTHING
       `;
+      await sql`
+        INSERT INTO write_throttle (id, next_allowed_at)
+        VALUES (1, 0)
+        ON CONFLICT (id) DO NOTHING
+      `;
     })().catch((err) => {
       migratePromise = null;
       throw err;
@@ -151,4 +161,32 @@ export function updatedAtIntegerOverflow(err: unknown): boolean {
       ? String((err as { code?: unknown }).code ?? "")
       : "";
   return code === "22003" && /out of range for type integer/i.test(msg);
+}
+
+export const GLOBAL_WRITE_MIN_INTERVAL_MS = 900;
+
+/**
+ * Atomically reserves the next global write slot. The database row is shared
+ * by every serverless instance, browser tab, and device.
+ */
+export async function acquireGlobalWriteSlot(): Promise<boolean> {
+  const sql = database();
+  const attempt = async (): Promise<boolean> => {
+    const now = Date.now();
+    const rows = (await sql`
+      UPDATE write_throttle
+      SET next_allowed_at = ${now + GLOBAL_WRITE_MIN_INTERVAL_MS}
+      WHERE id = 1 AND next_allowed_at <= ${now}
+      RETURNING id
+    `) as unknown as Array<{ id: number }>;
+    return rows.length > 0;
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!missingRelation(error)) throw error;
+    await ensureTableOnce();
+    return attempt();
+  }
 }

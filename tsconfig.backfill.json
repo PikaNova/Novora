@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "outDir": ".backfill-check",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/backfillTrackClassIds.ts",
+    "src/utils/trackClassIds.ts",
+    "src/data/subjects.ts",
+    "src/types/index.ts",
+    "src/types/school.ts"
+  ]
+}

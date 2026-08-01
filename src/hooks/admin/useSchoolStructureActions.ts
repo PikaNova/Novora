@@ -2,8 +2,9 @@ import type { MutableRefObject } from "react";
 import type { MajorExam } from "../../types";
 import type { WeeklyState } from "./useWeeklyScheduleSync";
 import { genClassId, genGradeId } from "../../types/school";
-import { updateExamSettings } from "../../utils/appSettings";
+import { getAppSettings, updateExamSettings } from "../../utils/appSettings";
 import { notify } from "../../services/notify";
+import { recomputeMajorsTrackClassIds } from "../../utils/trackClassIds";
 
 // Owns grade/class roster CRUD (add/remove grade, add/remove class(es),
 // per-class track assignment). This is a thin forward-consumer of the
@@ -170,11 +171,26 @@ export function useSchoolStructureActions(params: {
     const nextClasses = classes.map((item) =>
       idSet.has(item.id) ? { ...item, track: track.length ? track : undefined } : item,
     );
+    const subjectTrackModeEnabled =
+      getAppSettings().exam.initialization.subjectTrackModeEnabled !== false;
+    const { majors: nextMajors, changes } = recomputeMajorsTrackClassIds(
+      majors,
+      nextClasses,
+      subjectTrackModeEnabled,
+    );
+    if (changes.length) {
+      setMajors(nextMajors);
+      stateRef.current = { majors: nextMajors, activeMajorId };
+      updateExamSettings({ majors: nextMajors });
+    }
     commitWeekly(
       { classes: nextClasses },
       true,
       classIds.length > 1 ? `设置 ${classIds.length} 个班级选科` : "设置班级选科",
     );
+    if (changes.length) {
+      notify("info", `已按最新选科同步 ${changes.length} 个分考试范围。`, "选科变更同步");
+    }
   };
 
   return {

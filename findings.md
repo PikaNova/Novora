@@ -105,3 +105,72 @@ Class and grade administrators submit a complete cached school snapshot. A class
 
 - The validated aggregate change set was committed as `592fe3d test: expand coverage and protect scoped writes`.
 - `origin/dev` advanced from `4b2d65b` to `592fe3d` successfully.
+
+## Disposable Neon Integration-Test Plan
+
+- The real write path is `handleExamDataPost()`: it loads the current `exam_data` row, applies `isolateQuickMajorCreate()` and `sanitizeStaleSnapshot()`, calls `validateMutation()`, writes with optimistic `updated_at`, then removes obsolete `app_user_scopes` rows through `authSql()`.
+- `ensureTableOnce()` and `ensureAuthTables()` are idempotent and can prepare a blank database. Route tests can use a minimal Vercel request/response double and real bearer tokens from the auth module.
+- No `INTEGRATION_DATABASE_URL`, `DATABASE_URL`, `NEON_API_KEY`, or `NEON_PROJECT_ID` is configured locally. Integration execution is intentionally blocked rather than risking a production connection.
+- Recommended isolation is an opt-in `INTEGRATION_DATABASE_URL` that points only to a fresh Neon branch from an empty test parent. A later CI automation may create/delete that branch using restricted `NEON_API_KEY` and project/parent-branch identifiers. Never branch from production because Neon branches clone data.
+- The integration command must reject absent credentials and reject a URL not explicitly marked as integration-only. It must be separate from `npm test` so unit tests remain offline and deterministic.
+
+## Disposable Neon Integration-Test Results
+
+- The supplied database was reachable and empty before test setup: no `exam_data` or `app_users` tables existed.
+- `tests/integration/examData.integration.test.ts` invokes `handleExamDataPost()` with real bearer-token authentication and production migrations. It covers scope cleanup, stale snapshot sanitization plus owned quick-major isolation, forbidden formal-major writes, and optimistic concurrency.
+- `scripts/run-integration-tests.cjs` requires `INTEGRATION_DATABASE_URL` and `INTEGRATION_TEST_CONFIRM=novora-disposable`, never accepts `DATABASE_URL` as fallback, generates a process-only admin password, and clears `.integration-check` through `finally` on both success and failure.
+- Final result: `4/4` integration tests passed in approximately 83 seconds. The database cleanup assertion passed: `app_users` and `app_user_scopes` are empty, and `exam_data` contains only its default row.
+- Full regression after the change: `274/274` unit tests, API type check, and production build passed.
+
+## Subject-Track Delivery Diagnosis
+
+- Live API inspection confirmed `initialization.subjectTrackModeEnabled` is `true` and the screenshot's class 5 has `track: ['历史', '化学', '地理']`.
+- The active large exam stores item-level `targetClassIds` for every elective. Both `思想政治` and `生物` contain class 5, even though neither belongs to its current track.
+- This is a historical-scope problem: batch creation materializes the matching classes at that moment. If tracks are set or changed later, the old item scopes remain.
+- `resolveEffectiveSchedule()` intentionally treats a non-empty `item.targetClassIds` as authoritative and skips its legacy/current-track fallback. Consequently stale generated targets override live class track data.
+- A repair must distinguish auto-generated subject-track scopes from deliberately manual per-item targeting. Blindly re-filtering all `targetClassIds` would break explicit class-level exams.
+
+## Subject-Track Scope Repair
+
+- `src/utils/trackClassIds.ts` is now the shared implementation for calculating formal large-exam elective-item `targetClassIds`. It respects the large exam's manually selected grade/class scope, then filters classes by their current track.
+- Class-track edits use that shared helper before `commitWeekly()` queues its write. This ordering is required: the serialized payload now includes both the new class track and recomputed formal-major items, rather than writing a stale major snapshot.
+- Quick temporary majors are explicitly excluded from recomputation. Their class scope is a manual dispatch choice held on the major itself and must never be replaced by track logic.
+- `scripts/backfillTrackClassIds.ts` repairs pre-existing formal-major snapshots only through `npm run backfill:track-class-ids`. It requires an explicit `BACKFILL_DATABASE_URL`; `--commit` also requires `BACKFILL_CONFIRM=novora-track-backfill`, uses an optimistic `updated_at` condition, and never falls back to `DATABASE_URL`.
+- Validation after merge: `287/287` unit tests, API type check, and production build passed. The no-credential command test confirmed a safe refusal and removal of `.backfill-check`.
+
+## Time Picker Boundary Anchoring
+
+- The nested `TimeRangePickerModal` is rendered through a document-body portal. Its original placement considered only the viewport, so a control inside a workflow modal could open the nested picker outside that modal's visual boundary.
+- `resolveAnchoredOverlayPosition()` intersects the viewport and owning-dialog bounds, opens on the side with more room, flips where necessary, and clamps to a 10px safety edge.
+- `TimeRangePickerModal` captures the triggering element's closest `.admin-modal` or parent `.time-range-modal` and supplies that rectangle as the placement boundary. Standalone callers still fall back to the viewport.
+- `tests/anchoredOverlay.test.ts` covers normal right placement, left-side flip, and a constrained viewport/dialog. Validation after the change: `277/277` tests, API type check, and production build passed.
+
+## Device Management Scope Filtering
+
+- `DeviceStatusPanel` calculated scoped grade/class options but still fed the global grade/class lists into the grade dropdown, class picker, design-policy manager, device statistics, and bulk operation targets. A grade administrator could therefore see an unrelated grade even though server-side actions remained scoped.
+- `src/utils/deviceScope.ts` now centralizes the visible grades, classes, and device-group membership for all-scope, grade-scope, and class-scope administrators. `DeviceStatusPanel` uses that one resolved scope everywhere it renders or selects devices.
+- `tests/deviceScope.test.ts` protects the grade-admin, class-admin, and all-scope paths. Validation after the change: `280/280` tests, API type check, and production build passed.
+
+## Latest Source Delivery
+
+- Source archive: `C:\\Users\\Administrator\\Documents\\Codex\\2026-07-23\\nihao-2\\deliveries\\novora-v2.7.1-dev-local-20260801-device-scope-source.zip`.
+- The archive contains 1,280 structured source entries, including `PROJECT_HANDOVER.md`, the device-scope utility, its tests, and the updated device panel.
+- Archive validation confirmed no Git metadata, dependency directories, generated build/test output, environment files, HAR captures, or log files.
+
+## Global Write-Throttle Merge
+
+- The supplied package created the `write_throttle` table and `acquireGlobalWriteSlot()` helper, but its copied exam/device route files were byte-identical to the current routes. No request could acquire a slot or return `429`, so wholesale merging would have delivered an inert feature.
+- The repaired implementation uses `api/_exams/writeThrottle.ts` as a pure controller-level action classifier. It throttles only known shared-state mutations: default exam saves, initialization, device binding/setup/role/command/revoke, design-policy saves, and reset-data.
+- `api/exams.ts` calls `ensureTableOnce()` and then `acquireGlobalWriteSlot()` before dispatching a classified mutation. The slot update is atomic across serverless instances. A rejection uses the typed `sendRateLimited()` response with `Retry-After: 1`, `RATE_LIMITED`, `retryable: true`, and a request ID.
+- Device and viewer heartbeats are deliberately excluded. They are frequent status traffic and must not be delayed by administrator data saves. Plugin pairing and polling are also excluded from this change because the supplied package did not establish their intended concurrency behavior.
+- The exam outbox retries `RATE_LIMITED` after 1/2/4/8 seconds. Device writes perform one delayed retry and preserve the API's final message. This reduces ordinary two-device collisions without hiding persistent failures.
+- Validation: `297/297` unit tests, API type check, and production build passed. Unit tests cover classification, error mapping, retry tiers, and device retry behavior. They cannot prove database-level cross-instance atomicity; add an opt-in disposable-database concurrent handler test before treating the throttle as load-tested.
+
+## Entry Rate-Limiter Merge
+
+- The supplied `api/exams.ts` removed the current imports and call site for `acquireGlobalWriteSlot()`. It must not replace the dispatcher because it would downgrade multi-instance write protection to a per-instance memory counter.
+- `api/_rateLimiter.ts` is now a separate, preceding defensive layer. It enforces a source-specific fixed window for every request and a stricter window for non-exempt POST actions. The default limits are 30 requests/10 seconds and 8 writes/10 seconds, with four `ENTRY_RATE_LIMIT_*` environment settings for deployment tuning.
+- Bearer tokens are SHA-256 hashed before becoming memory keys. Key derivation then falls back to a bounded device ID or IP. Bucket capacity is bounded to 5,000 entries by evicting the oldest entry rather than clearing every active counter.
+- The entry response uses the shared rate-limit formatter, but now passes the actual remaining fixed-window duration as `Retry-After`. Existing database-gate responses retain the default one-second header.
+- Heartbeats and pair-status/bootstrap polling bypass only the entry write tier; pairing start and confirmation remain limited because they write pairing state. The general tier still applies to every request.
+- Validation: `306/306` unit tests, API type check, and production build passed. Unit coverage establishes local fixed-window semantics, safe configuration/key behavior, and exemptions. It cannot establish Vercel's cross-instance behavior, so retain the database gate and perform a staging request-burst smoke test.

@@ -4,7 +4,7 @@ import type { NavigateFunction } from "react-router-dom";
 import type { AlertsSettings, ExamItem, MajorExam } from "../../types";
 import type { SchoolClass, SchoolGrade } from "../../types/school";
 import { isTrackSubject, normalizeSubjectName } from "../../data/subjects";
-import { subjectAppliesToClass } from "../../types/school";
+import { classesInMajorScope as sharedClassesInMajorScope, computeAutoTrackClassIds } from "../../utils/trackClassIds";
 import type { InitializationState } from "../../utils/settings/school";
 import {
   getAppSettings,
@@ -234,21 +234,9 @@ export function useMajorScheduleActions(params: {
   const subjectTrackModeEnabled =
     initializationRef.current.subjectTrackModeEnabled !== false;
   const classesInMajorScope = (major: MajorExam) =>
-    visibleClasses.filter((item) => {
-      if (!item.enabled) return false;
-      if (major.targetClassIds?.length) return major.targetClassIds.includes(item.id);
-      if (major.targetGradeIds?.length) return major.targetGradeIds.includes(item.gradeId);
-      return true;
-    });
-  const autoTrackClassIdsForMajorItem = (major: MajorExam, subject: string) => {
-    const normalized = normalizeSubjectName(subject);
-    if (!subjectTrackModeEnabled) return undefined;
-    if (!isTrackSubject(normalized)) return undefined;
-    const ids = classesInMajorScope(major)
-      .filter((item) => subjectAppliesToClass(normalized, item))
-      .map((item) => item.id);
-    return ids.length ? ids : ["__no_matching_track_class__"];
-  };
+    sharedClassesInMajorScope(major, visibleClasses);
+  const autoTrackClassIdsForMajorItem = (major: MajorExam, subject: string) =>
+    computeAutoTrackClassIds(major, subject, visibleClasses, subjectTrackModeEnabled);
   const activeMajorTrackSubjects = items.filter((item) => isTrackSubject(item.name));
   const activeMajorTrackScopedCount = activeMajorTrackSubjects.filter(
     (item) => item.targetClassIds?.length,

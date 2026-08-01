@@ -5,8 +5,16 @@
 // 对外行为与接口保持不变。
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requestId, sendDatabaseError } from "./_apiError.js";
+import { requestId, sendDatabaseError, sendRateLimited } from "./_apiError.js";
 import { applyCors } from "./_cors.js";
+import { acquireGlobalWriteSlot, ensureTableOnce } from "./_exams/db.js";
+import { shouldThrottleWrite } from "./_exams/writeThrottle.js";
+import {
+  consumeRateLimit,
+  getRateLimitKey,
+  isWriteTierExemptAction,
+  readRateLimitSetting,
+} from "./_rateLimiter.js";
 import {
   handleBootstrap,
   handleExamDataGet,
@@ -73,6 +81,23 @@ const POST_ONLY_ROUTES: Record<string, RouteHandler> = {
   "reset-data": (req, res) => handleResetData(req, res),
 };
 
+const GENERAL_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(
+  process.env.ENTRY_RATE_LIMIT_WINDOW_MS,
+  10_000,
+);
+const GENERAL_RATE_LIMIT_MAX_REQUESTS = readRateLimitSetting(
+  process.env.ENTRY_RATE_LIMIT_MAX_REQUESTS,
+  30,
+);
+const WRITE_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(
+  process.env.ENTRY_RATE_LIMIT_WRITE_WINDOW_MS,
+  10_000,
+);
+const WRITE_RATE_LIMIT_MAX_REQUESTS = readRateLimitSetting(
+  process.env.ENTRY_RATE_LIMIT_WRITE_MAX_REQUESTS,
+  8,
+);
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const startedAt = Date.now();
   requestId(req, res);
@@ -104,6 +129,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
 
   try {
+    const rateLimitKey = getRateLimitKey(req);
+    const generalLimit = consumeRateLimit(rateLimitKey, {
+      windowMs: GENERAL_RATE_LIMIT_WINDOW_MS,
+      maxRequests: GENERAL_RATE_LIMIT_MAX_REQUESTS,
+    });
+    if (!generalLimit.allowed) {
+      sendRateLimited(req, res, generalLimit.retryAfterMs / 1_000);
+      return;
+    }
+
+    if (req.method === "POST" && !isWriteTierExemptAction(action)) {
+      const writeLimit = consumeRateLimit(`${rateLimitKey}:write`, {
+        windowMs: WRITE_RATE_LIMIT_WINDOW_MS,
+        maxRequests: WRITE_RATE_LIMIT_MAX_REQUESTS,
+      });
+      if (!writeLimit.allowed) {
+        sendRateLimited(req, res, writeLimit.retryAfterMs / 1_000);
+        return;
+      }
+    }
+
+    if (shouldThrottleWrite(req.method, action)) {
+      await ensureTableOnce();
+      if (!(await acquireGlobalWriteSlot())) {
+        sendRateLimited(req, res);
+        return;
+      }
+    }
+
     const actionOnlyHandler = ACTION_ONLY_ROUTES[action];
     if (actionOnlyHandler) {
       await actionOnlyHandler(req, res, startedAt);

@@ -44,6 +44,11 @@
 - Re-opened the archives and confirmed the source package has 473 structured entries, includes `tests/weeklySchedule.test.ts` and `PROJECT_HANDOVER.md`, and excludes dependencies, Git metadata, caches, and generated output.
 - Committed the validated aggregate change set as `592fe3d test: expand coverage and protect scoped writes`.
 - Pushed `592fe3d` to `origin/dev` successfully.
+- Completed the database-integration test design pass. The real authenticated write path and migration entry points are identified, but execution is blocked because no isolated Neon/database credentials are configured locally.
+- Next prerequisite: an `INTEGRATION_DATABASE_URL` for a disposable, non-production Neon branch, or restricted Neon API credentials that can create and remove such a branch.
+- Implemented the protected `test:integration` command and real route-level Neon coverage for scope deletion, stale snapshots/owned quick exams, formal-exam authorization, and optimistic write conflicts.
+- Integration validation passed: `4/4` against the user-supplied blank disposable Neon database. The suite's cleanup assertion confirmed no test users or scopes remain and only the default exam row remains.
+- Full regression passed: `274/274` unit tests, API type check, and production build.
 - Packaged the latest source and standalone handover after all current test coverage updates; archive validation confirmed 399 source entries and no generated/dependency directories.
 - Inspected `novora-adminpageutils-test-coverage.zip`; it is compatible as a test-only addition and will extend the existing `syncMajorStateRef` test.
 - Added 17 AdminPage utility tests without changing production code or test configuration.
@@ -57,3 +62,41 @@
 ### Workflow Note
 
 For every later turn, read `task_plan.md`, `findings.md`, and this file before performing new work. Update all three after each completed phase.
+
+### Latest Diagnosis
+
+- Investigated the report that large exams still ignore subject tracks using the deployed API and the current delivery code.
+- The subject-track feature is enabled and class 5 is correctly saved as 历史+化学+地理.
+- The active exam's political-science and biology items still contain class 5 in their persisted `targetClassIds`. Those scopes were generated before the class track changed and now override the current class metadata during schedule resolution.
+- No production data or code was changed during diagnosis. The next repair must preserve explicit manual class targets while allowing auto-generated track targets to follow current class tracks.
+
+### Latest Completed
+
+- Repaired the nested time-range picker placement reported in the administration workflow.
+- Added owner-modal-aware boundary anchoring and pure placement tests for right placement, automatic left flip, and constrained screen/dialog bounds.
+- Validation passed: `277/277` tests, API type check, and production build.
+- Removed generated `.test-check/`, `.api-check/`, and `dist/` output after validation.
+- Repaired device-management scope visibility: grade and class filters, device rows/statistics, bulk-removal targets, and design-policy inputs now use the current administrator's shared scope instead of global school lists.
+- Added scope tests for grade administrators, class administrators, and all-school administrators.
+- Validation passed: `280/280` tests, API type check, and production build.
+- Packaged the current working tree, including uncommitted validated changes, as `novora-v2.7.1-dev-local-20260801-device-scope-source.zip`.
+- Archive validation passed: 1,280 entries; required handover/device-scope files present; excluded dependency, build, test-output, environment, HAR, and log entries absent.
+- Repaired subject-track delivery for formal large exams. The shared target-scope helper is used by single-item editing, batch creation, and class-track updates; quick temporary major exams remain excluded because their scope is manually dispatched.
+- Added a guarded historical backfill command with explicit database and commit confirmations plus optimistic concurrency protection.
+- Validation passed: `287/287` tests, API type check, and production build. The backfill command safely rejects a missing dedicated database URL and cleans its temporary output.
+
+### 2026-08-02: Global Write-Throttle Merge
+
+- Inspected `novora-v2.7.1-dev-local-20260801-write-throttle-source.zip` and found its new database slot helper was never called by the copied routes, so it would not have throttled any request.
+- Added `write_throttle` migration/seed and an atomic 900ms global slot helper. Connected it at the `api/exams.ts` dispatcher for formal shared-state writes only; reads and heartbeat traffic remain unthrottled.
+- Added `429 RATE_LIMITED` responses with request ID and retry header, an outbox 1/2/4/8-second retry tier, and one automatic device-write retry with final server message preservation.
+- Added ten regression tests for action coverage, error behavior, outbox retry timing, and device retry behavior.
+- Validation passed: `297/297` tests, API type check, and production build. A true concurrent database-slot test remains pending against an explicitly isolated database; no production credential or database was used.
+
+### 2026-08-02: Per-Source Entry Rate-Limiter Merge
+
+- Inspected `novora-v2.7.1-dev-local-20260801-entry-ratelimit-source.zip`. Its dispatcher patch would have removed the existing database-backed global write slot, so it was merged selectively rather than copied.
+- Added a hardened in-memory source limiter before route dispatch and retained the database gate after it. General limits default to 30 requests/10 seconds; non-exempt POST limits default to 8 requests/10 seconds. Both are configurable through `ENTRY_RATE_LIMIT_*` variables.
+- Token-derived keys are SHA-256 hashes, bucket memory is capped through oldest-entry eviction, and `Retry-After` now reflects the remaining entry window. Only actual polling/heartbeats bypass the write tier; pairing creation and confirmation remain protected writes.
+- Added nine regression tests for thresholds, reset timing, retry duration, bounded storage, configuration, hashed keys, source fallback, and action exemptions.
+- Validation passed: `306/306` tests, API type check, and production build. Remaining production-only work is a staging burst test and multi-instance observation; no production database or credentials were used.
