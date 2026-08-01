@@ -2,7 +2,7 @@ import type {
   IsoWeekday,
   WeeklyConflictPolicy,
   WeeklyWeekType,
-} from "../../types/exam";
+} from "../../types/exam.js";
 
 export const WEEKDAY_LABEL: Record<IsoWeekday, string> = {
   1: "\u5468\u4e00",

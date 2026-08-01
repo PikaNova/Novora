@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "node ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
-    "test": "tsc -p tsconfig.test.json && node --test .test-check/tests/*.test.js",
+    "test": "node -e \"require('node:fs').rmSync('.test-check', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node scripts/prepare-test-output.cjs && node --test .test-check/tests/*.test.js",
     "typecheck:api": "tsc -p tsconfig.api.json && node -e \"import('./.api-check/api/exams.js')\""
   },
   "dependencies": {

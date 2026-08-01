@@ -2,13 +2,39 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
     "rootDir": ".",
     "outDir": ".test-check",
     "skipLibCheck": true,
     "strict": true,
     "types": ["node"]
   },
-  "include": ["tests/**/*.ts", "src/utils/safeNavigation.ts", "api/_cors.ts"]
+  "include": [
+    "tests/**/*.ts",
+    "src/utils/safeNavigation.ts",
+    "api/_cors.ts",
+    "src/utils/appSettings.ts",
+    "src/utils/settings/school.ts",
+    "src/utils/settings/weekly.ts",
+    "src/utils/settings/design.ts",
+    "src/utils/settings/majorBatch.ts",
+    "src/shared/permissionRules.ts",
+    "api/_auth.ts",
+    "api/_exams/types.ts",
+    "api/_exams/diff.ts",
+    "api/_exams/payload.ts",
+    "api/_exams/permissions.ts",
+    "src/utils/zonedTime.ts",
+    "src/utils/examSchedule.ts",
+    "src/utils/weeklySchedule.ts",
+    "src/data/subjects.ts",
+    "src/data/officialHolidays.ts",
+    "src/types/school.ts",
+    "src/types/exam.ts",
+    "src/types/index.ts",
+    "src/utils/scheduleConflict.ts",
+    "src/components/weekly/weeklyShared.ts",
+    "src/services/syncQueue.ts"
+  ]
 }

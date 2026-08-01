@@ -245,6 +245,40 @@ export function runQueued<T>(
   });
 }
 
+/**
+ * 仅供单元测试使用：把本模块的全部内部状态（队列、监听者、定时器、批次/慢任务计数）
+ * 重置到初始值。生产代码从不调用这个函数——本模块是进程内单例，多个测试用例之间
+ * 如果不重置会互相污染状态。
+ */
+export function __resetSyncQueueForTests(): void {
+  listeners.clear();
+  businessQueue.length = 0;
+  debounceMap.forEach((entry) => clearTimeout(entry.timer));
+  debounceMap.clear();
+  deferredInBatch.clear();
+  dispatching = false;
+  inFlight = 0;
+  currentLabel = undefined;
+  lastBusinessSendAt = 0;
+  batchDepth = 0;
+  waveTotal = 0;
+  waveCompleted = 0;
+  if (waveCloseTimer) {
+    clearTimeout(waveCloseTimer);
+    waveCloseTimer = null;
+  }
+  slow = false;
+  slowStartedAt = 0;
+  if (slowTimer) {
+    clearTimeout(slowTimer);
+    slowTimer = null;
+  }
+  if (slowPollTimer) {
+    clearInterval(slowPollTimer);
+    slowPollTimer = null;
+  }
+}
+
 async function dispatch(): Promise<void> {
   if (dispatching) return;
   dispatching = true;
