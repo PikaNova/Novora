@@ -114,6 +114,11 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - Commit `44b53f3 test: cover ghost save boundaries` was pushed to `origin/dev` on 2026-08-02.
 - The remote delivery contains the deterministic detector hook, nine boundary contracts, and the updated handover/process records.
 
+## Ghost-Save Delivery Archives
+
+- A current-source archive and a standalone `PROJECT_HANDOVER.md` archive were created under the workspace `deliveries` directory after the remote delivery.
+- Archive verification confirmed that the source package contains both `tests/detectGhostSave.test.ts` and `PROJECT_HANDOVER.md`, while excluding Git metadata, dependencies, generated output, caches, local environment files, HAR captures, and logs.
+
 ## Latest Remote Delivery
 
 - The validated aggregate change set was committed as `592fe3d test: expand coverage and protect scoped writes`.

@@ -93,6 +93,7 @@ All new permission work must change both the UI guard and `validateMutation()` w
 ### 2026-08-02: Ghost-Save Coverage Delivery
 
 - Commit `44b53f3 test: cover ghost save boundaries` was pushed to `origin/dev`. It contains the deterministic ghost-save boundary tests and their supporting handover records.
+- A current-source archive and a standalone handover archive were exported with the delivery. The source archive includes this document and `tests/detectGhostSave.test.ts`, and excludes Git metadata, dependencies, generated output, caches, local environment files, HAR captures, and logs.
 
 ### 2026-08-02: Ghost-Save Detection Boundary Coverage
 

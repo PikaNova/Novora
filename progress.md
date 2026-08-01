@@ -70,6 +70,7 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 - Added nine regression tests covering the 119-second, exact 120-second inclusive, and 120.001-second rejection boundaries, plus version, content, and missing-base cases.
 - Validation passed: `315/315` tests, API type check, and production build.
 - Delivered as commit `44b53f3 test: cover ghost save boundaries`, pushed to `origin/dev`.
+- Exported both a clean latest-source archive and a standalone `PROJECT_HANDOVER.md` archive. Archive checks confirmed the source includes the new ghost-save test and handover while excluding Git metadata, dependencies, generated output, caches, local environment files, HAR captures, and logs.
 
 ### Latest Diagnosis
 
