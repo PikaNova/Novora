@@ -1,20 +1,20 @@
-import type { ExamItem, MajorExam, AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
-import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
-import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES } from '../types/exam';
-import { logger } from './logger';
-import { normalizeExamItems } from './examSchedule';
-import { mirrorAppSettings } from '../services/offlineStore';
-import type { SchoolClass, SchoolGrade } from '../types/school';
-import type { TimeSyncSettings } from './settings/timeSync';
-import { DEFAULT_TIME_SYNC_SETTINGS } from './settings/timeSync';
-import type { TypographyFontId, TypographySettings } from './settings/typography';
-import { DEFAULT_TYPOGRAPHY } from './settings/typography';
-import type { MotionMode } from './settings/motion';
-import { DEFAULT_MOTION_MODE } from './settings/motion';
-import type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch';
-import { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch';
-import { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design';
-import type { InitializationState } from './settings/school';
+import type { ExamItem, MajorExam, AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types/index.js';
+import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam.js';
+import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES } from '../types/exam.js';
+import { logger } from './logger.js';
+import { normalizeExamItems } from './examSchedule.js';
+import { mirrorAppSettings } from '../services/offlineStore.js';
+import type { SchoolClass, SchoolGrade } from '../types/school.js';
+import type { TimeSyncSettings } from './settings/timeSync.js';
+import { DEFAULT_TIME_SYNC_SETTINGS } from './settings/timeSync.js';
+import type { TypographyFontId, TypographySettings } from './settings/typography.js';
+import { DEFAULT_TYPOGRAPHY } from './settings/typography.js';
+import type { MotionMode } from './settings/motion.js';
+import { DEFAULT_MOTION_MODE } from './settings/motion.js';
+import type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch.js';
+import { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch.js';
+import { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design.js';
+import type { InitializationState } from './settings/school.js';
 import {
   DEFAULT_INITIALIZATION,
   normalizeGrades,
@@ -22,25 +22,25 @@ import {
   normalizeSelectedGradeId,
   normalizeSelectedClassId,
   normalizeInitialization,
-} from './settings/school';
+} from './settings/school.js';
 import {
   normalizeWeeklyPlan,
   normalizeConflictPolicy,
   resolveActiveWeeklyPlanIdByClass,
-} from './settings/weekly';
+} from './settings/weekly.js';
 
-export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
+export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types/index.js';
 
 // 各设置领域的类型和规范化逻辑已经拆分到 ./settings/；在这里重导出以保持既有调用方兼容。
-export type { TimeSyncSettings } from './settings/timeSync';
-export type { TypographyFontId, TypographySettings } from './settings/typography';
-export { DEFAULT_TYPOGRAPHY } from './settings/typography';
-export type { MotionMode } from './settings/motion';
-export { DEFAULT_MOTION_MODE } from './settings/motion';
-export type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch';
-export { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch';
-export { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design';
-export type { InitializationState } from './settings/school';
+export type { TimeSyncSettings } from './settings/timeSync.js';
+export type { TypographyFontId, TypographySettings } from './settings/typography.js';
+export { DEFAULT_TYPOGRAPHY } from './settings/typography.js';
+export type { MotionMode } from './settings/motion.js';
+export { DEFAULT_MOTION_MODE } from './settings/motion.js';
+export type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch.js';
+export { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch.js';
+export { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design.js';
+export type { InitializationState } from './settings/school.js';
 export {
   DEFAULT_INITIALIZATION,
   normalizeGrades,
@@ -48,8 +48,8 @@ export {
   normalizeSelectedGradeId,
   normalizeSelectedClassId,
   normalizeInitialization,
-} from './settings/school';
-export { normalizeWeeklyPlan, normalizeConflictPolicy, resolveActiveWeeklyPlanIdByClass } from './settings/weekly';
+} from './settings/school.js';
+export { normalizeWeeklyPlan, normalizeConflictPolicy, resolveActiveWeeklyPlanIdByClass } from './settings/weekly.js';
 
 export interface ExamSettings {
   /** 当前激活的大型考试名称（= 大屏标题，为兼容旧版保留）。 */

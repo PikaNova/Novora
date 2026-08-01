@@ -34,6 +34,7 @@
     "api/_exams/routes/deviceSelfRoutes.ts",
     "api/_exams/routes/settingsRoutes.ts",
     "api/_exams/routes/examDataRoutes.ts",
+    "api/_exams/scopeCleanup.ts",
     "src/utils/zonedTime.ts",
     "src/utils/examSchedule.ts",
     "src/utils/weeklySchedule.ts",
@@ -44,6 +45,9 @@
     "src/types/index.ts",
     "src/utils/scheduleConflict.ts",
     "src/components/weekly/weeklyShared.ts",
-    "src/services/syncQueue.ts"
+    "src/services/syncQueue.ts",
+    "src/services/userManagementAccess.ts",
+    "src/utils/majorOwnership.ts",
+    "src/utils/examSyncStatus.ts"
   ]
 }

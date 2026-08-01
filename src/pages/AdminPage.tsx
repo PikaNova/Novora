@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Watermark from "../components/Watermark";
 import AdminModalPortal from '../components/AdminModalPortal';
+import { isOwnQuickTemporaryMajor as isOwnQuickTemporaryMajorCheck } from "../utils/majorOwnership";
 import type {
   ExamItem,
   MajorExam,
@@ -652,10 +653,12 @@ export default function AdminPage() {
   const syncMeta = SYNC_META[sync];
   const can = (permission: string) => adminCan(permission, adminUser);
   const isOwnQuickTemporaryMajor = (major: MajorExam) =>
-    !!adminUser &&
-    major.source === "quick" &&
-    major.temporary === true &&
-    major.createdBy === adminUser.id;
+    isOwnQuickTemporaryMajorCheck(
+      major,
+      adminUser?.id,
+      visibleClasses,
+      visibleGrades,
+    );
   const canEditActiveMajor =
     can("major.edit") ||
     (can("major.quick_create") && isOwnQuickTemporaryMajor(activeMajor));
@@ -1083,7 +1086,7 @@ export default function AdminPage() {
                 setSelectedClassId(classId);
               }}
               allowBatchApply={
-                adminUser.roleId !== "class_admin" && can("weekly.copy")
+                can("weekly.copy") && visibleClasses.length > 1
               }
             />
           </fieldset>

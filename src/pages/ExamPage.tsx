@@ -152,7 +152,7 @@ function BoundExamPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 数据链接：考试前端保持快速同步，后台切换分科模式后无需手动刷新。
-  const { refresh: refreshExamData, syncState: examDataSyncState, lastSyncAt: examDataLastSyncAt, hasPendingSync } = useExamSync({
+  const { refresh: refreshExamData, syncState: examDataSyncState, lastSyncAt: examDataLastSyncAt, hasPendingSync, syncError } = useExamSync({
     intervalMs: 5000,
     minRefreshMs: 3000,
     onUpdate: ({ items: newItems, title: newTitle, alerts: newAlerts }) => {
@@ -410,6 +410,7 @@ function BoundExamPage() {
             state={examDataSyncState}
             lastSyncAt={examDataLastSyncAt}
             hasPendingSync={hasPendingSync}
+            syncError={syncError}
             onRefresh={() => { void refreshExamData(true); }}
           />
         </div>

@@ -13,9 +13,11 @@ import {
   isolateQuickMajorCreate,
   validateMutation,
 } from "../permissions.js";
+import { computeRemovedScopeIds } from "../scopeCleanup.js";
 import type { ExamRow, UpdatedRow } from "../types.js";
 import {
   type AdminActor,
+  authSql,
   ensureGeneratedRecoveryKey,
   isPasswordRequired,
   requireActor,
@@ -212,6 +214,26 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   } = req.body ?? {};
   const expectedVersion = Number(baseUpdatedAt ?? 0);
   const updatedAt = Date.now();
+  let removedGradeIds: string[] = [];
+  let removedClassIds: string[] = [];
+  if (Array.isArray(grades) || Array.isArray(classes)) {
+    const priorRows = (await sql`SELECT grades, classes FROM exam_data WHERE id = 1`) as unknown as Array<{
+      grades: unknown;
+      classes: unknown;
+    }>;
+    const priorGrades = Array.isArray(priorRows[0]?.grades)
+      ? (priorRows[0].grades as Array<Record<string, unknown>>)
+      : [];
+    const priorClasses = Array.isArray(priorRows[0]?.classes)
+      ? (priorRows[0].classes as Array<Record<string, unknown>>)
+      : [];
+    ({ removedGradeIds, removedClassIds } = computeRemovedScopeIds(
+      priorGrades,
+      priorClasses,
+      grades,
+      classes,
+    ));
+  }
   const runUpdate = async (): Promise<UpdatedRow[]> =>
     (await sql`
       UPDATE exam_data
@@ -264,6 +286,19 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
         requestId: res.getHeader("X-Request-Id"),
       });
     return;
+  }
+  if (removedGradeIds.length || removedClassIds.length) {
+    const authDb = authSql();
+    await Promise.all([
+      ...removedClassIds.map(
+        (classId) =>
+          authDb`DELETE FROM app_user_scopes WHERE scope_type = 'class' AND class_id = ${classId}`,
+      ),
+      ...removedGradeIds.map(
+        (gradeId) =>
+          authDb`DELETE FROM app_user_scopes WHERE scope_type = 'grade' AND grade_id = ${gradeId}`,
+      ),
+    ]);
   }
   const recoveryKey =
     action === "initialize" ? await ensureGeneratedRecoveryKey() : null;

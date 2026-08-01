@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import type { SchoolClass, SchoolGrade } from "../types/school";
 import AdminModalPortal from './AdminModalPortal';
 import {
-  adminCan,
   getAdminUser,
   logoutAdmin,
   type AdminScope,
@@ -38,6 +37,10 @@ import {
   permissionMeta,
   type RoleLevel,
 } from "../constants/permissions";
+import {
+  computeUserManagementPermissionFlags,
+  computeUserManagementScopeAccess,
+} from "../services/userManagementAccess";
 
 type Props = {
   grades: SchoolGrade[];
@@ -148,13 +151,15 @@ export default function UserManagementPanel({
 }: Props) {
   const navigate = useNavigate();
   const current = currentUser ?? getAdminUser();
-  const canReadUsers = adminCan("user.read", current);
-  const canCreateUser = adminCan("user.create", current);
-  const canEditUser = adminCan("user.edit", current);
-  const canResetPassword = adminCan("user.reset_password", current);
-  const canDeleteUser = adminCan("user.delete", current);
-  const canManageRoles = adminCan("role.manage", current);
-  const canReadAudit = adminCan("audit.read", current);
+  const {
+    canReadUsers,
+    canCreateUser,
+    canEditUser,
+    canResetPassword,
+    canDeleteUser,
+    canManageRoles,
+    canReadAudit,
+  } = computeUserManagementPermissionFlags(current);
   const [section, setSection] = useState<Section>("users");
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roles, setRoles] = useState<ManagedRole[]>([]);
@@ -265,29 +270,14 @@ export default function UserManagementPanel({
       })).filter((group) => group.items.length),
     [permissions],
   );
-  const canAssignAll =
-    !!current &&
-    (current.permissions.includes("*") ||
-      current.scopes.some((scope) => scope.type === "all"));
-  const visibleGradeIds = new Set(
-    canAssignAll
-      ? grades.map((item) => item.id)
-      : current?.scopes
-          .filter((scope) => scope.type === "grade")
-          .map((scope) => scope.gradeId) || [],
-  );
-  const visibleClassIds = new Set(
-    canAssignAll
-      ? classes.map((item) => item.id)
-      : current?.scopes
-          .filter((scope) => scope.type === "class")
-          .map((scope) => scope.classId) || [],
-  );
-  classes.forEach((item) => {
-    if (visibleGradeIds.has(item.gradeId)) visibleClassIds.add(item.id);
-  });
-  const visibleGrades = grades.filter((item) => visibleGradeIds.has(item.id));
-  const visibleClasses = classes.filter((item) => visibleClassIds.has(item.id));
+  const {
+    canAssignAll,
+    visibleGradeIds,
+    visibleClassIds,
+    visibleGrades,
+    visibleClasses,
+    delegableRoles,
+  } = computeUserManagementScopeAccess(current, roles, grades, classes);
   const classPickerOptions = useMemo<ClassPickerOption[]>(
     () =>
       visibleClasses.map((item) => ({
@@ -298,14 +288,6 @@ export default function UserManagementPanel({
         className: item.name,
       })),
     [grades, visibleClasses],
-  );
-  const delegableRoles = roles.filter(
-    (role) =>
-      current?.permissions.includes("*") ||
-      (!role.permissions.includes("*") &&
-        role.permissions.every((permission) =>
-          current?.permissions.includes(permission),
-        )),
   );
   const beginCreateUser = () => {
     setUserErrors({});

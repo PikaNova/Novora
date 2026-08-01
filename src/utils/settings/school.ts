@@ -1,7 +1,7 @@
 /** Grade, class, and initialization-wizard settings. */
 
-import type { SchoolClass, SchoolGrade } from '../../types/school';
-import { normalizeSubjectList } from '../../data/subjects';
+import type { SchoolClass, SchoolGrade } from '../../types/school.js';
+import { normalizeSubjectList } from '../../data/subjects.js';
 
 export interface InitializationState {
   completedAt: number;

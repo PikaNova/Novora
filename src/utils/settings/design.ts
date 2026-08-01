@@ -1,6 +1,6 @@
 /** Design-assignment policy normalization. */
 
-import type { DesignAssignmentRule, DesignPolicy } from '../../types/exam';
+import type { DesignAssignmentRule, DesignPolicy } from '../../types/exam.js';
 
 export const DEFAULT_DESIGN_POLICY: DesignPolicy = { rules: [], updatedAt: 0 };
 
