@@ -160,15 +160,7 @@ test('slow-task detection: marks the snapshot slow after SLOW_THRESHOLD_MS and c
   assert.equal(getSyncQueueSnapshot().slow, false, 'slow flag should clear once the task finishes');
 });
 
-test('wave tracking: counts the first task in a burst, but a known race resets progress to 0 before a second queued task starts', async (t) => {
-  // KNOWN BUG (found while writing this test, not fixed here): between shifting a task off
-  // businessQueue and setting inFlight=1, the task sits in neither the queue nor "in flight"
-  // while it waits out the MIN_BUSINESS_INTERVAL_MS (900ms) rate-limit gate. Because
-  // WAVE_GRACE_MS (800ms) is shorter than that gate, scheduleWaveClose()'s "nothing pending"
-  // check can fire during that window and wrongly reset waveTotal/waveCompleted to 0 before
-  // the second task even starts — this reproduces on every back-to-back 2-task burst, not just
-  // a rare edge case. Pinning the test to this actual behavior per team decision (log real
-  // behavior now, evaluate a fix separately) rather than asserting the "ideal" counts.
+test('wave tracking: keeps the full progress while the next task waits for the rate limit', async (t) => {
   __resetSyncQueueForTests();
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.now() });
   const aDone = runQueued(async () => {});
@@ -177,13 +169,22 @@ test('wave tracking: counts the first task in a burst, but a known race resets p
   assert.equal(getSyncQueueSnapshot().waveTotal, 2);
   assert.equal(getSyncQueueSnapshot().waveCompleted, 1);
 
-  t.mock.timers.tick(900);
+  // The close timer expires at 800ms, before the 900ms rate limit opens. The second
+  // task remains reserved inFlight, so this must not reset the batch progress.
+  t.mock.timers.tick(800);
+  await flush();
+  assert.equal(getSyncQueueSnapshot().waveTotal, 2);
+  assert.equal(getSyncQueueSnapshot().waveCompleted, 1);
+
+  t.mock.timers.tick(100);
   await flush();
   await Promise.all([aDone, bDone]);
   await flush();
-  // Actual (buggy) end state: the WAVE_GRACE_MS timer resets both counters to 0 while task
-  // "b" is still waiting out the rate-limit gate, so "b" completing only bumps waveCompleted
-  // to 1 again, and waveTotal never gets re-incremented for it.
+  assert.equal(getSyncQueueSnapshot().waveTotal, 2);
+  assert.equal(getSyncQueueSnapshot().waveCompleted, 2);
+
+  // Counters clear only after the completed batch has been idle for the grace window.
+  t.mock.timers.tick(800);
   assert.equal(getSyncQueueSnapshot().waveTotal, 0);
-  assert.equal(getSyncQueueSnapshot().waveCompleted, 1);
+  assert.equal(getSyncQueueSnapshot().waveCompleted, 0);
 });

@@ -6,7 +6,7 @@
 export type SyncPriority = 'high' | 'normal';
 
 export interface SyncQueueSnapshot {
-  /** 尚未完成的同步任务数（含防抖等待中 + 排队中 + 正在发送的 1 项） */
+  /** 尚未完成的同步任务数（含防抖等待中 + 排队中 + 正在发送或限速等待的 1 项） */
   pendingCount: number;
   /** 当前是否有同步活动，用于指示器显示动画 */
   syncing: boolean;
@@ -285,11 +285,13 @@ async function dispatch(): Promise<void> {
   try {
     while (businessQueue.length > 0) {
       const next = businessQueue.shift()!;
-      const elapsed = Date.now() - lastBusinessSendAt;
-      if (elapsed < MIN_BUSINESS_INTERVAL_MS) await wait(MIN_BUSINESS_INTERVAL_MS - elapsed);
+      // 取出任务后立刻占用执行槽位。限速等待期间仍必须算作待办，
+      // 否则批次关闭计时器会误判队列空闲并清零当前进度。
       inFlight = 1;
       currentLabel = next.label;
       notifyListeners();
+      const elapsed = Date.now() - lastBusinessSendAt;
+      if (elapsed < MIN_BUSINESS_INTERVAL_MS) await wait(MIN_BUSINESS_INTERVAL_MS - elapsed);
       startSlowTimer();
       await next.run();
       stopSlowTimer();
