@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateMutation, allScope } from '../api/_exams/permissions.js';
+import { isolateQuickMajorCreate, validateMutation, allScope } from '../api/_exams/permissions.js';
 import type { AdminActor, AdminScope, Permission } from '../api/_auth.js';
 import type { ExamPayload } from '../api/_exams/payload.js';
 
@@ -150,6 +150,29 @@ test('validateMutation: quick_create lets an actor manage their own quick/tempor
   if (result.ok) assert.ok(result.actions.includes('major.quick_create'));
 });
 
+test('isolateQuickMajorCreate: keeps only a class admin\'s new quick major from a stale full snapshot', () => {
+  const actor = makeActor({
+    id: 7,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const formal = { id: 'formal', name: 'formal', items: [], targetGradeIds: ['g1'], targetClassIds: [] };
+  const quick = {
+    id: 'quick', name: 'quick', items: [{ id: 'i1', name: 'math' }],
+    targetGradeIds: ['g1'], targetClassIds: ['c1'], source: 'quick',
+    temporary: true, createdBy: 7,
+  };
+  const current = makeCurrent({ majors: [formal], classes: [{ id: 'c1', gradeId: 'g1' }] });
+  const isolated = isolateQuickMajorCreate(actor, current, {
+    majors: [{ ...formal, name: 'stale formal change' }, quick],
+    items: quick.items,
+    title: quick.name,
+    activeMajorId: quick.id,
+  });
+  assert.deepEqual(isolated.majors, [formal, quick]);
+  const result = validateMutation(actor, current, isolated);
+  assert.equal(result.ok, true);
+});
 test('validateMutation: quick_create does NOT cover a quick major with no target classes', () => {
   const actor = makeActor({
     id: 7,

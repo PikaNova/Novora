@@ -9,7 +9,10 @@ import {
   updatedAtIntegerOverflow,
 } from "../db.js";
 import { examPayload } from "../payload.js";
-import { validateMutation } from "../permissions.js";
+import {
+  isolateQuickMajorCreate,
+  validateMutation,
+} from "../permissions.js";
 import type { ExamRow, UpdatedRow } from "../types.js";
 import {
   type AdminActor,
@@ -125,24 +128,8 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     actor = await requireActor(req, res);
     if (!actor) return;
   }
-  const {
-    action,
-    items,
-    title,
-    majors,
-    activeMajorId,
-    alerts,
-    weeklyPlans,
-    scheduleMode,
-    activeWeeklyPlanId,
-    activeWeeklyPlanIdByClassId,
-    weeklyConflictPolicy,
-    grades,
-    classes,
-    initialization,
-    baseUpdatedAt,
-  } = req.body ?? {};
-  if (!Array.isArray(items)) {
+  const { action } = req.body ?? {};
+  if (!Array.isArray(req.body?.items)) {
     res.status(400).json({ ok: false, error: "items must be an array" });
     return;
   }
@@ -189,6 +176,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       }
     }
     if (actor) {
+      req.body = isolateQuickMajorCreate(actor, currentPayload, req.body ?? {});
       const permission = validateMutation(
         actor,
         currentPayload,
@@ -206,6 +194,22 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       }
     }
   }
+  const {
+    items,
+    title,
+    majors,
+    activeMajorId,
+    alerts,
+    weeklyPlans,
+    scheduleMode,
+    activeWeeklyPlanId,
+    activeWeeklyPlanIdByClassId,
+    weeklyConflictPolicy,
+    grades,
+    classes,
+    initialization,
+    baseUpdatedAt,
+  } = req.body ?? {};
   const expectedVersion = Number(baseUpdatedAt ?? 0);
   const updatedAt = Date.now();
   const runUpdate = async (): Promise<UpdatedRow[]> =>

@@ -20,6 +20,47 @@ import type { ExamPayload } from "./payload.js";
 
 export const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
+export function isolateQuickMajorCreate(
+  actor: AdminActor,
+  current: ExamPayload,
+  body: Record<string, any>,
+): Record<string, any> {
+  if (
+    hasPermission(actor, "major.create") ||
+    !hasPermission(actor, "major.quick_create") ||
+    !Array.isArray(body.majors)
+  )
+    return body;
+
+  const activeMajorId = String(body.activeMajorId ?? "");
+  const activeMajor = body.majors.find(
+    (major: any) => String(major?.id ?? "") === activeMajorId,
+  );
+  const alreadyExists = (current.majors as any[]).some(
+    (major) => String(major?.id ?? "") === activeMajorId,
+  );
+  const ownsNewClassQuickMajor =
+    activeMajor &&
+    !alreadyExists &&
+    activeMajor.source === "quick" &&
+    activeMajor.temporary === true &&
+    activeMajor.createdBy === actor.id &&
+    Array.isArray(activeMajor.targetClassIds) &&
+    activeMajor.targetClassIds.length > 0;
+
+  if (!ownsNewClassQuickMajor) return body;
+
+  // Class administrators post a full local snapshot. Keep only the new
+  // class-scoped quick major so stale records cannot alter the server payload.
+  return {
+    ...body,
+    majors: [...current.majors, activeMajor],
+    items: Array.isArray(activeMajor.items) ? activeMajor.items : [],
+    title: typeof activeMajor.name === "string" ? activeMajor.name : "",
+    activeMajorId,
+  };
+}
+
 export function validateMutation(
   actor: AdminActor,
   current: ExamPayload,
