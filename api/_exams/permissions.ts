@@ -44,7 +44,16 @@ function canControlQuickTemporaryMajorInScope(
 }
 
 function isEarlyQuickMajorEnd(current: any, next: any): boolean {
-  if (!current || !next || current.endedAt != null || !Number.isFinite(next.endedAt)) return false;
+  const currentEndedAt = Number(current?.endedAt ?? 0);
+  const nextEndedAt = Number(next?.endedAt);
+  if (
+    !current ||
+    !next ||
+    (Number.isFinite(currentEndedAt) && currentEndedAt > 0) ||
+    !Number.isFinite(nextEndedAt) ||
+    nextEndedAt <= 0
+  )
+    return false;
   const { endedAt: _currentEndedAt, items: currentItems, ...currentRest } = current;
   const { endedAt: _nextEndedAt, items: nextItems, ...nextRest } = next;
   if (!sameJson(currentRest, nextRest) || !Array.isArray(currentItems) || !Array.isArray(nextItems)) return false;

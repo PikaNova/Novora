@@ -302,6 +302,31 @@ test('validateMutation: quick_create lets a class co-manager end an in-scope tem
   if (result.ok) assert.ok(result.actions.includes('major.quick_create'));
 });
 
+test('validateMutation: legacy zero endedAt is treated as unfinished for early end', () => {
+  const actor = makeActor({
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const quick = {
+    id: 'quick', name: 'quick', order: 0, targetGradeIds: ['g1'], targetClassIds: ['c1'],
+    source: 'quick', temporary: true, createdBy: 7, endedAt: 0,
+    items: [{ id: 'i1', name: 'math', enabled: true }],
+  };
+  const ended = {
+    ...quick,
+    endedAt: 1_000,
+    items: quick.items.map((item) => ({ ...item, enabled: false })),
+  };
+  const current = makeCurrent({
+    majors: [quick], items: quick.items, title: quick.name, activeMajorId: quick.id,
+    classes: [{ id: 'c1', gradeId: 'g1', name: '1' }],
+  });
+  const result = validateMutation(actor, current, {
+    majors: [ended], items: ended.items, title: ended.name, activeMajorId: ended.id,
+  });
+  assert.equal(result.ok, true);
+});
+
 test('validateMutation: scoped quick co-management cannot alter a temporary exam beyond ending it', () => {
   const actor = makeActor({
     id: 8,
