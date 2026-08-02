@@ -18,7 +18,7 @@ import {
   fetchDeviceBindings,
   type DeviceBindingInfo,
 } from "../services/classBinding";
-import { fetchAuditLogs, type AuditLog } from "../services/adminUsers";
+import { fetchAuditOverview, type AuditLog, type LoginFailureAlert } from "../services/adminUsers";
 import { getQuickMajorDisplayStatus } from "../utils/majorDisplayStatus";
 
 const ONLINE_MS = 90_000;
@@ -103,6 +103,7 @@ export default function OverviewPanel({
   const [now, setNow] = useState(Date.now());
   const [detailOpen, setDetailOpen] = useState<OverviewDetail | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loginFailureAlerts, setLoginFailureAlerts] = useState<LoginFailureAlert[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState("");
   const [cloudSnapshot, setCloudSnapshot] = useState<ExamPayload | null>(null);
@@ -253,7 +254,7 @@ export default function OverviewPanel({
     (auditError ? 1 : 0) +
     devices.filter((item) => item.revoked).length +
     majorConflicts.length;
-  const riskCount = highRiskLogs.length + activeErrorCount;
+  const riskCount = highRiskLogs.length + activeErrorCount + loginFailureAlerts.length;
   const detailTitle =
     detailOpen === "online"
       ? "在线设备"
@@ -268,7 +269,9 @@ export default function OverviewPanel({
     setAuditLoading(true);
     setAuditError("");
     try {
-      setAuditLogs(await fetchAuditLogs());
+      const overview = await fetchAuditOverview();
+      setAuditLogs(overview.logs);
+      setLoginFailureAlerts(overview.loginFailureAlerts);
     } catch (error) {
       setAuditError(
         error instanceof Error ? error.message : "云端变更记录读取失败",
@@ -360,9 +363,11 @@ export default function OverviewPanel({
           <small>
             {activeErrorCount
               ? "存在同步、设备或排期异常"
-              : highRiskLogs.length
-                ? `${highRiskLogs.length} 条近期操作记录`
-                : "暂无高风险操作"}
+              : loginFailureAlerts.length
+                ? `${loginFailureAlerts.length} 个账号登录失败预警`
+                : highRiskLogs.length
+                  ? `${highRiskLogs.length} 条近期操作记录`
+                  : "暂无高风险操作"}
           </small>
         </button>
       </div>
@@ -517,6 +522,18 @@ export default function OverviewPanel({
                         ))}
                         {[...new Set(majorConflicts)].map((label) => (
                           <article key={label}><strong>大型考试时间冲突</strong><span>{label}</span><small>请核对考试时间与适用范围。</small></article>
+                        ))}
+                      </div>
+                    )}
+                    {loginFailureAlerts.length > 0 && (
+                      <div className="overview-device-drawer__group">
+                        <strong>登录失败预警</strong>
+                        {loginFailureAlerts.map((alert) => (
+                          <article key={alert.username}>
+                            <strong>{alert.username}</strong>
+                            <span>连续失败 {alert.failureCount} 次 · {formatDetailTime(alert.latestFailureAt)}</span>
+                            <small>建议核实是否为异常登录尝试，必要时禁用账号或重置密码。</small>
+                          </article>
                         ))}
                       </div>
                     )}

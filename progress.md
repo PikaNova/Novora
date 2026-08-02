@@ -130,3 +130,48 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 - Added nine regression tests in `tests/users.visibility.test.ts` and compiled `api/users.ts` through `tsconfig.test.json`.
 - Validation passed: `324/324` tests, API type check, and production build.
 - Delivered as commit `9b9593f fix: enforce scoped user visibility`, pushed successfully to `origin/dev`.
+
+### 2026-08-02: Write-Slot Ordering And Canonical JSON Comparison
+
+- Selectively merged `write-slot-jsoncompare-fix-2026-08-02.zip`; preserved the existing entry limiter, current user-route compiler entry, and non-corrupted handover history.
+- Moved database write-slot consumption behind each route's authentication, authorization, parameter, and ordinary conflict checks. The database gate is still called exactly once before the first true mutation.
+- Added a shared canonical JSON comparator and replaced divergent comparisons in server record diffs, ghost-save detection, and three-way merge logic.
+- Added new route-guard and comparison tests plus reordered-key regressions for ghost-save and merge flows.
+- Validation passed: `333/333` tests, API type check, and production build. No commit or push was requested.
+
+### 2026-08-02: Login Lockout And Markdown URL Allowlist
+
+- Selectively merged `login-lockout-safeurl-fix-2026-08-02.zip` on top of the uncommitted write-slot and JSON-comparison work without removing `api/users.ts` from the test compiler scope.
+- Added durable username-based login failure records and a 15-minute/5-failure lockout. The post-failure check makes the fifth failed request return `429 LOGIN_LOCKED` with an accurate retry header.
+- Restricted rendered Markdown URL targets to HTTPS, mailto, anchors, and single-slash internal paths; unsafe and ambiguous URL forms fall back to `#`.
+- Added ten clean regression tests and passed `343/343` tests, API type check, and production build.
+- The cumulative changes remain local and uncommitted; no push was requested.
+
+### 2026-08-02: Legacy Shared-Token Invalidation
+
+- Selectively merged `legacy-token-invalidation-fix-2026-08-02.zip` without overwriting the current handover history or copying its encoding-corrupted test comments.
+- Added `invalidateLegacySharedToken()` and connected it before all seven known security-sensitive user-token invalidation paths. The helper increments global `app_auth.token_version`, so it invalidates all v1.29.1-and-earlier shared compatibility tokens rather than an individual user's token.
+- Added `tests/legacyTokenInvalidation.test.ts` to preserve the global-version validation branch and call-site ordering.
+- Validation passed: `351/351` tests, API type check, and production build. The direct sandbox build was denied Vite/esbuild directory access; the normal elevated retry passed. The cumulative changes remain local and uncommitted; no push was requested.
+
+### 2026-08-02: Persistent Telemetry IP Salt
+
+- Selectively merged `telemetry-ip-salt-fix-2026-08-02.zip` without retaining its corrupted comments or overwriting the current handover history.
+- Replaced the public repository-default IP hash salt with one server-only, persistent database salt. The normal deployment path requires no new environment variable; `TELEMETRY_IP_SALT` is optional only.
+- Deferred salt/database access until an event is actually eligible for relay and made salt failures return a privacy-preserving skipped result rather than an unhashed-IP payload or a browser-visible database error.
+- Added `tests/telemetryIpSalt.test.ts`. Validation passed: `356/356` tests, API type check, and production build. The cumulative changes remain local and uncommitted; no push was requested.
+
+### 2026-08-02: Extended Disposable Neon Coverage
+
+- Added integration assertions for database write-slot rejection, device revoke scope denial, reset-data all-school authorization, deleted-scope loss of access, and old-token invalidation after a role change.
+- Corrected the integration response double to emulate Vercel's implicit `200` status for successful `json()`, `send()`, and `end()` calls. No production code changed.
+- Added a one-time full-suite retry only for recognized Neon transport disconnects. Assertion failures and database behavior failures are not retried.
+- Validation passed: Neon `7/7`, unit suite `356/356`, API typecheck, and production build. The successful Neon run completed without using the retry path.
+- Packaged and structure-verified the pre-validation worktree and standalone handover document: 500 source entries, all required handoff/test files present, and no credentials, dependencies, generated output, Git metadata, environment files, HAR captures, or logs. A post-validation archive is now being exported.
+
+### 2026-08-02: Login Failure Alerts And Retry Feedback
+
+- Selectively merged the compatible parts of `login-alerts-ratelimit-token-regression-fix-2026-08-02.zip`: audit-backed login-failure alerts, login/recovery countdown feedback, retry metadata, pure token guards, and clean regressions.
+- Preserved current scoped user visibility, all-school audit authorization, and pre-mutation legacy-token invalidation. The supplied archive would have weakened each of those safeguards, so its overlapping versions were not copied.
+- Added 3 pure test files, updated the legacy-token source-invariant test, and added a real database audit-alert route case.
+- Validation passed: `367/367` unit tests, API typecheck, production build, and Neon integration `8/8`.

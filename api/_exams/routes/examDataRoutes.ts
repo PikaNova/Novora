@@ -2,6 +2,7 @@
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
+  acquireWriteSlotOrReject,
   database,
   ensureTableOnce,
   ensureUpdatedAtBigIntOnce,
@@ -239,6 +240,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       classes,
     ));
   }
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   const runUpdate = async (): Promise<UpdatedRow[]> =>
     (await sql`
       UPDATE exam_data

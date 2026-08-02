@@ -1,7 +1,7 @@
 // 设备管理员路由（需管理员/授权身份）：绑定列表、可绑定选项、托管设备开通、角色变更、远程命令、撤销绑定。
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { database, ensureTableOnce } from "../db.js";
+import { acquireWriteSlotOrReject, database, ensureTableOnce } from "../db.js";
 import { examPayload } from "../payload.js";
 import { allScope } from "../permissions.js";
 import { actorScopeLabel } from "../plugin.js";
@@ -215,11 +215,13 @@ export async function handleManagedDeviceSetup(req: VercelRequest, res: VercelRe
         });
       return;
     }
+    if (!(await acquireWriteSlotOrReject(req, res))) return;
     if (existing[0]) {
       await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${existing[0].instance_id}`;
       await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE viewer_instance_id=${existing[0].instance_id}`;
     }
   }
+  if (!classId && !(await acquireWriteSlotOrReject(req, res))) return;
   const now = Date.now();
   const nextGradeId = bindManagement ? "" : gradeId;
   const nextClassId = bindManagement ? "" : classId;
@@ -334,6 +336,7 @@ export async function handleDeviceRoleUpdate(req: VercelRequest, res: VercelResp
   const now = Date.now();
   if (targetRole === "management") {
     const managementScopeLabel = actorScopeLabel(roleActor, payload);
+    if (!(await acquireWriteSlotOrReject(req, res))) return;
     await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${instanceId}`;
     await sql`UPDATE device_instances SET grade_id='', class_id='', revoked=FALSE, is_management=TRUE, management_actor_id=${roleActor.id}, management_role_name=${roleActor.roleName}, management_scope_label=${managementScopeLabel}, updated_at=${now} WHERE instance_id=${instanceId}`;
     await writeAudit(
@@ -406,6 +409,7 @@ export async function handleDeviceRoleUpdate(req: VercelRequest, res: VercelResp
       });
     return;
   }
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   if (occupied[0]) {
     await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id IN (SELECT instance_id FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId})`;
     await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${now} WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId}`;
@@ -474,6 +478,7 @@ export async function handleDeviceCommand(req: VercelRequest, res: VercelRespons
       return;
     }
   }
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   const command = {
     id: `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     action: commandAction,
@@ -554,6 +559,7 @@ export async function handleDeviceRevoke(req: VercelRequest, res: VercelResponse
       }
     }
   }
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   if (instanceId)
     await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', is_management=FALSE, updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
   if (pluginInstanceIds.length && instanceId) {

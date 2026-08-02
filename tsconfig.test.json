@@ -24,7 +24,11 @@
     "src/utils/settings/typography.ts",
     "src/utils/settings/buildExamSaveInput.ts",
     "src/shared/permissionRules.ts",
+    "src/shared/jsonCompare.ts",
+    "src/services/examOutbox.ts",
     "api/_auth.ts",
+    "api/login.ts",
+    "src/utils/renderMarkdown.ts",
     "api/globals.d.ts",
     "api/_exams/types.ts",
     "api/_exams/diff.ts",
@@ -58,6 +62,7 @@
     "src/utils/examSyncStatus.ts",
     "src/utils/anchoredOverlay.ts",
     "src/utils/deviceScope.ts",
-    "src/utils/trackClassIds.ts"
+    "src/utils/trackClassIds.ts",
+    "src/utils/retryCountdown.ts"
   ]
 }

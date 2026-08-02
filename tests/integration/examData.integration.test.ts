@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { BUILTIN_ROLES, authenticateUser, authSql, ensureAuthTables, makePasswordHash } from '../../api/_auth.js';
+import { BUILTIN_ROLES, authenticateUser, authSql, ensureAuthTables, getActor, makePasswordHash } from '../../api/_auth.js';
 import { database, ensureTableOnce } from '../../api/_exams/db.js';
 import { examPayload } from '../../api/_exams/payload.js';
+import { handleDeviceRevoke } from '../../api/_exams/routes/deviceAdminRoutes.js';
 import { handleExamDataPost } from '../../api/_exams/routes/examDataRoutes.js';
+import { handleResetData } from '../../api/_exams/routes/settingsRoutes.js';
 import type { ExamRow } from '../../api/_exams/types.js';
+import usersHandler from '../../api/users.js';
 
 type Scope = { type: 'all' | 'grade' | 'class'; gradeId?: string; classId?: string };
 type Login = { id: number; token: string };
@@ -19,9 +22,9 @@ function makeRes() {
     setHeader(name: string, value: unknown) { calls.headers[name] = value; return res; },
     getHeader(name: string) { return calls.headers[name]; },
     status(code: number) { calls.statusCode = code; return res; },
-    json(body: unknown) { calls.body = body; return res; },
-    send(body: unknown) { calls.body = body; return res; },
-    end() { return res; },
+    json(body: unknown) { calls.statusCode ??= 200; calls.body = body; return res; },
+    send(body: unknown) { calls.statusCode ??= 200; calls.body = body; return res; },
+    end() { calls.statusCode ??= 200; return res; },
   } as unknown as VercelResponse;
   return { res, calls };
 }
@@ -45,14 +48,20 @@ async function clearDatabase() {
       app_users,
       app_roles,
       app_auth,
+      app_telemetry_config,
       device_instances,
       classisland_plugin_instances,
+      write_throttle,
       exam_data
     RESTART IDENTITY CASCADE
   `;
   await sql`
     INSERT INTO exam_data (id, items, title, updated_at)
     VALUES (1, '[]', '', 0)
+  `;
+  await sql`
+    INSERT INTO write_throttle (id, next_allowed_at)
+    VALUES (1, 0)
   `;
 }
 
@@ -77,7 +86,7 @@ async function resetDatabase(): Promise<Login> {
   return { id: login.actor.id, token: login.token };
 }
 
-async function createUser(username: string, roleId: 'grade_admin' | 'class_admin', scopes: Scope[]): Promise<Login> {
+async function createUser(username: string, roleId: string, scopes: Scope[]): Promise<Login> {
   const password = await makePasswordHash(`${username}-password`);
   const now = Date.now();
   const sql = authSql();
@@ -158,6 +167,31 @@ async function post(token: string, body: Record<string, unknown>) {
   return calls;
 }
 
+async function postReset(token: string, categories: string[]) {
+  const { res, calls } = makeRes();
+  await handleResetData(makeReq(token, { categories }), res);
+  return calls;
+}
+
+async function postDeviceRevoke(token: string, instanceId: string) {
+  const { res, calls } = makeRes();
+  await handleDeviceRevoke(makeReq(token, { instanceId }), res);
+  return calls;
+}
+
+async function postUser(token: string, body: Record<string, unknown>) {
+  const { res, calls } = makeRes();
+  await usersHandler(makeReq(token, { resource: 'users', ...body }), res);
+  return calls;
+}
+
+async function getAudit(token: string) {
+  const { res, calls } = makeRes();
+  const req = { ...makeReq(token, {}), method: 'GET', query: { resource: 'audit' } } as unknown as VercelRequest;
+  await usersHandler(req, res);
+  return calls;
+}
+
 beforeEach(async () => {
   assert.ok(adminPassword.length >= 16, 'the integration runner must inject a strong temporary password');
   admin = await resetDatabase();
@@ -176,12 +210,12 @@ after(async () => {
   assert.equal(Number(rows[0]?.scope_count), 0);
 });
 
-test('database write: deleting grades and classes removes only their matching authorization scopes', async () => {
+test('database write: deleting grades and classes removes matching scopes and their former access', async () => {
   await seedExam({
     grades: [{ id: 'g1', name: 'Grade one' }, { id: 'g2', name: 'Grade two' }],
     classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one' }, { id: 'c2', gradeId: 'g2', name: 'Class two' }],
   });
-  await createUser('removed-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+  const removedGrade = await createUser('removed-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
   await createUser('removed-class', 'class_admin', [{ type: 'class', gradeId: 'g1', classId: 'c1' }]);
   await createUser('kept-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g2' }]);
   await createUser('kept-class', 'class_admin', [{ type: 'class', gradeId: 'g2', classId: 'c2' }]);
@@ -198,6 +232,13 @@ test('database write: deleting grades and classes removes only their matching au
   assert.equal(scopes.some(scope => scope.scope_type === 'grade' && scope.grade_id === 'g2'), true);
   assert.equal(scopes.some(scope => scope.scope_type === 'class' && scope.class_id === 'c2'), true);
   assert.equal(scopes.some(scope => scope.scope_type === 'all'), true);
+
+  const afterDeletion = await readPayload();
+  const denied = await post(removedGrade.token, bodyFrom(afterDeletion, {
+    majors: [{ id: 'removed-grade-major', name: 'No remaining scope', items: [], order: 0, targetGradeIds: ['g1'], targetClassIds: [] }],
+    activeMajorId: 'removed-grade-major',
+  }));
+  assert.equal(denied.statusCode, 403);
 });
 
 test('database write: stale out-of-scope data cannot block or overwrite an owned quick-exam change', async () => {
@@ -269,7 +310,7 @@ test('database write: a class administrator cannot modify a formal exam in scope
   assert.equal(persisted.majors.find(major => major.id === formal.id)?.name, 'Formal server');
 });
 
-test('database write: concurrent writes from one version yield one success and one conflict', async () => {
+test('database write: concurrent writes receive one global slot and one RATE_LIMITED response', async () => {
   await seedExam({});
   const base = await readPayload();
 
@@ -278,7 +319,62 @@ test('database write: concurrent writes from one version yield one success and o
     post(admin.token, bodyFrom(base, { title: 'Concurrent second' })),
   ]);
 
-  assert.deepEqual([first.statusCode, second.statusCode].sort(), [200, 409]);
+  assert.deepEqual([first.statusCode, second.statusCode].sort(), [200, 429]);
+  assert.equal([first, second].find(response => response.statusCode === 429)?.body?.code, 'RATE_LIMITED');
   const persisted = await readPayload();
   assert.ok(['Concurrent first', 'Concurrent second'].includes(persisted.title));
+});
+
+test('database device route: a grade administrator cannot revoke a device in another grade', async () => {
+  await seedExam({
+    grades: [{ id: 'g1' }, { id: 'g2' }],
+    classes: [{ id: 'c1', gradeId: 'g1' }, { id: 'c2', gradeId: 'g2' }],
+  });
+  const gradeAdmin = await createUser('device-scope-admin', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+  await database()`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, updated_at)
+    VALUES ('other-grade-device', 'g2', 'c2', FALSE, ${Date.now()})`;
+
+  const response = await postDeviceRevoke(gradeAdmin.token, 'other-grade-device');
+  assert.equal(response.statusCode, 403);
+  const rows = await database()`SELECT revoked FROM device_instances WHERE instance_id='other-grade-device'` as unknown as Array<{ revoked: boolean }>;
+  assert.equal(rows[0]?.revoked, false);
+});
+
+test('database reset route: a scoped actor with reset permission cannot reset school data', async () => {
+  await seedExam({ grades: [{ id: 'g1' }], classes: [{ id: 'c1', gradeId: 'g1' }] });
+  const now = Date.now();
+  await authSql()`INSERT INTO app_roles (id, name, description, permissions, built_in, created_at, updated_at)
+    VALUES ('scoped_reset', 'Scoped reset', '', ${JSON.stringify(['initialization.run'])}::jsonb, FALSE, ${now}, ${now})`;
+  const scopedActor = await createUser('scoped-reset-admin', 'scoped_reset', [{ type: 'grade', gradeId: 'g1' }]);
+
+  const response = await postReset(scopedActor.token, ['school']);
+  assert.equal(response.statusCode, 403);
+  const persisted = await readPayload();
+  assert.equal(persisted.grades.some(grade => grade.id === 'g1'), true);
+});
+
+test('database users route: role changes invalidate the old token', async () => {
+  const target = await createUser('role-change-target', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+  const response = await postUser(admin.token, {
+    action: 'update',
+    id: target.id,
+    displayName: 'Role change target',
+    roleId: 'viewer',
+    status: 'active',
+    scopes: [{ type: 'grade', gradeId: 'g1' }],
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(await getActor(target.token), null);
+});
+
+test('database audit route: an all-scope administrator receives recent login failure alerts', async () => {
+  const now = Date.now();
+  for (const offset of [0, 1_000, 2_000]) {
+    await authSql()`INSERT INTO app_audit_logs (user_id, username, action, resource_type, resource_id, grade_id, class_id, detail, created_at)
+      VALUES (NULL, 'login-alert-target', 'auth.login.failed', 'user', '', '', '', NULL, ${now - offset})`;
+  }
+  const response = await getAudit(admin.token);
+  assert.equal(response.statusCode, 200);
+  const alerts = Array.isArray(response.body?.loginFailureAlerts) ? response.body.loginFailureAlerts : [];
+  assert.equal(alerts.some((alert: { username?: string; failureCount?: number }) => alert.username === 'login-alert-target' && alert.failureCount === 3), true);
 });

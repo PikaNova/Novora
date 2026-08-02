@@ -31,6 +31,11 @@ Do not commit `dist/`, credentials, Neon connection strings, recovery keys, toke
 | Need | Primary location |
 | --- | --- |
 | Admin permissions and roles | `api/_auth.ts`, `src/shared/permissionRules.ts` |
+| Login lockout policy | `api/_auth.ts` (`evaluateLoginLockout`, `checkLoginLockout`), `api/login.ts`, `tests/loginLockout.test.ts` |
+| Login-failure alerts | `api/_auth.ts` (`evaluateLoginFailureAlerts`), `api/users.ts`, `src/components/OverviewPanel.tsx`, `tests/loginFailureAlerts.test.ts` |
+| Login and recovery retry countdown | `src/utils/retryCountdown.ts`, `src/hooks/useRetryCountdown.ts`, `src/pages/LoginPage.tsx`, `src/components/SuperAdminRepairLink.tsx` |
+| Legacy shared-token invalidation | `api/_auth.ts` (`invalidateLegacySharedToken`), `api/users.ts`, `tests/legacyTokenInvalidation.test.ts` |
+| Telemetry IP pseudonymization | `api/_auth.ts` (`ensureTelemetryIpSalt`), `api/_telemetryConfig.ts` (`resolveIpSalt`), `api/telemetry.ts`, `tests/telemetryIpSalt.test.ts` |
 | Built-in role permission contracts | `tests/builtinRoles.test.ts` |
 | Scoped user visibility and audit-log read policy | `api/users.ts` (`filterVisibleUsers`, `canReadAuditLog`), `tests/users.visibility.test.ts` |
 | Exam/weekly mutation authorization | `api/_exams/permissions.ts` |
@@ -41,8 +46,10 @@ Do not commit `dist/`, credentials, Neon connection strings, recovery keys, toke
 | Weekly calendar rules and coverage | `src/utils/weeklySchedule.ts`, `tests/weeklySchedule.test.ts` |
 | Client cloud sync and retry UI | `src/hooks/useExamSync.ts`, `src/components/ExamSyncAction.tsx` |
 | Ghost-save conflict detection and coverage | `src/services/examOutbox.ts`, `tests/detectGhostSave.test.ts` |
+| Canonical JSON comparison | `src/shared/jsonCompare.ts`, `tests/jsonCompare.test.ts` |
+| Markdown URL allowlist | `src/utils/renderMarkdown.ts`, `tests/renderMarkdownSafeUrl.test.ts` |
 | Serialized write queue | `src/services/syncQueue.ts` |
-| Cross-device write throttle | `api/_exams/writeThrottle.ts`, `api/_exams/db.ts`, `tests/writeThrottle.test.ts` |
+| Cross-device write throttle | `api/_exams/writeThrottle.ts`, `api/_exams/db.ts`, `api/_exams/routes/`, `tests/writeThrottle.test.ts`, `tests/writeSlotGuard.test.ts` |
 | Per-source entry rate limiting | `api/_rateLimiter.ts`, `api/exams.ts`, `tests/rateLimiter.test.ts` |
 | System settings normalization | `src/utils/appSettings.ts`, `src/utils/settings/` |
 | Merge and display-time utilities | `src/utils/examMerge.ts`, `src/utils/zonedTime.ts` |
@@ -93,6 +100,47 @@ All new permission work must change both the UI guard and `validateMutation()` w
 
 ## Latest Update
 
+### 2026-08-02: Login Failure Alerts And Retry Feedback
+
+- Added a three-consecutive-failure early-warning projection from login audit events. It counts only failures after the latest successful login and inside the 15-minute window, so an older event cannot suppress a current alert. The audit API returns alerts only after its existing `audit.read` and all-school scope checks pass.
+- `LOGIN_LOCKED` and recovery-repair rate-limit responses now carry precise retry milliseconds. The login and repair forms display a live countdown, disable their submit command during the window, and re-enable automatically. Frontend error parsing also uses a valid `Retry-After` header when a body value is absent.
+- Extracted pure expiry, legacy-version, and per-user-version checks from `getActor()` without changing authorization behavior. Existing scoped user visibility, scoped audit denial, and pre-mutation legacy-token invalidation remain intact.
+- Validation passed: `npm test` `367/367`, `npm run typecheck:api`, `npm run build`, and disposable Neon `npm run test:integration` `8/8`. The real-database suite now covers the all-scope audit alert response in addition to the existing authorization and write-slot cases.
+
+### 2026-08-02: Extended Disposable Neon Coverage
+
+- Extended the opt-in disposable-Neon suite to seven real-database cases: deleted-scope access removal, stale snapshot isolation, formal-exam denial for a class administrator, one-success/one-`429 RATE_LIMITED` global write-slot behavior, cross-grade device revoke denial, all-school-only reset-data authorization, and post-role-change token invalidation.
+- The response test double now mirrors Vercel's implicit `200` status for `json()`, `send()`, and `end()` calls, so successful handler branches are asserted accurately. This is test infrastructure only; production behavior is unchanged.
+- The integration runner retries the entire isolated suite once only when its captured output matches a known transient Neon transport disconnect. Assertion failures, SQL errors, and all other test failures still fail immediately.
+- Validation passed: `npm run test:integration` `7/7`, `npm test` `356/356`, `npm run typecheck:api`, and `npm run build`. The database URL was supplied only as a transient process environment value and is not present in the repository, archives, logs, or this document.
+
+### 2026-08-02: Persistent Telemetry IP Salt
+
+- Removed the repository-default telemetry IP salt. `ensureAuthTables()` now creates the server-only singleton `app_telemetry_config` table, and `ensureTelemetryIpSalt()` generates one random persistent salt using an insert-with-conflict-safe reread pattern.
+- `resolveIpSalt()` optionally honors `TELEMETRY_IP_SALT` for advanced deployments, but normal deployments need only their existing database configuration. Without that optional variable, every serverless instance converges on the same database salt.
+- The telemetry relay resolves the salt only after telemetry is enabled, sampled, and has a relay credential. A salt/database failure safely skips that telemetry event instead of relaying an unhashed IP or returning a database error to the browser.
+- Added source-invariant coverage for fixed-salt removal, migration shape, persistence behavior, no logging, relay ordering, and safe failure handling. Validation: `npm test` `356/356`, `npm run typecheck:api`, and `npm run build` all passed. This cumulative batch remains local and uncommitted.
+
+### 2026-08-02: Legacy Shared-Token Invalidation
+
+- The v1.29.1-and-earlier three-part compatibility token is mapped to the default `admin` account and validated against the global `app_auth.token_version`. It cannot be invalidated for one ordinary user in isolation.
+- `invalidateLegacySharedToken()` now increments that global version before each security-sensitive user mutation: super-admin recovery/repair for an existing user, own password/username/credential changes, administrator role-or-status updates, and administrator password resets. This forces every remaining legacy shared token to sign in again while leaving current four-part user tokens governed by their per-user version.
+- The compatibility-version write is intentionally required before the user mutation. If it cannot succeed, the sensitive mutation does not continue, avoiding a state where the account changes but a legacy token remains valid.
+- Added source-invariant coverage for the global version check and all seven call sites. Validation: `npm test` `351/351`, `npm run typecheck:api`, and `npm run build` all passed. This cumulative batch remains local and uncommitted.
+
+### 2026-08-02: Login Lockout And Markdown URL Allowlist
+
+- Login failures are recorded in `app_audit_logs` by normalized username. Five consecutive failures in fifteen minutes lock further attempts; the fifth failed request and later attempts return `429 LOGIN_LOCKED` with `Retry-After`. A successful login clears the evaluated failure window.
+- Markdown links and images now allow only `https://`, `mailto:`, hash anchors, and single-slash internal paths. Plain `http:`, `javascript:`, `data:`, protocol-relative `//host`, and dot-relative paths fall back to `#`.
+- Added ten regression tests for lockout thresholds, reset/expiry behavior, URL allow/deny behavior, and rendered link/image escaping. Validation: `npm test` `343/343`, `npm run typecheck:api`, and `npm run build` all passed. This cumulative batch is local only and has not been committed or pushed.
+
+### 2026-08-02: Write-Slot Ordering And Canonical JSON Comparison
+
+- Moved the database-backed 900ms write-slot reservation out of `api/exams.ts` and into each classified mutating route, immediately before its first write. Authentication, scope checks, request validation, and ordinary `409` device-occupancy responses no longer consume the shared write budget.
+- Retained the entry limiter before dispatch and the same database-backed slot after route validation. The two layers still protect per-source request bursts and cross-instance shared writes respectively.
+- Added `src/shared/jsonCompare.ts` and used it in API record diffs, ghost-save detection, and three-way merge conflict comparison. Object-key order is now ignored recursively while array order remains significant.
+- Added 9 regression tests across canonical comparison, route guard placement, ghost-save recovery, and merge conflict counting. Validation: `npm test` `333/333`, `npm run typecheck:api`, and `npm run build` all passed. This batch is local only and has not been committed or pushed.
+
 ### 2026-08-02: P0 User Visibility And Audit Scope
 
 - Fixed the user-list permission-projection leak in `api/users.ts`: filtering now evaluates the account's real permissions and scopes before those internal permissions are removed from the returned DTO. A grade/class administrator cannot discover a same-scope account whose permission set is outside its delegable subset.
@@ -124,7 +172,7 @@ All new permission work must change both the UI guard and `validateMutation()` w
 ### 2026-08-02: Global Write Throttling
 
 - Added a shared database-backed write slot with a 900ms minimum interval. It uses an atomic PostgreSQL `UPDATE ... WHERE ... RETURNING` against the one-row `write_throttle` table, so it applies across browser tabs, devices, and serverless instances.
-- `api/exams.ts` now consumes that slot only for shared exam saves/initialization, managed-device mutations, design-policy saves, and data resets. Reads, device heartbeats, and plugin viewer heartbeats bypass it.
+- Classified write routes consume the slot only after successful authentication, scope, parameter, and conflict checks. Reads, device heartbeats, plugin viewer heartbeats, and rejected requests bypass it.
 - A rejected write returns `429 RATE_LIMITED`, `Retry-After: 1`, a request ID, and a retryable Chinese message. The exam outbox retries this condition at 1/2/4/8 seconds; device-management writes retry once after one second and retain the server message if the retry is also limited.
 - The supplied package added the table helper but did not call it from any route. The merge fixes that missing controller-level connection rather than copying its incomplete files wholesale.
 - Validation: `npm test` `297/297` passed, `npm run typecheck:api` passed, and `npm run build` passed. The atomic database behavior still needs an opt-in concurrent-write test against a disposable database before relying on it as production load evidence.
@@ -244,6 +292,8 @@ The test suite is compiled with `tsconfig.test.json` to `.test-check/`, then exe
 7. With two signed-in devices, save a change from each within one second. Confirm one response receives `429 RATE_LIMITED`, the pending exam save retries automatically, and a device-management write either succeeds after its one retry or shows the server message.
 8. On a staging deployment, issue a 30-request read burst and a 9-request write burst from the same source. Confirm the next request in each tier returns `429 RATE_LIMITED` with a nonzero `Retry-After`, while device/plugin heartbeats continue normally.
 9. As a grade/class administrator, verify the user list excludes accounts outside the actor's scope, all-school-scoped accounts, and accounts with non-delegable permissions. Verify the audit-log request returns `403`; confirm a super administrator can read the log.
+10. Submit an invalid password five times for the same username. Confirm the fifth response is `429 LOGIN_LOCKED` with `Retry-After`; confirm correct credentials remain blocked until expiry, then can sign in successfully.
+11. Open Markdown containing `javascript:`, `data:`, `http:`, and `//host` link/image targets. Confirm each renders as a non-navigating `#` target, while HTTPS, mailto, anchors, and internal paths still work.
 
 ## Deployment
 
@@ -251,8 +301,9 @@ Push only verified commits to `dev`; Vercel is configured to deploy that branch.
 
 ## Current Follow-Up Areas
 
-- Complete the remaining externally reviewed security/correctness backlog before another broad refactor: pre-auth global-write-slot placement and canonical JSON comparison in ghost-save detection.
+- Complete the remaining externally reviewed security/correctness backlog before another broad refactor: review the remaining authentication and URL-hardening findings from the six-model audit.
 - Design a scoped audit data model and view only after audit rows include trustworthy grade/class ownership; do not relax the all-school audit-read guard without it.
+- Username-only lockout is intentionally opaque to avoid account enumeration, but a determined attacker can still cause a temporary denial of service for a known username. Consider a future source-aware throttle or challenge after observing real deployment traffic.
 - Configure the disposable Neon integration command as a protected CI job using test-only secrets; do not run it on untrusted pull requests.
 - Extend database integration coverage to user-management routes, device bindings, reset-data behavior, and failure/rollback behavior.
 - Add an opt-in disposable-database concurrency test that invokes the top-level API handler twice and proves exactly one global write slot is granted in a 900ms window.

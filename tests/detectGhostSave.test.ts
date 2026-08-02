@@ -101,3 +101,14 @@ test("ghost save treats a missing base snapshot as version zero", () => {
   const remote = makePayload({ updatedAt: NOW - 1_000 });
   assert.equal(detectGhostSave(pending, remote, NOW), true);
 });
+
+test("ghost save ignores object key order in serialized records", () => {
+  const pending = makePending({
+    payload: makePayload({ items: [{ id: "1", subject: "Math", startAt: 100, endAt: 200 }] as any }),
+  });
+  const remote = makePayload({
+    items: [{ endAt: 200, startAt: 100, subject: "Math", id: "1" }] as any,
+    updatedAt: NOW - 1_000,
+  });
+  assert.equal(detectGhostSave(pending, remote, NOW), true);
+});

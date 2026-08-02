@@ -12,13 +12,14 @@
 //
 // 注意：本配置只在服务端函数（api/*）中使用，不会随浏览器包体下发。
 
+import { ensureTelemetryIpSalt } from './_auth.js';
+
 // ==== 作者维护区：域名变更改这里，然后发布新版本即可 ====
 const REPO_BASE_URL = 'https://telemetry.pikachu2026.space';
 const REPO_COLLECT_URL = '';
 const REPO_ANNOUNCE_URL = '';
 const REPO_ERROR_REPORT_URL = '';
 const REPO_TOKEN_URL = '';
-const REPO_IP_SALT = 'exam-board-telemetry-salt-2026';
 // ============================================================
 
 function pick(envVal: string | undefined, repoVal: string): string {
@@ -36,7 +37,21 @@ export const telemetryConfig = {
   errorReportUrl:
     pick(process.env.TELEMETRY_ERROR_REPORT_URL, REPO_ERROR_REPORT_URL) || `${BASE_URL}/api/error-report`,
   tokenUrl: pick(process.env.TELEMETRY_TOKEN_URL, REPO_TOKEN_URL) || `${BASE_URL}/api/issue-client-token`,
-  ipSalt: pick(process.env.TELEMETRY_IP_SALT, REPO_IP_SALT),
 } as const;
 
 export type TelemetryConfig = typeof telemetryConfig;
+
+let resolvedIpSaltPromise: Promise<string> | null = null;
+
+export async function resolveIpSalt(): Promise<string> {
+  const override = (process.env.TELEMETRY_IP_SALT ?? '').trim();
+  if (override) return override;
+  if (!resolvedIpSaltPromise) {
+    resolvedIpSaltPromise = ensureTelemetryIpSalt()
+      .catch(error => {
+        resolvedIpSaltPromise = null;
+        throw error;
+      });
+  }
+  return resolvedIpSaltPromise;
+}

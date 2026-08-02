@@ -4,9 +4,12 @@
  * 图片、加粗、斜体、删除线、链接。内容来自项目文档与作者端（可信），但仍对 URL 做基本校验。
  */
 
-function safeUrl(u: string): string {
+export function safeUrl(u: string): string {
   const t = u.trim();
-  if (/^(https?:|mailto:|\/|\.\/|#)/i.test(t)) return t;
+  if (/^https:\/\//i.test(t)) return t;
+  if (/^mailto:/i.test(t)) return t;
+  if (t.startsWith('#')) return t;
+  if (/^\/(?!\/)/.test(t)) return t;
   return '#';
 }
 

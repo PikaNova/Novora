@@ -28,10 +28,31 @@ function run(command, args) {
   if (result.status !== 0) throw new Error(`${command} exited with status ${result.status ?? 1}`);
 }
 
+function runTestsWithTransientRetry() {
+  const args = ['--test', '.integration-check/tests/integration/*.test.js'];
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const result = spawnSync(process.execPath, args, {
+      cwd: process.cwd(),
+      env: testEnvironment,
+      encoding: 'utf8',
+    });
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    process.stdout.write(output);
+    if (result.error) throw result.error;
+    if (result.status === 0) return;
+    const transientDisconnect = /Error connecting to database: fetch failed|SocketError: other side closed|ECONNRESET|ETIMEDOUT/.test(output);
+    if (attempt === 1 && transientDisconnect) {
+      console.warn('Transient Neon transport disconnect detected; retrying the full isolated integration suite once.');
+      continue;
+    }
+    throw new Error(`${process.execPath} exited with status ${result.status ?? 1}`);
+  }
+}
+
 rmSync(outputDir, { recursive: true, force: true });
 try {
   run(process.execPath, [path.resolve('node_modules/typescript/bin/tsc'), '-p', 'tsconfig.integration.json']);
-  run(process.execPath, ['--test', '.integration-check/tests/integration/*.test.js']);
+  runTestsWithTransientRetry();
 } finally {
   rmSync(outputDir, { recursive: true, force: true });
 }

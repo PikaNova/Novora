@@ -97,3 +97,14 @@ test('threeWayMergeExam: always uses the remote updatedAt version', () => {
 
   assert.equal(result.payload.updatedAt, 3);
 });
+
+test('threeWayMergeExam: does not count reordered object keys as a conflict', () => {
+  const policy = { enabled: true, scope: 'whole-day' as const, bufferBeforeMinutes: 5, bufferAfterMinutes: 5 };
+  const reordered = { bufferAfterMinutes: 5, scope: 'whole-day' as const, bufferBeforeMinutes: 5, enabled: true };
+  const result = threeWayMergeExam(
+    payload({ weeklyConflictPolicy: policy }),
+    payload({ weeklyConflictPolicy: reordered }),
+    payload({ weeklyConflictPolicy: policy }),
+  );
+  assert.equal(result.conflictCount, 0);
+});

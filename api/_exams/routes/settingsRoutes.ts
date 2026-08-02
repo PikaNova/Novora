@@ -1,7 +1,7 @@
 // 系统设置相关路由：设计策略更新、数据重置（需管理员权限）。
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { database, ensureTableOnce, missingRelation } from "../db.js";
+import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from "../db.js";
 import { allScope } from "../permissions.js";
 import {
   type AdminActor,
@@ -59,6 +59,7 @@ export async function handleDesignPolicy(req: VercelRequest, res: VercelResponse
   const rules = sanitizeDesignPolicyRules(source?.rules);
   const updatedAt = Date.now();
   const designPolicy = { rules, updatedAt };
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   const run = async () =>
     sql`UPDATE exam_data SET design_policy=${JSON.stringify(designPolicy)}::jsonb, updated_at=${updatedAt} WHERE id=1`;
   try {
@@ -112,7 +113,6 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
       return;
     }
   }
-  await ensureTableOnce();
   const categories = Array.isArray(req.body?.categories)
     ? req.body.categories.map(String)
     : [];
@@ -122,6 +122,7 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
     res.status(400).json({ ok: false, error: "请选择需要重置的数据" });
     return;
   }
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   const at = Date.now();
   await sql`UPDATE exam_data SET
     items=CASE WHEN ${resetMajor} THEN '[]'::jsonb ELSE items END,

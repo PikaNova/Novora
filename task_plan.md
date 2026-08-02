@@ -2,7 +2,7 @@
 
 ## Active Task
 
-Safely merge and validate the class-administrator temporary-exam deletion 403 fix together with direct builtin-role contract tests, update project handoff material, and prepare the changes for the requested delivery action.
+Inspect, selectively merge, and statically validate login lockout and Markdown URL restrictions on top of the uncommitted write-slot and JSON-comparison repair.
 
 ## Phases
 
@@ -67,6 +67,30 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 | 57. Inspect P0 user-visibility package | Complete | Package contains the first two P0 fixes, nine regression tests, test configuration, and a handover copy that must be merged selectively. |
 | 58. Merge and validate P0 user visibility and audit policy | Complete | Preserved internal permissions through filtering, restricted audit reads to all-scope actors, added 9 regressions, and passed tests/API/build validation. |
 | 59. Delivery | Complete | Pushed `9b9593f fix: enforce scoped user visibility` to `origin/dev`; documentation delivery status is recorded in a follow-up commit. |
+| 60. Inspect write-slot and JSON-comparison package | Complete | The package must be selectively merged: route-level slots are valid, but its dispatcher removes the current gate, copied text is corrupted, and its test config drops `api/users.ts`. |
+| 61. Merge and validate compatible fixes | Complete | Moved slot acquisition to validated write routes, shared canonical comparison across API/client paths, retained existing limiter/test entries, and passed `333/333` tests/API/build. |
+| 62. Delivery | Pending user direction | Keep any validated change local until an explicit commit/push request. |
+| 63. Inspect login-lockout and safe-URL package | Complete | Preserve `api/users.ts` test coverage, recreate encoding-damaged test text, and return 429 immediately on the fifth recorded failure. |
+| 64. Merge and validate compatible fixes | Complete | Added immediate fifth-failure lockout behavior and URL allowlisting; `343/343` tests, API typecheck, and production build passed. |
+| 65. Delivery | Pending user direction | Do not commit or push the cumulative local changes unless explicitly requested. |
+| 66. Inspect legacy shared-token invalidation package | Complete | Confirmed the three-part token uses global `app_auth.token_version` and maps to the default admin account. |
+| 67. Merge compatible invalidation safeguards | Complete | Added seven global invalidation call sites before sensitive user writes and clean source-invariant coverage. |
+| 68. Validate and update handoff material | Complete | Passed `351/351` tests, API typecheck, and production build; updated handoff/process records. |
+| 69. Delivery | Pending user direction | Keep the cumulative local changes uncommitted and do not push unless requested. |
+| 70. Inspect telemetry IP-salt package | Complete | Confirmed the fixed repository salt is a privacy weakness; identified unnecessary disabled-event database access and unsafe error propagation in the incoming relay path. |
+| 71. Merge compatible telemetry privacy safeguard | Complete | Added a persistent singleton salt with in-instance promise caching, optional override, deferred relay resolution, safe no-relay failure behavior, and clean coverage. |
+| 72. Validate and update handoff material | Complete | Passed `356/356` tests, API typecheck, and production build; updated handoff/process records. |
+| 73. Delivery | Pending user direction | Keep the cumulative local changes uncommitted and do not push unless requested. |
+| 74. Extend disposable Neon integration coverage | Complete | Added real-database coverage for the global write slot, scope deletion, stale snapshots, formal-exam denial, device scope denial, reset scope denial, and role-change token invalidation. The response double mirrors Vercel implicit success statuses; the runner retries once only for known Neon transport disconnects. |
+| 75. Revalidate and record database integration results | Complete | Passed `7/7` Neon integration tests, `356/356` unit tests, API typecheck, and production build. |
+| 76. Delivery | Pending user direction | Keep the cumulative local changes uncommitted and do not push unless requested. |
+| 77. Package current source and handover | Complete | Create a clean archive of the current worktree, including the in-progress Neon integration-test changes and current handover documentation. |
+| 78. Export validated source and handover | Complete | Created clean post-validation archives after removing generated test/build directories; archives exclude credentials, environment files, Git metadata, dependencies, and logs. |
+| 79. Inspect login alerts and retry-feedback package | Complete | The package has compatible alert/countdown goals but is based on older security code, contains encoding-corrupted text, removes scoped user/audit safeguards, and moves legacy-token invalidation after mutations. Merge only isolated compatible behavior. |
+| 80. Merge compatible alert and regression coverage | Complete | Added all-scope login-failure alerts, precise recovery/login countdown feedback, pure token guards, and clean regressions without weakening existing scope or token-invalidation safeguards. |
+| 81. Validate and update handover | Complete | Passed `367/367` unit tests, API typecheck, production build, and `8/8` Neon integration tests; updated handover and process documents. |
+| 82. Delivery | In progress | Commit and push the fully validated cumulative security, feedback, and Neon integration-test changes to `origin/dev`. |
+| 83. Export validated source and handover | Complete | Created clean archives containing this validated merge and updated handover, excluding incoming extraction, generated output, credentials, environment files, Git metadata, dependencies, and logs. |
 
 ## Decisions
 
@@ -84,7 +108,11 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 - Database integration tests must run only against an explicitly designated isolated database or an ephemeral branch created from an empty test parent. They must never fall back to `DATABASE_URL` or production data.
 - A supplied integration connection is used only as a transient process environment value and is never written to files, Git, logs, documentation, or delivery archives.
 - The ghost-save detector's optional clock and direct test export exist solely to make its existing time-window rule deterministic under unit tests. Production calls retain the default clock and the 120-second rule remains unchanged.
+- Any write-slot ordering repair must retain both layers: per-source entry limiting before dispatch and database-backed cross-instance write gating for classified mutations.
+- Do not copy encoding-corrupted comments or documentation from this package; retain the current handover and write new plain-ASCII technical records where needed.
+- Do not run `npm install` for this batch. Run the already-available test, API typecheck, and build commands after merging, per the user's latest instruction.
+- The legacy three-part compatibility token has a single global `app_auth.token_version`; incrementing it invalidates all such legacy tokens, not one named user's token. Describe that behavior accurately and retain it only as a compatibility-window safeguard.
 
 ## Next Action
 
-Await the next requested change. Keep the scoped-audit guard until audit records have trustworthy grade/class ownership.
+Await an explicit commit/push request for the validated cumulative local changes. Keep the scoped-audit guard until audit records have trustworthy grade/class ownership.

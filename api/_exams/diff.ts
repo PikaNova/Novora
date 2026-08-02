@@ -2,25 +2,9 @@
 // payload diff 工具：规范化比较、记录级 diff、周测生效映射清理。
 // 从原 api/exams.ts 抽出，保持单一职责，不依赖数据库或鉴权。
 
-export function canonicalizeForCompare(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalizeForCompare);
-  if (value && typeof value === "object") {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce((result: Record<string, unknown>, key) => {
-        result[key] = canonicalizeForCompare(
-          (value as Record<string, unknown>)[key],
-        );
-        return result;
-      }, {});
-  }
-  return value;
-}
+import { canonicalizeForCompare, sameJson } from "../../src/shared/jsonCompare.js";
 
-// jsonb does not preserve object-key insertion order, so compare a canonical form.
-export const sameJson = (left: unknown, right: unknown) =>
-  JSON.stringify(canonicalizeForCompare(left ?? null)) ===
-  JSON.stringify(canonicalizeForCompare(right ?? null));
+export { canonicalizeForCompare, sameJson };
 
 export function changedRecords(before: any[], after: any[]): any[] {
   const left = new Map(

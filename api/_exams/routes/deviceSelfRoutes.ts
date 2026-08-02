@@ -1,7 +1,7 @@
 // 设备终端自助服务路由（无需管理员身份，由设备自己调用）：绑定查询/自报、心跳上报。
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { database, ensureTableOnce, missingRelation } from "../db.js";
+import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from "../db.js";
 
 export async function handleDeviceBinding(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = database();
@@ -75,6 +75,7 @@ export async function handleDeviceBinding(req: VercelRequest, res: VercelRespons
           });
         return;
       }
+      if (!(await acquireWriteSlotOrReject(req, res))) return;
       if (occupied[0]) {
         const replacedAt = Date.now();
         await sql`

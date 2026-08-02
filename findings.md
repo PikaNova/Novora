@@ -212,3 +212,49 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - `filterVisibleUsers()` now performs delegation and scope checks on an internal projection that retains permissions, then the response mapper removes them only after filtering. All-school and wildcard actors retain full visibility; a no-scope actor has no scoped account visibility.
 - Historical audit records lack reliable `gradeId`/`classId`, so `canReadAuditLog()` intentionally denies grade/class-scoped actors. Endpoint access still requires `audit.read`; all-scope eligibility is an additional mandatory guard.
 - Validation: `324/324` unit tests, `npm run typecheck:api`, and `npm run build` passed. Delivered in `9b9593f` to `origin/dev`. A future scoped audit UI requires audit-record schema support, not a weaker filter.
+
+## Write-Slot Ordering And JSON Comparison
+
+- The top-level dispatcher previously reserved the database-wide write slot before action handlers authenticated, authorized, or rejected malformed requests. Invalid or forbidden traffic could therefore delay a valid write from another device.
+- `acquireWriteSlotOrReject()` now runs once in each classified mutation after route-specific validation and immediately before writes. The entry limiter remains before dispatch; the shared database gate is still the cross-instance authority.
+- `sameJson()` is now implemented once in `src/shared/jsonCompare.ts` and imported into API diffs, ghost-save recovery, and three-way merging. It recursively sorts object keys, preserves array order, and avoids false differences from PostgreSQL `jsonb` key order.
+- The original package's re-export-only `diff.ts` pattern would fail because that module also calls `sameJson`; this merge imports it locally and then re-exports it. Validation: `333/333` tests, API type check, and production build passed.
+
+## Login Lockout And Markdown URL Allowlist
+
+- Login attempts are evaluated from durable audit records, not per-instance memory, so a Vercel cold start cannot reset the lockout. The login endpoint checks before authentication and again after a failed authentication write, making the fifth qualifying failure return `429` immediately.
+- Success records reset the consecutive-failure window. The check uses normalized usernames and does not disclose whether an account exists, but username-only locking remains vulnerable to temporary targeted denial of service.
+- `safeUrl()` now accepts HTTPS, mailto, hash anchors, and single-slash internal paths only. It rejects executable, data, cleartext HTTP, protocol-relative, and dot-relative targets before rendered HTML receives the URL.
+- Validation: `343/343` tests, API type check, and production build passed. The ten new tests cover lockout boundaries and URL rendering/escaping.
+
+## Legacy Shared-Token Invalidation
+
+- The old three-part token branch in `getActor()` maps every compatibility token to the default `admin` user and checks the global `app_auth.token_version`; it has no per-user identity in its payload.
+- Incrementing `app_auth.token_version` therefore invalidates every legacy shared token, not a single named user's token. This is acceptable only as a migration-window safety measure and must be documented precisely.
+- `invalidateLegacySharedToken()` is invoked before seven security-sensitive user mutations: recovery, existing-user super-admin repair, own password/username/combined credential changes, administrator update, and password reset. Calling it first ensures a database failure prevents the sensitive user mutation rather than leaving a legacy token valid after the mutation.
+- The supplied static test had encoding-corrupted comments and asserted an unsafe best-effort failure policy. It was replaced with clean source-invariant tests that protect the global-version check and all required call sites.
+- Validation after merge: `351/351` tests passed, `npm run typecheck:api` passed, and `npm run build` passed. The Vite build needs the normal elevated retry in this sandbox because esbuild otherwise cannot read its project ancestry.
+
+## Persistent Telemetry IP Salt
+
+- The former `REPO_IP_SALT` was public source code and therefore could not provide a secret component for IP hashing.
+- The replacement stores one randomly generated value in the server-only `app_telemetry_config` singleton table. `INSERT ... ON CONFLICT DO NOTHING` plus a subsequent read makes concurrent cold starts converge, while a resettable promise cache avoids repeated reads within an instance.
+- `TELEMETRY_IP_SALT` remains an optional advanced override; ordinary deployments need no new environment variable beyond their database connection.
+- Salt resolution is deliberately deferred until the relay is enabled, sampled, and credentialed. Failure returns a successful skipped event rather than sending an unhashed IP or exposing a database error through the telemetry endpoint.
+- Validation after merge: `356/356` tests passed, `npm run typecheck:api` passed, and `npm run build` passed using the normal elevated retry required for Vite/esbuild in this sandbox.
+
+## Extended Disposable Neon Coverage
+
+- The route-level integration suite now includes database assertions for the global write slot, device-scope protection, all-school-only reset authorization, role-change token invalidation, and scope deletion.
+- The earlier user-route integration failure was caused by the local response double not assigning Vercel's implicit success status when a handler called `res.json()` directly. The double now defaults `json()`, `send()`, and `end()` to status `200`; no application route changed.
+- One pre-completion attempt hit a Neon `fetch failed` / remote socket-close error during test setup after six passing cases. `scripts/run-integration-tests.cjs` now retries once only for recognized transport disconnect output; it never retries assertion or database behavior failures. The final run completed without retry and passed all seven cases.
+- Validation passed: `npm run test:integration` `7/7`, `npm test` `356/356`, `npm run typecheck:api`, and `npm run build`.
+- The approved disposable database connection is transient process input only. Do not place it in an environment file, documentation, source archive, terminal output, or Git history.
+
+## Login Failure Alerts And Retry Feedback
+
+- The incoming package was based on older code and would have removed scoped user visibility, all-school-only audit reads, and the intentional pre-mutation legacy-token invalidation order. Those regressions were not merged.
+- `evaluateLoginFailureAlerts()` is pure and only counts failure rows after the most recent successful login. It filters the streak to the active lockout window before applying the three-failure threshold, avoiding suppression by an older expired failure.
+- `api/users.ts` returns the alert projection only inside the existing `audit.read` plus `canReadAuditLog()` guard. Grade and class scoped administrators remain unable to query audit-derived account activity.
+- Retry countdown presentation uses response `retryAfterMs` first and a valid `Retry-After` header as a fallback. Token helper extraction preserves the prior 4-part and legacy 3-part validation semantics.
+- Validation passed: `367/367` unit tests, API typecheck, production build, and `8/8` disposable-Neon integration tests. The eighth integration case confirms an all-scope actor receives the audit alert response.

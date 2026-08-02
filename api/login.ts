@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { authenticateUser, extractBearer, getActor, isAdminRecoveryConfigured, isPasswordRequired, recoverSuperAdmin, repairSuperAdmin, writeAudit } from './_auth.js';
+import { authenticateUser, checkLoginLockout, extractBearer, getActor, isAdminRecoveryConfigured, isPasswordRequired, recoverSuperAdmin, repairSuperAdmin, writeAudit } from './_auth.js';
 import { requestId, sendDatabaseError } from './_apiError.js';
 import { applyCors } from './_cors.js';
 
@@ -32,13 +32,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const result = await repairSuperAdmin(String(username ?? ''), String(recoveryKey ?? ''), String(newPassword ?? ''));
       if (!result.ok) {
         await new Promise(resolve => setTimeout(resolve, 500));
+        if (typeof result.retryAfterMs === 'number') {
+          res.setHeader('Retry-After', String(Math.max(1, Math.ceil(result.retryAfterMs / 1000))));
+          res.status(429).json({ ok: false, code: 'REPAIR_FAILED', error: result.error, retryAfterMs: result.retryAfterMs }); return;
+        }
         res.status(result.error?.includes('未配置') ? 503 : result.error?.includes('频繁') ? 429 : 401).json({ ok: false, code: 'REPAIR_FAILED', error: result.error }); return;
       }
       res.json({ ok: true, created: result.created === true }); return;
     }
     if (!await isPasswordRequired()) { res.json({ ok: true, token: null }); return; }
-    const login = await authenticateUser(String(username ?? 'admin'), String(password ?? ''));
-    if (!login) { await new Promise(resolve => setTimeout(resolve, 350)); res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: '用户名或密码不正确' }); return; }
+    const usernameInput = String(username ?? 'admin');
+    const sendLockout = (retryAfterMs: number) => {
+      const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      res.status(429).json({ ok: false, code: 'LOGIN_LOCKED', error: `登录失败次数过多，请 ${retryAfterSeconds} 秒后再试`, retryAfterMs });
+    };
+    const lockout = await checkLoginLockout(usernameInput);
+    if (lockout.locked) { sendLockout(lockout.retryAfterMs); return; }
+    const login = await authenticateUser(usernameInput, String(password ?? ''));
+    if (!login) {
+      const updatedLockout = await checkLoginLockout(usernameInput);
+      await new Promise(resolve => setTimeout(resolve, 350));
+      if (updatedLockout.locked) { sendLockout(updatedLockout.retryAfterMs); return; }
+      res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: '用户名或密码不正确' }); return;
+    }
     await writeAudit(login.actor, 'auth.login', 'user', String(login.actor.id));
     res.json({ ok: true, token: login.token, expiresAt: login.expiresAt, user: login.actor, firstLogin: login.firstLogin });
   } catch (error) {

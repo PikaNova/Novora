@@ -3,6 +3,7 @@ import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/ex
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { InitializationState } from './settings/school';
 import { DEFAULT_INITIALIZATION } from './settings/school';
+import { sameJson } from '../shared/jsonCompare';
 
 export interface MergeableExamPayload {
   items: ExamItem[];
@@ -34,7 +35,7 @@ type MergeContext = { conflicts: number };
 function equal(a: MergeValue, b: MergeValue): boolean {
   if (a === MISSING || b === MISSING) return a === b;
   if (Object.is(a, b)) return true;
-  try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
+  try { return sameJson(a, b); } catch { return false; }
 }
 
 function clone<T>(value: T): T {

@@ -36,6 +36,13 @@ export type AuditLog = {
   createdAt: number;
 };
 
+export type LoginFailureAlert = {
+  username: string;
+  failureCount: number;
+  windowStart: number;
+  latestFailureAt: number;
+};
+
 const token = () => localStorage.getItem('admin_auth_token') || '';
 
 export class AdminApiError extends Error {
@@ -102,4 +109,9 @@ export async function deleteManagedRole(id: string): Promise<ManagedRole[]> {
 export async function fetchAuditLogs(): Promise<AuditLog[]> {
   const data = await request('/api/users?resource=audit');
   return data.logs || [];
+}
+
+export async function fetchAuditOverview(): Promise<{ logs: AuditLog[]; loginFailureAlerts: LoginFailureAlert[] }> {
+  const data = await request('/api/users?resource=audit');
+  return { logs: data.logs || [], loginFailureAlerts: data.loginFailureAlerts || [] };
 }

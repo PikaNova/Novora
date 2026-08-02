@@ -7,6 +7,7 @@ import { saveExamsToServer } from './examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { recordSyncConflict } from './offlineStore';
 import { ApiError } from './apiError';
+import { sameJson } from '../shared/jsonCompare';
 
 const OUTBOX_KEY = 'exam_pending_sync';
 
@@ -189,8 +190,6 @@ function detectGhostSave(
   if (remote.updatedAt <= base) return false;
   // 且在最近 120s 内（超过则是其他人修改）
   if (now - remote.updatedAt > 120_000) return false;
-  const sameJson = (left: unknown, right: unknown) =>
-    JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
   const sameRequired = [
     sameJson(pending.payload.items, remote.items),
     pending.payload.title === remote.title,

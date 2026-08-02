@@ -7,8 +7,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { requestId, sendDatabaseError, sendRateLimited } from "./_apiError.js";
 import { applyCors } from "./_cors.js";
-import { acquireGlobalWriteSlot, ensureTableOnce } from "./_exams/db.js";
-import { shouldThrottleWrite } from "./_exams/writeThrottle.js";
 import {
   consumeRateLimit,
   getRateLimitKey,
@@ -146,14 +144,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
       if (!writeLimit.allowed) {
         sendRateLimited(req, res, writeLimit.retryAfterMs / 1_000);
-        return;
-      }
-    }
-
-    if (shouldThrottleWrite(req.method, action)) {
-      await ensureTableOnce();
-      if (!(await acquireGlobalWriteSlot())) {
-        sendRateLimited(req, res);
         return;
       }
     }

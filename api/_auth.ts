@@ -18,6 +18,9 @@ const LEGACY_ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || '';
 const TOKEN_TTL = 24 * 60 * 60 * 1000;
 const REPAIR_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const REPAIR_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_LOCKOUT_MAX_FAILURES = 5;
+const LOGIN_ALERT_MIN_FAILURES = 3;
 export const SCHEMA_MIGRATION_LOCK_ID = 1649236847;
 
 // 权限常量与基础类型现统一定义在 src/shared/permissionRules.ts，前后端共用同一份，避免漂移。
@@ -87,6 +90,12 @@ export async function ensureAuthTables(): Promise<void> {
       )`,
       transaction`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_hash TEXT`,
       transaction`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_salt TEXT`,
+      transaction`CREATE TABLE IF NOT EXISTS app_telemetry_config (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        ip_salt TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        CHECK (id = 1)
+      )`,
       transaction`CREATE TABLE IF NOT EXISTS app_roles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -155,6 +164,32 @@ export async function ensureAuthTables(): Promise<void> {
   return setupPromise;
 }
 
+let telemetryIpSaltPromise: Promise<string> | null = null;
+
+/**
+ * Creates one server-only, persistent salt for telemetry IP pseudonymization.
+ * The compatibility path never exposes this value in API responses or logs.
+ */
+export async function ensureTelemetryIpSalt(): Promise<string> {
+  if (!telemetryIpSaltPromise) {
+    telemetryIpSaltPromise = (async () => {
+      await ensureAuthTables();
+      const sql = authSql();
+      const generated = randomBytes(24).toString('base64url');
+      await sql`INSERT INTO app_telemetry_config (id, ip_salt, created_at)
+        VALUES (1, ${generated}, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
+      const rows = await sql`SELECT ip_salt FROM app_telemetry_config WHERE id=1` as unknown as Array<{ ip_salt: string }>;
+      const value = rows[0]?.ip_salt;
+      if (!value) throw new Error('Telemetry IP salt is unavailable');
+      return value;
+    })().catch(error => {
+      telemetryIpSaltPromise = null;
+      throw error;
+    });
+  }
+  return telemetryIpSaltPromise;
+}
+
 async function config(): Promise<AuthRow | null> {
   await ensureAuthTables();
   const rows = await authSql()`SELECT password_hash, password_salt, token_secret, token_version FROM app_auth WHERE id = 1` as unknown as AuthRow[];
@@ -207,13 +242,14 @@ export async function recoverSuperAdmin(username: string, recoveryKey: string, n
     WHERE LOWER(username)=LOWER(${username.trim().slice(0, 80)}) AND role_id='super_admin' AND status='active' LIMIT 1` as unknown as Array<{ id: number; username: string }>;
   if (!keyMatches || !rows[0]) return { ok: false, error: '恢复信息不正确' };
   const password = await makePasswordHash(nextPassword);
+  await invalidateLegacySharedToken();
   await authSql()`UPDATE app_users SET password_hash=${password.hash}, password_salt=${password.salt},
     must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${rows[0].id}`;
   await writeAudit(null, 'user.password.recover', 'user', String(rows[0].id), { username: rows[0].username });
   return { ok: true };
 }
 
-export async function repairSuperAdmin(username: string, recoveryKey: string, nextPassword: string): Promise<{ ok: boolean; error?: string; created?: boolean }> {
+export async function repairSuperAdmin(username: string, recoveryKey: string, nextPassword: string): Promise<{ ok: boolean; error?: string; created?: boolean; retryAfterMs?: number }> {
   if (!await isAdminRecoveryConfigured()) return { ok: false, error: '当前项目尚未生成超级管理员恢复密钥' };
   if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
   const name = username.trim().slice(0, 80);
@@ -221,11 +257,13 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
   await ensureAuthTables();
 
   const sql = authSql();
-  const since = Date.now() - REPAIR_RATE_LIMIT_WINDOW_MS;
-  const recentFailures = await sql`SELECT COUNT(*)::int AS count FROM app_audit_logs
-    WHERE action='user.super_admin.repair.failed' AND created_at > ${since}` as unknown as Array<{ count: number }>;
+  const now = Date.now();
+  const since = now - REPAIR_RATE_LIMIT_WINDOW_MS;
+  const recentFailures = await sql`SELECT COUNT(*)::int AS count, COALESCE(MIN(created_at), 0) AS oldest FROM app_audit_logs
+    WHERE action='user.super_admin.repair.failed' AND created_at > ${since}` as unknown as Array<{ count: number; oldest: number }>;
   if (Number(recentFailures[0]?.count) >= REPAIR_RATE_LIMIT_MAX_ATTEMPTS) {
-    return { ok: false, error: '恢复尝试过于频繁，请 15 分钟后再试' };
+    const retryAfterMs = Math.max(1_000, Number(recentFailures[0]?.oldest ?? 0) + REPAIR_RATE_LIMIT_WINDOW_MS - now);
+    return { ok: false, error: `恢复尝试过于频繁，请 ${Math.ceil(retryAfterMs / 1000)} 秒后再试`, retryAfterMs };
   }
 
   const keyMatches = await recoveryKeyMatches(recoveryKey);
@@ -236,12 +274,12 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
   }
 
   const password = await makePasswordHash(nextPassword);
-  const now = Date.now();
   const existing = await sql`SELECT id FROM app_users WHERE LOWER(username)=LOWER(${name}) LIMIT 1` as unknown as Array<{ id: number }>;
   let userId: number;
   let created = false;
   if (existing[0]) {
     userId = existing[0].id;
+    await invalidateLegacySharedToken();
     await sql`UPDATE app_users SET role_id='super_admin', status='active', password_hash=${password.hash}, password_salt=${password.salt},
       must_change_password=TRUE, token_version=token_version+1, updated_at=${now} WHERE id=${userId}`;
   } else {
@@ -320,8 +358,94 @@ async function userById(id: number): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * The v1.29.1-and-earlier three-part compatibility token is signed against
+ * this global version and maps to the default admin account. This deliberately
+ * invalidates every remaining legacy shared token, not an individual account.
+ */
+export async function invalidateLegacySharedToken(): Promise<void> {
+  await authSql()`UPDATE app_auth SET token_version=token_version+1, updated_at=${Date.now()} WHERE id=1`;
+}
+
 function signature(userId: number, expiresAt: number, version: number, secret: string): string {
   return createHmac('sha256', secret).update(`${userId}.${expiresAt}.${version}`).digest('base64url');
+}
+
+export type LoginAttemptRow = { action: string; created_at: number };
+export type LoginFailureAlert = { username: string; failureCount: number; windowStart: number; latestFailureAt: number };
+
+export function evaluateLoginLockout(
+  recentAttemptsDesc: LoginAttemptRow[],
+  now: number,
+  options: { maxFailures?: number; windowMs?: number } = {},
+): { locked: boolean; retryAfterMs: number } {
+  const maxFailures = options.maxFailures ?? LOGIN_LOCKOUT_MAX_FAILURES;
+  const windowMs = options.windowMs ?? LOGIN_LOCKOUT_WINDOW_MS;
+  if (recentAttemptsDesc.length < maxFailures) return { locked: false, retryAfterMs: 0 };
+  const window = recentAttemptsDesc.slice(0, maxFailures);
+  if (window.some(attempt => attempt.action === 'auth.login')) return { locked: false, retryAfterMs: 0 };
+  const oldest = window[maxFailures - 1];
+  const unlockAt = Number(oldest.created_at) + windowMs;
+  if (now >= unlockAt) return { locked: false, retryAfterMs: 0 };
+  return { locked: true, retryAfterMs: unlockAt - now };
+}
+
+export async function checkLoginLockout(username: string): Promise<{ locked: boolean; retryAfterMs: number }> {
+  await ensureAuthTables();
+  const name = (username.trim() || 'admin').slice(0, 80);
+  const rows = await authSql()`SELECT action, created_at FROM app_audit_logs
+    WHERE LOWER(username)=LOWER(${name}) AND action IN ('auth.login','auth.login.failed')
+    ORDER BY created_at DESC LIMIT ${LOGIN_LOCKOUT_MAX_FAILURES}` as unknown as LoginAttemptRow[];
+  return evaluateLoginLockout(rows, Date.now());
+}
+
+export function evaluateLoginFailureAlerts(
+  recentAttemptsDesc: Array<LoginAttemptRow & { username: string }>,
+  now: number,
+  options: { minFailures?: number; windowMs?: number } = {},
+): LoginFailureAlert[] {
+  const minFailures = options.minFailures ?? LOGIN_ALERT_MIN_FAILURES;
+  const windowMs = options.windowMs ?? LOGIN_LOCKOUT_WINDOW_MS;
+  const byUsername = new Map<string, Array<LoginAttemptRow & { username: string }>>();
+  for (const row of recentAttemptsDesc) {
+    const key = row.username.toLowerCase();
+    const bucket = byUsername.get(key);
+    if (bucket) bucket.push(row); else byUsername.set(key, [row]);
+  }
+  const alerts: LoginFailureAlert[] = [];
+  for (const rows of byUsername.values()) {
+    const successIndex = rows.findIndex(row => row.action === 'auth.login');
+    const failures = rows
+      .slice(0, successIndex === -1 ? rows.length : successIndex)
+      .filter(row => row.action === 'auth.login.failed' && now - Number(row.created_at) <= windowMs);
+    if (failures.length < minFailures) continue;
+    const newest = failures[0];
+    const oldest = failures[failures.length - 1];
+    alerts.push({
+      username: rows[0].username,
+      failureCount: failures.length,
+      windowStart: Number(oldest.created_at),
+      latestFailureAt: Number(newest.created_at),
+    });
+  }
+  return alerts.sort((a, b) => b.latestFailureAt - a.latestFailureAt);
+}
+
+export async function getRecentLoginFailureAlerts(): Promise<LoginFailureAlert[]> {
+  await ensureAuthTables();
+  const rows = await authSql()`SELECT username, action, created_at FROM app_audit_logs
+    WHERE action IN ('auth.login', 'auth.login.failed') ORDER BY created_at DESC LIMIT 500` as unknown as Array<LoginAttemptRow & { username: string }>;
+  return evaluateLoginFailureAlerts(rows, Date.now());
+}
+
+async function recordFailedLoginAttempt(username: string): Promise<void> {
+  try {
+    await ensureAuthTables();
+    await authSql()`INSERT INTO app_audit_logs (user_id, username, action, resource_type, resource_id, grade_id, class_id, detail, created_at)
+      VALUES (NULL, ${username}, 'auth.login.failed', 'user', '', '', '', NULL, ${Date.now()})`;
+  } catch {
+    // Audit availability must not obscure the ordinary invalid-credentials response.
+  }
 }
 
 export async function authenticateUser(username: string, password: string): Promise<{ actor: AdminActor; token: string; expiresAt: number; firstLogin: boolean } | null> {
@@ -331,7 +455,10 @@ export async function authenticateUser(username: string, password: string): Prom
       r.name AS role_name, r.permissions, u.status, u.must_change_password, u.token_version, u.last_login_at
     FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE LOWER(u.username)=LOWER(${name}) LIMIT 1` as unknown as UserRow[];
   const row = rows[0];
-  if (!row || row.status !== 'active' || !await matches(password, row.password_hash, row.password_salt)) return null;
+  if (!row || row.status !== 'active' || !await matches(password, row.password_hash, row.password_salt)) {
+    await recordFailedLoginAttempt(name);
+    return null;
+  }
   const auth = await config();
   if (!auth) return null;
   const expiresAt = Date.now() + TOKEN_TTL;
@@ -339,6 +466,18 @@ export async function authenticateUser(username: string, password: string): Prom
   const firstLogin = row.last_login_at == null;
   await authSql()`UPDATE app_users SET last_login_at=${Date.now()} WHERE id=${row.id}`;
   return { actor: await actorFromUserRow(row), token, expiresAt, firstLogin };
+}
+
+export function isTokenNotExpired(expiresAt: number, now: number): boolean {
+  return Number.isFinite(expiresAt) && now <= expiresAt;
+}
+
+export function isLegacySharedTokenVersionCurrent(tokenVersion: number, currentAuthTokenVersion: number): boolean {
+  return tokenVersion === currentAuthTokenVersion;
+}
+
+export function isUserTokenVersionCurrent(row: { status: string; token_version: number } | null | undefined, tokenVersion: number): boolean {
+  return row?.status === 'active' && row.token_version === tokenVersion;
 }
 
 export async function getActor(token: string | undefined): Promise<AdminActor | null> {
@@ -350,14 +489,16 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
     let userId: number; let expiresAt: number; let version: number; let received: string;
     if (parts.length === 4) {
       [userId, expiresAt, version] = parts.slice(0, 3).map(Number); received = parts[3];
-      if (!Number.isFinite(userId) || !Number.isFinite(expiresAt) || !Number.isFinite(version) || Date.now() > expiresAt) return null;
+      if (!Number.isFinite(userId) || !Number.isFinite(version) || !isTokenNotExpired(expiresAt, Date.now())) return null;
       const expected = signature(userId, expiresAt, version, auth.token_secret);
       const a = Buffer.from(received || ''); const b = Buffer.from(expected);
       if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
     } else if (parts.length === 3) {
-      // v1.29.1 及更早版本的共享管理员令牌，迁移窗口内映射到默认超级管理员。
+      // v1.29.1 and earlier shared admin tokens map to the default admin account.
+      // Their version is global, so security-sensitive user changes invalidate
+      // every legacy shared token through invalidateLegacySharedToken().
       [expiresAt, version] = parts.slice(0, 2).map(Number); received = parts[2];
-      if (!Number.isFinite(expiresAt) || Date.now() > expiresAt || version !== auth.token_version) return null;
+      if (!isTokenNotExpired(expiresAt, Date.now()) || !isLegacySharedTokenVersionCurrent(version, auth.token_version)) return null;
       const legacyExpected = createHmac('sha256', auth.token_secret).update(`${expiresAt}.${version}`).digest('base64url');
       const a = Buffer.from(received || ''); const b = Buffer.from(legacyExpected);
       if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
@@ -365,7 +506,8 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
       userId = Number(adminRows[0]?.id);
     } else return null;
     const row = await userById(userId);
-    if (!row || row.status !== 'active' || row.token_version !== version && parts.length === 4) return null;
+    if (parts.length === 4 && !isUserTokenVersionCurrent(row, version)) return null;
+    if (!row || row.status !== 'active') return null;
     return actorFromUserRow(row);
   } catch (error) {
     // Token validation uses explicit null returns above. Re-throw unexpected failures so a
@@ -404,6 +546,7 @@ export async function changeOwnPassword(actorId: number, currentPassword: string
   if (!row || !await matches(currentPassword, row.password_hash, row.password_salt)) return { ok: false, error: '当前密码不正确' };
   if (row.must_change_password && row.role_id === 'class_admin') return { ok: false, error: '班级管理员首次登录必须同时设置新的用户名和密码' };
   const { hash, salt } = await makePasswordHash(nextPassword);
+  await invalidateLegacySharedToken();
   await authSql()`UPDATE app_users SET password_hash=${hash}, password_salt=${salt}, must_change_password=FALSE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
   return { ok: true };
 }
@@ -414,6 +557,7 @@ export async function changeOwnUsername(actorId: number, currentPassword: string
   const row = await userById(actorId);
   if (!row || !await matches(currentPassword, row.password_hash, row.password_salt)) return { ok: false, error: '当前密码不正确' };
   try {
+    await invalidateLegacySharedToken();
     await authSql()`UPDATE app_users SET username=${username}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
     return { ok: true, oldUsername: row.username };
   } catch (error) {
@@ -433,6 +577,7 @@ export async function changeOwnCredentials(actorId: number, currentPassword: str
   if (!nextPassword && username.toLowerCase() === row.username.toLowerCase()) return { ok: false, error: '用户名和密码均未修改' };
   const password = nextPassword ? await makePasswordHash(nextPassword) : { hash: row.password_hash, salt: row.password_salt };
   try {
+    await invalidateLegacySharedToken();
     await authSql()`UPDATE app_users SET username=${username}, password_hash=${password.hash}, password_salt=${password.salt},
       must_change_password=${nextPassword ? false : row.must_change_password}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${actorId}`;
     return { ok: true, oldUsername: row.username, username };

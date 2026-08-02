@@ -11,7 +11,9 @@ import {
   changeOwnPassword,
   changeOwnUsername,
   ensureAuthTables,
+  getRecentLoginFailureAlerts,
   hasPermission,
+  invalidateLegacySharedToken,
   makePasswordHash,
   requireActor,
   writeAudit,
@@ -220,6 +222,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
     if (!await ensureNotLastSuperAdmin(id, roleId, status)) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
+    await invalidateLegacySharedToken();
     const updated = await sql`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id` as unknown as Array<{ id: number }>;
     if (!updated.length) return res.status(404).json({ ok: false, error: '用户不存在' });
     await replaceScopes(id, nextScopes);
@@ -235,6 +238,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     if (!target[0]) return res.status(404).json({ ok: false, error: '用户不存在' });
     if (!canDelegatePermissions(actor, jsonPermissions(target[0].permissions))) return res.status(403).json({ ok: false, error: '不能重置权限高于当前账号的用户密码' });
     const { hash, salt } = await makePasswordHash(password);
+    await invalidateLegacySharedToken();
     await sql`UPDATE app_users SET password_hash=${hash}, password_salt=${salt}, must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id}`;
     await writeAudit(actor, 'user.password.reset', 'user', String(id));
     return res.json({ ok: true });
@@ -313,8 +317,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (resource === 'roles') return await handleRoles(req, res, actor);
     if (resource === 'audit') {
       if (!hasPermission(actor, 'audit.read') || !canReadAuditLog(actor)) return res.status(403).json({ ok: false, error: 'Forbidden' });
-      const logs = await authSql()`SELECT id, user_id AS "userId", username, action, resource_type AS "resourceType", resource_id AS "resourceId", grade_id AS "gradeId", class_id AS "classId", detail, created_at AS "createdAt" FROM app_audit_logs ORDER BY created_at DESC LIMIT 300`;
-      return res.json({ ok: true, logs });
+      const [logs, loginFailureAlerts] = await Promise.all([
+        authSql()`SELECT id, user_id AS "userId", username, action, resource_type AS "resourceType", resource_id AS "resourceId", grade_id AS "gradeId", class_id AS "classId", detail, created_at AS "createdAt" FROM app_audit_logs ORDER BY created_at DESC LIMIT 300`,
+        getRecentLoginFailureAlerts(),
+      ]);
+      return res.json({ ok: true, logs, loginFailureAlerts });
     }
     return await handleUsers(req, res, actor);
   } catch (error) {

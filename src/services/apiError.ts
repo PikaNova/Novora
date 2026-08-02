@@ -11,6 +11,7 @@ export type ApiErrorDetail = {
   permission?: string;
   /** 服务端返回的数据库操作类型，如 read/write/transaction */
   operation?: string;
+  retryAfterMs?: number;
 };
 
 export class ApiError extends Error {
@@ -21,6 +22,7 @@ export class ApiError extends Error {
   field?: string;
   permission?: string;
   operation?: string;
+  retryAfterMs?: number;
 
   constructor(detail: ApiErrorDetail) {
     super(detail.message);
@@ -32,6 +34,7 @@ export class ApiError extends Error {
     this.field = detail.field;
     this.permission = detail.permission;
     this.operation = detail.operation;
+    this.retryAfterMs = detail.retryAfterMs;
   }
 }
 
@@ -140,6 +143,13 @@ export async function apiErrorFromResponse(response: Response, fallback: string)
     ? data.requestId
     : response.headers.get('X-Request-Id') || undefined;
   const operation = typeof data?.operation === 'string' ? data.operation : undefined;
+  const bodyRetryAfterMs = typeof data?.retryAfterMs === 'number' && Number.isFinite(data.retryAfterMs)
+    ? Math.max(0, data.retryAfterMs)
+    : undefined;
+  const headerRetryAfterSeconds = Number(response.headers.get('Retry-After'));
+  const retryAfterMs = bodyRetryAfterMs ?? (Number.isFinite(headerRetryAfterSeconds) && headerRetryAfterSeconds > 0
+    ? headerRetryAfterSeconds * 1_000
+    : undefined);
 
   const error = new ApiError({
     status: response.status,
@@ -150,6 +160,7 @@ export async function apiErrorFromResponse(response: Response, fallback: string)
     field: typeof data?.field === 'string' ? data.field : undefined,
     permission,
     operation,
+    retryAfterMs,
   });
   reportIfStabilityIssue(error, response.url || undefined);
   return error;

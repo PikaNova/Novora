@@ -1,8 +1,10 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getAdminRecoveryStatus, getAdminUser, getLastAuthApiError, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin, recoverSuperAdminAccount } from '../services/examService';
-import { formatApiError } from '../services/apiError';
+import { ApiError, formatApiError } from '../services/apiError';
 import { changeOwnCredentials } from '../services/adminUsers';
+import { useRetryCountdown } from '../hooks/useRetryCountdown';
+import { computeLockedUntil, formatRetryMessage } from '../utils/retryCountdown';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
 import SuperAdminRepairLink from '../components/SuperAdminRepairLink';
@@ -16,6 +18,8 @@ export default function LoginPage() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const remainingLockSeconds = useRetryCountdown(lockedUntil);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [recoveryView, setRecoveryView] = useState<'guide' | 'form' | null>(null);
@@ -35,13 +39,29 @@ export default function LoginPage() {
     });
   }, [navigate, next]);
 
+  useEffect(() => {
+    if (lockedUntil && remainingLockSeconds <= 0) setLockedUntil(null);
+  }, [lockedUntil, remainingLockSeconds]);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (lockedUntil && remainingLockSeconds > 0) return;
     if (!username.trim() || !password) { setError('请输入用户名和密码'); return; }
     setLoading(true); setError('');
     const ok = await loginAdmin(username.trim(), password);
     setLoading(false);
-    if (!ok) { const cause = getLastAuthApiError(); setError(cause ? formatApiError(cause) : '用户名或密码不正确，请重新输入'); return; }
+    if (!ok) {
+      const cause = getLastAuthApiError();
+      if (cause instanceof ApiError && cause.code === 'LOGIN_LOCKED' && typeof cause.retryAfterMs === 'number') {
+        setLockedUntil(computeLockedUntil(cause.retryAfterMs));
+        setError('');
+        return;
+      }
+      setLockedUntil(null);
+      setError(cause ? formatApiError(cause) : '用户名或密码不正确，请重新输入');
+      return;
+    }
+    setLockedUntil(null);
     if (getAdminUser()?.mustChangePassword || password.length < 8) { setPasswordUpgrade({ current: password, username: getAdminUser()?.username || username.trim(), next: '', confirm: '' }); return; }
     navigate(next, { replace: true });
   };
@@ -129,9 +149,15 @@ export default function LoginPage() {
               value={password} onChange={e => { setPassword(e.target.value); setError(''); }}
               placeholder={initializing ? '输入 ADMIN_PASSWORD' : '输入密码'} />
           </div>
-          {error && <p className="login-form__error">{error}</p>}
-          <button className="login-form__submit" disabled={loading} type="submit">
-            {loading ? '正在验证…' : initializing ? '验证并开始初始化' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
+          {lockedUntil && remainingLockSeconds > 0 ? (
+            <p className="login-form__error">{formatRetryMessage(remainingLockSeconds, '登录失败次数过多')}</p>
+          ) : error && <p className="login-form__error">{error}</p>}
+          <button className="login-form__submit" disabled={loading || (!!lockedUntil && remainingLockSeconds > 0)} type="submit">
+            {loading
+              ? '正在验证…'
+              : lockedUntil && remainingLockSeconds > 0
+                ? `请 ${remainingLockSeconds} 秒后再试`
+                : initializing ? '验证并开始初始化' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
           </button>
         </form>
         {!initializing && <button className="login-form__link" type="button" onClick={() => void openRecovery()}>忘记密码？</button>}
