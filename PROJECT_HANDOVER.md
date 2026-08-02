@@ -98,7 +98,7 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - Fixed the user-list permission-projection leak in `api/users.ts`: filtering now evaluates the account's real permissions and scopes before those internal permissions are removed from the returned DTO. A grade/class administrator cannot discover a same-scope account whose permission set is outside its delegable subset.
 - Added `canReadAuditLog()` and retained the existing `audit.read` permission check. Audit-log reads now also require wildcard permission or an `all` scope, because historical rows cannot be safely constrained to a grade or class.
 - Added `tests/users.visibility.test.ts` with nine regression cases for non-delegable permissions, in-scope/out-of-scope users, all-school accounts, no-scope actors, privileged actors, and audit eligibility.
-- Validation: `npm test` `324/324` passed, `npm run typecheck:api` passed, and `npm run build` passed. This batch is local only and has not been committed or pushed.
+- Validation: `npm test` `324/324` passed, `npm run typecheck:api` passed, and `npm run build` passed. Delivered as commit `9b9593f fix: enforce scoped user visibility` to `origin/dev` on 2026-08-02.
 
 ### 2026-08-02: Ghost-Save Coverage Delivery
 

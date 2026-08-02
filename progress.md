@@ -129,4 +129,4 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 - Audit reads retain the `audit.read` permission requirement and now additionally require wildcard permission or all-school scope, because legacy audit records cannot be safely scoped by grade/class.
 - Added nine regression tests in `tests/users.visibility.test.ts` and compiled `api/users.ts` through `tsconfig.test.json`.
 - Validation passed: `324/324` tests, API type check, and production build.
-- The change is intentionally still local: no commit or push was requested.
+- Delivered as commit `9b9593f fix: enforce scoped user visibility`, pushed successfully to `origin/dev`.

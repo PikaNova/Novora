@@ -66,7 +66,7 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 | 56. Consolidate by model and priority | Complete | Grouped repeated findings, separated verified defects from conditional risks and static-analysis false positives, and prepared a unified action order. |
 | 57. Inspect P0 user-visibility package | Complete | Package contains the first two P0 fixes, nine regression tests, test configuration, and a handover copy that must be merged selectively. |
 | 58. Merge and validate P0 user visibility and audit policy | Complete | Preserved internal permissions through filtering, restricted audit reads to all-scope actors, added 9 regressions, and passed tests/API/build validation. |
-| 59. Delivery | In progress | User requested commit and push of the validated P0 changes to `origin/dev`. |
+| 59. Delivery | Complete | Pushed `9b9593f fix: enforce scoped user visibility` to `origin/dev`; documentation delivery status is recorded in a follow-up commit. |
 
 ## Decisions
 
@@ -87,4 +87,4 @@ Safely merge and validate the class-administrator temporary-exam deletion 403 fi
 
 ## Next Action
 
-Commit and push the validated P0 user-visibility and audit-policy merge to `origin/dev`, then record the delivered commit.
+Await the next requested change. Keep the scoped-audit guard until audit records have trustworthy grade/class ownership.
