@@ -284,10 +284,16 @@ export default function QuickMajorPublishModal({
           <div className="quick-major-modal__head-actions">
             <span className="quick-major-modal__step">第 {step} / 3 步</span>
           </div>
+          <button
+            type="button"
+            className="admin-workflow-close quick-major-modal__close"
+            onClick={onClose}
+            aria-label="退出统一添加单科考试"
+            title="退出"
+          >
+            <X aria-hidden="true" />
+          </button>
         </div>
-        <button type="button" className="admin-workflow-close quick-major-modal__close" onClick={onClose} aria-label="退出统一添加单科考试" title="退出">
-          <X aria-hidden="true" />
-        </button>
         {error && <div className="admin-error">{error}</div>}
         <div className="admin-workflow-layout">
           <AdminWizardSteps
