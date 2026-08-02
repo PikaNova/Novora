@@ -8,6 +8,7 @@ import { threeWayMergeExam } from '../utils/examMerge';
 import { recordSyncConflict } from './offlineStore';
 import { ApiError } from './apiError';
 import { sameJson } from '../shared/jsonCompare';
+import { nowMs } from '../utils/timeSource';
 
 const OUTBOX_KEY = 'exam_pending_sync';
 
@@ -183,7 +184,7 @@ function markPendingFailure(
 function detectGhostSave(
   pending: PendingExamSync,
   remote: ExamPayload,
-  now = Date.now(),
+  now = nowMs(),
 ): boolean {
   const base = pending.baseSnapshot?.updatedAt ?? 0;
   // remote 的 updatedAt 必须大于 base

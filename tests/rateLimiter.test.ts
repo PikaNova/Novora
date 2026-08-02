@@ -55,6 +55,26 @@ test("entry limiter retains a bounded number of source buckets", () => {
   assert.equal(checkRateLimit("new-source", options), true);
 });
 
+test("entry limiter keeps a recently used active source ahead of an older active source", () => {
+  __resetRateLimiterForTests();
+  const options = { windowMs: 10_000, maxRequests: 1, now: () => 100 };
+  for (let index = 0; index < 5_000; index += 1) {
+    assert.equal(checkRateLimit(`source-${index}`, options), true);
+  }
+  assert.equal(checkRateLimit("source-0", options), false);
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(checkRateLimit("source-new", options), true);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(checkRateLimit("source-0", options), false);
+  assert.equal(checkRateLimit("source-1", options), true);
+});
+
 test("entry limit settings accept only positive finite values", () => {
   assert.equal(readRateLimitSetting("12.9", 10), 12);
   assert.equal(readRateLimitSetting("0", 10), 10);

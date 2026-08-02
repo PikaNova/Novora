@@ -122,9 +122,11 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
     res.status(400).json({ ok: false, error: "请选择需要重置的数据" });
     return;
   }
+  await ensureTableOnce();
   if (!(await acquireWriteSlotOrReject(req, res))) return;
   const at = Date.now();
-  await sql`UPDATE exam_data SET
+  await sql.transaction(transaction => [
+    transaction`UPDATE exam_data SET
     items=CASE WHEN ${resetMajor} THEN '[]'::jsonb ELSE items END,
     title=CASE WHEN ${resetMajor} THEN '' ELSE title END,
     majors=CASE WHEN ${resetMajor} THEN '[]'::jsonb ELSE majors END,
@@ -139,12 +141,12 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
     schedule_mode=CASE WHEN ${resetSettings} THEN 'major-only' ELSE schedule_mode END,
     weekly_conflict_policy=CASE WHEN ${resetSettings} THEN NULL ELSE weekly_conflict_policy END,
     design_policy=CASE WHEN ${resetSettings} THEN '{"rules":[],"updatedAt":0}'::jsonb ELSE design_policy END,
-    updated_at=${at} WHERE id=1`;
-  if (resetDevices)
-    await Promise.all([
-      sql`DELETE FROM device_instances`,
-      sql`DELETE FROM classisland_plugin_instances`,
-    ]);
+      updated_at=${at} WHERE id=1`,
+    ...(resetDevices ? [
+      transaction`DELETE FROM device_instances`,
+      transaction`DELETE FROM classisland_plugin_instances`,
+    ] : []),
+  ]);
   await writeAudit(resetActor, "database.reset", "exam_data", "1", {
     categories,
   });

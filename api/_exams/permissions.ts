@@ -173,11 +173,6 @@ export function validateMutation(
     actions.push(permission);
     return null;
   };
-  const isOwnedQuickTemporaryMajor = (major: unknown) => {
-    if (!major || typeof major !== "object") return false;
-    const value = major as Record<string, unknown>;
-    return value.source === "quick" && value.temporary === true && value.createdBy === actor.id;
-  };
   const needEither = (
     primary: Permission,
     alternative: Permission,
@@ -227,11 +222,11 @@ export function validateMutation(
       sameJson(body.items ?? [], nextActiveMajor?.items ?? []) &&
       String(body.title ?? "") === String(nextActiveMajor?.name ?? "");
     const onlyOwnedQuickTemporaryChanges =
-      majorDiff.added.every(isOwnedQuickTemporaryMajor) &&
-      majorDiff.removed.every(isOwnedQuickTemporaryMajor) &&
+      majorDiff.added.every((major: any) => isOwnedQuickTemporaryMajor(actor, major)) &&
+      majorDiff.removed.every((major: any) => isOwnedQuickTemporaryMajor(actor, major)) &&
       majorDiff.updated.every((major: any) =>
-        isOwnedQuickTemporaryMajor(currentMajorsById.get(String(major?.id ?? ""))) &&
-        isOwnedQuickTemporaryMajor(major),
+        isOwnedQuickTemporaryMajor(actor, currentMajorsById.get(String(major?.id ?? ""))) &&
+        isOwnedQuickTemporaryMajor(actor, major),
       );
     const canManageOwnQuickTemporaryChanges =
       (majorDiff.added.length > 0 || majorDiff.removed.length > 0 || majorDiff.updated.length > 0) &&

@@ -10,6 +10,7 @@ import {
   type Permission,
   type PermissionScope,
 } from '../src/shared/permissionRules.js';
+import { assertRows, isBoolean, isNullableString, isNumberLike, isString, rowShape } from './_validation.js';
 
 const scrypt = promisify(scryptCallback);
 const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -54,6 +55,48 @@ type UserRow = {
   token_version: number;
   last_login_at?: number | null;
 };
+
+const isPasswordSaltRow = rowShape<{ password_hash: string; password_salt: string }>({
+  password_hash: isString,
+  password_salt: isString,
+});
+const isCountRow = rowShape<{ count: number }>({ count: isNumberLike });
+const isIdRow = rowShape<{ id: number }>({ id: isNumberLike });
+const isIpSaltRow = rowShape<{ ip_salt: string }>({ ip_salt: isString });
+const isAuthRow = rowShape<AuthRow>({
+  password_hash: isString,
+  password_salt: isString,
+  token_secret: isString,
+  token_version: isNumberLike,
+});
+const isRecoveryHashRow = rowShape<{ recovery_key_hash?: string | null }>({
+  recovery_key_hash: isNullableString,
+});
+const isRecoveryHashSaltRow = rowShape<{ recovery_key_hash?: string | null; recovery_key_salt?: string | null }>({
+  recovery_key_hash: isNullableString,
+  recovery_key_salt: isNullableString,
+});
+const isIdUsernameRow = rowShape<{ id: number; username: string }>({ id: isNumberLike, username: isString });
+const isCountOldestRow = rowShape<{ count: number; oldest: number }>({ count: isNumberLike, oldest: isNumberLike });
+const isUserRow = rowShape<UserRow>({
+  id: isNumberLike,
+  username: isString,
+  display_name: isString,
+  password_hash: isString,
+  password_salt: isString,
+  role_id: isString,
+  role_name: isString,
+  permissions: (value): value is unknown => value !== undefined,
+  status: isString,
+  must_change_password: isBoolean,
+  token_version: isNumberLike,
+  last_login_at: (value): value is number | null | undefined => value == null || isNumberLike(value),
+});
+const isScopeRow = rowShape<{ scope_type: string; grade_id: string; class_id: string }>({
+  scope_type: isString,
+  grade_id: isString,
+  class_id: isString,
+});
 
 let sqlClient: ReturnType<typeof neon> | null = null;
 let setupPromise: Promise<void> | null = null;
@@ -150,14 +193,16 @@ export async function ensureAuthTables(): Promise<void> {
     await sql`UPDATE app_users SET role_id='viewer', token_version=token_version+1, updated_at=${now} WHERE role_id='device_admin'`;
     await sql`DELETE FROM app_roles WHERE id IN ('academic_admin','device_admin') AND NOT EXISTS (SELECT 1 FROM app_users WHERE app_users.role_id=app_roles.id)`;
     // 已经完成过旧版密码初始化的数据库可直接生成默认超级管理员，无需再次输入或重置数据。
-    const [legacyRows, userCountRows] = await Promise.all([
+    const [legacyRowsRaw, userCountRowsRaw] = await Promise.all([
       sql`SELECT password_hash, password_salt FROM app_auth WHERE id=1`,
       sql`SELECT COUNT(*)::int AS count FROM app_users`,
-    ]) as unknown as [Array<{ password_hash: string; password_salt: string }>, Array<{ count: number }>];
+    ]);
+    const legacyRows = assertRows(legacyRowsRaw, isPasswordSaltRow, 'app_auth');
+    const userCountRows = assertRows(userCountRowsRaw, isCountRow, 'app_users');
     if (legacyRows[0] && Number(userCountRows[0]?.count) === 0) {
-      const created = await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
+      const created = assertRows(await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
         VALUES ('admin', '超级管理员', ${legacyRows[0].password_hash}, ${legacyRows[0].password_salt}, 'super_admin', 'active', FALSE, 1, ${now}, ${now})
-        ON CONFLICT DO NOTHING RETURNING id` as unknown as Array<{ id: number }>;
+        ON CONFLICT DO NOTHING RETURNING id`, isIdRow, 'app_users');
       if (created[0]) await sql`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id) VALUES (${created[0].id}, 'all', '', '') ON CONFLICT DO NOTHING`;
     }
   })().catch(error => { setupPromise = null; throw error; });
@@ -178,7 +223,7 @@ export async function ensureTelemetryIpSalt(): Promise<string> {
       const generated = randomBytes(24).toString('base64url');
       await sql`INSERT INTO app_telemetry_config (id, ip_salt, created_at)
         VALUES (1, ${generated}, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
-      const rows = await sql`SELECT ip_salt FROM app_telemetry_config WHERE id=1` as unknown as Array<{ ip_salt: string }>;
+      const rows = assertRows(await sql`SELECT ip_salt FROM app_telemetry_config WHERE id=1`, isIpSaltRow, 'app_telemetry_config');
       const value = rows[0]?.ip_salt;
       if (!value) throw new Error('Telemetry IP salt is unavailable');
       return value;
@@ -192,7 +237,7 @@ export async function ensureTelemetryIpSalt(): Promise<string> {
 
 async function config(): Promise<AuthRow | null> {
   await ensureAuthTables();
-  const rows = await authSql()`SELECT password_hash, password_salt, token_secret, token_version FROM app_auth WHERE id = 1` as unknown as AuthRow[];
+  const rows = assertRows(await authSql()`SELECT password_hash, password_salt, token_secret, token_version FROM app_auth WHERE id = 1`, isAuthRow, 'app_auth');
   return rows[0] ?? null;
 }
 
@@ -215,12 +260,12 @@ async function matches(password: string, hash: string, salt: string): Promise<bo
 
 export async function isAdminRecoveryConfigured(): Promise<boolean> {
   await ensureAuthTables();
-  const rows = await authSql()`SELECT recovery_key_hash FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null }>;
+  const rows = assertRows(await authSql()`SELECT recovery_key_hash FROM app_auth WHERE id=1`, isRecoveryHashRow, 'app_auth');
   return !!rows[0]?.recovery_key_hash || LEGACY_ADMIN_RECOVERY_KEY.length >= 16;
 }
 
 async function recoveryKeyMatches(recoveryKey: string): Promise<boolean> {
-  const recoveryRows = await authSql()`SELECT recovery_key_hash, recovery_key_salt FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null; recovery_key_salt?: string | null }>;
+  const recoveryRows = assertRows(await authSql()`SELECT recovery_key_hash, recovery_key_salt FROM app_auth WHERE id=1`, isRecoveryHashSaltRow, 'app_auth');
   const stored = recoveryRows[0];
   if (stored?.recovery_key_hash && stored.recovery_key_salt) {
     return matches(recoveryKey, stored.recovery_key_hash, stored.recovery_key_salt);
@@ -238,8 +283,8 @@ export async function recoverSuperAdmin(username: string, recoveryKey: string, n
   if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
   await ensureAuthTables();
   const keyMatches = await recoveryKeyMatches(recoveryKey);
-  const rows = await authSql()`SELECT id, username FROM app_users
-    WHERE LOWER(username)=LOWER(${username.trim().slice(0, 80)}) AND role_id='super_admin' AND status='active' LIMIT 1` as unknown as Array<{ id: number; username: string }>;
+  const rows = assertRows(await authSql()`SELECT id, username FROM app_users
+    WHERE LOWER(username)=LOWER(${username.trim().slice(0, 80)}) AND role_id='super_admin' AND status='active' LIMIT 1`, isIdUsernameRow, 'app_users');
   if (!keyMatches || !rows[0]) return { ok: false, error: '恢复信息不正确' };
   const password = await makePasswordHash(nextPassword);
   await invalidateLegacySharedToken();
@@ -259,8 +304,8 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
   const sql = authSql();
   const now = Date.now();
   const since = now - REPAIR_RATE_LIMIT_WINDOW_MS;
-  const recentFailures = await sql`SELECT COUNT(*)::int AS count, COALESCE(MIN(created_at), 0) AS oldest FROM app_audit_logs
-    WHERE action='user.super_admin.repair.failed' AND created_at > ${since}` as unknown as Array<{ count: number; oldest: number }>;
+  const recentFailures = assertRows(await sql`SELECT COUNT(*)::int AS count, COALESCE(MIN(created_at), 0) AS oldest FROM app_audit_logs
+    WHERE action='user.super_admin.repair.failed' AND created_at > ${since}`, isCountOldestRow, 'app_audit_logs');
   if (Number(recentFailures[0]?.count) >= REPAIR_RATE_LIMIT_MAX_ATTEMPTS) {
     const retryAfterMs = Math.max(1_000, Number(recentFailures[0]?.oldest ?? 0) + REPAIR_RATE_LIMIT_WINDOW_MS - now);
     return { ok: false, error: `恢复尝试过于频繁，请 ${Math.ceil(retryAfterMs / 1000)} 秒后再试`, retryAfterMs };
@@ -274,7 +319,7 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
   }
 
   const password = await makePasswordHash(nextPassword);
-  const existing = await sql`SELECT id FROM app_users WHERE LOWER(username)=LOWER(${name}) LIMIT 1` as unknown as Array<{ id: number }>;
+  const existing = assertRows(await sql`SELECT id FROM app_users WHERE LOWER(username)=LOWER(${name}) LIMIT 1`, isIdRow, 'app_users');
   let userId: number;
   let created = false;
   if (existing[0]) {
@@ -283,8 +328,8 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
     await sql`UPDATE app_users SET role_id='super_admin', status='active', password_hash=${password.hash}, password_salt=${password.salt},
       must_change_password=TRUE, token_version=token_version+1, updated_at=${now} WHERE id=${userId}`;
   } else {
-    const insertedRows = await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
-      VALUES (${name}, '超级管理员', ${password.hash}, ${password.salt}, 'super_admin', 'active', TRUE, 1, ${now}, ${now}) RETURNING id` as unknown as Array<{ id: number }>;
+    const insertedRows = assertRows(await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
+      VALUES (${name}, '超级管理员', ${password.hash}, ${password.salt}, 'super_admin', 'active', TRUE, 1, ${now}, ${now}) RETURNING id`, isIdRow, 'app_users');
     userId = insertedRows[0].id;
     created = true;
   }
@@ -297,12 +342,12 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
 /** 首次学校初始化时生成一次；数据库只保存加盐哈希，明文只返回给当前超级管理员。 */
 export async function ensureGeneratedRecoveryKey(): Promise<string | null> {
   await ensureAuthTables();
-  const rows = await authSql()`SELECT recovery_key_hash FROM app_auth WHERE id=1` as unknown as Array<{ recovery_key_hash?: string | null }>;
+  const rows = assertRows(await authSql()`SELECT recovery_key_hash FROM app_auth WHERE id=1`, isRecoveryHashRow, 'app_auth');
   if (rows[0]?.recovery_key_hash || LEGACY_ADMIN_RECOVERY_KEY.length >= 16) return null;
   const recoveryKey = `NVR-${randomBytes(24).toString('base64url')}`;
   const encoded = await makePasswordHash(recoveryKey);
-  const updated = await authSql()`UPDATE app_auth SET recovery_key_hash=${encoded.hash}, recovery_key_salt=${encoded.salt}, updated_at=${Date.now()}
-    WHERE id=1 AND recovery_key_hash IS NULL RETURNING id` as unknown as Array<{ id: number }>;
+  const updated = assertRows(await authSql()`UPDATE app_auth SET recovery_key_hash=${encoded.hash}, recovery_key_salt=${encoded.salt}, updated_at=${Date.now()}
+    WHERE id=1 AND recovery_key_hash IS NULL RETURNING id`, isIdRow, 'app_auth');
   return updated[0] ? recoveryKey : null;
 }
 
@@ -324,7 +369,7 @@ async function bootstrapAuth(password: string): Promise<AuthRow | null> {
 
 async function ensureDefaultSuperAdmin(password: string): Promise<void> {
   await ensureAuthTables();
-  const users = await authSql()`SELECT COUNT(*)::int AS count FROM app_users` as unknown as Array<{ count: number }>;
+  const users = assertRows(await authSql()`SELECT COUNT(*)::int AS count FROM app_users`, isCountRow, 'app_users');
   if (Number(users[0]?.count) > 0) return;
   let auth = await config();
   if (!auth) auth = await bootstrapAuth(password);
@@ -333,16 +378,18 @@ async function ensureDefaultSuperAdmin(password: string): Promise<void> {
   await authSql()`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
     VALUES ('admin', '超级管理员', ${auth.password_hash}, ${auth.password_salt}, 'super_admin', 'active', FALSE, 1, ${at}, ${at})
     ON CONFLICT DO NOTHING`;
-  const rows = await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1` as unknown as Array<{ id: number }>;
+  const rows = assertRows(await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1`, isIdRow, 'app_users');
   if (rows[0]) await authSql()`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id) VALUES (${rows[0].id}, 'all', '', '') ON CONFLICT DO NOTHING`;
 }
 
 function parsePermissions(value: unknown): Permission[] {
-  return Array.isArray(value) ? value.filter(item => item === '*' || ALL_PERMISSIONS.includes(item as any)) as Permission[] : [];
+  if (!Array.isArray(value)) return [];
+  const known = new Set<string>(ALL_PERMISSIONS as readonly string[]);
+  return value.filter((item): item is Permission => item === '*' || (typeof item === 'string' && known.has(item)));
 }
 
 async function actorFromUserRow(row: UserRow): Promise<AdminActor> {
-  const scopes = await authSql()`SELECT scope_type, grade_id, class_id FROM app_user_scopes WHERE user_id=${row.id} ORDER BY id` as unknown as Array<{ scope_type: string; grade_id: string; class_id: string }>;
+  const scopes = assertRows(await authSql()`SELECT scope_type, grade_id, class_id FROM app_user_scopes WHERE user_id=${row.id} ORDER BY id`, isScopeRow, 'app_user_scopes');
   return {
     id: Number(row.id), username: row.username, displayName: row.display_name,
     roleId: row.role_id, roleName: row.role_name, permissions: parsePermissions(row.permissions),
@@ -352,9 +399,9 @@ async function actorFromUserRow(row: UserRow): Promise<AdminActor> {
 }
 
 async function userById(id: number): Promise<UserRow | null> {
-  const rows = await authSql()`SELECT u.id, u.username, u.display_name, u.password_hash, u.password_salt, u.role_id,
+  const rows = assertRows(await authSql()`SELECT u.id, u.username, u.display_name, u.password_hash, u.password_salt, u.role_id,
       r.name AS role_name, r.permissions, u.status, u.must_change_password, u.token_version
-    FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE u.id=${id} LIMIT 1` as unknown as UserRow[];
+    FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE u.id=${id} LIMIT 1`, isUserRow, 'app_users/app_roles');
   return rows[0] ?? null;
 }
 
@@ -373,6 +420,12 @@ function signature(userId: number, expiresAt: number, version: number, secret: s
 
 export type LoginAttemptRow = { action: string; created_at: number };
 export type LoginFailureAlert = { username: string; failureCount: number; windowStart: number; latestFailureAt: number };
+const isLoginAttemptRow = rowShape<LoginAttemptRow>({ action: isString, created_at: isNumberLike });
+const isLoginAttemptWithUsernameRow = rowShape<LoginAttemptRow & { username: string }>({
+  action: isString,
+  created_at: isNumberLike,
+  username: isString,
+});
 
 export function evaluateLoginLockout(
   recentAttemptsDesc: LoginAttemptRow[],
@@ -393,9 +446,9 @@ export function evaluateLoginLockout(
 export async function checkLoginLockout(username: string): Promise<{ locked: boolean; retryAfterMs: number }> {
   await ensureAuthTables();
   const name = (username.trim() || 'admin').slice(0, 80);
-  const rows = await authSql()`SELECT action, created_at FROM app_audit_logs
+  const rows = assertRows(await authSql()`SELECT action, created_at FROM app_audit_logs
     WHERE LOWER(username)=LOWER(${name}) AND action IN ('auth.login','auth.login.failed')
-    ORDER BY created_at DESC LIMIT ${LOGIN_LOCKOUT_MAX_FAILURES}` as unknown as LoginAttemptRow[];
+    ORDER BY created_at DESC LIMIT ${LOGIN_LOCKOUT_MAX_FAILURES}`, isLoginAttemptRow, 'app_audit_logs');
   return evaluateLoginLockout(rows, Date.now());
 }
 
@@ -433,8 +486,8 @@ export function evaluateLoginFailureAlerts(
 
 export async function getRecentLoginFailureAlerts(): Promise<LoginFailureAlert[]> {
   await ensureAuthTables();
-  const rows = await authSql()`SELECT username, action, created_at FROM app_audit_logs
-    WHERE action IN ('auth.login', 'auth.login.failed') ORDER BY created_at DESC LIMIT 500` as unknown as Array<LoginAttemptRow & { username: string }>;
+  const rows = assertRows(await authSql()`SELECT username, action, created_at FROM app_audit_logs
+    WHERE action IN ('auth.login', 'auth.login.failed') ORDER BY created_at DESC LIMIT 500`, isLoginAttemptWithUsernameRow, 'app_audit_logs');
   return evaluateLoginFailureAlerts(rows, Date.now());
 }
 
@@ -451,9 +504,9 @@ async function recordFailedLoginAttempt(username: string): Promise<void> {
 export async function authenticateUser(username: string, password: string): Promise<{ actor: AdminActor; token: string; expiresAt: number; firstLogin: boolean } | null> {
   await ensureDefaultSuperAdmin(password);
   const name = (username.trim() || 'admin').slice(0, 80);
-  const rows = await authSql()`SELECT u.id, u.username, u.display_name, u.password_hash, u.password_salt, u.role_id,
+  const rows = assertRows(await authSql()`SELECT u.id, u.username, u.display_name, u.password_hash, u.password_salt, u.role_id,
       r.name AS role_name, r.permissions, u.status, u.must_change_password, u.token_version, u.last_login_at
-    FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE LOWER(u.username)=LOWER(${name}) LIMIT 1` as unknown as UserRow[];
+    FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE LOWER(u.username)=LOWER(${name}) LIMIT 1`, isUserRow, 'app_users/app_roles');
   const row = rows[0];
   if (!row || row.status !== 'active' || !await matches(password, row.password_hash, row.password_salt)) {
     await recordFailedLoginAttempt(name);
@@ -502,7 +555,7 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
       const legacyExpected = createHmac('sha256', auth.token_secret).update(`${expiresAt}.${version}`).digest('base64url');
       const a = Buffer.from(received || ''); const b = Buffer.from(legacyExpected);
       if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-      const adminRows = await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1` as unknown as Array<{ id: number }>;
+      const adminRows = assertRows(await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1`, isIdRow, 'app_users');
       userId = Number(adminRows[0]?.id);
     } else return null;
     const row = await userById(userId);
@@ -597,7 +650,7 @@ export async function writeAudit(actor: AdminActor | null, action: string, resou
 
 export async function isPasswordRequired(): Promise<boolean> {
   await ensureAuthTables();
-  const rows = await authSql()`SELECT COUNT(*)::int AS count FROM app_users` as unknown as Array<{ count: number }>;
+  const rows = assertRows(await authSql()`SELECT COUNT(*)::int AS count FROM app_users`, isCountRow, 'app_users');
   return Number(rows[0]?.count) > 0 || !!(await config()) || !!BOOTSTRAP_PASSWORD;
 }
 

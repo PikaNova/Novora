@@ -191,6 +191,7 @@ export async function handleManagedDeviceSetup(req: VercelRequest, res: VercelRe
     return;
   }
   await ensureTableOnce();
+  let existingToReplace: string | null = null;
   if (classId) {
     const existing =
       (await sql`SELECT instance_id, last_seen_at, status FROM device_instances WHERE class_id=${classId} AND revoked=FALSE AND instance_id<>${instanceId} ORDER BY updated_at DESC LIMIT 1`) as unknown as Array<{
@@ -215,13 +216,9 @@ export async function handleManagedDeviceSetup(req: VercelRequest, res: VercelRe
         });
       return;
     }
-    if (!(await acquireWriteSlotOrReject(req, res))) return;
-    if (existing[0]) {
-      await sql`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${Date.now()} WHERE instance_id=${existing[0].instance_id}`;
-      await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${Date.now()} WHERE viewer_instance_id=${existing[0].instance_id}`;
-    }
+    existingToReplace = existing[0]?.instance_id ?? null;
   }
-  if (!classId && !(await acquireWriteSlotOrReject(req, res))) return;
+  if (!(await acquireWriteSlotOrReject(req, res))) return;
   const now = Date.now();
   const nextGradeId = bindManagement ? "" : gradeId;
   const nextClassId = bindManagement ? "" : classId;
@@ -240,22 +237,26 @@ export async function handleManagedDeviceSetup(req: VercelRequest, res: VercelRe
       examPayload(scopeRows[0] ?? {}),
     );
   }
-  await sql`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, management_actor_id, management_role_name, management_scope_label, updated_at)
-    VALUES (${instanceId}, ${nextGradeId}, ${nextClassId}, FALSE, ${bindManagement}, ${managementActorId}, ${managementRoleName}, ${managementScopeLabel}, ${now})
-    ON CONFLICT (instance_id) DO UPDATE SET
-      grade_id=EXCLUDED.grade_id,
-      class_id=EXCLUDED.class_id,
-      revoked=FALSE,
-      is_management=EXCLUDED.is_management,
-      management_actor_id=EXCLUDED.management_actor_id,
-      management_role_name=EXCLUDED.management_role_name,
-      management_scope_label=EXCLUDED.management_scope_label,
-      updated_at=EXCLUDED.updated_at`;
-  if (bindManagement) {
-    await sql`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${instanceId}`;
-  } else {
-    await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${now} WHERE viewer_instance_id=${instanceId} AND paired=TRUE`;
-  }
+  await sql.transaction(transaction => [
+    ...(existingToReplace ? [
+      transaction`UPDATE device_instances SET revoked=TRUE, grade_id='', class_id='', updated_at=${now} WHERE instance_id=${existingToReplace}`,
+      transaction`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${existingToReplace}`,
+    ] : []),
+    transaction`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, management_actor_id, management_role_name, management_scope_label, updated_at)
+      VALUES (${instanceId}, ${nextGradeId}, ${nextClassId}, FALSE, ${bindManagement}, ${managementActorId}, ${managementRoleName}, ${managementScopeLabel}, ${now})
+      ON CONFLICT (instance_id) DO UPDATE SET
+        grade_id=EXCLUDED.grade_id,
+        class_id=EXCLUDED.class_id,
+        revoked=FALSE,
+        is_management=EXCLUDED.is_management,
+        management_actor_id=EXCLUDED.management_actor_id,
+        management_role_name=EXCLUDED.management_role_name,
+        management_scope_label=EXCLUDED.management_scope_label,
+        updated_at=EXCLUDED.updated_at`,
+    bindManagement
+      ? transaction`UPDATE classisland_plugin_instances SET paired=FALSE, grade_id='', class_id='', updated_at=${now} WHERE viewer_instance_id=${instanceId}`
+      : transaction`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${now} WHERE viewer_instance_id=${instanceId} AND paired=TRUE`,
+  ]);
   await writeAudit(setupActor, "device.setup", "device", instanceId, {
     bindManagement,
     gradeId,

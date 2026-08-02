@@ -4,10 +4,12 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { BUILTIN_ROLES, authenticateUser, authSql, ensureAuthTables, getActor, makePasswordHash } from '../../api/_auth.js';
 import { database, ensureTableOnce } from '../../api/_exams/db.js';
 import { examPayload } from '../../api/_exams/payload.js';
-import { handleDeviceRevoke } from '../../api/_exams/routes/deviceAdminRoutes.js';
+import { handleDeviceRevoke, handleManagedDeviceSetup } from '../../api/_exams/routes/deviceAdminRoutes.js';
 import { handleExamDataPost } from '../../api/_exams/routes/examDataRoutes.js';
 import { handleResetData } from '../../api/_exams/routes/settingsRoutes.js';
+import { __resetRateLimiterForTests, readRateLimitSetting } from '../../api/_rateLimiter.js';
 import type { ExamRow } from '../../api/_exams/types.js';
+import examsHandler from '../../api/exams.js';
 import usersHandler from '../../api/users.js';
 
 type Scope = { type: 'all' | 'grade' | 'class'; gradeId?: string; classId?: string };
@@ -33,6 +35,20 @@ function makeReq(token: string, body: Record<string, unknown>): VercelRequest {
   return {
     method: 'POST',
     headers: { authorization: `Bearer ${token}` },
+    query: {},
+    cookies: {},
+    body,
+  } as unknown as VercelRequest;
+}
+
+function makeTopLevelReq(
+  method: string,
+  body: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+): VercelRequest {
+  return {
+    method,
+    headers,
     query: {},
     cookies: {},
     body,
@@ -195,6 +211,7 @@ async function getAudit(token: string) {
 beforeEach(async () => {
   assert.ok(adminPassword.length >= 16, 'the integration runner must inject a strong temporary password');
   admin = await resetDatabase();
+  __resetRateLimiterForTests();
 });
 
 after(async () => {
@@ -377,4 +394,112 @@ test('database audit route: an all-scope administrator receives recent login fai
   assert.equal(response.statusCode, 200);
   const alerts = Array.isArray(response.body?.loginFailureAlerts) ? response.body.loginFailureAlerts : [];
   assert.equal(alerts.some((alert: { username?: string; failureCount?: number }) => alert.username === 'login-alert-target' && alert.failureCount === 3), true);
+});
+
+test('database transaction: a later foreign-key failure rolls back the earlier write', async () => {
+  const target = await createUser('rollback-target', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+
+  await assert.rejects(() => authSql().transaction(transaction => [
+    transaction`UPDATE app_users SET display_name='must-rollback' WHERE id=${target.id}`,
+    transaction`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
+      VALUES (999999999, 'grade', 'missing-user-scope', '')`,
+  ]));
+
+  const rows = await authSql()`SELECT display_name FROM app_users WHERE id=${target.id}` as unknown as Array<{ display_name: string }>;
+  assert.equal(rows[0]?.display_name, 'rollback-target');
+});
+
+test('database reset route: a full reset clears exam and device state together', async () => {
+  await seedExam({
+    grades: [{ id: 'g1' }],
+    classes: [{ id: 'c1', gradeId: 'g1' }],
+    majors: [{ id: 'm1', name: 'Exam', items: [], order: 0, targetGradeIds: ['g1'], targetClassIds: ['c1'] }],
+    weeklyPlans: [{ id: 'w1', gradeId: 'g1', classId: 'c1', name: 'Weekly' }],
+  });
+  const now = Date.now();
+  await database()`INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, updated_at)
+    VALUES ('reset-device', 'g1', 'c1', FALSE, ${now})`;
+  await database()`INSERT INTO classisland_plugin_instances (plugin_instance_id, client_secret_hash, viewer_instance_id, paired, created_at, updated_at)
+    VALUES ('reset-plugin', 'hash', 'reset-device', TRUE, ${now}, ${now})`;
+
+  const response = await postReset(admin.token, ['all']);
+  assert.equal(response.statusCode, 200);
+  const payload = await readPayload();
+  assert.deepEqual(payload.majors, []);
+  assert.deepEqual(payload.grades, []);
+  assert.deepEqual(payload.classes, []);
+  assert.deepEqual(payload.weeklyPlans, []);
+  const devices = await database()`SELECT COUNT(*)::int AS count FROM device_instances` as unknown as Array<{ count: number }>;
+  const plugins = await database()`SELECT COUNT(*)::int AS count FROM classisland_plugin_instances` as unknown as Array<{ count: number }>;
+  assert.equal(Number(devices[0]?.count), 0);
+  assert.equal(Number(plugins[0]?.count), 0);
+});
+
+test('database device route: replacing a class device revokes and unpairs the old binding', async () => {
+  const first = makeRes();
+  await handleManagedDeviceSetup(makeReq(admin.token, {
+    instanceId: 'device-a', gradeId: 'g1', classId: 'c1',
+  }), first.res);
+  assert.equal(first.calls.statusCode, 200);
+  const now = Date.now();
+  await database()`INSERT INTO classisland_plugin_instances (plugin_instance_id, client_secret_hash, viewer_instance_id, grade_id, class_id, paired, created_at, updated_at)
+    VALUES ('plugin-a', 'hash', 'device-a', 'g1', 'c1', TRUE, ${now}, ${now})`;
+
+  const second = makeRes();
+  await handleManagedDeviceSetup(makeReq(admin.token, {
+    instanceId: 'device-b', gradeId: 'g1', classId: 'c1', replaceExisting: true,
+  }), second.res);
+  assert.equal(second.calls.statusCode, 200);
+  const devices = await database()`SELECT instance_id, revoked, grade_id, class_id FROM device_instances ORDER BY instance_id` as unknown as Array<{ instance_id: string; revoked: boolean; grade_id: string; class_id: string }>;
+  assert.deepEqual(devices, [
+    { instance_id: 'device-a', revoked: true, grade_id: '', class_id: '' },
+    { instance_id: 'device-b', revoked: false, grade_id: 'g1', class_id: 'c1' },
+  ]);
+  const plugins = await database()`SELECT paired, grade_id, class_id FROM classisland_plugin_instances WHERE plugin_instance_id='plugin-a'` as unknown as Array<{ paired: boolean; grade_id: string; class_id: string }>;
+  assert.deepEqual(plugins, [{ paired: false, grade_id: '', class_id: '' }]);
+});
+
+test('top-level handler: OPTIONS bypasses the rate limiter', async () => {
+  const responses = Array.from({ length: 40 }, () => makeRes());
+  await Promise.all(responses.map(({ res }) => examsHandler(
+    makeTopLevelReq('OPTIONS', {}, { origin: 'https://example.com' }),
+    res,
+  )));
+  assert.equal(responses.every(({ calls }) => calls.statusCode === 204), true);
+
+  const next = makeRes();
+  await examsHandler(makeTopLevelReq('GET'), next.res);
+  assert.equal(next.calls.statusCode, 200);
+});
+
+test('top-level handler: concurrent reads return the same current snapshot', async () => {
+  await seedExam({ majors: [{ id: 'm1', name: 'Shared', items: [], order: 0, targetGradeIds: [], targetClassIds: [] }] });
+  const responses = Array.from({ length: 5 }, () => makeRes());
+  await Promise.all(responses.map(({ res }) => examsHandler(makeTopLevelReq('GET'), res)));
+  assert.equal(responses.every(({ calls }) => calls.statusCode === 200), true);
+  const updatedAts = new Set(responses.map(({ calls }) => calls.body?.updatedAt));
+  assert.equal(updatedAts.size, 1);
+  assert.equal(responses.every(({ calls }) => calls.body?.majors?.[0]?.id === 'm1'), true);
+});
+
+test('top-level handler: concurrent reset requests yield one success and one shared-slot rejection', async () => {
+  await seedExam({ majors: [{ id: 'm1', name: 'Reset', items: [], order: 0, targetGradeIds: [], targetClassIds: [] }] });
+  const headers = { authorization: `Bearer ${admin.token}` };
+  const first = makeRes();
+  const second = makeRes();
+  await Promise.all([
+    examsHandler(makeTopLevelReq('POST', { action: 'reset-data', categories: ['major'] }, headers), first.res),
+    examsHandler(makeTopLevelReq('POST', { action: 'reset-data', categories: ['major'] }, headers), second.res),
+  ]);
+  assert.deepEqual([first.calls.statusCode, second.calls.statusCode].sort(), [200, 429]);
+  assert.equal([first, second].find(({ calls }) => calls.statusCode === 429)?.calls.body?.code, 'RATE_LIMITED');
+});
+
+test('top-level handler: the general entry limit rejects the request over its budget', async () => {
+  const maximum = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_MAX_REQUESTS, 30);
+  const responses = Array.from({ length: maximum + 1 }, () => makeRes());
+  for (const { res } of responses) await examsHandler(makeTopLevelReq('GET'), res);
+  assert.equal(responses.slice(0, maximum).every(({ calls }) => calls.statusCode === 200), true);
+  assert.equal(responses[maximum].calls.statusCode, 429);
+  assert.equal(responses[maximum].calls.body?.code, 'RATE_LIMITED');
 });

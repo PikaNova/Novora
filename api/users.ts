@@ -44,9 +44,11 @@ function scopes(value: unknown): AdminScope[] {
 
 async function replaceScopes(userId: number, next: AdminScope[]): Promise<void> {
   const sql = authSql();
-  await sql`DELETE FROM app_user_scopes WHERE user_id=${userId}`;
-  await Promise.all(next.map(scope => sql`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
-    VALUES (${userId}, ${scope.type}, ${scope.gradeId}, ${scope.classId}) ON CONFLICT DO NOTHING`));
+  await sql.transaction(transaction => [
+    transaction`DELETE FROM app_user_scopes WHERE user_id=${userId}`,
+    ...next.map(scope => transaction`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
+      VALUES (${userId}, ${scope.type}, ${scope.gradeId}, ${scope.classId}) ON CONFLICT DO NOTHING`),
+  ]);
 }
 
 function canDelegatePermissions(actor: AdminActor, permissions: Permission[]): boolean {
@@ -117,10 +119,17 @@ async function listUsers(actor?: AdminActor) {
       FROM app_users u JOIN app_roles r ON r.id=u.role_id ORDER BY u.created_at ASC` as unknown as Promise<UserRow[]>,
     sql`SELECT user_id, scope_type, grade_id, class_id FROM app_user_scopes ORDER BY id` as unknown as Promise<ScopeRow[]>,
   ]);
+  const scopesByUser = new Map<number, ScopeRow[]>();
+  for (const scope of scopeRows) {
+    const userId = Number(scope.user_id);
+    const bucket = scopesByUser.get(userId);
+    if (bucket) bucket.push(scope);
+    else scopesByUser.set(userId, [scope]);
+  }
   const internal = users.map(user => ({
     id: Number(user.id), username: user.username, displayName: user.displayName, roleId: user.roleId, roleName: user.roleName,
     status: user.status, mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt,
-    scopes: scopeRows.filter(scope => Number(scope.user_id) === Number(user.id)).map(scope => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
+    scopes: (scopesByUser.get(Number(user.id)) ?? []).map(scope => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
     permissions: jsonPermissions(user.permissions),
   }));
   return filterVisibleUsers(actor, internal).map(({ permissions: _permissions, ...publicUser }) => publicUser);
@@ -223,9 +232,14 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
     if (!await ensureNotLastSuperAdmin(id, roleId, status)) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
     await invalidateLegacySharedToken();
-    const updated = await sql`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id` as unknown as Array<{ id: number }>;
+    const transactionResults = await sql.transaction(transaction => [
+      transaction`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id`,
+      transaction`DELETE FROM app_user_scopes WHERE user_id=${id}`,
+      ...nextScopes.map(scope => transaction`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
+        VALUES (${id}, ${scope.type}, ${scope.gradeId}, ${scope.classId}) ON CONFLICT DO NOTHING`),
+    ]) as unknown as Array<Array<{ id: number }>>;
+    const updated = transactionResults[0] ?? [];
     if (!updated.length) return res.status(404).json({ ok: false, error: '用户不存在' });
-    await replaceScopes(id, nextScopes);
     await writeAudit(actor, 'user.update', 'user', String(id), { roleId, status });
     return res.json({ ok: true, users: await listUsers(actor) });
   }

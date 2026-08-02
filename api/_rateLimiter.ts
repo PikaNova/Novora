@@ -35,9 +35,23 @@ export function readRateLimitSetting(
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-function evictOldestBucket(): void {
+const EVICTION_SCAN_LIMIT = 32;
+
+function evictOldestBucket(now: number, windowMs: number): void {
+  let scanned = 0;
+  for (const [candidateKey, candidateEntry] of buckets) {
+    scanned += 1;
+    if (now - candidateEntry.windowStart >= windowMs) {
+      buckets.delete(candidateKey);
+      return;
+    }
+    if (scanned >= EVICTION_SCAN_LIMIT) break;
+  }
   const oldestKey = buckets.keys().next().value as string | undefined;
-  if (oldestKey) buckets.delete(oldestKey);
+  if (oldestKey) {
+    console.warn(`[rateLimiter] evicting an active bucket after scanning ${scanned} candidates with no expired window`);
+    buckets.delete(oldestKey);
+  }
 }
 
 /** Consumes one request from a source-specific, in-process fixed window. */
@@ -46,15 +60,18 @@ export function consumeRateLimit(
   options: RateLimitOptions,
 ): RateLimitDecision {
   const now = (options.now ?? Date.now)();
-  let entry = buckets.get(key);
+  const existing = buckets.get(key);
+  if (existing) buckets.delete(key);
+  let entry = existing;
   if (!entry || now - entry.windowStart >= options.windowMs) {
-    if (!entry && buckets.size >= MAX_TRACKED_KEYS) evictOldestBucket();
+    if (!entry && buckets.size >= MAX_TRACKED_KEYS) evictOldestBucket(now, options.windowMs);
     entry = { count: 1, windowStart: now };
     buckets.set(key, entry);
     return { allowed: true, retryAfterMs: 0 };
   }
 
   entry.count += 1;
+  buckets.set(key, entry);
   return {
     allowed: entry.count <= options.maxRequests,
     retryAfterMs: Math.max(0, options.windowMs - (now - entry.windowStart)),
