@@ -119,6 +119,14 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - A current-source archive and a standalone `PROJECT_HANDOVER.md` archive were created under the workspace `deliveries` directory after the remote delivery.
 - Archive verification confirmed that the source package contains both `tests/detectGhostSave.test.ts` and `PROJECT_HANDOVER.md`, while excluding Git metadata, dependencies, generated output, caches, local environment files, HAR captures, and logs.
 
+## External Quality Reports: 2026-08-02
+
+- Reviewed six independent reports: Gemini 3.5 Flash, Sonnet 5, GPT-5.4, Kimi K3, DeepSeek, and GLM-5.2. No code was changed from these reports.
+- Confirmed high-priority defects: `listUsers()` projects away role permissions before its non-all-scope delegation filter; `audit.read` returns all audit rows without scope filtering; the dispatcher consumes the database global-write slot before route authentication/validation; and the ghost-save detector compares object JSON without canonical key ordering.
+- Confirmed security-hardening work: login has no account-level failure throttle, telemetry uses a repository-default IP salt, `safeUrl()` accepts protocol-relative URLs, and legacy three-part administrator tokens validate the global auth version but skip the mapped admin user's token version.
+- Conditional product decisions, not automatic defects: unauthenticated exam GET/bootstrap exists to support classroom displays, but currently exposes the whole payload; it needs an explicit public-field policy or paired-device projection. Local-storage snapshots and the per-instance entry limiter are known architectural tradeoffs, not regressions.
+- Static-analysis corrections: Vercel production headers already include a CSP. The legacy-token report overstated the issue as no version validation; the actual gap is the missing per-admin-row version check. Full API DDL migration, CORS forwarded-host trust, Docker CSP parity, and response-size limits require separate environment/threat-model review.
+
 ## Latest Remote Delivery
 
 - The validated aggregate change set was committed as `592fe3d test: expand coverage and protect scoped writes`.
@@ -197,3 +205,10 @@ Class and grade administrators submit a complete cached school snapshot. A class
 
 - Commit `30600e3 feat: add layered API rate limits` was pushed successfully to `origin/dev` on 2026-08-02.
 - The commit contains the current accumulated validated work: subject-track scope repair and guarded backfill support, time-picker boundary anchoring, device scope filtering, database-backed global write throttling, per-source entry limiting, integration-test infrastructure, test coverage, and updated handoff records.
+
+## P0 User Visibility And Audit Scope
+
+- `listUsers()` previously removed account permissions from its projection before applying `canDelegatePermissions()`. Scoped administrators therefore evaluated every listed account as though it had no permissions and could see accounts they could not delegate.
+- `filterVisibleUsers()` now performs delegation and scope checks on an internal projection that retains permissions, then the response mapper removes them only after filtering. All-school and wildcard actors retain full visibility; a no-scope actor has no scoped account visibility.
+- Historical audit records lack reliable `gradeId`/`classId`, so `canReadAuditLog()` intentionally denies grade/class-scoped actors. Endpoint access still requires `audit.read`; all-scope eligibility is an additional mandatory guard.
+- Validation: `324/324` unit tests, `npm run typecheck:api`, and `npm run build` passed. A future scoped audit UI requires audit-record schema support, not a weaker filter.

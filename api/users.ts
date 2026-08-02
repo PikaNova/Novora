@@ -58,6 +58,27 @@ function canDelegateScopes(actor: AdminActor, next: AdminScope[]): boolean {
     : scope.type === 'class' && canAccessClass(actor, scope.gradeId, scope.classId));
 }
 
+export type VisibilityCandidate = {
+  scopes: AdminScope[];
+  permissions: Permission[];
+};
+
+export function filterVisibleUsers<T extends VisibilityCandidate>(actor: AdminActor | undefined, users: T[]): T[] {
+  if (!actor || actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return users;
+  return users.filter(user =>
+    canDelegatePermissions(actor, user.permissions) &&
+    user.scopes.length > 0 &&
+    user.scopes.every(scope => scope.type !== 'all' && (scope.type === 'grade'
+      ? canAccessGrade(actor, scope.gradeId)
+      : canAccessClass(actor, scope.gradeId, scope.classId))),
+  );
+}
+
+// Historical audit rows cannot be safely filtered to a grade or class scope.
+export function canReadAuditLog(actor: AdminActor): boolean {
+  return actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all');
+}
+
 function roleScopeError(roleId: string, next: AdminScope[]): string {
   if (roleId === 'super_admin') return '';
   if (roleId === 'class_admin' && !next.some(scope => scope.type === 'class')) return '班级管理员必须选择至少一个具体班级';
@@ -94,13 +115,13 @@ async function listUsers(actor?: AdminActor) {
       FROM app_users u JOIN app_roles r ON r.id=u.role_id ORDER BY u.created_at ASC` as unknown as Promise<UserRow[]>,
     sql`SELECT user_id, scope_type, grade_id, class_id FROM app_user_scopes ORDER BY id` as unknown as Promise<ScopeRow[]>,
   ]);
-  const result = users.map(user => ({
+  const internal = users.map(user => ({
     id: Number(user.id), username: user.username, displayName: user.displayName, roleId: user.roleId, roleName: user.roleName,
     status: user.status, mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt,
     scopes: scopeRows.filter(scope => Number(scope.user_id) === Number(user.id)).map(scope => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
+    permissions: jsonPermissions(user.permissions),
   }));
-  if (!actor || actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return result;
-  return result.filter((user: any) => canDelegatePermissions(actor, jsonPermissions(user.permissions)) && user.scopes.length > 0 && user.scopes.every((scope: AdminScope) => scope.type !== 'all' && (scope.type === 'grade' ? canAccessGrade(actor, scope.gradeId) : canAccessClass(actor, scope.gradeId, scope.classId))));
+  return filterVisibleUsers(actor, internal).map(({ permissions: _permissions, ...publicUser }) => publicUser);
 }
 
 async function canManageTarget(actor: AdminActor, userId: number): Promise<boolean> {
@@ -291,7 +312,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const resource = text(req.method === 'GET' ? req.query?.resource : req.body?.resource, 30) || 'users';
     if (resource === 'roles') return await handleRoles(req, res, actor);
     if (resource === 'audit') {
-      if (!hasPermission(actor, 'audit.read')) return res.status(403).json({ ok: false, error: 'Forbidden' });
+      if (!hasPermission(actor, 'audit.read') || !canReadAuditLog(actor)) return res.status(403).json({ ok: false, error: 'Forbidden' });
       const logs = await authSql()`SELECT id, user_id AS "userId", username, action, resource_type AS "resourceType", resource_id AS "resourceId", grade_id AS "gradeId", class_id AS "classId", detail, created_at AS "createdAt" FROM app_audit_logs ORDER BY created_at DESC LIMIT 300`;
       return res.json({ ok: true, logs });
     }

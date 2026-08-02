@@ -32,6 +32,7 @@ Do not commit `dist/`, credentials, Neon connection strings, recovery keys, toke
 | --- | --- |
 | Admin permissions and roles | `api/_auth.ts`, `src/shared/permissionRules.ts` |
 | Built-in role permission contracts | `tests/builtinRoles.test.ts` |
+| Scoped user visibility and audit-log read policy | `api/users.ts` (`filterVisibleUsers`, `canReadAuditLog`), `tests/users.visibility.test.ts` |
 | Exam/weekly mutation authorization | `api/_exams/permissions.ts` |
 | Exam data writes and conflict response | `api/_exams/routes/examDataRoutes.ts` |
 | Database integration coverage | `tests/integration/examData.integration.test.ts`, `scripts/run-integration-tests.cjs` |
@@ -80,6 +81,8 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - `sanitizeStaleSnapshot()` runs before `validateMutation()` for non-all-scope accounts. It preserves only in-scope weekly-plan and class changes, restores out-of-scope records from the server, and always restores grades. This prevents stale data for other classes from causing a false 403 when a class administrator deletes a temporary exam or edits their own weekly plan.
 - `computeRemovedScopeIds()` plus `examDataRoutes.ts` removes authorization scopes pointing to deleted grades/classes only after the structure update succeeds.
 - Quick temporary exams can be co-managed only when the actor is their creator or the target class/grade is inside the actor's visible scope.
+- User-list filtering retains each account's internal permission set until delegation and scope checks finish, then strips it from the public response. This prevents scoped administrators from seeing accounts whose permissions they could not delegate.
+- Historical audit rows do not carry reliable grade/class ownership. `resource=audit` reads therefore require both `audit.read` and all-school scope eligibility; a scoped audit view needs an explicit data model before it can be exposed safely.
 
 ## Sync And Data Rules
 
@@ -89,6 +92,13 @@ All new permission work must change both the UI guard and `validateMutation()` w
 - API reads use no shared public cache. Do not reintroduce in-memory multi-instance response caching for `/api/exams`.
 
 ## Latest Update
+
+### 2026-08-02: P0 User Visibility And Audit Scope
+
+- Fixed the user-list permission-projection leak in `api/users.ts`: filtering now evaluates the account's real permissions and scopes before those internal permissions are removed from the returned DTO. A grade/class administrator cannot discover a same-scope account whose permission set is outside its delegable subset.
+- Added `canReadAuditLog()` and retained the existing `audit.read` permission check. Audit-log reads now also require wildcard permission or an `all` scope, because historical rows cannot be safely constrained to a grade or class.
+- Added `tests/users.visibility.test.ts` with nine regression cases for non-delegable permissions, in-scope/out-of-scope users, all-school accounts, no-scope actors, privileged actors, and audit eligibility.
+- Validation: `npm test` `324/324` passed, `npm run typecheck:api` passed, and `npm run build` passed. This batch is local only and has not been committed or pushed.
 
 ### 2026-08-02: Ghost-Save Coverage Delivery
 
@@ -233,6 +243,7 @@ The test suite is compiled with `tsconfig.test.json` to `.test-check/`, then exe
 6. Verify a fresh device/browser reads a recently saved grade/class/exam without a manual refresh.
 7. With two signed-in devices, save a change from each within one second. Confirm one response receives `429 RATE_LIMITED`, the pending exam save retries automatically, and a device-management write either succeeds after its one retry or shows the server message.
 8. On a staging deployment, issue a 30-request read burst and a 9-request write burst from the same source. Confirm the next request in each tier returns `429 RATE_LIMITED` with a nonzero `Retry-After`, while device/plugin heartbeats continue normally.
+9. As a grade/class administrator, verify the user list excludes accounts outside the actor's scope, all-school-scoped accounts, and accounts with non-delegable permissions. Verify the audit-log request returns `403`; confirm a super administrator can read the log.
 
 ## Deployment
 
@@ -240,6 +251,8 @@ Push only verified commits to `dev`; Vercel is configured to deploy that branch.
 
 ## Current Follow-Up Areas
 
+- Complete the remaining externally reviewed security/correctness backlog before another broad refactor: pre-auth global-write-slot placement and canonical JSON comparison in ghost-save detection.
+- Design a scoped audit data model and view only after audit rows include trustworthy grade/class ownership; do not relax the all-school audit-read guard without it.
 - Configure the disposable Neon integration command as a protected CI job using test-only secrets; do not run it on untrusted pull requests.
 - Extend database integration coverage to user-management routes, device bindings, reset-data behavior, and failure/rollback behavior.
 - Add an opt-in disposable-database concurrency test that invokes the top-level API handler twice and proves exactly one global write slot is granted in a 900ms window.

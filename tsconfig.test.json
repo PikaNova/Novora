@@ -34,6 +34,7 @@
     "api/_exams/plugin.ts",
     "api/_apiError.ts",
     "api/exams.ts",
+    "api/users.ts",
     "api/_exams/routes/pluginRoutes.ts",
     "api/_exams/routes/deviceAdminRoutes.ts",
     "api/_exams/routes/deviceSelfRoutes.ts",

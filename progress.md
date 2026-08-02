@@ -72,6 +72,13 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 - Delivered as commit `44b53f3 test: cover ghost save boundaries`, pushed to `origin/dev`.
 - Exported both a clean latest-source archive and a standalone `PROJECT_HANDOVER.md` archive. Archive checks confirmed the source includes the new ghost-save test and handover while excluding Git metadata, dependencies, generated output, caches, local environment files, HAR captures, and logs.
 
+### 2026-08-02: Six-Model Quality Review Consolidation
+
+- Consolidated six external reports without modifying application code or deployment state.
+- Verified the repeated user-list permission projection bug, unscoped audit-log read, pre-auth global-write-slot consumption, and non-canonical ghost-save object comparison.
+- Recorded conditional and false-positive findings separately so future work prioritizes evidence-backed changes.
+- Removed the temporary report extraction after the review. No commit or push was requested.
+
 ### Latest Diagnosis
 
 - Investigated the report that large exams still ignore subject tracks using the deployed API and the current delivery code.
@@ -114,3 +121,12 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 
 - Committed the accumulated validated changes as `30600e3 feat: add layered API rate limits`.
 - Pushed `30600e3` successfully to `origin/dev`.
+
+### 2026-08-02: P0 User Visibility And Audit Scope
+
+- Merged the first two P0 fixes from `users-permission-fix-2026-08-02.zip` without overwriting the newer external-quality-review documentation.
+- User-list filtering now retains permissions internally while enforcing both delegable-permission and grade/class scope checks, then strips permissions only from the public DTO.
+- Audit reads retain the `audit.read` permission requirement and now additionally require wildcard permission or all-school scope, because legacy audit records cannot be safely scoped by grade/class.
+- Added nine regression tests in `tests/users.visibility.test.ts` and compiled `api/users.ts` through `tsconfig.test.json`.
+- Validation passed: `324/324` tests, API type check, and production build.
+- The change is intentionally still local: no commit or push was requested.
