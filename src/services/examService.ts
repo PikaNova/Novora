@@ -372,6 +372,11 @@ export type AdminUserContext = {
   mustChangePassword: boolean;
 };
 
+export type LoginSession = {
+  token: string | null;
+  user: AdminUserContext | null;
+};
+
 export function getAdminUser(): AdminUserContext | null {
   try {
     const user = JSON.parse(localStorage.getItem(ADMIN_USER_KEY) || 'null');
@@ -421,7 +426,7 @@ export async function refreshAdminUser(): Promise<AdminUserContext | null> {
   } catch { return getAdminUser(); }
 }
 
-export async function loginAdmin(username: string, password: string): Promise<boolean> {
+export async function loginAdmin(username: string, password: string): Promise<LoginSession | null> {
   try {
     const res = await fetchWithTimeout(
       LOGIN_URL,
@@ -435,21 +440,23 @@ export async function loginAdmin(username: string, password: string): Promise<bo
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) {
       lastAuthApiError = await apiErrorFromResponse(new Response(JSON.stringify(data), { status: res.status, headers: res.headers }), '登录失败');
-      return false;
+      return null;
     }
-    if (data.token) {
-      localStorage.setItem(TOKEN_KEY, data.token);
+    const token = typeof data.token === 'string' && data.token ? data.token : null;
+    const user = data.user && typeof data.user === 'object' ? data.user as AdminUserContext : null;
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
     }
-    if (data.user) {
-      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
-      if (data.firstLogin === true && data.user.roleId === 'grade_admin') localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(data.user.id));
+    if (user) {
+      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
+      if (data.firstLogin === true && user.roleId === 'grade_admin') localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(user.id));
     }
     lastAuthApiError = null;
-    return true;
+    return { token, user };
   } catch (err) {
     lastAuthApiError = classifyFetchError(err);
-    return false;
+    return null;
   }
 }
 

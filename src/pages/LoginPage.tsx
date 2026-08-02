@@ -25,7 +25,7 @@ export default function LoginPage() {
   const [recoveryView, setRecoveryView] = useState<'guide' | 'form' | null>(null);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [recoveryDraft, setRecoveryDraft] = useState({ username: 'admin', recoveryKey: '', next: '', confirm: '' });
-  const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; username: string; next: string; confirm: string } | null>(null);
+  const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; username: string; next: string; confirm: string; token: string } | null>(null);
   const search = new URLSearchParams(location.search);
   const next = safeLoginDestination(search.get('next'));
   const initializing = search.get('mode') === 'initialize';
@@ -48,9 +48,9 @@ export default function LoginPage() {
     if (lockedUntil && remainingLockSeconds > 0) return;
     if (!username.trim() || !password) { setError('请输入用户名和密码'); return; }
     setLoading(true); setError('');
-    const ok = await loginAdmin(username.trim(), password);
+    const session = await loginAdmin(username.trim(), password);
     setLoading(false);
-    if (!ok) {
+    if (!session) {
       const cause = getLastAuthApiError();
       if (cause instanceof ApiError && cause.code === 'LOGIN_LOCKED' && typeof cause.retryAfterMs === 'number') {
         setLockedUntil(computeLockedUntil(cause.retryAfterMs));
@@ -62,7 +62,11 @@ export default function LoginPage() {
       return;
     }
     setLockedUntil(null);
-    if (getAdminUser()?.mustChangePassword || password.length < 8) { setPasswordUpgrade({ current: password, username: getAdminUser()?.username || username.trim(), next: '', confirm: '' }); return; }
+    if (session.user?.mustChangePassword || password.length < 8) {
+      if (!session.token) { setError('当前登录未获得有效会话，请刷新后重试'); return; }
+      setPasswordUpgrade({ current: password, username: session.user?.username || username.trim(), next: '', confirm: '', token: session.token });
+      return;
+    }
     navigate(next, { replace: true });
   };
 
@@ -74,7 +78,7 @@ export default function LoginPage() {
     if (passwordUpgrade.next.length < 8) { setError('新密码至少需要 8 位'); return; }
     if (passwordUpgrade.next !== passwordUpgrade.confirm) { setError('两次输入的新密码不一致'); return; }
     setLoading(true); setError('');
-    try { const nextUsername = await changeOwnCredentials(passwordUpgrade.current, passwordUpgrade.username.trim(), passwordUpgrade.next); logoutAdmin(); setUsername(nextUsername); setPasswordUpgrade(null); setPassword(''); navigate(`/login?${initializing ? 'mode=initialize&' : ''}next=${encodeURIComponent(next)}`, { replace: true }); }
+    try { const nextUsername = await changeOwnCredentials(passwordUpgrade.current, passwordUpgrade.username.trim(), passwordUpgrade.next, passwordUpgrade.token); logoutAdmin(); setUsername(nextUsername); setPasswordUpgrade(null); setPassword(''); navigate(`/login?${initializing ? 'mode=initialize&' : ''}next=${encodeURIComponent(next)}`, { replace: true }); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '账户信息修改失败'); }
     finally { setLoading(false); }
   };
