@@ -8,15 +8,28 @@ export type QuickMajorLike = {
 
 export type ScopedEntity = { id: string };
 
+/**
+ * A scoped co-manager may control a quick temporary exam only when its entire
+ * explicit delivery scope belongs to that manager. An unscoped exam is never
+ * eligible for this limited co-management path.
+ */
+export function isQuickTemporaryMajorFullyInScope(
+  major: QuickMajorLike | null | undefined,
+  canAccessClassId: (classId: string) => boolean,
+  canAccessGradeId: (gradeId: string) => boolean,
+): boolean {
+  if (!major || major.source !== "quick" || major.temporary !== true) return false;
+  const classIds = major.targetClassIds ?? [];
+  if (classIds.length) return classIds.every(canAccessClassId);
+  const gradeIds = major.targetGradeIds ?? [];
+  return gradeIds.length > 0 && gradeIds.every(canAccessGradeId);
+}
+
 export function isOwnQuickTemporaryMajor(
   major: QuickMajorLike | null | undefined,
   adminUserId: number | null | undefined,
-  visibleClasses: ReadonlyArray<ScopedEntity>,
-  visibleGrades: ReadonlyArray<ScopedEntity>,
 ): boolean {
   if (!major || adminUserId == null) return false;
   if (major.source !== "quick" || major.temporary !== true) return false;
-  if (major.createdBy === adminUserId) return true;
-  if (major.targetClassIds?.some((classId) => visibleClasses.some((item) => item.id === classId))) return true;
-  return !!major.targetGradeIds?.some((gradeId) => visibleGrades.some((item) => item.id === gradeId));
+  return major.createdBy === adminUserId;
 }

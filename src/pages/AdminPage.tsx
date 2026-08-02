@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Watermark from "../components/Watermark";
 import AdminModalPortal from '../components/AdminModalPortal';
-import { isOwnQuickTemporaryMajor as isOwnQuickTemporaryMajorCheck } from "../utils/majorOwnership";
+import {
+  isOwnQuickTemporaryMajor as isOwnQuickTemporaryMajorCheck,
+  isQuickTemporaryMajorFullyInScope,
+} from "../utils/majorOwnership";
 import type {
   ExamItem,
   MajorExam,
@@ -656,8 +659,12 @@ export default function AdminPage() {
     isOwnQuickTemporaryMajorCheck(
       major,
       adminUser?.id,
-      visibleClasses,
-      visibleGrades,
+    );
+  const canEndQuickTemporaryMajorInScope = (major: MajorExam) =>
+    isQuickTemporaryMajorFullyInScope(
+      major,
+      (classId) => visibleClasses.some((item) => item.id === classId),
+      (gradeId) => visibleGrades.some((item) => item.id === gradeId),
     );
   const canEditActiveMajor =
     can("major.edit") ||
@@ -1255,6 +1262,9 @@ export default function AdminPage() {
                     const canManageQuickMajor =
                       can("major.edit") ||
                       (can("major.quick_create") && isOwnQuickTemporaryMajor(major));
+                    const canEndQuickMajor =
+                      can("major.edit") ||
+                      (can("major.quick_create") && canEndQuickTemporaryMajorInScope(major));
                     const canDeleteQuickMajor =
                       can("major.delete") ||
                       (can("major.quick_create") && isOwnQuickTemporaryMajor(major));
@@ -1280,7 +1290,7 @@ export default function AdminPage() {
                             <span>{displayStatus.detail}</span>
                           </div>
                         )}
-                        {(canManageQuickMajor || canDeleteQuickMajor) && (
+                        {(canManageQuickMajor || canEndQuickMajor || canDeleteQuickMajor) && (
                           <div className="quick-major-running__actions">
                             {canManageQuickMajor && <>
                               <button
@@ -1296,6 +1306,14 @@ export default function AdminPage() {
                                 提前结束
                               </button>
                             </>}
+                            {!canManageQuickMajor && canEndQuickMajor && (
+                              <button
+                                className="admin-item-btn admin-item-btn--delete"
+                                onClick={() => endQuickMajor(major)}
+                              >
+                                提前结束
+                              </button>
+                            )}
                             {can("major.edit") && <button
                               className="admin-item-btn"
                               onClick={() => promoteQuickMajor(major)}

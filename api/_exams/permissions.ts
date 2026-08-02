@@ -10,6 +10,7 @@ import {
   type Permission,
 } from "../_auth.js";
 import { hasAllScope as sharedHasAllScope } from "../../src/shared/permissionRules.js";
+import { isQuickTemporaryMajorFullyInScope } from "../../src/utils/majorOwnership.js";
 import {
   changedRecords,
   cleanActiveWeeklyPlanByClass,
@@ -25,6 +26,37 @@ const isOwnedQuickTemporaryMajor = (actor: AdminActor, major: any) =>
   major.source === "quick" &&
   major.temporary === true &&
   major.createdBy === actor.id;
+
+function canControlQuickTemporaryMajorInScope(
+  actor: AdminActor,
+  major: any,
+  classes: readonly any[],
+): boolean {
+  const classesById = new Map(classes.map((item) => [String(item?.id ?? ""), item]));
+  return isQuickTemporaryMajorFullyInScope(
+    major,
+    (classId) => {
+      const schoolClass = classesById.get(classId);
+      return !!schoolClass && canAccessClass(actor, String(schoolClass.gradeId ?? ""), classId);
+    },
+    (gradeId) => canAccessGrade(actor, gradeId),
+  );
+}
+
+function isEarlyQuickMajorEnd(current: any, next: any): boolean {
+  if (!current || !next || current.endedAt != null || !Number.isFinite(next.endedAt)) return false;
+  const { endedAt: _currentEndedAt, items: currentItems, ...currentRest } = current;
+  const { endedAt: _nextEndedAt, items: nextItems, ...nextRest } = next;
+  if (!sameJson(currentRest, nextRest) || !Array.isArray(currentItems) || !Array.isArray(nextItems)) return false;
+  if (currentItems.length !== nextItems.length) return false;
+  return currentItems.every((item: any, index: number) => {
+    const nextItem = nextItems[index];
+    if (!nextItem || nextItem.enabled !== false) return false;
+    const { enabled: _currentEnabled, ...currentItemRest } = item;
+    const { enabled: _nextEnabled, ...nextItemRest } = nextItem;
+    return sameJson(currentItemRest, nextItemRest);
+  });
+}
 
 export function isolateQuickMajorCreate(
   actor: AdminActor,
@@ -232,6 +264,19 @@ export function validateMutation(
       (majorDiff.added.length > 0 || majorDiff.removed.length > 0 || majorDiff.updated.length > 0) &&
       onlyOwnedQuickTemporaryChanges &&
       payloadMatchesNextActiveMajor;
+    const canEndScopedQuickTemporaryMajor =
+      majorDiff.added.length === 0 &&
+      majorDiff.removed.length === 0 &&
+      majorDiff.updated.length > 0 &&
+      payloadMatchesNextActiveMajor &&
+      majorDiff.updated.every((major: any) => {
+        const currentMajor = currentMajorsById.get(String(major?.id ?? ""));
+        return (
+          canControlQuickTemporaryMajorInScope(actor, currentMajor, current.classes as any[]) &&
+          canControlQuickTemporaryMajorInScope(actor, major, nextClasses as any[]) &&
+          isEarlyQuickMajorEnd(currentMajor, major)
+        );
+      });
 
     if (majorDiff.added.length) {
       const denied = needEither(
@@ -264,7 +309,7 @@ export function validateMutation(
         "major.edit",
         "major.quick_create",
         "大型考试",
-        canManageOwnQuickTemporaryChanges,
+        canManageOwnQuickTemporaryChanges || canEndScopedQuickTemporaryMajor,
       );
       if (denied) return denied;
     }

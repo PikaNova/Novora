@@ -275,6 +275,79 @@ test('validateMutation: quick_create does NOT cover a quick major owned by a dif
   if (!result.ok) assert.equal(result.permission, 'major.create');
 });
 
+test('validateMutation: quick_create lets a class co-manager end an in-scope temporary quick major', () => {
+  const actor = makeActor({
+    id: 8,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const quick = {
+    id: 'quick', name: 'quick', order: 0, targetGradeIds: ['g1'], targetClassIds: ['c1'],
+    source: 'quick', temporary: true, createdBy: 7, endedAt: null,
+    items: [{ id: 'i1', name: 'math', enabled: true }],
+  };
+  const ended = {
+    ...quick,
+    endedAt: 1_000,
+    items: quick.items.map((item) => ({ ...item, enabled: false })),
+  };
+  const current = makeCurrent({
+    majors: [quick], items: quick.items, title: quick.name, activeMajorId: quick.id,
+    classes: [{ id: 'c1', gradeId: 'g1', name: '1' }],
+  });
+  const result = validateMutation(actor, current, {
+    majors: [ended], items: ended.items, title: ended.name, activeMajorId: ended.id,
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.ok(result.actions.includes('major.quick_create'));
+});
+
+test('validateMutation: scoped quick co-management cannot alter a temporary exam beyond ending it', () => {
+  const actor = makeActor({
+    id: 8,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const quick = {
+    id: 'quick', name: 'quick', order: 0, targetGradeIds: ['g1'], targetClassIds: ['c1'],
+    source: 'quick', temporary: true, createdBy: 7, endedAt: null,
+    items: [{ id: 'i1', name: 'math', enabled: true }],
+  };
+  const changed = { ...quick, name: 'renamed', endedAt: 1_000, items: [{ ...quick.items[0], enabled: false }] };
+  const current = makeCurrent({
+    majors: [quick], items: quick.items, title: quick.name, activeMajorId: quick.id,
+    classes: [{ id: 'c1', gradeId: 'g1', name: '1' }],
+  });
+  const result = validateMutation(actor, current, {
+    majors: [changed], items: changed.items, title: changed.name, activeMajorId: changed.id,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.permission, 'major.edit');
+});
+
+test('validateMutation: a class co-manager cannot end a temporary quick major that also targets another class', () => {
+  const actor = makeActor({
+    id: 8,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const quick = {
+    id: 'quick', name: 'quick', order: 0, targetGradeIds: ['g1'], targetClassIds: ['c1', 'c2'],
+    source: 'quick', temporary: true, createdBy: 7, endedAt: null,
+    items: [{ id: 'i1', name: 'math', enabled: true }],
+  };
+  const ended = { ...quick, endedAt: 1_000, items: [{ ...quick.items[0], enabled: false }] };
+  const current = makeCurrent({
+    majors: [quick], items: quick.items, title: quick.name, activeMajorId: quick.id,
+    classes: [{ id: 'c1', gradeId: 'g1', name: '1' }, { id: 'c2', gradeId: 'g1', name: '2' }],
+  });
+  const result = validateMutation(actor, current, {
+    majors: [ended], items: ended.items, title: ended.name, activeMajorId: ended.id,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.permission, 'major.edit');
+});
+
 test('validateMutation: adding one weekly plan needs weekly.create; adding 2+ also needs weekly.copy', () => {
   const current = makeCurrent({ classes: [{ id: 'c1', gradeId: 'g1', name: '1班' }] });
   const plan = (id: string) => ({ id, gradeId: 'g1', classId: 'c1' });
