@@ -2,11 +2,11 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requestId, sendDatabaseError } from './_apiError.js';
 import { applyCors } from './_cors.js';
 import { randomBytes } from 'node:crypto';
+import { allScopeOnlyPermissionError, hasGradeLevelAccess } from '../src/shared/permissionRules.js';
 import {
   ALL_PERMISSIONS,
   authSql,
   canAccessClass,
-  canAccessGrade,
   changeOwnCredentials,
   changeOwnPassword,
   changeOwnUsername,
@@ -55,10 +55,10 @@ function canDelegatePermissions(actor: AdminActor, permissions: Permission[]): b
   return actor.permissions.includes('*') || (!permissions.includes('*') && permissions.every(permission => actor.permissions.includes(permission)));
 }
 
-function canDelegateScopes(actor: AdminActor, next: AdminScope[]): boolean {
+export function canDelegateScopes(actor: AdminActor, next: AdminScope[]): boolean {
   if (actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return true;
   return next.length > 0 && next.every(scope => scope.type === 'grade'
-    ? canAccessGrade(actor, scope.gradeId)
+    ? hasGradeLevelAccess(actor, scope.gradeId)
     : scope.type === 'class' && canAccessClass(actor, scope.gradeId, scope.classId));
 }
 
@@ -73,7 +73,7 @@ export function filterVisibleUsers<T extends VisibilityCandidate>(actor: AdminAc
     canDelegatePermissions(actor, user.permissions) &&
     user.scopes.length > 0 &&
     user.scopes.every(scope => scope.type !== 'all' && (scope.type === 'grade'
-      ? canAccessGrade(actor, scope.gradeId)
+      ? hasGradeLevelAccess(actor, scope.gradeId)
       : canAccessClass(actor, scope.gradeId, scope.classId))),
   );
 }
@@ -143,7 +143,7 @@ async function canManageTarget(actor: AdminActor, userId: number): Promise<boole
     sql`SELECT scope_type, grade_id, class_id FROM app_user_scopes WHERE user_id=${userId}` as unknown as Array<{ scope_type: AdminScope['type']; grade_id: string; class_id: string }>,
   ]);
   if (!target[0] || !canDelegatePermissions(actor, jsonPermissions(target[0].permissions)) || !targetScopes.length) return false;
-  return targetScopes.every(scope => scope.scope_type !== 'all' && (scope.scope_type === 'grade' ? canAccessGrade(actor, scope.grade_id) : canAccessClass(actor, scope.grade_id, scope.class_id)));
+  return targetScopes.every(scope => scope.scope_type !== 'all' && (scope.scope_type === 'grade' ? hasGradeLevelAccess(actor, scope.grade_id) : canAccessClass(actor, scope.grade_id, scope.class_id)));
 }
 
 async function listRoles() {
@@ -198,6 +198,8 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     const scopeError = roleScopeError(roleId, nextScopes);
     if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
+    const allScopeOnlyError = allScopeOnlyPermissionError(role.permissions, nextScopes);
+    if (allScopeOnlyError) return res.status(400).json({ ok: false, field: 'scopes', error: allScopeOnlyError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, field: 'scopes', error: '不能授予超出当前账号的数据范围' });
     const { hash, salt } = await makePasswordHash(password);
     const at = Date.now();
@@ -229,6 +231,8 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     const scopeError = roleScopeError(roleId, nextScopes);
     if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
+    const allScopeOnlyError = allScopeOnlyPermissionError(role.permissions, nextScopes);
+    if (allScopeOnlyError) return res.status(400).json({ ok: false, field: 'scopes', error: allScopeOnlyError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
     if (!await ensureNotLastSuperAdmin(id, roleId, status)) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
     await invalidateLegacySharedToken();

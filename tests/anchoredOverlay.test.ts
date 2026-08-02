@@ -40,12 +40,25 @@ test('anchored overlay stays inside the shared viewport and dialog safety edges'
   assert.equal(position.maxHeight, 400);
 });
 
-test('anchored overlay stays attached above a wide custom-time prompt when neither side fits', () => {
+test('right placement may use viewport space beyond the owner dialog', () => {
+  const position = resolveAnchoredOverlayPosition({
+    anchor: { left: 450, top: 350, width: 100, height: 48 },
+    overlay,
+    viewport,
+    boundary: { left: 240, top: 120, width: 340, height: 600 },
+    placement: 'right',
+  });
+  assert.equal(position.left, 558);
+  assert.equal(position.top, 194);
+});
+
+test('right placement falls back above a wide custom-time prompt when the viewport cannot fit it', () => {
   const position = resolveAnchoredOverlayPosition({
     anchor: { left: 374, top: 618, width: 420, height: 88 },
     overlay,
     viewport: { width: 920, height: 960 },
     boundary: { left: 138, top: 238, width: 680, height: 678 },
+    placement: 'right',
   });
   assert.equal(position.left, 438);
   assert.equal(position.top, 250);

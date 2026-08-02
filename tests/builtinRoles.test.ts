@@ -51,9 +51,8 @@ test('BUILTIN_ROLES: grade_admin permissions match the approved contract', () =>
     'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export',
     'school.read', 'school.class_manage',
     'device.read', 'device.bind', 'device.revoke',
-    'schedule.term_edit', 'schedule.ab_week_edit', 'schedule.holiday_edit',
     'alerts.read',
-    'settings.read', 'settings.major_batch_edit',
+    'settings.read',
     'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password',
   ].sort();
   assert.deepEqual([...roleById('grade_admin').permissions].sort(), expected);

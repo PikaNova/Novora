@@ -5,6 +5,7 @@ import {
   hasAllScope,
   canAccessGrade,
   canAccessClass,
+  hasGradeLevelAccess,
   type PermissionSubject,
 } from '../src/shared/permissionRules.js';
 
@@ -66,6 +67,20 @@ test('canAccessGrade: class-scope subject also grants access to its own gradeId'
   const s = subject({ scopes: [{ type: 'class', gradeId: 'g1', classId: 'c1' }] });
   assert.equal(canAccessGrade(s, 'g1'), true);
   assert.equal(canAccessGrade(s, 'g2'), false);
+});
+
+test('hasGradeLevelAccess: only all-school and matching grade scopes can delegate a grade', () => {
+  assert.equal(hasGradeLevelAccess(null, 'g1'), false);
+  assert.equal(hasGradeLevelAccess(subject({ permissions: ['*'] }), 'g1'), true);
+  assert.equal(hasGradeLevelAccess(subject({ scopes: [{ type: 'all', gradeId: '', classId: '' }] }), 'g1'), true);
+  assert.equal(hasGradeLevelAccess(subject({ scopes: [{ type: 'grade', gradeId: 'g1', classId: '' }] }), 'g1'), true);
+  assert.equal(hasGradeLevelAccess(subject({ scopes: [{ type: 'grade', gradeId: 'g2', classId: '' }] }), 'g1'), false);
+});
+
+test('hasGradeLevelAccess: a class scope cannot delegate its parent grade', () => {
+  const classScoped = subject({ scopes: [{ type: 'class', gradeId: 'g1', classId: 'c1' }] });
+  assert.equal(canAccessGrade(classScoped, 'g1'), true);
+  assert.equal(hasGradeLevelAccess(classScoped, 'g1'), false);
 });
 
 test('canAccessClass: null subject is denied', () => {

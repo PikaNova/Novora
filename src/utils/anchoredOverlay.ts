@@ -41,6 +41,7 @@ export function resolveAnchoredOverlayPosition({
   overlay,
   viewport,
   boundary,
+  placement = "auto",
   edge = 10,
   gap = 8,
 }: {
@@ -48,6 +49,7 @@ export function resolveAnchoredOverlayPosition({
   overlay: Pick<OverlayRect, 'width' | 'height'>;
   viewport: OverlayViewport;
   boundary?: OverlayRect;
+  placement?: "auto" | "right";
   edge?: number;
   gap?: number;
 }): AnchoredOverlayPosition {
@@ -55,27 +57,32 @@ export function resolveAnchoredOverlayPosition({
   const viewportBounds = visibleBounds(viewport, undefined, edge);
   if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) bounds = viewportBounds;
 
+  const anchorRight = anchor.left + anchor.width;
+  const canPlaceRightInViewport =
+    placement === "right" && anchorRight + gap + overlay.width <= viewportBounds.right;
+  if (canPlaceRightInViewport) bounds = viewportBounds;
+
   const maxWidth = Math.max(1, bounds.right - bounds.left);
   const maxHeight = Math.max(1, bounds.bottom - bounds.top);
   const width = Math.min(overlay.width, maxWidth);
   const height = Math.min(overlay.height, maxHeight);
-  const anchorRight = anchor.left + anchor.width;
   const anchorBottom = anchor.top + anchor.height;
   const rightSpace = bounds.right - anchorRight;
   const leftSpace = anchor.left - bounds.left;
   const belowSpace = bounds.bottom - anchorBottom;
   const aboveSpace = anchor.top - bounds.top;
 
-  let left = rightSpace >= width + gap || rightSpace >= leftSpace
-    ? anchorRight + gap
-    : anchor.left - width - gap;
+  let left = anchorRight + gap;
   let top = anchor.top + anchor.height / 2 - height / 2;
 
-  if (rightSpace < width + gap && leftSpace < width + gap) {
+  if (placement === "right" && !canPlaceRightInViewport) {
     left = anchor.left + anchor.width / 2 - width / 2;
-    top = belowSpace >= height || belowSpace >= aboveSpace
-      ? anchorBottom + gap
-      : anchor.top - height - gap;
+    top = anchor.top - height - gap;
+  } else if (placement !== "right" && rightSpace < width + gap && leftSpace < width + gap) {
+    left = anchor.left + anchor.width / 2 - width / 2;
+    top = belowSpace >= height || belowSpace >= aboveSpace ? anchorBottom + gap : anchor.top - height - gap;
+  } else if (placement !== "right" && rightSpace < width + gap) {
+    left = anchor.left - width - gap;
   }
 
   return {

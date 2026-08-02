@@ -610,6 +610,7 @@ export default function QuickMajorPublishModal({
           presets={[]}
           initialCrossDay={crossDayConfirmed}
           anchorRef={timeFlowAnchorRef}
+          anchorPlacement="right"
           onPreviewChange={applyTimeFlowDraft}
           onCancel={cancelTimeFlow}
           onConfirm={(nextStart, nextEnd, endNextDay) => {

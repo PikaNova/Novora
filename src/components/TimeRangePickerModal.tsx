@@ -21,6 +21,7 @@ interface Props {
   allowCrossDay?: boolean;
   initialCrossDay?: boolean;
   anchorRef?: RefObject<HTMLElement | null>;
+  anchorPlacement?: "auto" | "right";
   onPreviewChange?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onPreviewCancel?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onCancel: () => void;
@@ -105,6 +106,7 @@ export default function TimeRangePickerModal({
   allowCrossDay = true,
   initialCrossDay = false,
   anchorRef,
+  anchorPlacement = "auto",
   onPreviewChange,
   onPreviewCancel,
   onCancel,
@@ -160,6 +162,7 @@ export default function TimeRangePickerModal({
         anchor: { left: anchor.left, top: anchor.top, width: anchor.width, height: anchor.height },
         overlay: { width, height },
         viewport: { width: window.innerWidth, height: window.innerHeight },
+        placement: anchorPlacement,
         boundary: boundary
           ? { left: boundary.left, top: boundary.top, width: boundary.width, height: boundary.height }
           : undefined,
@@ -179,7 +182,7 @@ export default function TimeRangePickerModal({
       window.removeEventListener("resize", placeModal);
       window.removeEventListener("scroll", placeModal, true);
     };
-  }, [crossDayEnabled, mode, open, step]);
+  }, [anchorPlacement, crossDayEnabled, mode, open, step]);
 
   useEffect(() => {
     if (!open) {

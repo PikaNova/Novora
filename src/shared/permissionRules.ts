@@ -13,8 +13,8 @@ export const ALL_PERMISSIONS = [
 	'weekly.read', 'weekly.create', 'weekly.edit', 'weekly.delete', 'weekly.copy', 'weekly.override', 'weekly.import', 'weekly.export',
 	'school.read', 'school.grade_manage', 'school.class_manage',
 	'device.read', 'device.bind', 'device.revoke',
-	'schedule.mode_edit', 'schedule.conflict_edit', 'schedule.term_edit', 'schedule.ab_week_edit', 'schedule.holiday_edit',
-	'alerts.read', 'alerts.edit', 'settings.read', 'settings.edit', 'settings.major_batch_edit', 'initialization.run', 'demo_data.delete',
+	'schedule.mode_edit', 'schedule.conflict_edit',
+	'alerts.read', 'alerts.edit', 'settings.read', 'settings.edit', 'initialization.run', 'demo_data.delete',
 	'user.read', 'user.create', 'user.edit', 'user.disable', 'user.delete', 'user.reset_password', 'role.manage', 'audit.read', 'deployment.trigger',
 ] as const;
 
@@ -47,6 +47,14 @@ export function canAccessGrade(subject: PermissionSubject | null | undefined, gr
 	return subject.scopes.some(scope => (scope.type === 'grade' || scope.type === 'class') && scope.gradeId === gradeId);
 }
 
+// This is stricter than canAccessGrade(): a class-level grant may access data
+// in its parent grade but must not delegate or control the entire grade.
+export function hasGradeLevelAccess(subject: PermissionSubject | null | undefined, gradeId: string): boolean {
+	if (!subject) return false;
+	if (hasAllScope(subject)) return true;
+	return subject.scopes.some(scope => scope.type === 'grade' && scope.gradeId === gradeId);
+}
+
 /** 是否可以管理指定班级（全校范围、该年级授权、或该班级授权均可）。 */
 export function canAccessClass(subject: PermissionSubject | null | undefined, gradeId: string, classId: string): boolean {
 	if (!subject) return false;
@@ -55,4 +63,24 @@ export function canAccessClass(subject: PermissionSubject | null | undefined, gr
 		(scope.type === 'grade' && scope.gradeId === gradeId) ||
 		(scope.type === 'class' && scope.gradeId === gradeId && scope.classId === classId),
 	);
+}
+
+// These permissions are enforced only for all-school actors by their server routes.
+// Rejecting scoped assignments prevents a role UI/API mismatch that would fail on save.
+export const ALL_SCOPE_ONLY_PERMISSIONS: readonly Permission[] = [
+	'school.grade_manage',
+	'schedule.mode_edit',
+	'schedule.conflict_edit',
+	'settings.edit',
+	'initialization.run',
+];
+
+export function allScopeOnlyPermissionError(
+	permissions: readonly string[],
+	scopes: readonly PermissionScope[],
+): string {
+	if (permissions.includes('*')) return '';
+	const offending = ALL_SCOPE_ONLY_PERMISSIONS.filter((permission) => permissions.includes(permission));
+	if (!offending.length || scopes.some((scope) => scope.type === 'all')) return '';
+	return `以下权限仅限全校范围账号使用，请将数据范围设为“全校”或移除这些权限：${offending.join('、')}`;
 }
