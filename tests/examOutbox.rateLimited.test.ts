@@ -24,6 +24,19 @@ const { queuePendingExamSync, getPendingExamSync, flushPendingExamSync } =
   await import("../src/services/examOutbox.js");
 const { __resetSyncQueueForTests } = await import("../src/services/syncQueue.js");
 
+function setTestOwner(): void {
+  (globalThis as any).localStorage.setItem("admin_user_context", JSON.stringify({
+    id: 1,
+    username: "test-admin",
+    displayName: "Test admin",
+    roleId: "super_admin",
+    roleName: "Super admin",
+    permissions: ["*"],
+    scopes: [{ type: "all", gradeId: "", classId: "" }],
+    mustChangePassword: false,
+  }));
+}
+
 function pending(retryCount?: number): PendingExamSync {
   return {
     payload: { items: [], title: "", majors: [], activeMajorId: "", alerts: null },
@@ -44,6 +57,7 @@ function rateLimitedResponse(): Response {
 test("RATE_LIMITED uses a one-second first retry instead of the normal server delay", async () => {
   __resetSyncQueueForTests();
   (globalThis as any).localStorage.clear();
+  setTestOwner();
   queuePendingExamSync(pending());
   const originalFetch = globalThis.fetch;
   (globalThis as any).fetch = async () => rateLimitedResponse();
@@ -65,6 +79,7 @@ test("RATE_LIMITED uses a one-second first retry instead of the normal server de
 test("RATE_LIMITED retry growth is capped at eight seconds", async () => {
   __resetSyncQueueForTests();
   (globalThis as any).localStorage.clear();
+  setTestOwner();
   queuePendingExamSync(pending(3));
   const originalFetch = globalThis.fetch;
   (globalThis as any).fetch = async () => rateLimitedResponse();

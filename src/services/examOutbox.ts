@@ -3,7 +3,7 @@ import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/ex
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import type { ExamPayload } from './examService';
-import { saveExamsToServer } from './examService';
+import { getAdminUser, saveExamsToServer } from './examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { recordSyncConflict } from './offlineStore';
 import { ApiError } from './apiError';
@@ -11,6 +11,16 @@ import { sameJson } from '../shared/jsonCompare';
 import { nowMs } from '../utils/timeSource';
 
 const OUTBOX_KEY = 'exam_pending_sync';
+const ANONYMOUS_OUTBOX_KEY = `${OUTBOX_KEY}:anonymous`;
+
+function currentOwnerId(): number | null {
+  const id = getAdminUser()?.id;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function ownerOutboxKey(ownerId: number): string {
+  return `${OUTBOX_KEY}:user:${ownerId}`;
+}
 
 /**
  * 单个 fingerprint 最大自动重试次数。超过后将 nextRetryAt 设为 Infinity 并停止自动重试。
@@ -52,6 +62,8 @@ export interface PendingExamSync {
    */
   baseSnapshot: ExamPayload | null;
   savedAt: number;
+  /** The authenticated user that created this retryable draft. */
+  ownerId?: number;
   retryCount?: number;
   lastAttemptAt?: number;
   lastError?: string;
@@ -67,10 +79,10 @@ export type FlushResult =
   | { kind: 'saved'; payload: PendingExamSync['payload']; updatedAt: number }
   | { kind: 'offline' | 'deferred' | 'error' | 'unauthorized' | 'max-retries' };
 
-export function getPendingExamSync(): PendingExamSync | null {
+function readPendingExamSync(key: string): PendingExamSync | null {
   try {
     const value = JSON.parse(
-      localStorage.getItem(OUTBOX_KEY) || 'null',
+      localStorage.getItem(key) || 'null',
     ) as PendingExamSync | null;
     if (
       !value ||
@@ -79,15 +91,33 @@ export function getPendingExamSync(): PendingExamSync | null {
       !Array.isArray(value.payload.majors)
     )
       return null;
+    if (value.ownerId !== undefined && (!Number.isSafeInteger(value.ownerId) || value.ownerId <= 0))
+      return null;
     return value;
   } catch {
     return null;
   }
 }
 
+export function getPendingExamSync(): PendingExamSync | null {
+  const ownerId = currentOwnerId();
+  if (!ownerId) return null;
+  const pending = readPendingExamSync(ownerOutboxKey(ownerId));
+  return pending?.ownerId === ownerId ? pending : null;
+}
+
 export function queuePendingExamSync(pending: PendingExamSync): void {
   try {
-    localStorage.setItem(OUTBOX_KEY, JSON.stringify(pending));
+    const ownerId = currentOwnerId();
+    if (ownerId) {
+      localStorage.setItem(
+        ownerOutboxKey(ownerId),
+        JSON.stringify({ ...pending, ownerId }),
+      );
+    } else {
+      // Do not overwrite the pre-owner legacy key. Anonymous drafts are retained but never auto-flushed.
+      localStorage.setItem(ANONYMOUS_OUTBOX_KEY, JSON.stringify(pending));
+    }
   } catch {
     /* 隐私模式下仍保留 AppSettings 本地数据 */
   }
@@ -95,10 +125,12 @@ export function queuePendingExamSync(pending: PendingExamSync): void {
 
 /** 仅清除指定那一次保存，避免旧请求完成时误删后续编辑形成的新待办。 */
 export function clearPendingExamSync(savedAt?: number): void {
+  const ownerId = currentOwnerId();
+  if (!ownerId) return;
   const current = getPendingExamSync();
   if (savedAt != null && current?.savedAt !== savedAt) return;
   try {
-    localStorage.removeItem(OUTBOX_KEY);
+    localStorage.removeItem(ownerOutboxKey(ownerId));
   } catch {
     /* ignore */
   }
