@@ -10,7 +10,16 @@ import {
   type Permission,
   type PermissionScope,
 } from '../src/shared/permissionRules.js';
-import { assertRows, isBoolean, isNullableString, isNumberLike, isString, rowShape } from './_validation.js';
+import {
+  assertRows,
+  isBoolean,
+  isDatabaseInt8,
+  isNullableString,
+  isNumberLike,
+  isString,
+  rowShape,
+  type DatabaseInt8,
+} from './_validation.js';
 
 const scrypt = promisify(scryptCallback);
 const BOOTSTRAP_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -42,7 +51,7 @@ export type AdminActor = {
 
 type AuthRow = { password_hash: string; password_salt: string; token_secret: string; token_version: number };
 type UserRow = {
-  id: number;
+  id: DatabaseInt8;
   username: string;
   display_name: string;
   password_hash: string;
@@ -53,7 +62,7 @@ type UserRow = {
   status: string;
   must_change_password: boolean;
   token_version: number;
-  last_login_at?: number | null;
+  last_login_at?: DatabaseInt8 | null;
 };
 
 const isPasswordSaltRow = rowShape<{ password_hash: string; password_salt: string }>({
@@ -61,7 +70,8 @@ const isPasswordSaltRow = rowShape<{ password_hash: string; password_salt: strin
   password_salt: isString,
 });
 const isCountRow = rowShape<{ count: number }>({ count: isNumberLike });
-const isIdRow = rowShape<{ id: number }>({ id: isNumberLike });
+const isUserIdRow = rowShape<{ id: DatabaseInt8 }>({ id: isDatabaseInt8 });
+const isAuthIdRow = rowShape<{ id: number }>({ id: isNumberLike });
 const isIpSaltRow = rowShape<{ ip_salt: string }>({ ip_salt: isString });
 const isAuthRow = rowShape<AuthRow>({
   password_hash: isString,
@@ -76,10 +86,10 @@ const isRecoveryHashSaltRow = rowShape<{ recovery_key_hash?: string | null; reco
   recovery_key_hash: isNullableString,
   recovery_key_salt: isNullableString,
 });
-const isIdUsernameRow = rowShape<{ id: number; username: string }>({ id: isNumberLike, username: isString });
-const isCountOldestRow = rowShape<{ count: number; oldest: number }>({ count: isNumberLike, oldest: isNumberLike });
+const isIdUsernameRow = rowShape<{ id: DatabaseInt8; username: string }>({ id: isDatabaseInt8, username: isString });
+const isCountOldestRow = rowShape<{ count: number; oldest: DatabaseInt8 }>({ count: isNumberLike, oldest: isDatabaseInt8 });
 const isUserRow = rowShape<UserRow>({
-  id: isNumberLike,
+  id: isDatabaseInt8,
   username: isString,
   display_name: isString,
   password_hash: isString,
@@ -90,7 +100,7 @@ const isUserRow = rowShape<UserRow>({
   status: isString,
   must_change_password: isBoolean,
   token_version: isNumberLike,
-  last_login_at: (value): value is number | null | undefined => value == null || isNumberLike(value),
+  last_login_at: (value): value is DatabaseInt8 | null | undefined => value == null || isDatabaseInt8(value),
 });
 const isScopeRow = rowShape<{ scope_type: string; grade_id: string; class_id: string }>({
   scope_type: isString,
@@ -202,7 +212,7 @@ export async function ensureAuthTables(): Promise<void> {
     if (legacyRows[0] && Number(userCountRows[0]?.count) === 0) {
       const created = assertRows(await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
         VALUES ('admin', '超级管理员', ${legacyRows[0].password_hash}, ${legacyRows[0].password_salt}, 'super_admin', 'active', FALSE, 1, ${now}, ${now})
-        ON CONFLICT DO NOTHING RETURNING id`, isIdRow, 'app_users');
+        ON CONFLICT DO NOTHING RETURNING id`, isUserIdRow, 'app_users');
       if (created[0]) await sql`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id) VALUES (${created[0].id}, 'all', '', '') ON CONFLICT DO NOTHING`;
     }
   })().catch(error => { setupPromise = null; throw error; });
@@ -319,18 +329,18 @@ export async function repairSuperAdmin(username: string, recoveryKey: string, ne
   }
 
   const password = await makePasswordHash(nextPassword);
-  const existing = assertRows(await sql`SELECT id FROM app_users WHERE LOWER(username)=LOWER(${name}) LIMIT 1`, isIdRow, 'app_users');
+  const existing = assertRows(await sql`SELECT id FROM app_users WHERE LOWER(username)=LOWER(${name}) LIMIT 1`, isUserIdRow, 'app_users');
   let userId: number;
   let created = false;
   if (existing[0]) {
-    userId = existing[0].id;
+    userId = Number(existing[0].id);
     await invalidateLegacySharedToken();
     await sql`UPDATE app_users SET role_id='super_admin', status='active', password_hash=${password.hash}, password_salt=${password.salt},
       must_change_password=TRUE, token_version=token_version+1, updated_at=${now} WHERE id=${userId}`;
   } else {
     const insertedRows = assertRows(await sql`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
-      VALUES (${name}, '超级管理员', ${password.hash}, ${password.salt}, 'super_admin', 'active', TRUE, 1, ${now}, ${now}) RETURNING id`, isIdRow, 'app_users');
-    userId = insertedRows[0].id;
+      VALUES (${name}, '超级管理员', ${password.hash}, ${password.salt}, 'super_admin', 'active', TRUE, 1, ${now}, ${now}) RETURNING id`, isUserIdRow, 'app_users');
+    userId = Number(insertedRows[0].id);
     created = true;
   }
   await sql`DELETE FROM app_user_scopes WHERE user_id=${userId}`;
@@ -347,7 +357,7 @@ export async function ensureGeneratedRecoveryKey(): Promise<string | null> {
   const recoveryKey = `NVR-${randomBytes(24).toString('base64url')}`;
   const encoded = await makePasswordHash(recoveryKey);
   const updated = assertRows(await authSql()`UPDATE app_auth SET recovery_key_hash=${encoded.hash}, recovery_key_salt=${encoded.salt}, updated_at=${Date.now()}
-    WHERE id=1 AND recovery_key_hash IS NULL RETURNING id`, isIdRow, 'app_auth');
+    WHERE id=1 AND recovery_key_hash IS NULL RETURNING id`, isAuthIdRow, 'app_auth');
   return updated[0] ? recoveryKey : null;
 }
 
@@ -378,7 +388,7 @@ async function ensureDefaultSuperAdmin(password: string): Promise<void> {
   await authSql()`INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
     VALUES ('admin', '超级管理员', ${auth.password_hash}, ${auth.password_salt}, 'super_admin', 'active', FALSE, 1, ${at}, ${at})
     ON CONFLICT DO NOTHING`;
-  const rows = assertRows(await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1`, isIdRow, 'app_users');
+  const rows = assertRows(await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1`, isUserIdRow, 'app_users');
   if (rows[0]) await authSql()`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id) VALUES (${rows[0].id}, 'all', '', '') ON CONFLICT DO NOTHING`;
 }
 
@@ -418,12 +428,12 @@ function signature(userId: number, expiresAt: number, version: number, secret: s
   return createHmac('sha256', secret).update(`${userId}.${expiresAt}.${version}`).digest('base64url');
 }
 
-export type LoginAttemptRow = { action: string; created_at: number };
+export type LoginAttemptRow = { action: string; created_at: DatabaseInt8 };
 export type LoginFailureAlert = { username: string; failureCount: number; windowStart: number; latestFailureAt: number };
-const isLoginAttemptRow = rowShape<LoginAttemptRow>({ action: isString, created_at: isNumberLike });
+const isLoginAttemptRow = rowShape<LoginAttemptRow>({ action: isString, created_at: isDatabaseInt8 });
 const isLoginAttemptWithUsernameRow = rowShape<LoginAttemptRow & { username: string }>({
   action: isString,
-  created_at: isNumberLike,
+  created_at: isDatabaseInt8,
   username: isString,
 });
 
@@ -515,7 +525,8 @@ export async function authenticateUser(username: string, password: string): Prom
   const auth = await config();
   if (!auth) return null;
   const expiresAt = Date.now() + TOKEN_TTL;
-  const token = Buffer.from(`${row.id}.${expiresAt}.${row.token_version}.${signature(row.id, expiresAt, row.token_version, auth.token_secret)}`).toString('base64url');
+  const userId = Number(row.id);
+  const token = Buffer.from(`${userId}.${expiresAt}.${row.token_version}.${signature(userId, expiresAt, row.token_version, auth.token_secret)}`).toString('base64url');
   const firstLogin = row.last_login_at == null;
   await authSql()`UPDATE app_users SET last_login_at=${Date.now()} WHERE id=${row.id}`;
   return { actor: await actorFromUserRow(row), token, expiresAt, firstLogin };
@@ -555,7 +566,7 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
       const legacyExpected = createHmac('sha256', auth.token_secret).update(`${expiresAt}.${version}`).digest('base64url');
       const a = Buffer.from(received || ''); const b = Buffer.from(legacyExpected);
       if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-      const adminRows = assertRows(await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1`, isIdRow, 'app_users');
+      const adminRows = assertRows(await authSql()`SELECT id FROM app_users WHERE LOWER(username)='admin' LIMIT 1`, isUserIdRow, 'app_users');
       userId = Number(adminRows[0]?.id);
     } else return null;
     const row = await userById(userId);

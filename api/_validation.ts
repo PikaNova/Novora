@@ -7,9 +7,18 @@ export class AuthDataIntegrityError extends Error {
 
 type FieldGuard<T> = (value: unknown) => value is T;
 
+/**
+ * PostgreSQL int8 values may be returned by the Neon driver as decimal strings.
+ * We only accept values that can still be represented exactly by JavaScript.
+ */
+export type DatabaseInt8 = number | string;
+
 export const isString: FieldGuard<string> = (value): value is string => typeof value === "string";
 export const isNumberLike: FieldGuard<number> = (value): value is number =>
   typeof value === "number" && Number.isFinite(value);
+export const isDatabaseInt8: FieldGuard<DatabaseInt8> = (value): value is DatabaseInt8 =>
+  (typeof value === "number" && Number.isSafeInteger(value)) ||
+  (typeof value === "string" && /^-?\d+$/.test(value) && Number.isSafeInteger(Number(value)));
 export const isBoolean: FieldGuard<boolean> = (value): value is boolean => typeof value === "boolean";
 export const isNullableString: FieldGuard<string | null | undefined> = (
   value,
