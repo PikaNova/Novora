@@ -175,3 +175,8 @@ For every later turn, read `task_plan.md`, `findings.md`, and this file before p
 - Preserved current scoped user visibility, all-school audit authorization, and pre-mutation legacy-token invalidation. The supplied archive would have weakened each of those safeguards, so its overlapping versions were not copied.
 - Added 3 pure test files, updated the legacy-token source-invariant test, and added a real database audit-alert route case.
 - Validation passed: `367/367` unit tests, API typecheck, production build, and Neon integration `8/8`.
+
+### 2026-08-02: Remote Delivery
+
+- Committed the validated cumulative security, reliability, feedback, and Neon integration coverage as `915507c feat: harden auth feedback and database integration coverage`.
+- Pushed `915507c` successfully to `origin/dev`.

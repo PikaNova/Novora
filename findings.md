@@ -258,3 +258,7 @@ Class and grade administrators submit a complete cached school snapshot. A class
 - `api/users.ts` returns the alert projection only inside the existing `audit.read` plus `canReadAuditLog()` guard. Grade and class scoped administrators remain unable to query audit-derived account activity.
 - Retry countdown presentation uses response `retryAfterMs` first and a valid `Retry-After` header as a fallback. Token helper extraction preserves the prior 4-part and legacy 3-part validation semantics.
 - Validation passed: `367/367` unit tests, API typecheck, production build, and `8/8` disposable-Neon integration tests. The eighth integration case confirms an all-scope actor receives the audit alert response.
+
+## Delivery State
+
+- The validated cumulative change set was committed and pushed to `origin/dev` as `915507c feat: harden auth feedback and database integration coverage`.

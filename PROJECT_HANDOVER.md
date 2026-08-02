@@ -2,6 +2,8 @@
 
 Updated: 2026-08-02
 
+Delivery commit: `915507c feat: harden auth feedback and database integration coverage` is pushed to `origin/dev`.
+
 ## Table Of Contents
 
 1. [Source Of Truth](#source-of-truth)

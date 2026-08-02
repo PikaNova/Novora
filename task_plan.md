@@ -89,7 +89,7 @@ Inspect, selectively merge, and statically validate login lockout and Markdown U
 | 79. Inspect login alerts and retry-feedback package | Complete | The package has compatible alert/countdown goals but is based on older security code, contains encoding-corrupted text, removes scoped user/audit safeguards, and moves legacy-token invalidation after mutations. Merge only isolated compatible behavior. |
 | 80. Merge compatible alert and regression coverage | Complete | Added all-scope login-failure alerts, precise recovery/login countdown feedback, pure token guards, and clean regressions without weakening existing scope or token-invalidation safeguards. |
 | 81. Validate and update handover | Complete | Passed `367/367` unit tests, API typecheck, production build, and `8/8` Neon integration tests; updated handover and process documents. |
-| 82. Delivery | In progress | Commit and push the fully validated cumulative security, feedback, and Neon integration-test changes to `origin/dev`. |
+| 82. Delivery | Complete | Pushed `915507c feat: harden auth feedback and database integration coverage` to `origin/dev`. |
 | 83. Export validated source and handover | Complete | Created clean archives containing this validated merge and updated handover, excluding incoming extraction, generated output, credentials, environment files, Git metadata, dependencies, and logs. |
 
 ## Decisions
