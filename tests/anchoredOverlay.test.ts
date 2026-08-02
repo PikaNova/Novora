@@ -39,3 +39,14 @@ test('anchored overlay stays inside the shared viewport and dialog safety edges'
   assert.equal(position.maxWidth, 280);
   assert.equal(position.maxHeight, 400);
 });
+
+test('anchored overlay stays attached above a wide custom-time prompt when neither side fits', () => {
+  const position = resolveAnchoredOverlayPosition({
+    anchor: { left: 374, top: 618, width: 420, height: 88 },
+    overlay,
+    viewport: { width: 920, height: 960 },
+    boundary: { left: 138, top: 238, width: 680, height: 678 },
+  });
+  assert.equal(position.left, 438);
+  assert.equal(position.top, 250);
+});

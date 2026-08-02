@@ -193,6 +193,29 @@ export function sanitizeStaleSnapshot(
     }
   }
 
+  if (
+    next.activeWeeklyPlanIdByClassId !== null &&
+    typeof next.activeWeeklyPlanIdByClassId === "object" &&
+    !Array.isArray(next.activeWeeklyPlanIdByClassId)
+  ) {
+    const classesForMapping = Array.isArray(next.classes) ? next.classes : current.classes;
+    const classesById = new Map(
+      (classesForMapping as any[]).map((schoolClass) => [String(schoolClass?.id ?? ""), schoolClass]),
+    );
+    const currentMapping = (current.activeWeeklyPlanIdByClassId as Record<string, string | null>) ?? {};
+    const submittedMapping = next.activeWeeklyPlanIdByClassId as Record<string, string | null>;
+    const mergedMapping: Record<string, string | null> = { ...submittedMapping };
+
+    for (const classId of new Set([...Object.keys(currentMapping), ...Object.keys(submittedMapping)])) {
+      const schoolClass: any = classesById.get(classId);
+      if (schoolClass && canAccessClass(actor, String(schoolClass.gradeId ?? ""), classId)) continue;
+      if (classId in currentMapping) mergedMapping[classId] = currentMapping[classId];
+      else delete mergedMapping[classId];
+    }
+
+    next = { ...next, activeWeeklyPlanIdByClassId: mergedMapping };
+  }
+
   if (Array.isArray(next.majors) && !hasPermission(actor, "major.edit")) {
     const submittedById = new Map(
       next.majors.map((major: any) => [String(major?.id ?? ""), major]),

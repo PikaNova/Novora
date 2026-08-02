@@ -115,6 +115,7 @@ export default function QuickMajorPublishModal({
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [timeFlowOpen, setTimeFlowOpen] = useState(false);
   const timeFlowSnapshotRef = useRef<null | { customStartTime: string; durationMinutes: number; crossDayConfirmed: boolean; useCustomStart: boolean }>(null);
+  const timeFlowAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
   const [subjectTrackModeEnabled, setSubjectTrackModeEnabled] = useState(() => getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
@@ -493,7 +494,7 @@ export default function QuickMajorPublishModal({
             <div className="quick-major-modal__section quick-major-time-settings">
               <strong>自定义时间</strong>
               <p>特殊时间安排可直接设置开始和结束时间，系统自动计算实际时长。</p>
-              <button type="button" className="quick-major-time-trigger" onClick={openTimeFlow}>
+              <button ref={timeFlowAnchorRef} type="button" className="quick-major-time-trigger" onClick={openTimeFlow}>
                 <span>{useCustomStart ? "已自定义开始与结束时间" : "当前按开始方式和常用时长计算"}</span>
                 <strong>{startTime.slice(11, 16)} - {previewEndTime.slice(11, 16)}</strong>
                 <small>{examDate} · {formatDuration(durationMinutes)}，点击自定义起止时间</small>
@@ -608,6 +609,7 @@ export default function QuickMajorPublishModal({
           contextLabel={examDate}
           presets={[]}
           initialCrossDay={crossDayConfirmed}
+          anchorRef={timeFlowAnchorRef}
           onPreviewChange={applyTimeFlowDraft}
           onCancel={cancelTimeFlow}
           onConfirm={(nextStart, nextEnd, endNextDay) => {

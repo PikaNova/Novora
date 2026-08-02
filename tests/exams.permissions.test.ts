@@ -216,6 +216,23 @@ test('sanitizeStaleSnapshot: keeps own weekly changes but restores other classes
   assert.deepEqual(sanitized.classes, current.classes);
 });
 
+test('sanitizeStaleSnapshot: keeps an active weekly plan change for the managed class only', () => {
+  const actor = makeActor({
+    permissions: ['weekly.edit'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const current = makeCurrent({
+    classes: [{ id: 'c1', gradeId: 'g1' }, { id: 'c2', gradeId: 'g2' }],
+    activeWeeklyPlanIdByClassId: { c1: 'w1', c2: 'w2' },
+  });
+  const sanitized = sanitizeStaleSnapshot(actor, current, {
+    activeWeeklyPlanIdByClassId: { c1: 'w1-next', c2: 'w2-stale' },
+  });
+
+  assert.deepEqual(sanitized.activeWeeklyPlanIdByClassId, { c1: 'w1-next', c2: 'w2' });
+  assert.equal(validateMutation(actor, current, sanitized).ok, true);
+});
+
 test('sanitizeStaleSnapshot: grade admins retain only class changes in their grade', () => {
   const actor = makeActor({
     permissions: ['school.class_manage'],

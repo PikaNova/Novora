@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { DateTimeField } from "./touch-datetime-picker";
 import WheelColumn from "./WheelColumn";
@@ -20,6 +20,7 @@ interface Props {
   presets?: number[];
   allowCrossDay?: boolean;
   initialCrossDay?: boolean;
+  anchorRef?: RefObject<HTMLElement | null>;
   onPreviewChange?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onPreviewCancel?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onCancel: () => void;
@@ -103,6 +104,7 @@ export default function TimeRangePickerModal({
   presets = [45, 60, 75, 90, 120, 150],
   allowCrossDay = true,
   initialCrossDay = false,
+  anchorRef,
   onPreviewChange,
   onPreviewCancel,
   onCancel,
@@ -132,9 +134,13 @@ export default function TimeRangePickerModal({
       return;
     }
     const activeElement = document.activeElement;
-    anchorElementRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
+    anchorElementRef.current = anchorRef?.current instanceof HTMLElement
+      ? anchorRef.current
+      : activeElement instanceof HTMLElement && activeElement !== document.body
+        ? activeElement
+        : null;
     anchorBoundaryRef.current = anchorElementRef.current?.closest(".admin-modal, .time-range-modal") ?? null;
-  }, [open]);
+  }, [anchorRef, open]);
 
   useLayoutEffect(() => {
     if (!open || !modalRef.current || window.innerWidth <= 620) return;
