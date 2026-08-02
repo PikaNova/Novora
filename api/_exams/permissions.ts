@@ -193,6 +193,49 @@ export function sanitizeStaleSnapshot(
     }
   }
 
+  if (Array.isArray(next.majors) && !hasPermission(actor, "major.edit")) {
+    const submittedById = new Map(
+      next.majors.map((major: any) => [String(major?.id ?? ""), major]),
+    );
+    const currentMajors = current.majors as any[];
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    const canManageOwnMajor = (major: any) =>
+      hasPermission(actor, "major.quick_create") && isOwnedQuickTemporaryMajor(actor, major);
+    const canEndScopedMajor = (currentMajor: any, submittedMajor: any) =>
+      hasPermission(actor, "major.quick_create") &&
+      !!submittedMajor &&
+      canControlQuickTemporaryMajorInScope(actor, currentMajor, current.classes as any[]) &&
+      canControlQuickTemporaryMajorInScope(actor, submittedMajor, next.classes as any[]) &&
+      isEarlyQuickMajorEnd(currentMajor, submittedMajor);
+
+    for (const currentMajor of currentMajors) {
+      const id = String(currentMajor?.id ?? "");
+      seen.add(id);
+      const submittedMajor = submittedById.get(id);
+      if (canManageOwnMajor(currentMajor)) {
+        if (submittedMajor) merged.push(submittedMajor);
+      } else if (canEndScopedMajor(currentMajor, submittedMajor)) {
+        merged.push(submittedMajor);
+      } else {
+        merged.push(currentMajor);
+      }
+    }
+    for (const submittedMajor of next.majors) {
+      if (seen.has(String(submittedMajor?.id ?? ""))) continue;
+      if (canManageOwnMajor(submittedMajor)) merged.push(submittedMajor);
+    }
+    next = { ...next, majors: merged };
+  }
+
+  if (
+    next.alerts !== undefined &&
+    !hasPermission(actor, "alerts.edit") &&
+    !sameJson(current.alerts, next.alerts)
+  ) {
+    next = { ...next, alerts: current.alerts };
+  }
+
   return next;
 }
 

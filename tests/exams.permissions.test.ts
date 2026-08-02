@@ -229,6 +229,63 @@ test('sanitizeStaleSnapshot: grade admins retain only class changes in their gra
   });
   assert.deepEqual(sanitized.classes, [{ ...own, name: 'own client' }, outside]);
 });
+
+test('sanitizeStaleSnapshot: keeps an owned quick-major change but restores stale majors and alerts', () => {
+  const actor = makeActor({
+    id: 7,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const quick = {
+    id: 'quick', name: 'quick server', source: 'quick', temporary: true, createdBy: 7,
+    targetGradeIds: ['g1'], targetClassIds: ['c1'], items: [{ id: 'i1', enabled: true }],
+  };
+  const formal = { id: 'formal', name: 'formal server', items: [], targetGradeIds: ['g2'], targetClassIds: [] };
+  const current = makeCurrent({
+    majors: [quick, formal], items: quick.items, title: quick.name, activeMajorId: quick.id,
+    alerts: { enabled: true }, classes: [{ id: 'c1', gradeId: 'g1' }],
+  });
+  const changedQuick = { ...quick, name: 'quick client' };
+  const sanitized = sanitizeStaleSnapshot(actor, current, {
+    majors: [changedQuick, { ...formal, name: 'formal stale' }],
+    items: changedQuick.items, title: changedQuick.name, activeMajorId: changedQuick.id,
+    alerts: { enabled: false }, classes: current.classes,
+  });
+  assert.deepEqual(sanitized.majors, [changedQuick, formal]);
+  assert.deepEqual(sanitized.alerts, current.alerts);
+  assert.equal(validateMutation(actor, current, sanitized).ok, true);
+});
+
+test('sanitizeStaleSnapshot: keeps an in-scope co-manager early end but restores stale majors and alerts', () => {
+  const actor = makeActor({
+    id: 8,
+    permissions: ['major.quick_create'],
+    scopes: [scope({ type: 'class', gradeId: 'g1', classId: 'c1' })],
+  });
+  const quick = {
+    id: 'quick', name: 'quick', source: 'quick', temporary: true, createdBy: 7, endedAt: null,
+    targetGradeIds: ['g1'], targetClassIds: ['c1'], items: [{ id: 'i1', enabled: true }],
+  };
+  const formal = { id: 'formal', name: 'formal server', items: [], targetGradeIds: ['g2'], targetClassIds: [] };
+  const current = makeCurrent({
+    majors: [quick, formal], items: quick.items, title: quick.name, activeMajorId: quick.id,
+    alerts: { enabled: true }, classes: [{ id: 'c1', gradeId: 'g1' }],
+  });
+  const endedQuick = {
+    ...quick,
+    endedAt: 1_000,
+    items: quick.items.map((item) => ({ ...item, enabled: false })),
+  };
+  const sanitized = sanitizeStaleSnapshot(actor, current, {
+    majors: [endedQuick, { ...formal, name: 'formal stale' }],
+    items: endedQuick.items, title: endedQuick.name, activeMajorId: endedQuick.id,
+    alerts: { enabled: false }, classes: current.classes,
+  });
+  assert.deepEqual(sanitized.majors, [endedQuick, formal]);
+  assert.deepEqual(sanitized.alerts, current.alerts);
+  assert.equal(validateMutation(actor, current, sanitized).ok, true);
+});
+
 test('validateMutation: quick_create does NOT cover a quick major with no target classes', () => {
   const actor = makeActor({
     id: 7,
