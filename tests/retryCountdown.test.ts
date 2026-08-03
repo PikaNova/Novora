@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeLockedUntil, computeRemainingSeconds, formatRetryMessage } from '../src/utils/retryCountdown.js';
+import { computeLockedUntil, computeRemainingSeconds, formatRetryMessage, loginLockoutRetryAfterMs } from '../src/utils/retryCountdown.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -19,4 +19,12 @@ test('retry countdown rounds partial seconds up and ends at zero', () => {
 test('retry countdown message is empty when the retry window is over', () => {
   assert.equal(formatRetryMessage(0, 'Operation is busy'), '');
   assert.equal(formatRetryMessage(12, 'Operation is busy'), 'Operation is busy，请 12 秒后再试');
+});
+
+test('login lockout recognition uses the API response shape rather than instanceof', () => {
+  assert.equal(loginLockoutRetryAfterMs({ code: 'LOGIN_LOCKED', retryAfterMs: 12_345 }), 12_345);
+  assert.equal(loginLockoutRetryAfterMs({ code: 'LOGIN_LOCKED', retryAfterMs: '12345' }), null);
+  assert.equal(loginLockoutRetryAfterMs({ code: 'RATE_LIMITED', retryAfterMs: 12_345 }), null);
+  assert.equal(loginLockoutRetryAfterMs({ code: 'LOGIN_LOCKED', retryAfterMs: 0 }), null);
+  assert.equal(loginLockoutRetryAfterMs(null), null);
 });

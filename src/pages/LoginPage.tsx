@@ -1,10 +1,10 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getAdminRecoveryStatus, getAdminUser, getLastAuthApiError, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin, recoverSuperAdminAccount } from '../services/examService';
-import { ApiError, formatApiError } from '../services/apiError';
+import { formatApiError } from '../services/apiError';
 import { changeOwnCredentials } from '../services/adminUsers';
 import { useRetryCountdown } from '../hooks/useRetryCountdown';
-import { computeLockedUntil, formatRetryMessage } from '../utils/retryCountdown';
+import { computeLockedUntil, formatRetryMessage, loginLockoutRetryAfterMs } from '../utils/retryCountdown';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
 import SuperAdminRepairLink from '../components/SuperAdminRepairLink';
@@ -52,8 +52,9 @@ export default function LoginPage() {
     setLoading(false);
     if (!session) {
       const cause = getLastAuthApiError();
-      if (cause instanceof ApiError && cause.code === 'LOGIN_LOCKED' && typeof cause.retryAfterMs === 'number') {
-        setLockedUntil(computeLockedUntil(cause.retryAfterMs));
+      const retryAfterMs = loginLockoutRetryAfterMs(cause);
+      if (retryAfterMs !== null) {
+        setLockedUntil(computeLockedUntil(retryAfterMs));
         setError('');
         return;
       }
