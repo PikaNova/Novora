@@ -44,6 +44,8 @@
     "api/_exams/routes/deviceSelfRoutes.ts",
     "api/_exams/routes/settingsRoutes.ts",
     "api/_exams/routes/examDataRoutes.ts",
+    "api/_exams/dashboard.ts",
+    "api/_exams/routes/dashboardRoutes.ts",
     "api/_exams/scopeCleanup.ts",
     "src/utils/zonedTime.ts",
     "src/utils/examMerge.ts",

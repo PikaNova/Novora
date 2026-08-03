@@ -42,6 +42,7 @@ import {
   handleDesignPolicy,
   handleResetData,
 } from "./_exams/routes/settingsRoutes.js";
+import { handleDashboard } from "./_exams/routes/dashboardRoutes.js";
 
 type RouteHandler = (
   req: VercelRequest,
@@ -62,6 +63,7 @@ const ACTION_ONLY_ROUTES: Record<string, RouteHandler> = {
     handlePluginPairStatusOrBootstrap(req, res, "plugin-bootstrap"),
   "plugin-viewer-heartbeat": (req, res) => handlePluginViewerHeartbeat(req, res),
   bootstrap: (req, res, startedAt) => handleBootstrap(req, res, startedAt),
+  dashboard: (req, res, startedAt) => handleDashboard(req, res, startedAt),
   "device-bindings": (req, res) => handleDeviceBindings(req, res),
   "device-binding-options": (req, res) => handleDeviceBindingOptions(req, res),
   "device-binding": (req, res) => handleDeviceBinding(req, res),
