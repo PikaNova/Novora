@@ -132,6 +132,7 @@ export function useAdminSyncEngine(params: {
     const requestedTab = search.get("tab") as AdminTab | null;
     const ADMIN_NAV_PERMISSION: Record<AdminTab, string> = {
       overview: "overview.read",
+      dashboard: "overview.read",
       major: "major.read",
       weekly: "weekly.read",
       classes: "school.read",
@@ -140,6 +141,7 @@ export function useAdminSyncEngine(params: {
     };
     const ADMIN_NAV_LABEL: Record<AdminTab, string> = {
       overview: "仪表盘",
+      dashboard: "数据大屏",
       major: "大型考试",
       weekly: "周测计划",
       classes: "年级与班级",

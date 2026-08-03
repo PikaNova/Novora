@@ -67,6 +67,7 @@ import HelpTip from "../components/HelpTip";
 import ModuleIcon from "../components/ModuleIcon";
 import SubjectIcon from "../components/SubjectIcon";
 import OverviewPanel from "../components/OverviewPanel";
+import DashboardPanel from "../components/DashboardPanel";
 import AiImportGuide from "../components/AiImportGuide";
 import AccessDenied from "../components/AccessDenied";
 import SchedulePrintPreview from "../components/SchedulePrintPreview";
@@ -978,7 +979,7 @@ export default function AdminPage() {
             </button>
           ))}
         </div>
-        {adminTab !== "overview" &&
+        {adminTab !== "overview" && adminTab !== "dashboard" &&
           adminTab !== "devices" &&
           adminTab !== "classes" &&
           adminTab !== "users" && (
@@ -1046,7 +1047,7 @@ export default function AdminPage() {
       </div>
       <div
         key={adminTab}
-        className={`admin-body admin-tab-transition${(["overview", "classes", "devices", "users"] as AdminTab[]).includes(adminTab) ? " admin-body--wide" : ""}`}
+        className={`admin-body admin-tab-transition${(["overview", "dashboard", "classes", "devices", "users"] as AdminTab[]).includes(adminTab) ? " admin-body--wide" : ""}`}
       >
         {adminTab === "overview" ? (
           <OverviewPanel
@@ -1061,6 +1062,8 @@ export default function AdminPage() {
               canQuickPublish ? () => setQuickMajorOpen(true) : undefined
             }
           />
+        ) : adminTab === "dashboard" ? (
+          <DashboardPanel />
         ) : adminTab === "weekly" ? (
           <fieldset
             className="admin-permission-fieldset"

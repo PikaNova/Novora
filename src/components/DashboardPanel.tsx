@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { formatClockInZone, getZonedParts } from "../../utils/zonedTime";
-import { logoutAdmin } from "../../services/examService";
+import { formatClockInZone, getZonedParts } from "../utils/zonedTime";
+import { logoutAdmin } from "../services/examService";
 import { Activity, BookOpen, CalendarDays, CalendarRange, CheckCircle2, Clock3, Monitor, PlayCircle, Sun, Timer } from "lucide-react";
-import "../../styles/dashboard.css";
+import "../styles/dashboard.css";
 
 type DashboardEntry = {
   id: string;
@@ -106,7 +106,7 @@ function BarRows({ rows, emptyText }: { rows: DistributionRow[]; emptyText: stri
   );
 }
 
-export default function DashboardSection() {
+export default function DashboardPanel() {
   const navigate = useNavigate();
   const [now, setNow] = useState(Date.now());
   const [data, setData] = useState<DashboardPayload | null>(null);
@@ -153,9 +153,7 @@ export default function DashboardSection() {
   const stats = data?.stats;
 
   return (
-    <section className="set-card">
-      <h2 className="set-card__title">数据大屏</h2>
-      <div className="dashboard dashboard--embedded">
+    <main className="dashboard">
         <div className="dashboard__head">
           <div>
             <h1>{data?.scopeLabel ?? "数据大屏"}</h1>
@@ -204,7 +202,6 @@ export default function DashboardSection() {
             </div>
           </>
         )}
-      </div>
-    </section>
+    </main>
   );
 }
