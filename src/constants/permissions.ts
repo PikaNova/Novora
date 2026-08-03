@@ -16,7 +16,7 @@ export type RoleModule = {
 };
 
 export const ROLE_MODULES: RoleModule[] = [
-	{ id: "overview", label: "运行总览", read: ["overview.read"], manage: [] },
+	{ id: "overview", label: "仪表盘", read: ["overview.read"], manage: [] },
 	{
 		id: "major",
 		label: "大型考试",

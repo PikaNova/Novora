@@ -24,6 +24,7 @@ import TimeSyncSection from "../components/settings/TimeSyncSection";
 import AppearanceSection from "../components/settings/AppearanceSection";
 import AlertsAdvancedSection from "../components/settings/AlertsAdvancedSection";
 import DataMaintenanceSection from "../components/settings/DataMaintenanceSection";
+import DashboardSection from "../components/settings/DashboardSection";
 import { ArrowLeft, ListChecks } from "lucide-react";
 
 export default function SettingsPage() {
@@ -135,6 +136,8 @@ export default function SettingsPage() {
         {canResetDatabase && (
           <DataMaintenanceSection canResetDatabase={canResetDatabase} />
         )}
+
+        {adminUser && adminCan("overview.read", adminUser) && <DashboardSection />}
 
         <TelemetrySection canEditSettings={canEditSettings} />
 

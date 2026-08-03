@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import AccessDenied from "../components/AccessDenied";
-import { formatClockInZone, getZonedParts } from "../utils/zonedTime";
-import { logoutAdmin } from "../services/examService";
-import "../styles/dashboard.css";
+import { formatClockInZone, getZonedParts } from "../../utils/zonedTime";
+import { logoutAdmin } from "../../services/examService";
+import { Activity, BookOpen, CalendarDays, CalendarRange, CheckCircle2, Clock3, Monitor, PlayCircle, Sun, Timer } from "lucide-react";
+import "../../styles/dashboard.css";
 
 type DashboardEntry = {
   id: string;
@@ -64,9 +64,10 @@ function timeRangeLabel(startTime: string, endTime: string): string {
   return date + " " + startTime.slice(11, 16) + " - " + endTime.slice(11, 16);
 }
 
-function Kpi({ value, label }: { value: number | string; label: string }) {
+function Kpi({ icon, value, label }: { icon: React.ReactNode; value: number | string; label: string }) {
   return (
     <div className="dashboard-kpi">
+      <span className="dashboard-kpi__icon">{icon}</span>
       <strong>{value}</strong>
       <span>{label}</span>
     </div>
@@ -105,11 +106,10 @@ function BarRows({ rows, emptyText }: { rows: DistributionRow[]; emptyText: stri
   );
 }
 
-export default function DashboardPage() {
+export default function DashboardSection() {
   const navigate = useNavigate();
   const [now, setNow] = useState(Date.now());
   const [data, setData] = useState<DashboardPayload | null>(null);
-  const [denied, setDenied] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -120,11 +120,11 @@ export default function DashboardPage() {
     });
     if (res.status === 401) {
       logoutAdmin();
-      navigate("/login?next=/dashboard", { replace: true });
+      navigate("/login?next=/settings", { replace: true });
       return;
     }
     if (res.status === 403) {
-      setDenied(true);
+      setError("当前账号没有查看仪表盘的权限");
       return;
     }
     const body = await res.json().catch(() => null);
@@ -148,64 +148,63 @@ export default function DashboardPage() {
     };
   }, [refresh]);
 
-  if (denied) {
-    return <AccessDenied moduleName="数据大屏" onBack={() => navigate("/admin")} />;
-  }
-
   const parts = getZonedParts(now);
   const dateLabel = parts.year + "年" + parts.month + "月" + parts.day + "日 星期" + WEEKDAY_NAMES[parts.weekday];
   const stats = data?.stats;
 
   return (
-    <main className="dashboard">
-      <header className="dashboard__head">
-        <div>
-          <h1>{data?.scopeLabel ?? "考试数据大屏"}</h1>
-          <p>实时监控考试状态与设备情况</p>
+    <section className="set-card">
+      <h2 className="set-card__title">仪表盘</h2>
+      <div className="dashboard dashboard--embedded">
+        <div className="dashboard__head">
+          <div>
+            <h1>{data?.scopeLabel ?? "仪表盘"}</h1>
+            <p>实时监控考试状态与设备情况</p>
+          </div>
+          <div className="dashboard__clock">
+            <strong>{formatClockInZone(now)}</strong>
+            <span>{dateLabel}</span>
+          </div>
         </div>
-        <div className="dashboard__clock">
-          <strong>{formatClockInZone(now)}</strong>
-          <span>{dateLabel}</span>
-        </div>
-      </header>
-      {error && <div className="dashboard__error">{error}</div>}
-      {!data && !error ? (
-        <div className="dashboard-loading">正在载入数据…</div>
-      ) : (
-        <>
-          <section className="dashboard-kpis">
-            <Kpi value={stats?.total ?? 0} label="考试总数" />
-            <Kpi value={stats?.ongoing ?? 0} label="进行中" />
-            <Kpi value={stats?.upcoming ?? 0} label="即将开始" />
-            <Kpi value={stats?.today ?? 0} label="今日考试" />
-            <Kpi value={stats?.onlineDevices ?? 0} label={"在线设备 · 考试中" + (stats?.inExamDevices ?? 0)} />
-            <Kpi value={stats?.thisWeek ?? 0} label="本周考试" />
-          </section>
-          <section className="dashboard-cols">
-            <section className="dashboard-panel">
-              <header><h2>进行中的考试</h2><span>最近 {data?.ongoing.length ?? 0} 场</span></header>
-              {data?.ongoing.length ? data.ongoing.map(entry => <EntryRow key={entry.id} entry={entry} now={now} showCountdown={false} />) : <EmptyState text="暂无进行中的考试" />}
+        {error && <div className="dashboard__error">{error}</div>}
+        {!data && !error ? (
+          <div className="dashboard-loading">正在载入数据…</div>
+        ) : (
+          <>
+            <section className="dashboard-kpis">
+              <Kpi icon={<CalendarDays size={20} />} value={stats?.total ?? 0} label="考试总数" />
+              <Kpi icon={<Activity size={20} />} value={stats?.ongoing ?? 0} label="进行中" />
+              <Kpi icon={<Clock3 size={20} />} value={stats?.upcoming ?? 0} label="即将开始" />
+              <Kpi icon={<Sun size={20} />} value={stats?.today ?? 0} label="今日考试" />
+              <Kpi icon={<Monitor size={20} />} value={stats?.onlineDevices ?? 0} label={"在线设备 · 考试中" + (stats?.inExamDevices ?? 0)} />
+              <Kpi icon={<CalendarRange size={20} />} value={stats?.thisWeek ?? 0} label="本周考试" />
             </section>
-            <section className="dashboard-panel">
-              <header><h2>即将开始</h2><span>最近 {data?.upcoming.length ?? 0} 场</span></header>
-              {data?.upcoming.length ? data.upcoming.map(entry => <EntryRow key={entry.id} entry={entry} now={now} showCountdown />) : <EmptyState text="暂无即将开始的考试" />}
+            <section className="dashboard-cols">
+              <section className="dashboard-panel">
+                <header><h2><PlayCircle size={16} /> 进行中的考试</h2><span>最近 {data?.ongoing.length ?? 0} 场</span></header>
+                {data?.ongoing.length ? data.ongoing.map(entry => <EntryRow key={entry.id} entry={entry} now={now} showCountdown={false} />) : <EmptyState text="暂无进行中的考试" />}
+              </section>
+              <section className="dashboard-panel">
+                <header><h2><Timer size={16} /> 即将开始</h2><span>最近 {data?.upcoming.length ?? 0} 场</span></header>
+                {data?.upcoming.length ? data.upcoming.map(entry => <EntryRow key={entry.id} entry={entry} now={now} showCountdown />) : <EmptyState text="暂无即将开始的考试" />}
+              </section>
             </section>
-          </section>
-          <section className="dashboard-cols">
-            <section className="dashboard-panel">
-              <header><h2>按科目考试分布</h2><span>未来 7 天</span></header>
-              <BarRows rows={data?.subjectDistribution ?? []} emptyText="未来 7 天暂无考试" />
+            <section className="dashboard-cols">
+              <section className="dashboard-panel">
+                <header><h2><BookOpen size={16} /> 按科目考试分布</h2><span>未来 7 天</span></header>
+                <BarRows rows={data?.subjectDistribution ?? []} emptyText="未来 7 天暂无考试" />
+              </section>
+              <section className="dashboard-panel">
+                <header><h2><CheckCircle2 size={16} /> 最近结束</h2><span>最近 {data?.recentEnded.length ?? 0} 场</span></header>
+                {data?.recentEnded.length ? data.recentEnded.map(entry => <EntryRow key={entry.id} entry={entry} now={now} showCountdown={false} />) : <EmptyState text="暂无已结束的考试" />}
+              </section>
             </section>
-            <section className="dashboard-panel">
-              <header><h2>最近结束</h2><span>最近 {data?.recentEnded.length ?? 0} 场</span></header>
-              {data?.recentEnded.length ? data.recentEnded.map(entry => <EntryRow key={entry.id} entry={entry} now={now} showCountdown={false} />) : <EmptyState text="暂无已结束的考试" />}
-            </section>
-          </section>
-          <footer className="dashboard__foot">
-            最后同步 {data?.updatedAt ? new Date(data.updatedAt).toLocaleString("zh-CN") : "—"} · 每 30 秒自动刷新
-          </footer>
-        </>
-      )}
-    </main>
+            <div className="dashboard__foot">
+              最后同步 {data?.updatedAt ? new Date(data.updatedAt).toLocaleString("zh-CN") : "—"} · 每 30 秒自动刷新
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

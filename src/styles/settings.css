@@ -152,3 +152,7 @@ select.set-input { cursor: pointer; }
 .set-dev-tools>summary{cursor:pointer;font-weight:700}.set-inline-actions{display:flex;flex-wrap:wrap;gap:8px}.set-card__title{display:flex;align-items:center;gap:8px}.set-note--warn{align-items:flex-start}
 .set-row--picker{align-items:start}.set-row--picker>.class-picker{min-width:0;width:100%;margin:0}
 .set-update-guide{display:grid;gap:12px;margin-top:14px;padding:15px;border:1px solid rgba(61,157,242,.25);border-radius:8px;background:rgba(61,157,242,.055)}.set-update-guide>strong{font-size:14px;color:#dceeff}.set-update-guide ol{display:grid;gap:10px;margin:0;padding-left:21px}.set-update-guide li{padding-left:3px;color:#9fabb5;font-size:12px;line-height:1.55}.set-update-guide li b,.set-update-guide li span{display:block}.set-update-guide li b{margin-bottom:2px;color:#e6ebef;font-size:12.5px}.set-update-guide a{width:max-content;max-width:100%;color:#82c5fa;font-size:12px;overflow-wrap:anywhere}@media(max-width:620px){.set-update-guide{padding:13px}.set-update-guide a{width:100%}}
+
+.set-title { font-family: var(--font-chalk); }
+
+.set-card__title { font-family: var(--font-chalk); }

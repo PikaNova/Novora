@@ -139,7 +139,7 @@ export function useAdminSyncEngine(params: {
       users: "user.read",
     };
     const ADMIN_NAV_LABEL: Record<AdminTab, string> = {
-      overview: "运行总览",
+      overview: "仪表盘",
       major: "大型考试",
       weekly: "周测计划",
       classes: "年级与班级",

@@ -15,7 +15,7 @@ export const ADMIN_NAV: Array<{
   mobileLabel: string;
   permission: string;
 }> = [
-  { id: "overview", label: "运行总览", mobileLabel: "总览", permission: "overview.read" },
+  { id: "overview", label: "仪表盘", mobileLabel: "仪表盘", permission: "overview.read" },
   { id: "major", label: "大型考试", mobileLabel: "考试", permission: "major.read" },
   { id: "weekly", label: "周测计划", mobileLabel: "周测", permission: "weekly.read" },
   { id: "classes", label: "年级与班级", mobileLabel: "班级", permission: "school.read" },

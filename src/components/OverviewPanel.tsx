@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CalendarClock,
@@ -21,7 +20,6 @@ import {
 } from "../services/classBinding";
 import { fetchAuditOverview, type AuditLog, type LoginFailureAlert } from "../services/adminUsers";
 import { getQuickMajorDisplayStatus } from "../utils/majorDisplayStatus";
-import { hasPermission } from "../shared/permissionRules";
 
 const ONLINE_MS = 90_000;
 type OverviewDetail = "online" | "majors" | "database" | "attention";
@@ -100,7 +98,6 @@ export default function OverviewPanel({
   online,
   onQuickPublish,
 }: Props) {
-  const navigate = useNavigate();
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [deviceError, setDeviceError] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -302,8 +299,8 @@ export default function OverviewPanel({
           <span>项目运行情况</span>
           <h2>
             {user.roleId === "super_admin"
-              ? "全校运行总览"
-              : "管理年级运行总览"}
+              ? "全校仪表盘"
+              : "管理年级仪表盘"}
           </h2>
         </div>
         <div className="overview-panel__actions">
@@ -313,14 +310,6 @@ export default function OverviewPanel({
               onClick={onQuickPublish}
             >
             统一添加单科考试
-            </button>
-          )}
-          {hasPermission(user, "overview.read") && (
-            <button
-              className="admin-btn"
-              onClick={() => navigate("/dashboard")}
-            >
-              查看数据大屏
             </button>
           )}
           <strong className={online ? "is-ok" : "is-warn"}>{syncLabel}</strong>
