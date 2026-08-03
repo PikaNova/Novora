@@ -124,7 +124,7 @@ export default function DashboardSection() {
       return;
     }
     if (res.status === 403) {
-      setError("当前账号没有查看仪表盘的权限");
+      setError("当前账号没有查看数据大屏的权限");
       return;
     }
     const body = await res.json().catch(() => null);
@@ -154,11 +154,11 @@ export default function DashboardSection() {
 
   return (
     <section className="set-card">
-      <h2 className="set-card__title">仪表盘</h2>
+      <h2 className="set-card__title">数据大屏</h2>
       <div className="dashboard dashboard--embedded">
         <div className="dashboard__head">
           <div>
-            <h1>{data?.scopeLabel ?? "仪表盘"}</h1>
+            <h1>{data?.scopeLabel ?? "数据大屏"}</h1>
             <p>实时监控考试状态与设备情况</p>
           </div>
           <div className="dashboard__clock">
