@@ -21,6 +21,7 @@ import {
 } from "../services/classBinding";
 import { fetchAuditOverview, type AuditLog, type LoginFailureAlert } from "../services/adminUsers";
 import { getQuickMajorDisplayStatus } from "../utils/majorDisplayStatus";
+import { hasPermission } from "../shared/permissionRules";
 
 const ONLINE_MS = 90_000;
 type OverviewDetail = "online" | "majors" | "database" | "attention";
