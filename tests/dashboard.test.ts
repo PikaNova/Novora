@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PermissionSubject } from "../src/shared/permissionRules.js";
 import { getShanghaiDateKey, addDaysToDateKey } from "../src/utils/weeklySchedule.js";
+import { parseZonedTime } from "../src/utils/zonedTime.js";
 import {
   actorVisibleGradeIds,
   aggregateStats,
@@ -43,7 +44,7 @@ const classes: DashboardClass[] = [
 
 const todayKey = getShanghaiDateKey(Date.now());
 const yesterdayKey = addDaysToDateKey(todayKey, -1);
-const now = new Date(todayKey + "T12:00").getTime();
+const now = parseZonedTime(todayKey + "T12:00");
 
 function item(id: string, name: string, date: string, start: string, end: string, extra: Record<string, unknown> = {}) {
   return { id, name, startTime: date + "T" + start, endTime: date + "T" + end, enabled: true, ...extra };

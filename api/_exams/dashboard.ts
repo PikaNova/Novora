@@ -8,6 +8,7 @@ import {
   type PermissionSubject,
 } from "../../src/shared/permissionRules.js";
 import { getShanghaiDateKey, weekIndexOfDateKey } from "../../src/utils/weeklySchedule.js";
+import { parseZonedTime } from "../../src/utils/zonedTime.js";
 
 export type DashboardGrade = { id: string; name: string; enabled?: boolean };
 export type DashboardClass = { id: string; gradeId: string; name: string; enabled?: boolean };
@@ -83,8 +84,8 @@ const num = (value: unknown): number => {
 
 const itemDateKey = (item: DashboardItem | ScopedItem): string => item.startTime.slice(0, 10);
 
-const itemStartMs = (item: DashboardItem | ScopedItem): number => new Date(item.startTime).getTime();
-const itemEndMs = (item: DashboardItem | ScopedItem): number => new Date(item.endTime).getTime();
+const itemStartMs = (item: DashboardItem | ScopedItem): number => parseZonedTime(item.startTime);
+const itemEndMs = (item: DashboardItem | ScopedItem): number => parseZonedTime(item.endTime);
 
 export function actorVisibleGradeIds(
   actor: PermissionSubject,
