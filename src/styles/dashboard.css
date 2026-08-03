@@ -55,8 +55,8 @@
 
 .dashboard--embedded { min-height: 0; padding: 0; background: none; gap: 14px; }
 .dashboard--embedded .dashboard__head { padding-bottom: 10px; }
-.dashboard__head h1 { font-family: var(--font-chalk); }
+.dashboard__head h1 { font-family: var(--font-region-display); }
 .dashboard-kpi__icon { display: inline-flex; color: #7fd7ff; margin-bottom: 8px; }
 .dashboard-panel h2 { display: inline-flex; align-items: center; gap: 6px; }
 .dashboard-panel > header svg { color: #7fd7ff; }
-.dashboard-panel h2 { font-family: var(--font-chalk); }
+.dashboard-panel h2 { font-family: var(--font-region-display); }
