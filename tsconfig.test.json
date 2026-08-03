@@ -63,6 +63,7 @@
     "src/utils/anchoredOverlay.ts",
     "src/utils/deviceScope.ts",
     "src/utils/trackClassIds.ts",
-    "src/utils/retryCountdown.ts"
+    "src/utils/retryCountdown.ts",
+    "src/hooks/useRetryCountdown.ts"
   ]
 }
