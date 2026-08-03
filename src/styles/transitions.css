@@ -29,8 +29,8 @@
 }
 
 @keyframes app-time-popover-in {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.985); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from { opacity: 0; transform: scale(.985); }
+  to { opacity: 1; transform: none; }
 }
 
 .app-route-transition {
