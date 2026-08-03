@@ -48,6 +48,7 @@ export default function ItemFormModal({
   commitItemModal,
   planWeekMode,
 }: ItemFormModalProps) {
+  const weeklyTimeFlowAnchorRef = React.useRef<HTMLButtonElement | null>(null);
   if (!editing) return null;
 
   return (
@@ -143,6 +144,7 @@ export default function ItemFormModal({
               <button
                 type="button"
                 className="admin-major-endtime__trigger"
+                ref={weeklyTimeFlowAnchorRef}
                 onClick={openWeeklyTimeFlow}
               >
                 <strong>{editing.startTime || "--:--"} - {editing.endTime || "--:--"}</strong>
@@ -195,6 +197,7 @@ export default function ItemFormModal({
         subject={editing.name || "周测"}
         contextLabel={WEEKDAY_LABEL[editing.weekday]}
         initialCrossDay={!!editing.endNextDay}
+        anchorRef={weeklyTimeFlowAnchorRef}
         onPreviewChange={(startTime, endTime, endNextDay) => {
           setEditing((item) => item ? { ...item, startTime, endTime, endNextDay } : item);
         }}

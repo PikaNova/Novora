@@ -179,6 +179,7 @@ export default function AdminPage() {
     majors: initial.majors,
     activeMajorId: initial.activeMajorId,
   });
+  const majorTimeFlowAnchorRef = useRef<HTMLButtonElement | null>(null);
   const pendingRef = useRef(false);
   const examPushChainRef = useRef<Promise<void>>(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1373,6 +1374,7 @@ export default function AdminPage() {
                         <button
                           type="button"
                           className="admin-major-endtime__trigger"
+                          ref={majorTimeFlowAnchorRef}
                           onClick={openMajorStartTimeFlow}
                         >
                           <strong>{editing.startTime && editing.endTime ? `${fmtLocal(editing.startTime)} - ${fmtLocal(editing.endTime)}` : "设置考试时间"}</strong>
@@ -2318,6 +2320,7 @@ export default function AdminPage() {
         subject={editing.name || "分考试"}
         presets={MAJOR_DURATION_PRESETS}
         initialCrossDay={editing.startTime.slice(0, 10) !== editing.endTime.slice(0, 10)}
+        anchorRef={majorTimeFlowAnchorRef}
         onPreviewChange={(startTime, endTime) => {
           setEditing((value) => value ? { ...value, startTime, endTime } : value);
         }}

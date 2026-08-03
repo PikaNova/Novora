@@ -85,6 +85,7 @@ export default function TemporaryExamLauncher({
     timeKey(nextFiveMinutes()),
   );
   const [timeRangeOpen, setTimeRangeOpen] = useState(false);
+  const timeRangeAnchorRef = useRef<HTMLButtonElement | null>(null);
   const timeRangeSnapshotRef = useRef<null | { mode: "now" | "delay" | "specific"; delay: number; duration: number; specificDate: string; specificTime: string; crossDayConfirmed: boolean }>(null);
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [priority, setPriority] = useState(false);
@@ -445,7 +446,7 @@ export default function TemporaryExamLauncher({
                           </strong>
                           <small>共 {formatDuration(duration)}</small>
                         </div>
-                        <button type="button" onClick={openTimeRange}>自定义时间</button>
+                        <button ref={timeRangeAnchorRef} type="button" onClick={openTimeRange}>自定义时间</button>
                       </div>
                     </section>
                   )}
@@ -554,6 +555,7 @@ export default function TemporaryExamLauncher({
         contextLabel={dateKey(startMs)}
         presets={DURATION_PRESETS}
         initialCrossDay={crossDayConfirmed}
+        anchorRef={timeRangeAnchorRef}
         onPreviewChange={applyTimeRangeDraft}
         onCancel={cancelTimeRange}
         onConfirm={(startTime, endTime, endNextDay) => {

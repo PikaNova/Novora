@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Clock3 } from "lucide-react";
 import type { ExamItem, MajorExam } from "../types";
 import type { SchoolClass } from "../types/school";
@@ -329,6 +329,7 @@ export default function MajorBatchAddModal({
   const [error, setError] = useState("");
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [timeEditItemId, setTimeEditItemId] = useState<string | null>(null);
+  const timeEditAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [overflowAck, setOverflowAck] = useState(false);
 
   useEffect(() => {
@@ -896,6 +897,7 @@ export default function MajorBatchAddModal({
                                       <button
                                         type="button"
                                         className="major-batch-preview-item__time-trigger"
+                                        ref={timeEditItemId === item.id ? timeEditAnchorRef : undefined}
                                         onClick={() => setTimeEditItemId(item.id)}
                                       >
                                         <Clock3 size={14} aria-hidden="true" />
@@ -942,6 +944,7 @@ export default function MajorBatchAddModal({
                       subject={timeEditItem.name || "科目"}
                       allowCrossDay
                       initialCrossDay={timeEditItem.allowCrossDay}
+                      anchorRef={timeEditAnchorRef}
                       onCancel={() => setTimeEditItemId(null)}
                       onConfirm={(start, end, crossDay) => {
                         updateDraft(timeEditItem.id, { start, end, allowCrossDay: crossDay });

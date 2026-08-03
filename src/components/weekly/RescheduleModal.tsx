@@ -29,6 +29,7 @@ export default function RescheduleModal({
   setRescheduleTimeOpen,
   commitReschedule,
 }: RescheduleModalProps) {
+  const rescheduleTimeAnchorRef = React.useRef<HTMLButtonElement | null>(null);
   if (!rescheduleTarget) return null;
 
   return (
@@ -68,7 +69,7 @@ export default function RescheduleModal({
             </label>
             <div className="admin-major-endtime">
               <span>时间设置</span>
-              <button type="button" className="admin-major-endtime__trigger" onClick={() => setRescheduleTimeOpen(true)}>
+              <button ref={rescheduleTimeAnchorRef} type="button" className="admin-major-endtime__trigger" onClick={() => setRescheduleTimeOpen(true)}>
                 <strong>{rescheduleTarget.startTime} - {rescheduleTarget.endTime}</strong>
                 <small>一次设置本次调课的开始与结束时间</small>
               </button>
@@ -103,6 +104,7 @@ export default function RescheduleModal({
         subject={rescheduleTarget.name || "临时调课"}
         contextLabel={rescheduleTarget.date}
         allowCrossDay={false}
+        anchorRef={rescheduleTimeAnchorRef}
         onPreviewChange={(startTime, endTime) => {
           setRescheduleTarget((value) => value ? { ...value, startTime, endTime } : value);
         }}
