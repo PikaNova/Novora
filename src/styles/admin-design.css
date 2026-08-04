@@ -509,7 +509,7 @@
 .admin-tabbar__modes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
 .admin-tabbar__mode { margin: 0; }
 .admin-tabbar__mode-label.with-help-tip {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 9px; white-space: nowrap;
   line-height: 1.4; vertical-align: middle;
 }
 .admin-tabbar__mode .help-tip { align-self: center; margin-left: 0; }
