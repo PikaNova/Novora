@@ -38,6 +38,7 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
   );
 
   const [newSubjectName, setNewSubjectName] = useState("");
+  const [customSubjectName, setCustomSubjectName] = useState("");
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
 
   const [newTimeName, setNewTimeName] = useState("");
@@ -113,6 +114,12 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
     setSubjectGroups(nextGroups);
     setNewSubjectName("");
     setSelectedSubjects([]);
+  };
+  const addCustomSubject = () => {
+    const subject = normalizeSubjectName(customSubjectName.trim());
+    if (!subject) return;
+    setSelectedSubjects((value) => (value.includes(subject) ? value : [...value, subject]));
+    setCustomSubjectName("");
   };
   const toggleSubject = (subject: string) => {
     setSelectedSubjects((value) =>
@@ -242,6 +249,36 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
               })}
             </div>
             <p className="batch-preset-subjects-hint">点击科目名称多选，已选 {selectedSubjects.length} 门</p>
+            {selectedSubjects.length > 0 && (
+              <div className="batch-preset-selected">
+                {selectedSubjects.map((subject) => (
+                  <span className="batch-preset-selected-chip" key={subject}>
+                    {subject}
+                    <button type="button" aria-label={`移除${subject}`} onClick={() => toggleSubject(subject)}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="batch-preset-custom-subject">
+              <input
+                className="admin-input"
+                value={customSubjectName}
+                onChange={(event) => setCustomSubjectName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addCustomSubject();
+                  }
+                }}
+                placeholder="自定义科目名称"
+                maxLength={20}
+              />
+              <button className="admin-btn" type="button" onClick={addCustomSubject}>
+                添加自定义科目
+              </button>
+            </div>
             <button className="admin-btn" type="button" onClick={addSubjectGroup}>
               新建科目组
             </button>

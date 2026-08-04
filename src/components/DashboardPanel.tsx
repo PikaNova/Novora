@@ -232,8 +232,8 @@ export default function DashboardPanel() {
                       <div className="dashboard-device" key={device.instanceId}>
                         <span className={`dashboard-device__dot${device.inExam ? " is-exam" : ""}`} aria-hidden="true" />
                         <div className="dashboard-device__main">
-                          <strong>{device.instanceId}</strong>
-                          <span>{device.scopeLabel} · {device.statusLabel}</span>
+                          <strong>{device.scopeLabel}</strong>
+                          <span>{device.instanceId} · {device.statusLabel}</span>
                         </div>
                       </div>
                     ))}

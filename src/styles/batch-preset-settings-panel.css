@@ -192,3 +192,52 @@
   background: rgba(59, 143, 208, 0.08);
   color: #eaf6ff;
 }
+.batch-preset-custom-subject {
+  display: flex;
+  gap: 8px;
+}
+
+.batch-preset-custom-subject .admin-input {
+  flex: 1;
+  min-width: 0;
+}
+.batch-preset-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.batch-preset-selected-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 11px;
+  border: 1px solid rgba(59, 143, 208, 0.65);
+  border-radius: 999px;
+  background: rgba(59, 143, 208, 0.16);
+  color: #a9dcff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.batch-preset-selected-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a9dcff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.batch-preset-selected-chip button:hover {
+  background: rgba(224, 96, 96, 0.35);
+  color: #fff;
+}
