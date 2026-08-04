@@ -210,3 +210,54 @@
   .dashboard-kpi, .dashboard-panel, .dashboard-entry, .admin-item { opacity: 1; transform: none; animation: none; }
   .dashboard-bar__track i { animation: none; }
 }
+/* ---- Stronger titles ---- */
+.ovd__title h2, .ovd-panel h3, .dashboard__head h1, .dashboard-panel h2,
+.admin-list-title, .admin-major-card__active-name, .admin-form-card__title, .admin-item__name,
+.weekly-group__title, .weekly-calendar__event-main strong {
+  color: #f7fbfe;
+}
+
+/* ---- Weekly plans page ---- */
+.weekly-list-actions { border-radius: 10px; border: 1px solid var(--adm-line); background: var(--adm-card); padding: 10px 12px; box-shadow: var(--adm-shadow-1); }
+.weekly-groups { display: grid; gap: 8px; }
+.weekly-group { border-radius: 12px; border: 1px solid var(--adm-line); background: var(--adm-card); box-shadow: var(--adm-shadow-1); overflow: hidden; }
+.weekly-group__title { padding: 12px 14px; font-size: 14px; font-weight: 750; border-bottom: 1px solid var(--adm-line); }
+.weekly-calendar-scroll { border-radius: 12px; border: 1px solid var(--adm-line); background: var(--adm-card); box-shadow: var(--adm-shadow-1); }
+.weekly-calendar__week {
+  opacity: 0; transform: translateY(8px);
+  animation: sw-rise var(--adm-dur-base) var(--adm-ease) forwards;
+}
+.weekly-calendar__week:nth-child(1) { animation-delay: 20ms; }
+.weekly-calendar__week:nth-child(2) { animation-delay: 60ms; }
+.weekly-calendar__week:nth-child(3) { animation-delay: 100ms; }
+.weekly-calendar__week:nth-child(4) { animation-delay: 140ms; }
+.weekly-calendar__week:nth-child(5) { animation-delay: 180ms; }
+.weekly-calendar__week:nth-child(6) { animation-delay: 220ms; }
+.weekly-calendar__week:nth-child(7) { animation-delay: 260ms; }
+.weekly-calendar__event-main { color: var(--adm-text); font-size: 13px; }
+.weekly-calendar__events { gap: 4px; }
+.weekly-calendar__events > * {
+  border-radius: 6px; border: 1px solid var(--adm-line); background: var(--adm-bg2);
+  transition: border-color var(--adm-dur-fast) var(--adm-ease);
+}
+.weekly-calendar__events > *:hover { border-color: var(--adm-accent); }
+.weekly-calendar__holiday { color: var(--adm-warn); }
+.weekly-week-badge {
+  border-radius: 6px; padding: 1px 8px; font-size: 12px;
+  background: var(--adm-accent-soft); color: var(--adm-accent);
+}
+.weekly-calendar__remove { color: var(--adm-text-3); }
+.weekly-calendar__empty { color: var(--adm-text-3); }
+
+@media (max-width: 760px) {
+  .admin-sidebar { width: 100%; }
+  .weekly-groups { grid-template-columns: 1fr; }
+  .weekly-group { width: 100%; }
+  .weekly-calendar-scroll { overflow-x: auto; }
+  .weekly-calendar__week { min-width: 150px; }
+  .admin-item { grid-template-columns: 26px 34px 1fr; gap: 8px; }
+  .admin-item__actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weekly-calendar__week { opacity: 1; transform: none; animation: none; }
+}
