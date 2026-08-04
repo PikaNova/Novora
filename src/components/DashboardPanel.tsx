@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatClockInZone, getZonedParts } from "../utils/zonedTime";
 import { logoutAdmin } from "../services/examService";
@@ -42,6 +42,27 @@ type DashboardPayload = {
 const TOKEN_KEY = "admin_auth_token";
 const WEEKDAY_NAMES = ["日", "一", "二", "三", "四", "五", "六"];
 
+
+function useCountUp(value: number, duration = 700): number {
+  const [display, setDisplay] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === value) return;
+    fromRef.current = value;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (time: number) => {
+      const progress = Math.min(1, (time - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(from + (value - from) * eased));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return display;
+}
 function countdownLabel(startTime: string, now: number): string {
   const diff = new Date(startTime).getTime() - now;
   if (diff <= 0) return "即将开始";
@@ -151,6 +172,12 @@ export default function DashboardPanel() {
   const parts = getZonedParts(now);
   const dateLabel = parts.year + "年" + parts.month + "月" + parts.day + "日 星期" + WEEKDAY_NAMES[parts.weekday];
   const stats = data?.stats;
+  const displayTotal = useCountUp(stats?.total ?? 0);
+  const displayOngoing = useCountUp(stats?.ongoing ?? 0);
+  const displayUpcoming = useCountUp(stats?.upcoming ?? 0);
+  const displayToday = useCountUp(stats?.today ?? 0);
+  const displayOnline = useCountUp(stats?.onlineDevices ?? 0);
+  const displayWeek = useCountUp(stats?.thisWeek ?? 0);
 
   return (
     <main className="dashboard">
@@ -170,12 +197,12 @@ export default function DashboardPanel() {
         ) : (
           <>
             <section className="dashboard-kpis">
-              <Kpi icon={<CalendarDays size={20} />} value={stats?.total ?? 0} label="考试总数" />
-              <Kpi icon={<Activity size={20} />} value={stats?.ongoing ?? 0} label="进行中" />
-              <Kpi icon={<Clock3 size={20} />} value={stats?.upcoming ?? 0} label="即将开始" />
-              <Kpi icon={<Sun size={20} />} value={stats?.today ?? 0} label="今日考试" />
-              <Kpi icon={<Monitor size={20} />} value={stats?.onlineDevices ?? 0} label={"在线设备 · 考试中" + (stats?.inExamDevices ?? 0)} />
-              <Kpi icon={<CalendarRange size={20} />} value={stats?.thisWeek ?? 0} label="本周考试" />
+              <Kpi icon={<CalendarDays size={20} />} value={displayTotal} label="考试总数" />
+              <Kpi icon={<Activity size={20} />} value={displayOngoing} label="进行中" />
+              <Kpi icon={<Clock3 size={20} />} value={displayUpcoming} label="即将开始" />
+              <Kpi icon={<Sun size={20} />} value={displayToday} label="今日考试" />
+              <Kpi icon={<Monitor size={20} />} value={displayOnline} label={"在线设备 · 考试中" + (stats?.inExamDevices ?? 0)} />
+              <Kpi icon={<CalendarRange size={20} />} value={displayWeek} label="本周考试" />
             </section>
             <section className="dashboard-cols">
               <section className="dashboard-panel">
