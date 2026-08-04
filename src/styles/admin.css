@@ -709,9 +709,8 @@
     padding-right:0!important;
     border-right:0!important;
   }
-  .admin-header__brand>span,
   .admin-header__brand strong{
-    display:none!important;
+    display:none;
   }
   .admin-header__title{
     font-size:13px!important;

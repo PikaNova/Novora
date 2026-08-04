@@ -23,12 +23,12 @@
 @keyframes exam-sync-attention { 0%,100% { box-shadow:0 0 0 0 rgba(255,113,105,0); } 50% { box-shadow:0 0 0 4px rgba(255,113,105,.35); } }
 @media (max-width:620px) {
   .exam-root{--exam-context-height:calc(42px + env(safe-area-inset-top))}
-  .exam-context-bar{grid-template-columns:minmax(0,1fr) auto;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(8px,env(safe-area-inset-right));gap:7px}
-  .exam-context-bar__identity{max-width:100%;justify-self:stretch}
+  .exam-context-bar{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);padding-left:max(10px,env(safe-area-inset-left));padding-right:max(8px,env(safe-area-inset-right));gap:7px}
+  .exam-context-bar__identity{max-width:100%;justify-self:start}
   .exam-context-bar__status{justify-self:end}
   .exam-sync-action__button{width:34px;min-height:34px;padding:0;justify-content:center;font-size:0}
   .exam-sync-action__button svg{width:16px;height:16px}
-  .exam-sync-action__status,.exam-brand-mark,.exam-subject-badge{display:none}
+  .exam-sync-action__status,.exam-subject-badge{display:none}
 }
 
 /* Attribution sits bottom-right, opposite the sync control, and disappears below full-screen alerts. */
