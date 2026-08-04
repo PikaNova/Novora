@@ -10,6 +10,7 @@ export interface InitializationState {
   province: string;
   schoolName: string;
   schoolFullName: string;
+  schoolLogo?: string;
   subjectTrackModeEnabled: boolean;
 }
 
@@ -20,6 +21,7 @@ export const DEFAULT_INITIALIZATION: InitializationState = {
   province: '',
   schoolName: '',
   schoolFullName: '',
+  schoolLogo: '',
   subjectTrackModeEnabled: true,
 };
 
@@ -65,6 +67,7 @@ export function normalizeInitialization(raw: unknown): InitializationState {
     province: String(src.province ?? '').trim(),
     schoolName: String(src.schoolName ?? '').trim(),
     schoolFullName: String(src.schoolFullName ?? src.schoolName ?? '').trim(),
+    schoolLogo: typeof src.schoolLogo === 'string' ? src.schoolLogo : '',
     subjectTrackModeEnabled: src.subjectTrackModeEnabled !== false,
   };
 }

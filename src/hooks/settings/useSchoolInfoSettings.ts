@@ -17,6 +17,9 @@ export function useSchoolInfoSettings(canEditSchool: boolean) {
     () => getAppSettings().exam.initialization.province,
   );
   const [schoolSave, setSchoolSave] = useState("");
+  const [schoolLogo, setSchoolLogo] = useState<string>(
+    () => getAppSettings().exam.initialization.schoolLogo ?? "",
+  );
 
   const saveSchoolName = async () => {
     const nextName = schoolName.trim();
@@ -34,6 +37,7 @@ export function useSchoolInfoSettings(canEditSchool: boolean) {
       province,
       schoolName: nextName,
       schoolFullName: schoolFullName(province, nextName),
+      schoolLogo,
       wizardVersion: Math.max(2, exam.initialization.wizardVersion),
     };
     updateExamSettings({ initialization });
@@ -63,6 +67,8 @@ export function useSchoolInfoSettings(canEditSchool: boolean) {
     setSchoolName,
     province,
     setProvince,
+    schoolLogo,
+    setSchoolLogo,
     schoolSave,
     saveSchoolName,
   };

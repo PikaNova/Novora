@@ -156,3 +156,33 @@ select.set-input { cursor: pointer; }
 .set-title { font-family: var(--font-region-display); }
 
 .set-card__title { font-family: var(--font-region-display); }
+
+.set-school-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.set-school-logo__img {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 180, 208, 0.24);
+  background: #0d141c;
+  object-fit: cover;
+}
+
+.set-school-logo__empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  border: 1px dashed rgba(148, 180, 208, 0.28);
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(235, 244, 250, 0.5);
+  font-size: 11px;
+}

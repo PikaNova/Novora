@@ -1,5 +1,5 @@
-const SHELL_CACHE = "novora-shell-v2.7.1-pwa-20260804-8";
-const RUNTIME_CACHE = "novora-runtime-v2.7.1-pwa-20260804-8";
+const SHELL_CACHE = "novora-shell-v2.7.1-pwa-20260804-9";
+const RUNTIME_CACHE = "novora-runtime-v2.7.1-pwa-20260804-9";
 const SHELL_ASSETS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

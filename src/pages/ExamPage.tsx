@@ -143,6 +143,7 @@ function BoundExamPage() {
     const initialization = getAppSettings().exam.initialization;
     return initialization.schoolFullName || initialization.schoolName || '';
   });
+  const [schoolLogo, setSchoolLogo] = useState<string>(() => getAppSettings().exam.initialization.schoolLogo ?? "");
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -160,6 +161,7 @@ function BoundExamPage() {
       if (newAlerts) setAlerts(newAlerts);
       const initialization = getAppSettings().exam.initialization;
       setSchoolName(initialization.schoolFullName || initialization.schoolName || '');
+      setSchoolLogo(initialization.schoolLogo ?? '');
       const current = getAppSettings().exam;
       const assigned = resolveManagedDesign(current.designPolicy, current.selectedGradeId, current.selectedClassId, getClassBindingInstanceId());
       setManagedDesign(Boolean(assigned));
@@ -398,7 +400,11 @@ function BoundExamPage() {
         <div className="exam-context-bar__identity">
           {schoolName && (
             <div className="exam-school-name" title={schoolName}>
-              <School aria-hidden="true" />
+              {schoolLogo ? (
+                <img className="exam-school-logo" src={schoolLogo} alt="" />
+              ) : (
+                <School aria-hidden="true" />
+              )}
               <span>{schoolName}</span>
             </div>
           )}
