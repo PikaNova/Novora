@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Clock3 } from "lucide-react";
+import TimeRangePickerModal from "./TimeRangePickerModal";
+import { COMMON_EXAM_SUBJECTS, normalizeSubjectList } from "../data/subjects";
 import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchTimeSlot } from "../utils/appSettings";
 import {
   APP_SETTINGS_CHANGED_EVENT,
@@ -35,9 +38,11 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
   );
 
   const [newSubjectName, setNewSubjectName] = useState("");
-  const [newSubjectText, setNewSubjectText] = useState("");
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
 
   const [newTimeName, setNewTimeName] = useState("");
+  const [timeEditRow, setTimeEditRow] = useState<string | null>(null);
+  const timeEditAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [draftSlots, setDraftSlots] = useState<DraftSlot[]>([
     { key: makeSlotKey(), start: "08:30", end: "09:30", dayOffset: 0 },
   ]);
@@ -93,14 +98,7 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
   };
 
   const addSubjectGroup = () => {
-    const subjects = [
-      ...new Set(
-        newSubjectText
-          .split(/[，,\s、]+/)
-          .map((item) => item.trim())
-          .filter(Boolean),
-      ),
-    ];
+    const subjects = normalizeSubjectList(selectedSubjects);
     if (!subjects.length) return;
     const next: MajorBatchSubjectGroup = {
       id: makeSubjectGroupId(),
@@ -114,8 +112,16 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
     updateMajorBatchSettings({ subjectGroups: nextGroups });
     setSubjectGroups(nextGroups);
     setNewSubjectName("");
-    setNewSubjectText("");
+    setSelectedSubjects([]);
   };
+  const toggleSubject = (subject: string) => {
+    setSelectedSubjects((value) =>
+      value.includes(subject)
+        ? value.filter((item) => item !== subject)
+        : [...value, subject],
+    );
+  };
+
 
   const addSlotRow = () => {
     const last = draftSlots[draftSlots.length - 1];
@@ -219,13 +225,23 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
               placeholder="科目组名称"
               maxLength={30}
             />
-            <input
-              className="admin-input"
-              value={newSubjectText}
-              onChange={(event) => setNewSubjectText(event.target.value)}
-              placeholder="科目名称，用逗号或空格分隔，如：语文 数学 外语"
-              maxLength={200}
-            />
+            <div className="batch-preset-subjects">
+              {COMMON_EXAM_SUBJECTS.map((subject) => {
+                const selected = selectedSubjects.includes(subject);
+                return (
+                  <button
+                    type="button"
+                    key={subject}
+                    aria-pressed={selected}
+                    className={`batch-preset-subject${selected ? " is-selected" : ""}`}
+                    onClick={() => toggleSubject(subject)}
+                  >
+                    {subject}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="batch-preset-subjects-hint">点击科目名称多选，已选 {selectedSubjects.length} 门</p>
             <button className="admin-btn" type="button" onClick={addSubjectGroup}>
               新建科目组
             </button>
@@ -310,24 +326,15 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
                       onChange={(event) => updateSlotRow(row.key, { dayOffset: Number(event.target.value) || 0 })}
                     />
                   </label>
-                  <label>
-                    开始
-                    <input
-                      className="admin-input"
-                      type="time"
-                      value={row.start}
-                      onChange={(event) => updateSlotRow(row.key, { start: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    结束
-                    <input
-                      className="admin-input"
-                      type="time"
-                      value={row.end}
-                      onChange={(event) => updateSlotRow(row.key, { end: event.target.value })}
-                    />
-                  </label>
+                  <button
+                    type="button"
+                    className="batch-preset-slot-time"
+                    ref={row.key === timeEditRow ? timeEditAnchorRef : undefined}
+                    onClick={() => setTimeEditRow(row.key)}
+                  >
+                    <Clock3 size={14} aria-hidden="true" />
+                    {row.start} – {row.end}
+                  </button>
                   <button
                     className="admin-item-btn admin-item-btn--delete"
                     type="button"
@@ -350,6 +357,26 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
           </div>
         )}
       </section>
+      {timeEditRow && (() => {
+        const row = draftSlots.find((item) => item.key === timeEditRow);
+        if (!row) return null;
+        return (
+          <TimeRangePickerModal
+            open
+            mode="time"
+            title="设置场次时间"
+            startValue={row.start}
+            endValue={row.end}
+            anchorRef={timeEditAnchorRef}
+            allowCrossDay={false}
+            onCancel={() => setTimeEditRow(null)}
+            onConfirm={(start, end) => {
+              updateSlotRow(timeEditRow, { start, end });
+              setTimeEditRow(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

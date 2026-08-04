@@ -77,6 +77,14 @@ export type DashboardEntry = {
 
 export type DistributionRow = { label: string; count: number; percent: number };
 
+export type OnlineDevice = {
+  instanceId: string;
+  scopeLabel: string;
+  statusLabel: string;
+  inExam: boolean;
+  lastSeenAt: number;
+};
+
 const num = (value: unknown): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -325,6 +333,38 @@ export function scopedDevices(
   });
 }
 
+export function buildOnlineDevices(
+  devices: DashboardDevice[],
+  classes: DashboardClass[],
+  now: number,
+  onlineWindowMs = 90_000,
+  limit = 50,
+): OnlineDevice[] {
+  const classById = new Map(classes.map(item => [item.id, item]));
+  const rows: OnlineDevice[] = [];
+  for (const device of devices) {
+    const lastSeen = num(device.last_seen_at);
+    if (lastSeen <= 0 || now - lastSeen > onlineWindowMs) continue;
+    const schoolClass = device.class_id ? classById.get(device.class_id) : undefined;
+    const inExam = Boolean(device.current_exam);
+    rows.push({
+      instanceId: device.instance_id,
+      scopeLabel: schoolClass?.name || "未绑定班级",
+      statusLabel: inExam
+        ? `考试中${device.current_exam ? " · " + device.current_exam : ""}`
+        : "空闲",
+      inExam,
+      lastSeenAt: lastSeen,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Number(b.inExam) - Number(a.inExam) ||
+      a.scopeLabel.localeCompare(b.scopeLabel) ||
+      a.instanceId.localeCompare(b.instanceId),
+  );
+  return rows.slice(0, limit);
+}
 export function classifyDevices(
   devices: DashboardDevice[],
   now: number,

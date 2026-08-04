@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatClockInZone, getZonedParts } from "../utils/zonedTime";
 import { logoutAdmin } from "../services/examService";
-import { Activity, BookOpen, CalendarDays, CalendarRange, CheckCircle2, Clock3, Monitor, PlayCircle, Sun, Timer } from "lucide-react";
+import { Activity, CalendarDays, CalendarRange, CheckCircle2, Clock3, Monitor, PlayCircle, Sun, Timer } from "lucide-react";
 import "../styles/dashboard.css";
 
 type DashboardEntry = {
@@ -16,6 +16,14 @@ type DashboardEntry = {
 };
 
 type DistributionRow = { label: string; count: number; percent: number };
+
+type OnlineDeviceRow = {
+  instanceId: string;
+  scopeLabel: string;
+  statusLabel: string;
+  inExam: boolean;
+  lastSeenAt: number;
+};
 
 type DashboardPayload = {
   ok: true;
@@ -36,6 +44,7 @@ type DashboardPayload = {
   recentEnded: DashboardEntry[];
   subjectDistribution: DistributionRow[];
   gradeDistribution: DistributionRow[];
+  onlineDevices: OnlineDeviceRow[];
   updatedAt: number;
 };
 
@@ -216,8 +225,22 @@ export default function DashboardPanel() {
             </section>
             <section className="dashboard-cols">
               <section className="dashboard-panel">
-                <header><h2><BookOpen size={16} /> 按科目考试分布</h2><span>未来 7 天</span></header>
-                <BarRows rows={data?.subjectDistribution ?? []} emptyText="未来 7 天暂无考试" />
+                <header><h2><Monitor size={16} /> 当前在线设备</h2><span>{stats?.onlineDevices ?? 0} 台在线</span></header>
+                {data?.onlineDevices?.length ? (
+                  <div className="dashboard-devices">
+                    {data.onlineDevices.map(device => (
+                      <div className="dashboard-device" key={device.instanceId}>
+                        <span className={`dashboard-device__dot${device.inExam ? " is-exam" : ""}`} aria-hidden="true" />
+                        <div className="dashboard-device__main">
+                          <strong>{device.instanceId}</strong>
+                          <span>{device.scopeLabel} · {device.statusLabel}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState text="暂无在线设备" />
+                )}
               </section>
               <section className="dashboard-panel">
                 <header><h2><CheckCircle2 size={16} /> 最近结束</h2><span>最近 {data?.recentEnded.length ?? 0} 场</span></header>

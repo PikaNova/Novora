@@ -7,6 +7,7 @@ import {
   actorVisibleGradeIds,
   aggregateStats,
   buildGradeDistribution,
+  buildOnlineDevices,
   buildOngoing,
   buildRecentEnded,
   buildSubjectDistribution,
@@ -174,4 +175,23 @@ test("scopedDevices filters by grade scope, class scope, revoked and management"
 test("scope label reflects all-school and grade scopes", () => {
   assert.equal(dashboardScopeLabel(allScope, grades), "全校数据大屏");
   assert.equal(dashboardScopeLabel(gradeAdminG1, grades), "高一数据大屏");
+});
+
+test("buildOnlineDevices lists online scoped devices with scope and status labels", () => {
+  const scoped = scopedDevices(devices, allScope, classes);
+  const rows = buildOnlineDevices(scoped, classes, now);
+  assert.deepEqual(rows.map(row => row.instanceId), ["d1", "d3"]);
+  assert.equal(rows[0].inExam, true);
+  assert.equal(rows[0].statusLabel, "考试中 · 语文");
+  assert.equal(rows[0].scopeLabel, "高一1班");
+  assert.equal(rows[1].statusLabel, "空闲");
+  assert.equal(rows[1].scopeLabel, "高二1班");
+});
+
+test("buildOnlineDevices drops stale devices outside the online window", () => {
+  const scoped = scopedDevices(devices, allScope, classes);
+  const rows = buildOnlineDevices(scoped, classes, now, 90_000);
+  assert.deepEqual(rows.map(row => row.instanceId), ["d1", "d3"]);
+  const none = buildOnlineDevices(scoped, classes, now, 1);
+  assert.deepEqual(none, []);
 });

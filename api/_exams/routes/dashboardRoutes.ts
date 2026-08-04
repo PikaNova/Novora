@@ -7,6 +7,7 @@ import {
   aggregateStats,
   buildGradeDistribution,
   buildOngoing,
+  buildOnlineDevices,
   buildRecentEnded,
   buildSubjectDistribution,
   buildUpcoming,
@@ -71,6 +72,7 @@ export async function handleDashboard(
     upcoming: buildUpcoming(items, now),
     recentEnded: buildRecentEnded(items, now),
     subjectDistribution: buildSubjectDistribution(items, now),
+    onlineDevices: buildOnlineDevices(devices, classes, now),
     gradeDistribution: buildGradeDistribution(items, grades, hasAllScope(actor) ? undefined : actorVisibleGradeIds(actor, grades)),
     updatedAt,
   });
