@@ -984,6 +984,7 @@ export default function AdminPage() {
           adminTab !== "classes" &&
           adminTab !== "users" && (
             <>
+              <div className="admin-tabbar__modes">
               <label className="admin-tabbar__mode">
                 <span className="admin-tabbar__mode-label with-help-tip">
                   <span>运行模式</span>
@@ -1042,6 +1043,7 @@ export default function AdminPage() {
                   />
                 </label>
               )}
+              </div>
             </>
           )}
       </div>

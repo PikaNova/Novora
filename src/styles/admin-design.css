@@ -504,3 +504,33 @@
     opacity: 1; transform: none; animation: none;
   }
 }
+
+/* ================= Tab bar selector group (运行模式/年级/班级) ================= */
+.admin-tabbar__modes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.admin-tabbar__mode { margin: 0; }
+.admin-tabbar__mode-label.with-help-tip {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  line-height: 1.4; vertical-align: middle;
+}
+.admin-tabbar__mode .help-tip { align-self: center; margin-left: 0; }
+.admin-tabbar__mode .help-tip__trigger {
+  font-family: inherit; font-size: 11px; font-weight: 800; line-height: 1;
+}
+
+/* Medium widths: two-layer form — tabs on one scrollable line, fields as a tidy grid */
+@media (max-width: 1300px) and (min-width: 701px) {
+  .admin-tabbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .admin-tabbar__tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .admin-tabbar__modes { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: end; }
+  .admin-tabbar__mode { display: grid; gap: 5px; font-size: 12px; color: var(--adm-text-2); }
+  .admin-tabbar__mode .admin-input { width: 100%; }
+  .admin-tabbar__mode-label.with-help-tip { justify-content: flex-start; }
+}
+
+/* Mobile: keep the 2-column grid from base, polish alignment */
+@media (max-width: 700px) {
+  .admin-tabbar__modes { display: contents; }
+  .admin-tabbar__mode { color: var(--adm-text-2); }
+  .admin-tabbar__mode-label.with-help-tip { justify-content: flex-start; }
+  .admin-tabbar__mode .help-tip { align-self: center; }
+}
