@@ -985,30 +985,31 @@ export default function AdminPage() {
           adminTab !== "users" && (
             <>
               <div className="admin-tabbar__modes">
-              <label className="admin-tabbar__mode">
-                <span className="admin-tabbar__mode-label with-help-tip">
-                  <span>运行模式</span>
-                  <HelpTip title="运行模式">
-                    仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。
-                  </HelpTip>
-                </span>
-                <InlineSelect
-                  className="admin-input"
-                  value={scheduleMode}
-                  onChange={(value) =>
-                    handleScheduleModeChange(value as ScheduleMode)
-                  }
-                  disabled={!can("schedule.mode_edit")}
-                  options={[
-                    { value: "major-only", label: "仅大型考试" },
-                    { value: "weekly-only", label: "仅周测" },
-                    {
-                      value: "automatic",
-                      label: "自动（大型考试优先，自动避让周测）",
-                    },
-                  ]}
-                />
-              </label>
+              {can("schedule.mode_edit") && (
+                <label className="admin-tabbar__mode">
+                  <span className="admin-tabbar__mode-label with-help-tip">
+                    <span>运行模式</span>
+                    <HelpTip title="运行模式">
+                      仅大型考试或仅周测会隐藏另一类安排；自动模式会同时调度，并按冲突规则让周测避开大型考试。
+                    </HelpTip>
+                  </span>
+                  <InlineSelect
+                    className="admin-input"
+                    value={scheduleMode}
+                    onChange={(value) =>
+                      handleScheduleModeChange(value as ScheduleMode)
+                    }
+                    options={[
+                      { value: "major-only", label: "仅大型考试" },
+                      { value: "weekly-only", label: "仅周测" },
+                      {
+                        value: "automatic",
+                        label: "自动（大型考试优先，自动避让周测）",
+                      },
+                    ]}
+                  />
+                </label>
+              )}
               <label className="admin-tabbar__mode">
                 年级
                 <InlineSelect
@@ -1094,6 +1095,7 @@ export default function AdminPage() {
                 .join("、")}
               onSavePlans={handleSaveWeeklyPlans}
               onConflictPolicyChange={handleConflictPolicyChange}
+            canEditConflictPolicy={can("schedule.conflict_edit")}
               onSelectScope={(gradeId, classId) => {
                 setSelectedGradeId(gradeId);
                 setSelectedClassId(classId);

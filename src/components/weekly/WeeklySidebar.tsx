@@ -27,6 +27,7 @@ interface WeeklySidebarProps {
   weeklyConflictPolicy: WeeklyConflictPolicy;
   setPolicyOpen: (value: boolean) => void;
   setExceptionsOpen: (value: boolean) => void;
+  canEditConflictPolicy?: boolean;
 }
 
 export default function WeeklySidebar({
@@ -44,6 +45,7 @@ export default function WeeklySidebar({
   weeklyConflictPolicy,
   setPolicyOpen,
   setExceptionsOpen,
+  canEditConflictPolicy = false,
 }: WeeklySidebarProps) {
   return (
     <aside className="admin-sidebar">
@@ -144,20 +146,22 @@ export default function WeeklySidebar({
         </p>
       </div>
 
-      <div className="admin-form-card">
-        <h2 className="admin-form-card__title">大型考试冲突处理</h2>
-        <p className="admin-major-card__hint" style={{ margin: "0 0 10px" }}>
-          仅在运行模式为“自动”时生效：
-          {SCOPE_LABEL[weeklyConflictPolicy.scope]}
-        </p>
-        <button
-          className="admin-btn"
-          style={{ width: "100%" }}
-          onClick={() => setPolicyOpen(true)}
-        >
-          冲突处理设置
-        </button>
-      </div>
+      {canEditConflictPolicy && (
+        <div className="admin-form-card">
+          <h2 className="admin-form-card__title">大型考试冲突处理</h2>
+          <p className="admin-major-card__hint" style={{ margin: "0 0 10px" }}>
+            仅在运行模式为“自动”时生效：
+            {SCOPE_LABEL[weeklyConflictPolicy.scope]}
+          </p>
+          <button
+            className="admin-btn"
+            style={{ width: "100%" }}
+            onClick={() => setPolicyOpen(true)}
+          >
+            冲突处理设置
+          </button>
+        </div>
+      )}
 
       <div className="admin-form-card">
         <h2 className="admin-form-card__title">例外日期</h2>

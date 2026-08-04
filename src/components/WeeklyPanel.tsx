@@ -75,6 +75,7 @@ export interface WeeklyPanelProps {
   ) => void;
   onSelectScope?: (gradeId: string, classId: string) => void;
   allowBatchApply?: boolean;
+  canEditConflictPolicy?: boolean;
 }
 
 export default function WeeklyPanel({
@@ -93,6 +94,7 @@ export default function WeeklyPanel({
   onConflictPolicyChange,
   onSelectScope,
   allowBatchApply = true,
+  canEditConflictPolicy = false,
 }: WeeklyPanelProps) {
   const backdropProps = useBackdropDismiss();
   const scopedPlans = weeklyPlans.filter((p) => p.classId === selectedClassId);
@@ -498,6 +500,7 @@ export default function WeeklyPanel({
         allowBatchApply={allowBatchApply}
         setCopyModal={setCopyModal}
         weeklyConflictPolicy={weeklyConflictPolicy}
+        canEditConflictPolicy={canEditConflictPolicy}
         setPolicyOpen={setPolicyOpen}
         setExceptionsOpen={setExceptionsOpen}
       />
