@@ -1,10 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   AlertTriangle,
+  BarChart3,
   CalendarClock,
+  CalendarDays,
   Database,
+  GraduationCap,
   MonitorCheck,
+  Moon,
+  Sun,
   X,
+  Zap,
 } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { WeeklyPlan } from "../types/exam";
@@ -20,6 +27,7 @@ import {
 } from "../services/classBinding";
 import { fetchAuditOverview, type AuditLog, type LoginFailureAlert } from "../services/adminUsers";
 import { getQuickMajorDisplayStatus } from "../utils/majorDisplayStatus";
+import "../styles/admin-design.css";
 
 const ONLINE_MS = 90_000;
 type OverviewDetail = "online" | "majors" | "database" | "attention";
@@ -31,6 +39,27 @@ const HIGH_RISK_ACTIONS = new Set([
   "user.credentials.change",
   "role.delete",
 ]);
+
+function useCountUp(value: number, duration = 700): number {
+  const [display, setDisplay] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === value) return;
+    fromRef.current = value;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (time: number) => {
+      const progress = Math.min(1, (time - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(from + (value - from) * eased));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return display;
+}
 
 function formatDetailTime(value: unknown) {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -69,9 +98,9 @@ function highRiskLabel(log: AuditLog) {
   const labels: Record<string, string> = {
     "database.reset": "重置了数据库数据",
     "device.revoke": "撤销了设备绑定",
-    "user.delete": "删除了管理账户",
-    "user.password.reset": "重置了管理账户密码",
-    "user.credentials.change": "修改了账户凭据",
+    "user.delete": "删除了管理账号",
+    "user.password.reset": "重置了管理账号密码",
+    "user.credentials.change": "修改了账号凭据",
     "role.delete": "删除了用户角色",
   };
   return labels[log.action] || log.action;
@@ -107,6 +136,19 @@ export default function OverviewPanel({
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState("");
   const [cloudSnapshot, setCloudSnapshot] = useState<ExamPayload | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">(() =>
+    localStorage.getItem("admin_theme") === "light" ? "light" : "dark",
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+    try {
+      localStorage.setItem("admin_theme", theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
+  const toggleTheme = () => setTheme((current) => (current === "light" ? "dark" : "light"));
+
   const liveGrades = cloudSnapshot?.grades ?? grades;
   const liveClasses = cloudSnapshot?.classes ?? classes;
   const liveMajors = cloudSnapshot?.majors ?? majors;
@@ -292,10 +334,18 @@ export default function OverviewPanel({
     setDetailOpen(detail);
   };
 
+  const enabledPlanCount = scopedPlans.filter((item) => item.enabled).length;
+  const displayOnline = useCountUp(onlineDevices.length);
+  const displayMajors = useCountUp(activeMajors.length);
+  const displayPlans = useCountUp(enabledPlanCount);
+  const displayRisk = useCountUp(riskCount);
+  const displayGrades = useCountUp(scope.gradeIds.size);
+  const displayClasses = useCountUp(scope.classIds.size);
+
   return (
-    <main className="overview-panel">
-      <div className="overview-panel__head">
-        <div>
+    <main className="ovd">
+      <header className="ovd__head">
+        <div className="ovd__title">
           <span>项目运行情况</span>
           <h2>
             {user.roleId === "super_admin"
@@ -303,124 +353,182 @@ export default function OverviewPanel({
               : "管理年级仪表盘"}
           </h2>
         </div>
-        <div className="overview-panel__actions">
-          {onQuickPublish && (
-            <button
-              className="admin-btn admin-btn--primary"
-              onClick={onQuickPublish}
-            >
-            统一添加单科考试
-            </button>
-          )}
-          <strong className={online ? "is-ok" : "is-warn"}>{syncLabel}</strong>
+        <div className="ovd__actions">
+          <button
+            className="ovd-theme"
+            onClick={toggleTheme}
+            title={theme === "light" ? "切换深色" : "切换浅色"}
+            aria-label="切换主题"
+          >
+            {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+          <strong className={`ovd-sync${online ? " is-ok" : " is-warn"}`}>
+            <i aria-hidden="true" />
+            {syncLabel}
+          </strong>
         </div>
-      </div>
-      <div className="overview-grid">
-        <button
-          type="button"
-          className="overview-grid__action"
-          onClick={() => openDetail("online")}
-        >
-          <MonitorCheck />
-          <span>在线设备</span>
-          <strong>{onlineDevices.length}</strong>
-          <small>
-            共 {devices.length} 台 · {runningDevices.length} 台考试中
-          </small>
+      </header>
+
+      <section className="ovd-capsules" aria-label="核心状态">
+        <button type="button" className="ovd-capsule is-live" onClick={() => openDetail("online")}>
+          <span className="ovd-capsule__icon"><MonitorCheck size={18} /></span>
+          <span className="ovd-capsule__body">
+            <small>在线设备</small>
+            <strong>{displayOnline}</strong>
+            <em>共 {devices.length} 台 · {runningDevices.length} 台考试中</em>
+          </span>
+        </button>
+        <button type="button" className="ovd-capsule" onClick={() => openDetail("majors")}>
+          <span className="ovd-capsule__icon"><CalendarClock size={18} /></span>
+          <span className="ovd-capsule__body">
+            <small>待执行大型考试</small>
+            <strong>{displayMajors}</strong>
+            <em>{displayPlans} 个启用周测计划</em>
+          </span>
+        </button>
+        <button type="button" className="ovd-capsule" onClick={() => openDetail("database")}>
+          <span className="ovd-capsule__icon"><Database size={18} /></span>
+          <span className="ovd-capsule__body">
+            <small>数据库状态</small>
+            <strong>{deviceError ? "连接异常" : "连接正常"}</strong>
+            <em>{displayGrades} 个年级 · {displayClasses} 个班级</em>
+          </span>
         </button>
         <button
           type="button"
-          className="overview-grid__action"
-          onClick={() => openDetail("majors")}
-        >
-          <CalendarClock />
-          <span>待执行大型考试</span>
-          <strong>{activeMajors.length}</strong>
-          <small>
-            {scopedPlans.filter((item) => item.enabled).length} 个启用周测计划
-          </small>
-        </button>
-        <button
-          type="button"
-          className="overview-grid__action"
-          onClick={() => openDetail("database")}
-        >
-          <Database />
-          <span>数据库状态</span>
-          <strong>{deviceError ? "连接异常" : "连接正常"}</strong>
-          <small>
-            {scope.gradeIds.size} 个年级 · {scope.classIds.size} 个班级
-          </small>
-        </button>
-        <button
-          type="button"
-          className="overview-grid__action"
+          className={`ovd-capsule${riskCount ? " is-warn" : ""}`}
           onClick={() => openDetail("attention")}
         >
-          <AlertTriangle />
-          <span>最近高风险操作</span>
-          <strong>{riskCount}</strong>
-          <small>
-            {activeErrorCount
-              ? "存在同步、设备或排期异常"
-              : loginFailureAlerts.length
-                ? `${loginFailureAlerts.length} 个账号登录失败预警`
-                : highRiskLogs.length
-                  ? `${highRiskLogs.length} 条近期操作记录`
-                  : "暂无高风险操作"}
-          </small>
+          <span className="ovd-capsule__icon"><AlertTriangle size={18} /></span>
+          <span className="ovd-capsule__body">
+            <small>最近高风险操作</small>
+            <strong>{displayRisk}</strong>
+            <em>
+              {activeErrorCount
+                ? "存在同步、设备或排期异常"
+                : loginFailureAlerts.length
+                  ? `${loginFailureAlerts.length} 个账号登录失败预警`
+                  : highRiskLogs.length
+                    ? `${highRiskLogs.length} 条近期操作记录`
+                    : "暂无高风险操作"}
+            </em>
+          </span>
         </button>
-      </div>
-      <section className="overview-section">
-        <h3>正在进行</h3>
-        {runningDevices.length ? (
-          <div className="overview-running">
-            {runningDevices.map((item) => (
-              <div key={item.instanceId}>
-                <strong>{item.currentSubject || "考试"}</strong>
-                <span>
-                  {item.currentExam || "当前考试"} ·{" "}
-                  {liveClasses.find((value) => value.id === item.classId)?.name ||
-                    "未识别班级"}
-                </span>
-                <code>{item.instanceId}</code>
+      </section>
+
+      <section className="ovd-quick" aria-label="快捷入口">
+        {onQuickPublish && (
+          <button type="button" className="ovd-quick__card ovd-quick__card--primary" onClick={onQuickPublish}>
+            <Zap size={18} />
+            <span>统一添加单科考试</span>
+            <small>快速发布单科考试</small>
+          </button>
+        )}
+        <a className="ovd-quick__card" href="/admin?tab=dashboard">
+          <BarChart3 size={18} />
+          <span>数据大屏</span>
+          <small>全校/年级考试总览</small>
+        </a>
+        <a className="ovd-quick__card" href="/admin?tab=major">
+          <GraduationCap size={18} />
+          <span>大型考试</span>
+          <small>安排与下发分考试</small>
+        </a>
+        <a className="ovd-quick__card" href="/admin?tab=weekly">
+          <CalendarDays size={18} />
+          <span>周测计划</span>
+          <small>班级周测与调课</small>
+        </a>
+      </section>
+
+      <section className="ovd-panels">
+        <section className="ovd-panel">
+          <header>
+            <h3><Activity size={15} /> 正在进行</h3>
+            <span>{runningDevices.length ? `${runningDevices.length} 台设备` : "暂无"}</span>
+          </header>
+          {runningDevices.length ? (
+            <div className="ovd-running">
+              {runningDevices.map((item) => (
+                <div key={item.instanceId}>
+                  <strong>{item.currentSubject || "考试"}</strong>
+                  <span>
+                    {item.currentExam || "当前考试"} ·{" "}
+                    {liveClasses.find((value) => value.id === item.classId)?.name ||
+                      "未识别班级"}
+                  </span>
+                  <small>{item.instanceId}</small>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ovd-empty">当前管理范围内没有正在考试的设备。</p>
+          )}
+        </section>
+
+        {quickMajorDisplayStatuses.length > 0 && (
+          <section className="ovd-panel">
+            <header>
+              <h3><Zap size={15} /> 临时统一考试显示状态</h3>
+              <span>{quickMajorDisplayStatuses.length} 场</span>
+            </header>
+            <div className="ovd-running">
+              {quickMajorDisplayStatuses.map(({ major, status }) => (
+                <div key={major.id} className={`overview-display-status is-${status.tone}`}>
+                  <strong>{major.name}</strong>
+                  <span>{status.label}</span>
+                  <small>{status.detail}</small>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {majorConflicts.length > 0 && (
+          <section className="ovd-panel ovd-panel--danger">
+            <header>
+              <h3><AlertTriangle size={15} /> 大型考试冲突</h3>
+              <span>{new Set(majorConflicts).size} 组</span>
+            </header>
+            <div className="ovd-running">
+              {[...new Set(majorConflicts)].map((label) => (
+                <div key={label}>
+                  <strong>{label}</strong>
+                  <span>适用范围和考试时间存在重叠，请在大型考试模块核对。</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {canReadAudit && (
+          <section className="ovd-panel">
+            <header>
+              <h3><Activity size={15} /> 最近高风险操作</h3>
+              <span>{highRiskLogs.length ? `${highRiskLogs.length} 条` : "暂无"}</span>
+            </header>
+            {auditLoading && !highRiskLogs.length ? (
+              <p className="ovd-empty">正在读取云端操作记录…</p>
+            ) : highRiskLogs.length ? (
+              <div className="ovd-running">
+                {highRiskLogs.slice(0, 4).map((log) => (
+                  <div key={log.id}>
+                    <strong>{highRiskLabel(log)}</strong>
+                    <span>{log.username || "系统"} · {formatDetailTime(log.createdAt)}</span>
+                    <small>{auditDetailSummary(log.detail, log.resourceId || log.resourceType || "操作详情已记录")}</small>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : (
-          <p>当前管理范围内没有正在考试的设备。</p>
+            ) : (
+              <p className="ovd-empty">暂无近期高风险操作。</p>
+            )}
+            <button type="button" className="ovd-panel__more" onClick={() => openDetail("attention")}>
+              查看完整记录与登录失败预警
+            </button>
+          </section>
         )}
       </section>
-      {quickMajorDisplayStatuses.length > 0 && (
-        <section className="overview-section">
-          <h3>临时统一考试显示状态</h3>
-          <div className="overview-running overview-running--display-status">
-            {quickMajorDisplayStatuses.map(({ major, status }) => (
-              <div
-                key={major.id}
-                className={`overview-display-status is-${status.tone}`}
-              >
-                <strong>{major.name}</strong>
-                <span>{status.label}</span>
-                <small>{status.detail}</small>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-      {majorConflicts.length > 0 && (
-        <section className="overview-section">
-          <h3>大型考试冲突</h3>
-          <div className="overview-running">
-            {[...new Set(majorConflicts)].map((label) => (
-              <div key={label}>
-                <strong>{label}</strong>
-                <span>适用范围和考试时间存在重叠，请在大型考试模块核对。</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+
       {detailOpen && (
         <div
           className="overview-device-drawer"
@@ -481,7 +589,7 @@ export default function OverviewPanel({
                   return (
                     <article key={major.id}>
                       <strong>{major.name}</strong>
-                      <span>{enabledItems.length} 个启用科目 {nextItem ? `· 下一场 ${nextItem.name}` : "· 全部已结束"}</span>
+                      <span>{enabledItems.length} 个启用科目{nextItem ? `· 下一场 ${nextItem.name}` : "· 全部已结束"}</span>
                       <small>{nextItem ? `开始时间：${formatDetailTime(new Date(nextItem.startTime).getTime())}` : "请在大型考试模块查看完整安排"}</small>
                     </article>
                   );
@@ -505,7 +613,7 @@ export default function OverviewPanel({
                       </article>
                     )) : <p>暂未找到考试、班级或设置的云端改动记录。</p>
                   ) : (
-                    <p>当前账户无权查看云端改动记录。</p>
+                    <p>当前账号无权查看云端改动记录。</p>
                   )}
                 </>
               )}
