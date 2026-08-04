@@ -263,24 +263,26 @@
 }
 
 /* ================= Clearer secondary text (global) ================= */
-.admin-major-card__hint,
-.device-status__heading p,
-.admin-field-hint,
-.admin-tips__title,
-.admin-list-count,
-.weekly-calendar__empty,
-.device-status__readonly,
-.device-status__current-note,
-.user-management__role-detail summary {
+.admin-major-card__hint.admin-major-card__hint,
+.device-status__heading.device-status__heading p,
+.admin-field-hint.admin-field-hint,
+.admin-tips__title.admin-tips__title,
+.admin-list-count.admin-list-count,
+.weekly-calendar__empty.weekly-calendar__empty,
+.device-status__readonly.device-status__readonly,
+.device-status__current-note.device-status__current-note,
+.user-management__role-detail.user-management__role-detail summary {
   color: var(--adm-text-2);
 }
-.admin-tips { color: var(--adm-text-2); opacity: 1; }
-.admin-tips li { color: var(--adm-text-2); }
-.admin-empty, .admin-empty p, .admin-empty span { color: var(--adm-text-2); opacity: 1; }
-.admin-label { color: var(--adm-text-2); opacity: 1; }
+.admin-major-card__hint.admin-major-card__hint { opacity: 1; font-size: 12.5px; }
+.admin-tips.admin-tips { color: var(--adm-text-2); opacity: 1; font-size: 12.8px; }
+.admin-tips.admin-tips li { color: var(--adm-text-2); }
+.admin-tips.admin-tips__title, .admin-tips__title.admin-tips__title { opacity: 1; }
+.admin-empty.admin-empty, .admin-empty.admin-empty p, .admin-empty.admin-empty span { color: var(--adm-text-2); opacity: 1; }
+.admin-label.admin-label { color: var(--adm-text-2); opacity: 1; }
 .admin-input::placeholder { color: var(--adm-text-3); opacity: 1; }
-.help-tip { color: var(--adm-text-2); }
-.admin-tabbar__mode { color: var(--adm-text-2); }
+.help-tip.help-tip { color: var(--adm-text-2); }
+.admin-tabbar__mode.admin-tabbar__mode { color: var(--adm-text-2); }
 
 /* ================= Remaining admin pages: classes / devices / users ================= */
 .class-management, .device-status, .user-management { color: var(--adm-text); }
