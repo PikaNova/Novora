@@ -176,15 +176,29 @@
 
 @media (max-width: 700px) {
   .notice-host {
+    box-sizing: border-box;
     top: max(10px, env(safe-area-inset-top));
-    right: 12px;
+    right: max(12px, env(safe-area-inset-right));
     bottom: auto;
-    left: 12px;
+    left: max(12px, env(safe-area-inset-left));
     width: auto;
+    max-width: calc(100vw - 16px);
   }
 
   .notice-toast {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     animation: notice-in-mobile .18s ease-out;
+  }
+
+  .notice-toast > div {
+    min-width: 0;
+  }
+
+  .notice-toast strong {
+    overflow-wrap: anywhere;
   }
 }
 
