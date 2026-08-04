@@ -77,7 +77,7 @@ export default function TemporaryExamLauncher({
   const [mode, setMode] = useState<"now" | "delay" | "specific">("now");
   const [delay, setDelay] = useState(10);
   const [duration, setDuration] = useState(45);
-  const [nowStartMs, setNowStartMs] = useState(() => Date.now());
+  const [nowStartMs, setNowStartMs] = useState(() => Date.now() + 60_000);
   const [specificDate, setSpecificDate] = useState(() =>
     dateKey(nextFiveMinutes()),
   );
@@ -158,12 +158,21 @@ export default function TemporaryExamLauncher({
         duration < 5 ||
         (dateKey(startMs) !== dateKey(endMs) && !crossDayConfirmed))
     ) {
-      notify("error", dateKey(startMs) !== dateKey(endMs) && !crossDayConfirmed
-        ? "本场考试会跨日，请在时间设置中勾选启用跨日考试。"
-        : "请检查开始时间和考试时长。");
+      const timeAlreadyPassed =
+        Number.isFinite(startMs) && startMs < Date.now() - 60_000;
+      const crossDayUnconfirmed =
+        dateKey(startMs) !== dateKey(endMs) && !crossDayConfirmed;
+      notify(
+        "error",
+        timeAlreadyPassed
+          ? "开始时间已过，请重新选择未来的时间。"
+          : crossDayUnconfirmed
+            ? "本场考试会跨日，请在时间设置中勾选启用跨日考试。"
+            : "请检查开始时间和考试时长。",
+      );
       return;
     }
-    if (step === 0) setNowStartMs(Date.now());
+    if (step === 0) setNowStartMs(Date.now() + (mode === "now" ? 60_000 : 0));
     setStep((value) => Math.min(2, value + 1));
   };
   const create = async () => {
@@ -365,7 +374,7 @@ export default function TemporaryExamLauncher({
                         <legend>开始方式</legend>
                         <button
                           className={mode === "now" ? "is-active" : ""}
-                          onClick={() => { setNowStartMs(Date.now()); setMode("now"); setCrossDayConfirmed(false); }}
+                          onClick={() => { setNowStartMs(Date.now() + 60_000); setMode("now"); setCrossDayConfirmed(false); }}
                         >
                           立即开始
                         </button>
