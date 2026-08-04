@@ -1,54 +1,31 @@
-/* admin-design.css - Swiss Minimal + Novora Blue (design-it) */
+/* admin-design.css - Swiss Minimal + Novora Blue (dark only, deepened) */
 :root {
-  --adm-bg0: #0f151c;
-  --adm-bg1: #161e27;
-  --adm-bg2: #1b2530;
-  --adm-bg3: #223043;
-  --adm-line: rgba(148, 180, 208, 0.14);
-  --adm-line-strong: rgba(148, 180, 208, 0.26);
-  --adm-text: #e8f0f7;
-  --adm-text-2: #9ab0c2;
-  --adm-text-3: #61788c;
-  --adm-accent: #4aa3df;
-  --adm-accent-deep: #2980b9;
-  --adm-accent-soft: rgba(74, 163, 223, 0.12);
+  --adm-bg0: #070b10;
+  --adm-bg1: #0c1219;
+  --adm-bg2: #10171f;
+  --adm-bg3: #16202b;
+  --adm-line: rgba(148, 180, 208, 0.12);
+  --adm-line-strong: rgba(148, 180, 208, 0.24);
+  --adm-text: #e6eef6;
+  --adm-text-2: #93a8ba;
+  --adm-text-3: #5b7185;
+  --adm-accent: #3b8fd0;
+  --adm-accent-deep: #2e86c1;
+  --adm-accent-soft: rgba(59, 143, 208, 0.14);
   --adm-success: #4cbe8c;
   --adm-success-soft: rgba(76, 190, 140, 0.12);
-  --adm-warn: #e3a62f;
-  --adm-warn-soft: rgba(227, 166, 47, 0.12);
+  --adm-warn: #dfa72f;
+  --adm-warn-soft: rgba(223, 167, 47, 0.12);
   --adm-danger: #e06060;
   --adm-danger-soft: rgba(224, 96, 96, 0.1);
-  --adm-card: #161e27;
-  --adm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.24), 0 10px 26px rgba(0, 0, 0, 0.18);
-  --adm-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.26), 0 20px 44px rgba(0, 0, 0, 0.24);
+  --adm-card: #0c1219;
+  --adm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 26px rgba(0, 0, 0, 0.22);
+  --adm-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.32), 0 20px 44px rgba(0, 0, 0, 0.28);
   --adm-radius: 10px;
   --adm-radius-sm: 8px;
   --adm-ease: cubic-bezier(0.25, 0.8, 0.3, 1);
   --adm-dur-fast: 140ms;
   --adm-dur-base: 240ms;
-}
-[data-theme="light"] {
-  --adm-bg0: #f6f8fb;
-  --adm-bg1: #ffffff;
-  --adm-bg2: #f2f5f9;
-  --adm-bg3: #e9eef5;
-  --adm-line: rgba(23, 40, 60, 0.1);
-  --adm-line-strong: rgba(23, 40, 60, 0.2);
-  --adm-text: #17222e;
-  --adm-text-2: #5b6b7b;
-  --adm-text-3: #93a3b3;
-  --adm-accent: #3498db;
-  --adm-accent-deep: #2980b9;
-  --adm-accent-soft: rgba(52, 152, 219, 0.08);
-  --adm-success: #2ea96b;
-  --adm-success-soft: rgba(46, 169, 107, 0.1);
-  --adm-warn: #cf8a08;
-  --adm-warn-soft: rgba(207, 138, 8, 0.1);
-  --adm-danger: #d64545;
-  --adm-danger-soft: rgba(214, 69, 69, 0.08);
-  --adm-card: #ffffff;
-  --adm-shadow-1: 0 1px 2px rgba(20, 45, 70, 0.05), 0 10px 26px rgba(20, 45, 70, 0.06);
-  --adm-shadow-2: 0 2px 4px rgba(20, 45, 70, 0.05), 0 20px 44px rgba(20, 45, 70, 0.1);
 }
 
 .ovd { display: grid; gap: 16px; padding: 4px 2px 28px; color: var(--adm-text); }
@@ -56,21 +33,14 @@
 .ovd__title span { display: block; color: var(--adm-text-3); font-size: 12px; margin-bottom: 4px; }
 .ovd__title h2 { margin: 0; font-size: 22px; font-weight: 750; letter-spacing: 0.01em; color: var(--adm-text); font-family: var(--font-region-display); }
 .ovd__actions { display: flex; align-items: center; gap: 10px; }
-.ovd-theme {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; border-radius: 8px;
-  border: 1px solid var(--adm-line-strong); background: var(--adm-card); color: var(--adm-text-2);
-  cursor: pointer; transition: color var(--adm-dur-fast) var(--adm-ease), border-color var(--adm-dur-fast), transform var(--adm-dur-fast) var(--adm-ease);
-}
-.ovd-theme:hover { color: var(--adm-accent); border-color: var(--adm-accent); transform: translateY(-1px); }
 .ovd-sync { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--adm-text-3); }
 .ovd-sync i { width: 7px; height: 7px; border-radius: 50%; background: var(--adm-text-3); }
 .ovd-sync.is-ok i { background: var(--adm-success); }
 .ovd-sync.is-warn i { background: var(--adm-warn); }
 
 .ovd-capsules { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.ovd-capsule { position: relative;
-  display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center;
+.ovd-capsule {
+  position: relative; display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center;
   padding: 14px 15px; border-radius: var(--adm-radius); border: 1px solid var(--adm-line);
   background: var(--adm-card); box-shadow: var(--adm-shadow-1); color: var(--adm-text);
   text-align: left; cursor: pointer;
@@ -103,8 +73,7 @@
 .ovd-quick__card span { font-size: 14px; font-weight: 700; color: var(--adm-text); }
 .ovd-quick__card small { color: var(--adm-text-3); font-size: 12px; }
 .ovd-quick__card:hover { transform: translateY(-2px); border-color: var(--adm-accent); box-shadow: var(--adm-shadow-2); }
-.ovd-quick__card--primary { border-color: rgba(52, 152, 219, 0.5); background: linear-gradient(180deg, rgba(52, 152, 219, 0.06), rgba(52, 152, 219, 0.015)); }
-[data-theme="dark"] .ovd-quick__card--primary { border-color: rgba(74, 163, 223, 0.5); background: linear-gradient(180deg, rgba(74, 163, 223, 0.1), rgba(74, 163, 223, 0.02)); }
+.ovd-quick__card--primary { border-color: rgba(59, 143, 208, 0.45); background: linear-gradient(180deg, rgba(59, 143, 208, 0.1), rgba(59, 143, 208, 0.02)); }
 
 .ovd-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .ovd-panel {

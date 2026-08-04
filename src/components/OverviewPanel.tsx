@@ -8,8 +8,6 @@ import {
   Database,
   GraduationCap,
   MonitorCheck,
-  Moon,
-  Sun,
   X,
   Zap,
 } from "lucide-react";
@@ -136,18 +134,9 @@ export default function OverviewPanel({
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState("");
   const [cloudSnapshot, setCloudSnapshot] = useState<ExamPayload | null>(null);
-  const [theme, setTheme] = useState<"dark" | "light">(() =>
-    localStorage.getItem("admin_theme") === "light" ? "light" : "dark",
-  );
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
-    try {
-      localStorage.setItem("admin_theme", theme);
-    } catch {
-      /* ignore */
-    }
-  }, [theme]);
-  const toggleTheme = () => setTheme((current) => (current === "light" ? "dark" : "light"));
+
+
+
 
   const liveGrades = cloudSnapshot?.grades ?? grades;
   const liveClasses = cloudSnapshot?.classes ?? classes;
@@ -354,14 +343,6 @@ export default function OverviewPanel({
           </h2>
         </div>
         <div className="ovd__actions">
-          <button
-            className="ovd-theme"
-            onClick={toggleTheme}
-            title={theme === "light" ? "切换深色" : "切换浅色"}
-            aria-label="切换主题"
-          >
-            {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-          </button>
           <strong className={`ovd-sync${online ? " is-ok" : " is-warn"}`}>
             <i aria-hidden="true" />
             {syncLabel}
