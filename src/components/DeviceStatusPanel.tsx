@@ -14,11 +14,13 @@ import { getAppSettings } from "../utils/appSettings";
 import { classDisplayName } from "../utils/classSettings";
 import { notify } from "../services/notify";
 import { confirmDialog } from "../services/appDialog";
+import { beginBatch, endBatch } from "../services/syncQueue";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
 import DesignPolicyManager from "./DesignPolicyManager";
 import { getAdminUser, logoutAdmin } from "../services/examService";
 import DeviceDetailDialog from "./DeviceDetailDialog";
+import { deviceIsInScope, resolveDeviceScope } from "../utils/deviceScope";
 
 const ONLINE_MS = 90_000;
 const formatTime = (value: number) =>
@@ -79,11 +81,12 @@ export default function DeviceStatusPanel({
       : classDisplayName(grades, classes, scope.classId));
     return names.filter(Boolean).join("、") || "未分配范围";
   }, [classes, currentAdmin, grades]);
-  const selectableClasses = useMemo(() => {
-    if (!currentAdmin || currentAdmin.permissions.includes("*") || currentAdmin.scopes.some(scope => scope.type === "all")) return classes;
-    return classes.filter(item => currentAdmin.scopes.some(scope => scope.type === "grade" ? scope.gradeId === item.gradeId : scope.type === "class" && scope.classId === item.id));
-  }, [classes, currentAdmin]);
-  const selectableGrades = useMemo(() => grades.filter(grade => selectableClasses.some(item => item.gradeId === grade.id)), [grades, selectableClasses]);
+  const deviceScope = useMemo(
+    () => resolveDeviceScope(grades, classes, currentAdmin),
+    [classes, currentAdmin, grades],
+  );
+  const selectableClasses = deviceScope.classes;
+  const selectableGrades = deviceScope.grades;
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -138,7 +141,7 @@ export default function DeviceStatusPanel({
     return result;
   }, [bindings, plugins]);
 
-  const visibleClasses = classes.filter(
+  const visibleClasses = selectableClasses.filter(
     (item) => gradeFilter === "*" || item.gradeId === gradeFilter,
   );
   const pickerOptions = useMemo<ClassPickerOption[]>(
@@ -152,9 +155,13 @@ export default function DeviceStatusPanel({
       })),
     [grades, visibleClasses],
   );
+  const scopedGroups = useMemo(
+    () => groups.filter((item) => deviceIsInScope(item, deviceScope)),
+    [deviceScope, groups],
+  );
   const filtered = useMemo(
     () =>
-      groups.filter((item) => {
+      scopedGroups.filter((item) => {
         const name = classDisplayName(grades, classes, item.classId);
         const text = query.trim().toLowerCase();
         const pluginIds = item.plugins
@@ -170,7 +177,7 @@ export default function DeviceStatusPanel({
               .includes(text))
         );
       }),
-    [classFilters, classes, gradeFilter, grades, groups, query],
+    [classFilters, classes, gradeFilter, grades, query, scopedGroups],
   );
 
   const isRemovedGroup = (item: DeviceGroup) =>
@@ -223,7 +230,7 @@ export default function DeviceStatusPanel({
     ? [currentGroup, ...orderedFiltered.filter(item => item.key !== currentGroup.key)]
     : orderedFiltered;
   const detailDevice = groups.find(item => item.key === detailKey);
-  const onlineCount = groups.filter(groupOnline).length;
+  const onlineCount = scopedGroups.filter(groupOnline).length;
 
   const remove = async (item: DeviceGroup) => {
     const label =
@@ -253,7 +260,7 @@ export default function DeviceStatusPanel({
     }
   };
   const removeSelected = async () => {
-    const targets = groups.filter((item) => selectedKeys.includes(item.key));
+    const targets = scopedGroups.filter((item) => selectedKeys.includes(item.key));
     if (
       !targets.length ||
       !(await confirmDialog({
@@ -265,18 +272,19 @@ export default function DeviceStatusPanel({
       }))
     )
       return;
-    const results: Array<{ status: "fulfilled" } | { status: "rejected"; reason: unknown }> = [];
-    for (const item of targets) {
-      try {
-        await revokeDevice(
+    notify("warning", `正在删除 ${targets.length} 台设备，请稍候…`);
+    // 删除请求统一经过 syncQueue 全局限速，无需再手动逐台串行等待；
+    // beginBatch/endBatch 确保批量期间的其他防抖任务不会插队打乱节奏。
+    beginBatch();
+    const results = await Promise.allSettled(
+      targets.map((item) =>
+        revokeDevice(
           item.dashboard?.instanceId || "",
           item.plugins.map((plugin) => plugin.pluginInstanceId),
-        );
-        results.push({ status: "fulfilled" });
-      } catch (reason) {
-        results.push({ status: "rejected", reason });
-      }
-    }
+        ),
+      ),
+    );
+    endBatch();
     const failed = targets.filter((_, index) => results[index].status === "rejected");
     const currentIndex = targets.findIndex((item) => item.dashboard?.instanceId === currentInstanceId);
     if (currentIndex >= 0 && results[currentIndex]?.status === "fulfilled") {
@@ -334,11 +342,13 @@ export default function DeviceStatusPanel({
       <div className="device-status__heading">
         <div>
           <h2>
-            设备管理{" "}
-            <HelpTip title="看板与 ClassIsland">
-              同一台设备上的 Novora 看板和 ClassIsland
-              插件按实例关联后合并展示。在线状态分别由各自心跳判断；删除会让两端重新绑定。
-            </HelpTip>
+            <span className="with-help-tip">
+              设备管理
+              <HelpTip title="看板与 ClassIsland">
+                同一台设备上的 Novora 看板和 ClassIsland
+                插件按实例关联后合并展示。在线状态分别由各自心跳判断；删除会让两端重新绑定。
+              </HelpTip>
+            </span>
           </h2>
           <p>
             一个设备视图同时显示 Novora 看板、ClassIsland
@@ -353,7 +363,7 @@ export default function DeviceStatusPanel({
           刷新
         </button>
       </div>
-      <DesignPolicyManager grades={grades} classes={classes} devices={bindings} canEdit={canEditDesign} />
+      <DesignPolicyManager grades={selectableGrades} classes={selectableClasses} devices={bindings} canEdit={canEditDesign} />
       <div className="device-status__stats">
         <div>
           <span>设备总数</span>
@@ -401,7 +411,7 @@ export default function DeviceStatusPanel({
             }}
             options={[
               { value: "*", label: "全部年级" },
-              ...grades.map((item) => ({ value: item.id, label: item.name })),
+              ...selectableGrades.map((item) => ({ value: item.id, label: item.name })),
             ]}
           />
         </label>

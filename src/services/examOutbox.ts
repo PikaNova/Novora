@@ -3,12 +3,24 @@ import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/ex
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import type { ExamPayload } from './examService';
-import { saveExamsToServer } from './examService';
+import { getAdminUser, saveExamsToServer } from './examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { recordSyncConflict } from './offlineStore';
 import { ApiError } from './apiError';
+import { sameJson } from '../shared/jsonCompare';
+import { nowMs } from '../utils/timeSource';
 
 const OUTBOX_KEY = 'exam_pending_sync';
+const ANONYMOUS_OUTBOX_KEY = `${OUTBOX_KEY}:anonymous`;
+
+function currentOwnerId(): number | null {
+  const id = getAdminUser()?.id;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function ownerOutboxKey(ownerId: number): string {
+  return `${OUTBOX_KEY}:user:${ownerId}`;
+}
 
 /**
  * 单个 fingerprint 最大自动重试次数。超过后将 nextRetryAt 设为 Infinity 并停止自动重试。
@@ -18,12 +30,16 @@ const MAX_AUTO_RETRIES = 10;
 
 /** 网络类错误与服务器错误的分级重试基准时间 */
 const NETWORK_RETRY_BASE_MS = 3_000; // 网络类：3s 起步
+const RATE_LIMIT_RETRY_BASE_MS = 1_000;
+const RATE_LIMIT_RETRY_CAP_MS = 8_000;
 
 const isNetworkError = (error: ApiError) =>
   error.code === 'NETWORK_UNAVAILABLE' ||
   error.code === 'NETWORK_TIMEOUT' ||
   error.code === 'DATABASE_UNAVAILABLE' ||
   error.code === 'DATABASE_TIMEOUT';
+
+const isRateLimitedError = (error: ApiError) => error.code === 'RATE_LIMITED';
 
 export interface PendingExamSync {
   payload: {
@@ -46,6 +62,8 @@ export interface PendingExamSync {
    */
   baseSnapshot: ExamPayload | null;
   savedAt: number;
+  /** The authenticated user that created this retryable draft. */
+  ownerId?: number;
   retryCount?: number;
   lastAttemptAt?: number;
   lastError?: string;
@@ -61,10 +79,10 @@ export type FlushResult =
   | { kind: 'saved'; payload: PendingExamSync['payload']; updatedAt: number }
   | { kind: 'offline' | 'deferred' | 'error' | 'unauthorized' | 'max-retries' };
 
-export function getPendingExamSync(): PendingExamSync | null {
+function readPendingExamSync(key: string): PendingExamSync | null {
   try {
     const value = JSON.parse(
-      localStorage.getItem(OUTBOX_KEY) || 'null',
+      localStorage.getItem(key) || 'null',
     ) as PendingExamSync | null;
     if (
       !value ||
@@ -73,15 +91,33 @@ export function getPendingExamSync(): PendingExamSync | null {
       !Array.isArray(value.payload.majors)
     )
       return null;
+    if (value.ownerId !== undefined && (!Number.isSafeInteger(value.ownerId) || value.ownerId <= 0))
+      return null;
     return value;
   } catch {
     return null;
   }
 }
 
+export function getPendingExamSync(): PendingExamSync | null {
+  const ownerId = currentOwnerId();
+  if (!ownerId) return null;
+  const pending = readPendingExamSync(ownerOutboxKey(ownerId));
+  return pending?.ownerId === ownerId ? pending : null;
+}
+
 export function queuePendingExamSync(pending: PendingExamSync): void {
   try {
-    localStorage.setItem(OUTBOX_KEY, JSON.stringify(pending));
+    const ownerId = currentOwnerId();
+    if (ownerId) {
+      localStorage.setItem(
+        ownerOutboxKey(ownerId),
+        JSON.stringify({ ...pending, ownerId }),
+      );
+    } else {
+      // Do not overwrite the pre-owner legacy key. Anonymous drafts are retained but never auto-flushed.
+      localStorage.setItem(ANONYMOUS_OUTBOX_KEY, JSON.stringify(pending));
+    }
   } catch {
     /* 隐私模式下仍保留 AppSettings 本地数据 */
   }
@@ -89,10 +125,12 @@ export function queuePendingExamSync(pending: PendingExamSync): void {
 
 /** 仅清除指定那一次保存，避免旧请求完成时误删后续编辑形成的新待办。 */
 export function clearPendingExamSync(savedAt?: number): void {
+  const ownerId = currentOwnerId();
+  if (!ownerId) return;
   const current = getPendingExamSync();
   if (savedAt != null && current?.savedAt !== savedAt) return;
   try {
-    localStorage.removeItem(OUTBOX_KEY);
+    localStorage.removeItem(ownerOutboxKey(ownerId));
   } catch {
     /* ignore */
   }
@@ -116,6 +154,8 @@ function markPendingFailure(
     error instanceof ApiError ? error.retryable : true;
   const isNetwork =
     error instanceof ApiError && isNetworkError(error);
+  const isRateLimited =
+    error instanceof ApiError && isRateLimitedError(error);
   const retryCount = (pending.retryCount ?? 0) + 1;
 
   // 不可重试错误直接进入 max-retries 状态
@@ -141,10 +181,15 @@ function markPendingFailure(
     return;
   }
 
+  // 限流错误：1s*2^(n-1)，上限 8s（服务端窗口很短）
   // 网络错误：3s*2^(n-1)，上限 30s（恢复后快速重试）
   // 服务器错误：5s*2^(n-1)，上限 60s
-  const base = isNetwork ? NETWORK_RETRY_BASE_MS : 5_000;
-  const cap = isNetwork ? 30_000 : 60_000;
+  const base = isRateLimited
+    ? RATE_LIMIT_RETRY_BASE_MS
+    : isNetwork
+      ? NETWORK_RETRY_BASE_MS
+      : 5_000;
+  const cap = isRateLimited ? RATE_LIMIT_RETRY_CAP_MS : isNetwork ? 30_000 : 60_000;
   const waitMs = Math.min(cap, base * Math.pow(2, retryCount - 1));
   queuePendingExamSync({
     ...pending,
@@ -165,23 +210,57 @@ function markPendingFailure(
  * 4. 此时如果 remote 内容与本地 payload 完全相同，
  *    说明是幽灵保存，直接视为成功而非触发三方合并。
  *
- * 不做完整深比较（性能），只检查核心字段 items + title 的 JSON 指纹。
+ * 只比较本次待同步 payload 明确携带的字段：
+ * 周测、班级等字段可能与大型考试 items/title 独立变化，不能只用大型考试镜像字段判断成功。
  */
 function detectGhostSave(
   pending: PendingExamSync,
   remote: ExamPayload,
+  now = nowMs(),
 ): boolean {
   const base = pending.baseSnapshot?.updatedAt ?? 0;
   // remote 的 updatedAt 必须大于 base
   if (remote.updatedAt <= base) return false;
   // 且在最近 120s 内（超过则是其他人修改）
-  if (Date.now() - remote.updatedAt > 120_000) return false;
-  // 轻量检查：items + title 一致
-  const sameItems =
-    JSON.stringify(pending.payload.items) ===
-    JSON.stringify(remote.items);
-  const sameTitle = pending.payload.title === remote.title;
-  return sameItems && sameTitle;
+  if (now - remote.updatedAt > 120_000) return false;
+  const sameRequired = [
+    sameJson(pending.payload.items, remote.items),
+    pending.payload.title === remote.title,
+    sameJson(pending.payload.majors, remote.majors),
+    pending.payload.activeMajorId === remote.activeMajorId,
+    sameJson(pending.payload.alerts, remote.alerts),
+  ];
+  if (pending.payload.scheduleMode !== undefined)
+    sameRequired.push(pending.payload.scheduleMode === remote.scheduleMode);
+  if (pending.payload.weeklyPlans !== undefined)
+    sameRequired.push(sameJson(pending.payload.weeklyPlans, remote.weeklyPlans));
+  if (pending.payload.activeWeeklyPlanId !== undefined)
+    sameRequired.push(
+      pending.payload.activeWeeklyPlanId === remote.activeWeeklyPlanId,
+    );
+  if (pending.payload.activeWeeklyPlanIdByClassId !== undefined)
+    sameRequired.push(
+      sameJson(
+        pending.payload.activeWeeklyPlanIdByClassId,
+        remote.activeWeeklyPlanIdByClassId,
+      ),
+    );
+  if (pending.payload.grades !== undefined)
+    sameRequired.push(sameJson(pending.payload.grades, remote.grades));
+  if (pending.payload.classes !== undefined)
+    sameRequired.push(sameJson(pending.payload.classes, remote.classes));
+  if (pending.payload.initialization !== undefined)
+    sameRequired.push(
+      sameJson(pending.payload.initialization, remote.initialization),
+    );
+  if (pending.payload.weeklyConflictPolicy !== undefined)
+    sameRequired.push(
+      sameJson(
+        pending.payload.weeklyConflictPolicy,
+        remote.weeklyConflictPolicy,
+      ),
+    );
+  return sameRequired.every(Boolean);
 }
 
 /** 恢复网络后冲刷本地离线编辑；若云端也变更则自动三方合并并重试。 */
@@ -337,3 +416,5 @@ export async function flushPendingExamSync(
   clearPendingExamSync(mergedPending.savedAt);
   return { kind: 'saved', payload: mergedPayload, updatedAt: retry };
 }
+
+export const __detectGhostSaveForTests = detectGhostSave;

@@ -5,7 +5,13 @@ import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
-import { notify } from './notify';
+import { runQueued } from './syncQueue';
+import {
+  canAccessClass as sharedCanAccessClass,
+  canAccessGrade as sharedCanAccessGrade,
+  hasPermission as sharedHasPermission,
+  type PermissionScope,
+} from '../shared/permissionRules';
 
 export interface ExamPayload {
   items: ExamItem[];
@@ -91,7 +97,7 @@ export function getCloudSnapshot(): ExamPayload | null {
   } catch { return null; }
 }
 
-// ── 统一的网络错误分类 ────────────────────────────────────────────
+// ── 统一的网络错误分类 ────────────────────────────────────────────────────────────
 function classifyFetchError(err: unknown): ApiError {
   if (err instanceof ApiError) return err;
   if (err instanceof TypeError && /fetch|network|load/i.test(err.message)) {
@@ -159,6 +165,8 @@ export interface SaveExamsInput {
   items: ExamItem[];
   action?: 'initialize';
   baseUpdatedAt?: number;
+  clientSyncLabel?: string;
+  clientQueueKey?: string;
   title?: string;
   majors?: MajorExam[];
   activeMajorId?: string;
@@ -174,57 +182,6 @@ export interface SaveExamsInput {
 }
 
 export type SaveExamsResult = number | 'unauthorized' | { kind: 'conflict'; remote: ExamPayload | null } | { kind: 'error'; error: ApiError } | null;
-
-const CLOUD_EXAM_WRITE_INTERVAL_MS = 1_000;
-let examWriteChain: Promise<void> = Promise.resolve();
-let lastExamWriteAt = 0;
-let pendingExamWrites = 0;
-
-function wait(ms: number) {
-  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
-}
-
-function examQueueLabel(input: SaveExamsInput) {
-  if (input.action === 'initialize') return '初始化数据';
-  if (input.weeklyPlans !== undefined || input.grades !== undefined || input.classes !== undefined)
-    return '周测/班级数据';
-  return '考试数据';
-}
-
-function notifyExamQueue(label: string, pending: number, running: boolean) {
-  notify(
-    running ? 'warning' : 'success',
-    running
-      ? `正在提交：${label}。还有 ${pending} 项待提交，请等待完成后再关闭页面。`
-      : `${label}已提交到云端。`,
-    running ? '云端提交中' : '云端提交完成',
-    { id: 'cloud-queue-exam', variant: running ? 'queue' : undefined, durationMs: running ? 12_000 : 2600 },
-  );
-}
-
-async function runQueuedExamWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
-  pendingExamWrites += 1;
-  notifyExamQueue(label, pendingExamWrites, true);
-  const run = examWriteChain.then(async () => {
-    pendingExamWrites = Math.max(0, pendingExamWrites - 1);
-    notifyExamQueue(label, pendingExamWrites, true);
-    const elapsed = Date.now() - lastExamWriteAt;
-    if (elapsed < CLOUD_EXAM_WRITE_INTERVAL_MS)
-      await wait(CLOUD_EXAM_WRITE_INTERVAL_MS - elapsed);
-    try {
-      const result = await task();
-      lastExamWriteAt = Date.now();
-      return result;
-    } finally {
-      notifyExamQueue(label, pendingExamWrites, pendingExamWrites > 0);
-    }
-  });
-  examWriteChain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
 
 async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
@@ -275,21 +232,22 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     if (!data?.ok) return null;
     if (input.action === 'initialize' && typeof data.recoveryKey === 'string') generatedRecoveryKey = data.recoveryKey;
     const updatedAt = Number(data.updatedAt ?? Date.now());
+    const previousSnapshot = getCloudSnapshot();
     rememberCloudSnapshot({
       items: input.items,
       title: input.title ?? '',
       majors: input.majors ?? [],
       activeMajorId: input.activeMajorId ?? '',
       alerts: input.alerts ?? null,
-      scheduleMode: input.scheduleMode,
-      weeklyPlans: input.weeklyPlans,
-      activeWeeklyPlanId: input.activeWeeklyPlanId,
-      activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId,
-      grades: input.grades,
-      classes: input.classes,
-      initialization: input.initialization,
-      weeklyConflictPolicy: input.weeklyConflictPolicy,
-      designPolicy: getCloudSnapshot()?.designPolicy,
+      scheduleMode: input.scheduleMode ?? previousSnapshot?.scheduleMode,
+      weeklyPlans: input.weeklyPlans ?? previousSnapshot?.weeklyPlans,
+      activeWeeklyPlanId: input.activeWeeklyPlanId ?? previousSnapshot?.activeWeeklyPlanId,
+      activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId ?? previousSnapshot?.activeWeeklyPlanIdByClassId,
+      grades: input.grades ?? previousSnapshot?.grades,
+      classes: input.classes ?? previousSnapshot?.classes,
+      initialization: input.initialization ?? previousSnapshot?.initialization,
+      weeklyConflictPolicy: input.weeklyConflictPolicy ?? previousSnapshot?.weeklyConflictPolicy,
+      designPolicy: previousSnapshot?.designPolicy,
       updatedAt,
     });
     lastExamApiError = null;
@@ -304,15 +262,21 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
   }
 }
 
+/** 经全局 syncQueue 排队（高优先级）：与设备写入共享同一最小请求间隔，避免并发打爆 Neon 免费额度。 */
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
-  return runQueuedExamWrite(examQueueLabel(input), () => saveExamsToServerNow(input));
+  return runQueued(() => saveExamsToServerNow(input), {
+    priority: 'high',
+    key: input.clientQueueKey,
+    label: input.clientSyncLabel ?? '保存考试安排',
+    supersededValue: input.clientQueueKey ? null : undefined,
+  });
 }
 
-/** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。 */
+/** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。同样经全局队列排队（普通优先级）。 */
 export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<DesignPolicy> {
   const token = localStorage.getItem(TOKEN_KEY) ?? '';
   try {
-    const response = await fetchWithTimeout(
+    const response = await runQueued(() => fetchWithTimeout(
       API_URL,
       {
         method: 'POST',
@@ -320,7 +284,7 @@ export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<Desi
         body: JSON.stringify({ action: 'design-policy', designPolicy }),
       },
       20_000,
-    );
+    ));
     if (!response.ok) {
       const error = await apiErrorFromResponse(response, '考试端设计规则保存失败');
       saveDesignPolicyDraft(designPolicy, error.message);
@@ -395,7 +359,8 @@ export async function repairSuperAdminAccount(username: string, recoveryKey: str
   return { created: data.created === true };
 }
 
-export type AdminScope = { type: 'all' | 'grade' | 'class'; gradeId: string; classId: string };
+// 与后端 AdminScope 形状一致（实际上就是共享的 PermissionScope），保留本地名字以向后兼容现有引用方。
+export type AdminScope = PermissionScope;
 export type AdminUserContext = {
   id: number;
   username: string;
@@ -405,6 +370,11 @@ export type AdminUserContext = {
   permissions: string[];
   scopes: AdminScope[];
   mustChangePassword: boolean;
+};
+
+export type LoginSession = {
+  token: string | null;
+  user: AdminUserContext | null;
 };
 
 export function getAdminUser(): AdminUserContext | null {
@@ -423,17 +393,19 @@ export function clearGradeAdminSetupPrompt(): void {
   try { localStorage.removeItem(GRADE_ADMIN_FIRST_LOGIN_KEY); } catch { /* storage optional */ }
 }
 
+// 以下三个函数现在委托给 src/shared/permissionRules.ts 的共享实现，与后端 api/_auth.ts 的
+// hasPermission/canAccessGrade/canAccessClass 保持完全一致的判断逻辑（注意：旧版 adminCanGrade 对年级范围的
+// 判断曾与后端存在细微差异，现统一以后端的更严谨版本为准）。
 export function adminCan(permission: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.permissions.includes(permission));
+  return sharedHasPermission(user, permission);
 }
 
 export function adminCanGrade(gradeId: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.scopes.some(scope => scope.type === 'all' || scope.gradeId === gradeId));
+  return sharedCanAccessGrade(user, gradeId);
 }
 
 export function adminCanClass(gradeId: string, classId: string, user = getAdminUser()): boolean {
-  return !!user && (user.permissions.includes('*') || user.scopes.some(scope =>
-    scope.type === 'all' || scope.type === 'grade' && scope.gradeId === gradeId || scope.type === 'class' && scope.classId === classId));
+  return sharedCanAccessClass(user, gradeId, classId);
 }
 
 /** V3：登录/进入管理页时主动刷新一次真实权限，消除前端 localStorage 缓存与服务端实际角色的漂移（见权限排查报告原因 5）。 */
@@ -454,7 +426,7 @@ export async function refreshAdminUser(): Promise<AdminUserContext | null> {
   } catch { return getAdminUser(); }
 }
 
-export async function loginAdmin(username: string, password: string): Promise<boolean> {
+export async function loginAdmin(username: string, password: string): Promise<LoginSession | null> {
   try {
     const res = await fetchWithTimeout(
       LOGIN_URL,
@@ -468,21 +440,23 @@ export async function loginAdmin(username: string, password: string): Promise<bo
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) {
       lastAuthApiError = await apiErrorFromResponse(new Response(JSON.stringify(data), { status: res.status, headers: res.headers }), '登录失败');
-      return false;
+      return null;
     }
-    if (data.token) {
-      localStorage.setItem(TOKEN_KEY, data.token);
+    const token = typeof data.token === 'string' && data.token ? data.token : null;
+    const user = data.user && typeof data.user === 'object' ? data.user as AdminUserContext : null;
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
     }
-    if (data.user) {
-      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
-      if (data.firstLogin === true && data.user.roleId === 'grade_admin') localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(data.user.id));
+    if (user) {
+      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
+      if (data.firstLogin === true && user.roleId === 'grade_admin') localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(user.id));
     }
     lastAuthApiError = null;
-    return true;
+    return { token, user };
   } catch (err) {
     lastAuthApiError = classifyFetchError(err);
-    return false;
+    return null;
   }
 }
 
@@ -498,4 +472,37 @@ export function logoutAdmin(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(TOKEN_EXPIRES_KEY);
   localStorage.removeItem(ADMIN_USER_KEY);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// resetCloudData
+// 重置云端指定类别数据。调用方只需传入 categories（"all"|"major"|...
+// ），内部统一处理 Token / 错误分类，不再散落在页面层用 raw fetch。
+// ─────────────────────────────────────────────────────────────────
+export type ResetCategory = 'all' | 'major' | 'weekly' | 'school' | 'settings' | 'devices';
+
+export async function resetCloudData(categories: ResetCategory[]): Promise<void> {
+  const token = localStorage.getItem(TOKEN_KEY) ?? '';
+  const response = await fetchWithTimeout(
+    API_URL,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ action: 'reset-data', categories }),
+    },
+    30_000,
+  );
+  if (!response.ok) {
+    // Preserve the original response body for apiErrorFromResponse
+    const body = await response.text();
+    const replay = new Response(body, { status: response.status, headers: response.headers });
+    throw await apiErrorFromResponse(replay, '数据库重置失败');
+  }
+  const data = await response.json().catch(() => null);
+  if (!data?.ok) {
+    throw new Error((data?.error as string | undefined) ?? '数据库重置失败');
+  }
 }

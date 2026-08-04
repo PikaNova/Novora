@@ -5,10 +5,12 @@ import type {
   WeeklyOccurrence,
   IsoWeekday,
   ScheduleValidationIssue,
-  WeeklyWeekType,
 } from '../types/exam.js';
 import { getZonedParts, DISPLAY_TIME_ZONE } from './zonedTime.js';
 import { expandOfficialHolidayDates } from '../data/officialHolidays.js';
+import { DATE_RE, HM_RE, genWeeklyPlanId, genWeeklyItemId, genWeeklyOverrideId, normalizeWeeklyPlan, padHM } from './settings/weekly.js';
+
+export { genWeeklyPlanId, genWeeklyItemId, genWeeklyOverrideId, normalizeWeeklyPlan };
 
 /**
  * 周测周期规则 -> 实际实例 的纯函数集合。
@@ -58,12 +60,6 @@ export function getWeekTypeForDate(plan: Pick<WeeklyPlan, 'anchorDate'>, dateKey
 
 function mod(a: number, n: number): number {
   return ((a % n) + n) % n;
-}
-
-/** 规范化 'H:mm' / 'HH:mm' -> 'HH:mm'。 */
-function padHM(t: string): string {
-  const [h = '0', m = '0'] = String(t).split(':');
-  return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
 }
 
 /** 生成裸本地 ISO 时间串（与既有 ExamItem.startTime 完全同格式，由 parseZonedTime 按上海解释）。 */
@@ -165,16 +161,6 @@ function buildOccurrence(
 
 // ------------------------- 规范化 / 构造 / 校验 -------------------------
 
-export function genWeeklyPlanId(): string {
-  return `weekly_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-}
-export function genWeeklyItemId(): string {
-  return `wk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-}
-export function genWeeklyOverrideId(sourceItemId: string, date: string): string {
-  return `ov_${sourceItemId}_${date}`;
-}
-
 /** 创建一个空的周测计划（锚点默认取今天所在周）。 */
 export function createEmptyWeeklyPlan(now: number, name = '周测计划'): WeeklyPlan {
   const todayKey = getShanghaiDateKey(now);
@@ -195,55 +181,6 @@ export function createEmptyWeeklyPlan(now: number, name = '周测计划'): Weekl
     order: 0,
     gradeId: '',
     classId: '',
-  };
-}
-
-const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** 规范化任意新旧/外部导入的周测计划，补齐字段并纠正非法值。 */
-export function normalizeWeeklyPlan(raw: unknown, index = 0): WeeklyPlan {
-  const src = (raw ?? {}) as Partial<WeeklyPlan>;
-  const items: WeeklyExamItem[] = (Array.isArray(src.items) ? src.items : [])
-    .filter(Boolean)
-    .map((it, i) => normalizeWeeklyItem(it, i));
-  return {
-    id: src.id || genWeeklyPlanId(),
-    name: (src.name && String(src.name).trim()) || `周测计划${index + 1}`,
-    enabled: src.enabled !== false,
-    timezone: 'Asia/Shanghai',
-    activeFrom: DATE_RE.test(src.activeFrom || '') ? (src.activeFrom as string) : '',
-    activeUntil: DATE_RE.test(src.activeUntil || '') ? (src.activeUntil as string) : null,
-    repeatEveryWeeks: clampRepeat(src.repeatEveryWeeks as number),
-    anchorDate: DATE_RE.test(src.anchorDate || '') ? (src.anchorDate as string) : (src.activeFrom || ''),
-    weekMode: src.weekMode === 'ab' ? 'ab' : 'single',
-    excludeOfficialHolidays: src.excludeOfficialHolidays === true,
-    items,
-    excludedDates: (Array.isArray(src.excludedDates) ? src.excludedDates : []).filter(d => DATE_RE.test(d)),
-    overrides: (Array.isArray(src.overrides) ? src.overrides : []).filter(Boolean) as WeeklyExamOverride[],
-    order: typeof src.order === 'number' ? src.order : index,
-    gradeId: typeof src.gradeId === 'string' ? src.gradeId : '',
-    classId: typeof src.classId === 'string' ? src.classId : '',
-  };
-}
-
-function normalizeWeeklyItem(raw: unknown, index: number): WeeklyExamItem {
-  const s = (raw ?? {}) as Partial<WeeklyExamItem>;
-  const weekday = ([1, 2, 3, 4, 5, 6, 7] as number[]).includes(s.weekday as number)
-    ? (s.weekday as IsoWeekday)
-    : 1;
-  return {
-    id: s.id || genWeeklyItemId(),
-    name: (s.name && String(s.name).trim()) || `周测${index + 1}`,
-    weekday,
-    startTime: padHM(s.startTime || '19:00'),
-    endTime: padHM(s.endTime || '20:00'),
-    endNextDay: !!s.endNextDay,
-    enabled: s.enabled !== false,
-    order: typeof s.order === 'number' ? s.order : index,
-    location: s.location,
-    note: s.note,
-    weekType: (['all', 'a', 'b'] as WeeklyWeekType[]).includes(s.weekType as WeeklyWeekType) ? s.weekType : 'all',
   };
 }
 

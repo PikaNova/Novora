@@ -1,4 +1,5 @@
 node_modules/
+dist/
 .api-check/
 .test-check/
 integrations/ClassIsland.ExamReminder/bin/
@@ -10,3 +11,10 @@ integrations/ClassIsland.ExamReminder/cipx/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Local-only AI handoff and working notes.
+AI_HANDOFF.md
+PROJECT_HANDOVER.md
+task_plan.md
+findings.md
+progress.md

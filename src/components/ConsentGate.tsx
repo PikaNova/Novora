@@ -52,7 +52,7 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
             </div>
           </>
         )}
-        <div className="consent-foot">Created By PikaNova 2026</div>
+        <div className="consent-foot">Made by PikaNova</div>
       </div>
     </div>
   );

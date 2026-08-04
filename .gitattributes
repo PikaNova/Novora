@@ -1,0 +1,6 @@
+# Normalize all text files to LF line endings on checkin/checkout.
+# This prevents CRLF/LF mixing from producing false-positive diffs.
+# Existing already-committed files are unaffected until they are next
+# modified/re-added; a deliberate one-time `git add --renormalize .`
+# pass is a separate follow-up decision.
+* text=auto eol=lf

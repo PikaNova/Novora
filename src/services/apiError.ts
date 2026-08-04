@@ -11,6 +11,7 @@ export type ApiErrorDetail = {
   permission?: string;
   /** 服务端返回的数据库操作类型，如 read/write/transaction */
   operation?: string;
+  retryAfterMs?: number;
 };
 
 export class ApiError extends Error {
@@ -21,6 +22,7 @@ export class ApiError extends Error {
   field?: string;
   permission?: string;
   operation?: string;
+  retryAfterMs?: number;
 
   constructor(detail: ApiErrorDetail) {
     super(detail.message);
@@ -32,6 +34,7 @@ export class ApiError extends Error {
     this.field = detail.field;
     this.permission = detail.permission;
     this.operation = detail.operation;
+    this.retryAfterMs = detail.retryAfterMs;
   }
 }
 
@@ -50,6 +53,7 @@ const DEFAULT_MESSAGES: Record<string, string> = {
   DATABASE_TRANSACTION_FAILED: '数据库操作未完成，服务端变更已回滚。',
   DATABASE_POOL_EXHAUSTED:   '服务器连接繁忙，请稍后重试。',
   DATABASE_CONFLICT:         '操作遇到并发冲突，已自动回滚，请重试。',
+  RATE_LIMITED:              '其他设备正在保存数据，系统将很快自动重试。',
 
   // 验证 / 权限 / 会话
   ALREADY_INITIALIZED:       '云端已经完成初始化，请在年级与班级页面调整学校结构。',
@@ -139,6 +143,13 @@ export async function apiErrorFromResponse(response: Response, fallback: string)
     ? data.requestId
     : response.headers.get('X-Request-Id') || undefined;
   const operation = typeof data?.operation === 'string' ? data.operation : undefined;
+  const bodyRetryAfterMs = typeof data?.retryAfterMs === 'number' && Number.isFinite(data.retryAfterMs)
+    ? Math.max(0, data.retryAfterMs)
+    : undefined;
+  const headerRetryAfterSeconds = Number(response.headers.get('Retry-After'));
+  const retryAfterMs = bodyRetryAfterMs ?? (Number.isFinite(headerRetryAfterSeconds) && headerRetryAfterSeconds > 0
+    ? headerRetryAfterSeconds * 1_000
+    : undefined);
 
   const error = new ApiError({
     status: response.status,
@@ -149,6 +160,7 @@ export async function apiErrorFromResponse(response: Response, fallback: string)
     field: typeof data?.field === 'string' ? data.field : undefined,
     permission,
     operation,
+    retryAfterMs,
   });
   reportIfStabilityIssue(error, response.url || undefined);
   return error;
@@ -196,5 +208,6 @@ export function getSyncNotifyTitle(code?: string): string {
   if (code === 'DATA_CONFLICT') return '数据冲突';
   if (code === 'CLASS_DEVICE_EXISTS') return '设备冲突';
   if (code === 'ALREADY_INITIALIZED') return '已初始化';
+  if (code === 'RATE_LIMITED') return '多设备同步繁忙';
   return '同步失败';
 }

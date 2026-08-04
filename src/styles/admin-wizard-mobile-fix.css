@@ -1,0 +1,44 @@
+/* Fix: mobile initialization/workflow wizard step list breaking into
+   vertical single-character columns.
+
+   Root cause: admin.css forced `.admin-wizard-steps__list` into a CSS grid
+   with as many equal-width columns as there are steps
+   (`grid-template-columns:repeat(var(--admin-wizard-step-count,3),minmax(0,1fr))`).
+   With 5-7 steps (e.g. the initialization wizard: 学校信息/年级班级/学期规则/
+   确认配置/使用文档/管理员密码/恢复密钥) on a narrow phone screen each column
+   became too narrow to fit the step label, so the Chinese text wrapped
+   character-by-character into a tall, garbled column.
+
+   Fix: on narrow screens, lay the steps out as a horizontally scrollable row
+   of fixed-width, non-wrapping chips instead of an N-column grid. This file
+   is imported after admin.css so these rules win the cascade. */
+@media (max-width: 760px) {
+  .admin-wizard-steps__list {
+    display: flex;
+    flex-wrap: nowrap;
+    grid-template-columns: none;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .admin-wizard-steps__list::-webkit-scrollbar {
+    display: none;
+  }
+  .admin-wizard-steps__list > div {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  .admin-wizard-steps__list strong {
+    white-space: nowrap;
+  }
+}

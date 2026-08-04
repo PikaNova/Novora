@@ -1,48 +1,69 @@
-const CACHE = 'novora-shell-v2.7.0-queue-toast-main';
-const RUNTIME = 'novora-runtime-v2.7.0-queue-toast-main';
-// Keep installation light. Fonts are cached after a design actually requests them.
-const CORE = ['/', '/index.html', '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512-rounded.png', '/manifest.webmanifest', '/fonts/exam-numeric-subset.ttf', '/fonts/source-han-sc-standard-subset.woff2'];
+const SHELL_CACHE = "novora-shell-v2.7.1-pwa-20260804-6";
+const RUNTIME_CACHE = "novora-runtime-v2.7.1-pwa-20260804-6";
+const SHELL_ASSETS = ["/", "/index.html", "/manifest.webmanifest"];
 
-async function precacheShell() {
-  const cache = await caches.open(CACHE);
-  const response = await fetch('/index.html', { cache: 'no-store' });
-  if (!response.ok) throw new Error('Unable to fetch application shell');
-  const html = await response.clone().text();
-  await cache.put('/index.html', response);
-  const assets = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
-    .map(match => new URL(match[1], self.location.origin))
-    .filter(url => url.origin === self.location.origin && !url.pathname.startsWith('/api/'))
-    .map(url => url.pathname + url.search);
-  await Promise.all([...new Set([...CORE, ...assets])].map(async url => {
-    try { const hit = await fetch(url, { cache: 'no-store' }); if (hit.ok) await cache.put(url, hit); } catch { /* previous verified shell remains available */ }
-  }));
-}
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(SHELL_CACHE)
+      .then((cache) => cache.addAll(SHELL_ASSETS))
+      .then(() => self.skipWaiting()),
+  );
+});
 
-self.addEventListener('install', event => event.waitUntil(precacheShell().then(() => self.skipWaiting())));
-self.addEventListener('activate', event => event.waitUntil((async () => {
-  const keys = await caches.keys();
-  const stale = keys.filter(key => (
-    key.startsWith('exam-board-shell-')
-    || key.startsWith('exam-board-runtime-')
-    || (key.startsWith('novora-shell-') && key !== CACHE)
-    || (key.startsWith('novora-runtime-') && key !== RUNTIME)
-  ));
-  await Promise.all(stale.map(key => caches.delete(key)));
-  await self.clients.claim();
-})()));
-self.addEventListener('message', event => { if (event.data?.type === 'SKIP_WAITING') self.skipWaiting(); });
-self.addEventListener('fetch', event => {
-  const req = event.request; const url = new URL(req.url);
-  if (url.origin !== self.location.origin || req.method !== 'GET' || url.pathname.startsWith('/api/')) return;
-  if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).then(async response => {
-      if (response.ok) { const cache = await caches.open(CACHE); await cache.put('/index.html', response.clone()); }
-      return response;
-    }).catch(async () => (await caches.match('/index.html')) || (await caches.match('/', { ignoreSearch: true })) || Response.error()));
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter(
+              (key) =>
+                key !== SHELL_CACHE &&
+                key !== RUNTIME_CACHE &&
+                (key.startsWith('novora-shell-') || key.startsWith('novora-runtime-')),
+            )
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // API data must always come from the network. Cache Storage ignores HTTP
+  // cache directives, so cache-first here could return stale grades/classes
+  // even when the API responds with Cache-Control: private, no-cache.
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
     return;
   }
-  event.respondWith(caches.match(req).then(hit => hit || fetch(req).then(async response => {
-    if (response.ok) { const cache = await caches.open(RUNTIME); await cache.put(req, response.clone()); }
-    return response;
-  })));
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request).catch(() => caches.match("/index.html")),
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(request).then((cached) => {
+      const fetchPromise = fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => cached);
+      return cached || fetchPromise;
+    }),
+  );
 });

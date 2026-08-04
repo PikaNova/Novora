@@ -1,7 +1,10 @@
 import type { FormEvent } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyRound } from 'lucide-react';
 import { repairSuperAdminAccount } from '../services/examService';
+import { ApiError } from '../services/apiError';
+import { useRetryCountdown } from '../hooks/useRetryCountdown';
+import { computeLockedUntil, formatRetryMessage } from '../utils/retryCountdown';
 
 export default function SuperAdminRepairLink() {
   const [open, setOpen] = useState(false);
@@ -12,6 +15,12 @@ export default function SuperAdminRepairLink() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<'created' | 'repaired' | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const remainingLockSeconds = useRetryCountdown(lockedUntil);
+
+  useEffect(() => {
+    if (lockedUntil && remainingLockSeconds <= 0) setLockedUntil(null);
+  }, [lockedUntil, remainingLockSeconds]);
 
   const reset = () => {
     setOpen(false);
@@ -22,12 +31,14 @@ export default function SuperAdminRepairLink() {
     setError('');
     setLoading(false);
     setResult(null);
+    setLockedUntil(null);
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError('');
     setResult(null);
+    if (lockedUntil && remainingLockSeconds > 0) return;
     if (!username.trim() || !recoveryKey) {
       setError('请输入目标用户名和恢复密钥');
       return;
@@ -44,11 +55,17 @@ export default function SuperAdminRepairLink() {
     try {
       const { created } = await repairSuperAdminAccount(username.trim(), recoveryKey, next);
       setResult(created ? 'created' : 'repaired');
+      setLockedUntil(null);
       setRecoveryKey('');
       setNext('');
       setConfirm('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '超级管理员账户修复失败');
+      if (cause instanceof ApiError && cause.code === 'REPAIR_FAILED' && typeof cause.retryAfterMs === 'number') {
+        setLockedUntil(computeLockedUntil(cause.retryAfterMs));
+        setError('');
+      } else {
+        setError(cause instanceof Error ? cause.message : '超级管理员账户修复失败');
+      }
     } finally {
       setLoading(false);
     }
@@ -111,8 +128,12 @@ export default function SuperAdminRepairLink() {
           <span aria-hidden="true">●</span>
           <input id="repair-confirm" type="password" autoComplete="new-password" value={confirm} onChange={event => setConfirm(event.target.value)} />
         </div>
-        {error && <p className="login-form__error">{error}</p>}
-        <button type="submit" className="login-form__submit" disabled={loading}>{loading ? '正在处理…' : '确认修复/创建'}</button>
+        {lockedUntil && remainingLockSeconds > 0 ? (
+          <p className="login-form__error">{formatRetryMessage(remainingLockSeconds, '恢复尝试过于频繁')}</p>
+        ) : error && <p className="login-form__error">{error}</p>}
+        <button type="submit" className="login-form__submit" disabled={loading || (!!lockedUntil && remainingLockSeconds > 0)}>
+          {loading ? '正在处理…' : lockedUntil && remainingLockSeconds > 0 ? `请 ${remainingLockSeconds} 秒后再试` : '确认修复/创建'}
+        </button>
       </form>
       <button type="button" className="login-form__link" onClick={reset}>返回登录</button>
     </div>

@@ -23,18 +23,9 @@ import { confirmDialog } from "../services/appDialog";
 import { DateTimeField } from "./touch-datetime-picker";
 import SubjectIcon from "./SubjectIcon";
 import TimeRangePickerModal from "./TimeRangePickerModal";
+import { COMMON_EXAM_SUBJECTS } from "../data/subjects";
 
-const COMMON_SUBJECTS = [
-  "语文",
-  "数学",
-  "英语",
-  "物理",
-  "化学",
-  "生物",
-  "政治",
-  "历史",
-  "地理",
-];
+const COMMON_SUBJECTS = COMMON_EXAM_SUBJECTS;
 const DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 const DELAY_PRESETS = [5, 10, 15, 30];
 const isoLocal = (value: number) =>
@@ -94,6 +85,7 @@ export default function TemporaryExamLauncher({
     timeKey(nextFiveMinutes()),
   );
   const [timeRangeOpen, setTimeRangeOpen] = useState(false);
+  const timeRangeAnchorRef = useRef<HTMLButtonElement | null>(null);
   const timeRangeSnapshotRef = useRef<null | { mode: "now" | "delay" | "specific"; delay: number; duration: number; specificDate: string; specificTime: string; crossDayConfirmed: boolean }>(null);
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [priority, setPriority] = useState(false);
@@ -454,7 +446,7 @@ export default function TemporaryExamLauncher({
                           </strong>
                           <small>共 {formatDuration(duration)}</small>
                         </div>
-                        <button type="button" onClick={openTimeRange}>自定义时间</button>
+                        <button ref={timeRangeAnchorRef} type="button" onClick={openTimeRange}>自定义时间</button>
                       </div>
                     </section>
                   )}
@@ -563,6 +555,7 @@ export default function TemporaryExamLauncher({
         contextLabel={dateKey(startMs)}
         presets={DURATION_PRESETS}
         initialCrossDay={crossDayConfirmed}
+        anchorRef={timeRangeAnchorRef}
         onPreviewChange={applyTimeRangeDraft}
         onCancel={cancelTimeRange}
         onConfirm={(startTime, endTime, endNextDay) => {

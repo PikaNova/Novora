@@ -8,6 +8,10 @@ export interface ExamItem {
   endTime: string;
   enabled: boolean;
   order: number;
+  /** 该分考试额外限定的适用年级；为空表示沿用所属大型考试范围。 */
+  targetGradeIds?: string[];
+  /** 该分考试额外限定的适用班级；为空表示沿用所属大型考试范围。 */
+  targetClassIds?: string[];
   kind?: 'major' | 'weekly' | 'temporary';
   majorExamId?: string;
   majorName?: string;

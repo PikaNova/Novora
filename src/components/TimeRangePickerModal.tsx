@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { DateTimeField } from "./touch-datetime-picker";
 import WheelColumn from "./WheelColumn";
+import { resolveAnchoredOverlayPosition } from "../utils/anchoredOverlay";
 import "../styles/time-range-picker.css";
 
 type RangeMode = "time" | "datetime";
@@ -19,6 +20,8 @@ interface Props {
   presets?: number[];
   allowCrossDay?: boolean;
   initialCrossDay?: boolean;
+  anchorRef?: RefObject<HTMLElement | null>;
+  anchorPlacement?: "auto" | "right";
   onPreviewChange?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onPreviewCancel?: (startValue: string, endValue: string, endNextDay: boolean) => void;
   onCancel: () => void;
@@ -102,6 +105,8 @@ export default function TimeRangePickerModal({
   presets = [45, 60, 75, 90, 120, 150],
   allowCrossDay = true,
   initialCrossDay = false,
+  anchorRef,
+  anchorPlacement = "auto",
   onPreviewChange,
   onPreviewCancel,
   onCancel,
@@ -114,6 +119,7 @@ export default function TimeRangePickerModal({
   const [crossDayEnabled, setCrossDayEnabled] = useState(initialCrossDay);
   const modalRef = useRef<HTMLElement | null>(null);
   const anchorElementRef = useRef<HTMLElement | null>(null);
+  const anchorBoundaryRef = useRef<HTMLElement | null>(null);
   const initialRangeRef = useRef({ startValue, endValue, endNextDay: initialCrossDay });
   const previewChangeRef = useRef(onPreviewChange);
   const previewReadyRef = useRef(false);
@@ -126,46 +132,45 @@ export default function TimeRangePickerModal({
   useLayoutEffect(() => {
     if (!open) {
       anchorElementRef.current = null;
+      anchorBoundaryRef.current = null;
       return;
     }
     const activeElement = document.activeElement;
-    anchorElementRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
-  }, [open]);
+    anchorElementRef.current = anchorRef?.current instanceof HTMLElement
+      ? anchorRef.current
+      : activeElement instanceof HTMLElement && activeElement !== document.body
+        ? activeElement
+        : null;
+    anchorBoundaryRef.current = anchorElementRef.current?.closest(".admin-modal, .time-range-modal") ?? null;
+  }, [anchorRef, open]);
 
   useLayoutEffect(() => {
     if (!open || !modalRef.current || window.innerWidth <= 620) return;
     const modal = modalRef.current;
 
     const placeModal = () => {
-      const edge = 10;
-      const gap = 8;
       const anchor = anchorElementRef.current?.getBoundingClientRect();
       const { width, height } = modal.getBoundingClientRect();
-      let left = (window.innerWidth - width) / 2;
-      let top = (window.innerHeight - height) / 2;
-
-      if (anchor) {
-        const rightSpace = window.innerWidth - anchor.right - edge;
-        const leftSpace = anchor.left - edge;
-        const belowSpace = window.innerHeight - anchor.bottom - edge;
-        const aboveSpace = anchor.top - edge;
-        if (rightSpace >= width + gap || rightSpace >= leftSpace) {
-          left = anchor.right + gap;
-          top = anchor.top + anchor.height / 2 - height / 2;
-        } else if (leftSpace >= width + gap) {
-          left = anchor.left - width - gap;
-          top = anchor.top + anchor.height / 2 - height / 2;
-        } else {
-          left = anchor.left + width <= window.innerWidth - edge ? anchor.left : anchor.right - width;
-          top = belowSpace >= height || belowSpace >= aboveSpace
-            ? anchor.bottom + gap
-            : anchor.top - height - gap;
-        }
-      }
-
       modal.style.transform = "none";
-      modal.style.left = `${Math.max(edge, Math.min(left, window.innerWidth - width - edge))}px`;
-      modal.style.top = `${Math.max(edge, Math.min(top, window.innerHeight - height - edge))}px`;
+      if (!anchor) {
+        modal.style.left = `${Math.max(10, (window.innerWidth - width) / 2)}px`;
+        modal.style.top = `${Math.max(10, (window.innerHeight - height) / 2)}px`;
+        return;
+      }
+      const boundary = anchorBoundaryRef.current?.getBoundingClientRect();
+      const position = resolveAnchoredOverlayPosition({
+        anchor: { left: anchor.left, top: anchor.top, width: anchor.width, height: anchor.height },
+        overlay: { width, height },
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        placement: anchorPlacement,
+        boundary: boundary
+          ? { left: boundary.left, top: boundary.top, width: boundary.width, height: boundary.height }
+          : undefined,
+      });
+      modal.style.maxWidth = `${position.maxWidth}px`;
+      modal.style.maxHeight = `${position.maxHeight}px`;
+      modal.style.left = `${position.left}px`;
+      modal.style.top = `${position.top}px`;
     };
 
     placeModal();
@@ -177,7 +182,7 @@ export default function TimeRangePickerModal({
       window.removeEventListener("resize", placeModal);
       window.removeEventListener("scroll", placeModal, true);
     };
-  }, [crossDayEnabled, mode, open, step]);
+  }, [anchorPlacement, crossDayEnabled, mode, open, step]);
 
   useEffect(() => {
     if (!open) {

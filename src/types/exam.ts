@@ -11,7 +11,7 @@ import type { ExamItem, MajorExam } from './index.js';
 export type ScheduleMode = 'major-only' | 'weekly-only' | 'automatic';
 
 /** 后台当前编辑的模块（仅影响编辑界面，不决定大屏显示）。 */
-export type AdminTab = 'overview' | 'major' | 'weekly' | 'classes' | 'devices' | 'users';
+export type AdminTab = 'overview' | 'dashboard' | 'major' | 'weekly' | 'classes' | 'devices' | 'users';
 
 export type DesignRuleScope = 'school' | 'grade' | 'class' | 'device';
 export interface DesignAssignmentRule {

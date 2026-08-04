@@ -29,8 +29,8 @@
 }
 
 @keyframes app-time-popover-in {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.985); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from { opacity: 0; transform: scale(.985); }
+  to { opacity: 1; transform: none; }
 }
 
 .app-route-transition {
@@ -47,7 +47,7 @@
 .admin-device-setup,
 .dsw-overlay,
 .eann-overlay,
-.help-tip__layer,
+.help-tip__backdrop,
 .welcome-class-overlay,
 .admin-modal-overlay,
 .app-dialog-overlay,
@@ -103,12 +103,9 @@
   .admin-device-setup > section,
   .help-tip__panel,
   .time-range-modal,
-  .tdp-root[data-density="sheet"] .tdp-panel {
-    animation: app-drawer-in 190ms cubic-bezier(.2, .75, .25, 1) both;
-  }
-
+  .tdp-root[data-density="sheet"] .tdp-panel,
   .overview-device-drawer aside {
-    animation-duration: 170ms;
+    animation: app-drawer-in 190ms cubic-bezier(.2, .75, .25, 1) both;
   }
 }
 
@@ -123,7 +120,7 @@
   .dsw-window,
   .eann-overlay,
   .eann-window,
-  .help-tip__layer,
+  .help-tip__backdrop,
   .help-tip__panel,
   .welcome-class-overlay,
   .welcome-class-dialog,
@@ -154,7 +151,7 @@ body:has(.time-range-overlay),
 body:has(.tdp-root),
 body:has(.dsw-overlay),
 body:has(.eann-overlay),
-body:has(.help-tip__layer),
+body:has(.help-tip__backdrop),
 body:has(.overview-device-drawer),
 body:has(.app-dialog-overlay),
 body:has(.init-overlay),
@@ -203,10 +200,12 @@ body:has(.schedule-preview) {
 .inline-select__menu,
 .admin-more__menu,
 .exam-quick__menu,
-.tdp-root,
-.help-tip__layer {
+.tdp-root {
   z-index: 18000 !important;
 }
+
+.help-tip__backdrop { z-index: 19500 !important; }
+.help-tip__panel { z-index: 19510 !important; }
 
 .app-dialog-overlay {
   z-index: 19000 !important;
@@ -267,8 +266,8 @@ body:has(.schedule-preview) {
     max-height: min(88dvh, calc(100svh - max(12px, env(safe-area-inset-top)))) !important;
   }
 
-  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__layer, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .admin-mobile-nav,
-  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__layer, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .app-watermark {
+  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__backdrop, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .admin-mobile-nav,
+  body:has(.device-detail-overlay, .admin-modal-overlay, .admin-device-setup, .time-range-overlay, .tdp-root, .dsw-overlay, .eann-overlay, .help-tip__backdrop, .overview-device-drawer, .app-dialog-overlay, .init-overlay, .temp-exam-overlay, .schedule-preview) .app-watermark {
     display: none !important;
     visibility: hidden;
     pointer-events: none;

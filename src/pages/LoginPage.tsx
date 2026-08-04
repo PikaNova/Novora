@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getAdminRecoveryStatus, getAdminUser, getLastAuthApiError, hasValidLocalToken, isLoginRequired, loginAdmin, logoutAdmin, recoverSuperAdminAccount } from '../services/examService';
 import { formatApiError } from '../services/apiError';
 import { changeOwnCredentials } from '../services/adminUsers';
+import { useRetryCountdown } from '../hooks/useRetryCountdown';
+import { computeLockedUntil, formatRetryMessage, loginLockoutRetryAfterMs } from '../utils/retryCountdown';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
 import SuperAdminRepairLink from '../components/SuperAdminRepairLink';
@@ -16,12 +18,14 @@ export default function LoginPage() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const remainingLockSeconds = useRetryCountdown(lockedUntil);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [recoveryView, setRecoveryView] = useState<'guide' | 'form' | null>(null);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [recoveryDraft, setRecoveryDraft] = useState({ username: 'admin', recoveryKey: '', next: '', confirm: '' });
-  const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; username: string; next: string; confirm: string } | null>(null);
+  const [passwordUpgrade, setPasswordUpgrade] = useState<{ current: string; username: string; next: string; confirm: string; token: string } | null>(null);
   const search = new URLSearchParams(location.search);
   const next = safeLoginDestination(search.get('next'));
   const initializing = search.get('mode') === 'initialize';
@@ -35,14 +39,35 @@ export default function LoginPage() {
     });
   }, [navigate, next]);
 
+  useEffect(() => {
+    if (lockedUntil && remainingLockSeconds <= 0) setLockedUntil(null);
+  }, [lockedUntil, remainingLockSeconds]);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (lockedUntil && remainingLockSeconds > 0) return;
     if (!username.trim() || !password) { setError('请输入用户名和密码'); return; }
     setLoading(true); setError('');
-    const ok = await loginAdmin(username.trim(), password);
+    const session = await loginAdmin(username.trim(), password);
     setLoading(false);
-    if (!ok) { const cause = getLastAuthApiError(); setError(cause ? formatApiError(cause) : '用户名或密码不正确，请重新输入'); return; }
-    if (getAdminUser()?.mustChangePassword || password.length < 8) { setPasswordUpgrade({ current: password, username: getAdminUser()?.username || username.trim(), next: '', confirm: '' }); return; }
+    if (!session) {
+      const cause = getLastAuthApiError();
+      const retryAfterMs = loginLockoutRetryAfterMs(cause);
+      if (retryAfterMs !== null) {
+        setLockedUntil(computeLockedUntil(retryAfterMs));
+        setError('');
+        return;
+      }
+      setLockedUntil(null);
+      setError(cause ? formatApiError(cause) : '用户名或密码不正确，请重新输入');
+      return;
+    }
+    setLockedUntil(null);
+    if (session.user?.mustChangePassword || password.length < 8) {
+      if (!session.token) { setError('当前登录未获得有效会话，请刷新后重试'); return; }
+      setPasswordUpgrade({ current: password, username: session.user?.username || username.trim(), next: '', confirm: '', token: session.token });
+      return;
+    }
     navigate(next, { replace: true });
   };
 
@@ -54,7 +79,7 @@ export default function LoginPage() {
     if (passwordUpgrade.next.length < 8) { setError('新密码至少需要 8 位'); return; }
     if (passwordUpgrade.next !== passwordUpgrade.confirm) { setError('两次输入的新密码不一致'); return; }
     setLoading(true); setError('');
-    try { const nextUsername = await changeOwnCredentials(passwordUpgrade.current, passwordUpgrade.username.trim(), passwordUpgrade.next); logoutAdmin(); setUsername(nextUsername); setPasswordUpgrade(null); setPassword(''); navigate(`/login?${initializing ? 'mode=initialize&' : ''}next=${encodeURIComponent(next)}`, { replace: true }); }
+    try { const nextUsername = await changeOwnCredentials(passwordUpgrade.current, passwordUpgrade.username.trim(), passwordUpgrade.next, passwordUpgrade.token); logoutAdmin(); setUsername(nextUsername); setPasswordUpgrade(null); setPassword(''); navigate(`/login?${initializing ? 'mode=initialize&' : ''}next=${encodeURIComponent(next)}`, { replace: true }); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '账户信息修改失败'); }
     finally { setLoading(false); }
   };
@@ -129,9 +154,15 @@ export default function LoginPage() {
               value={password} onChange={e => { setPassword(e.target.value); setError(''); }}
               placeholder={initializing ? '输入 ADMIN_PASSWORD' : '输入密码'} />
           </div>
-          {error && <p className="login-form__error">{error}</p>}
-          <button className="login-form__submit" disabled={loading} type="submit">
-            {loading ? '正在验证…' : initializing ? '验证并开始初始化' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
+          {lockedUntil && remainingLockSeconds > 0 ? (
+            <p className="login-form__error">{formatRetryMessage(remainingLockSeconds, '登录失败次数过多')}</p>
+          ) : error && <p className="login-form__error">{error}</p>}
+          <button className="login-form__submit" disabled={loading || (!!lockedUntil && remainingLockSeconds > 0)} type="submit">
+            {loading
+              ? '正在验证…'
+              : lockedUntil && remainingLockSeconds > 0
+                ? `请 ${remainingLockSeconds} 秒后再试`
+                : initializing ? '验证并开始初始化' : '进入管理后台'} {!loading && <ArrowRight aria-hidden="true" />}
           </button>
         </form>
         {!initializing && <button className="login-form__link" type="button" onClick={() => void openRecovery()}>忘记密码？</button>}

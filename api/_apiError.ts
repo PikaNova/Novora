@@ -96,3 +96,19 @@ export function sendDatabaseError(
     requestId: id,
   });
 }
+
+export function sendRateLimited(
+  req: VercelRequest,
+  res: VercelResponse,
+  retryAfterSeconds = 1,
+): void {
+  const id = requestId(req, res);
+  res.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryAfterSeconds))));
+  res.status(429).json({
+    ok: false,
+    code: "RATE_LIMITED",
+    error: "其他设备正在保存数据，系统将很快自动重试。",
+    retryable: true,
+    requestId: id,
+  });
+}

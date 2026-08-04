@@ -11,17 +11,23 @@ import { notify } from '../services/notify';
 interface Options {
   onUpdate?: (data: { items: ExamItem[]; title: string; alerts: AlertsSettings }) => void;
   intervalMs?: number;
+  minRefreshMs?: number;
   bootstrapInstanceId?: string;
   onBootstrapBinding?: (binding: DeviceBinding | null) => void;
 }
 
 export type ExamDataSyncState = 'local' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error' | 'auth-required' | 'max-retries';
 const AUTO_REFRESH_COOLDOWN_MS = 10_000;
+// 首次同步若命中“看起来还未初始化”且服务端 updatedAt 并不比本地更新的响应，
+// 大概率是打到了服务端某个刚启动、还没看到最新写入的旧缓存实例（详见 api/exams.ts 的说明）。
+// 稍等片刻后强制重拉一次即可自愈，避免用户误以为“班级没建成功”，非要手动刷新页面才恢复。
+const STALE_FIRST_SYNC_RETRY_MS = 1_500;
 
-export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId, onBootstrapBinding }: Options = {}) {
+export function useExamSync({ onUpdate, intervalMs = 60000, minRefreshMs = AUTO_REFRESH_COOLDOWN_MS, bootstrapInstanceId, onBootstrapBinding }: Options = {}) {
   const lastApplied = useRef(0);
   const lastPullAt = useRef(0);
   const pulling = useRef(false);
+  const staleFirstSyncRetryDone = useRef(false);
   const bootstrapResolved = useRef(false);
   const bootstrapInstanceIdRef = useRef(bootstrapInstanceId);
   if (!bootstrapResolved.current && bootstrapInstanceId) bootstrapInstanceIdRef.current = bootstrapInstanceId;
@@ -104,7 +110,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
   const refresh = useCallback(async (force = false) => {
     if (pulling.current) return;
     const pullStartedAt = Date.now();
-    if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < AUTO_REFRESH_COOLDOWN_MS) return;
+    if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < minRefreshMs) return;
     applyLocal();
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     lastPullAt.current = pullStartedAt;
@@ -169,6 +175,20 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
       if (remote.updatedAt > baseline) {
         lastApplied.current = remote.updatedAt;
         applyPayload(remote);
+      } else if (
+        baseline === 0
+        && !staleFirstSyncRetryDone.current
+        && !(remote.grades?.length)
+        && !(remote.classes?.length)
+        && !(remote.majors?.length)
+      ) {
+        // 本次是本会话首次同步，且拿到的数据看起来“还没初始化”（年级/班级/大型考试都是空的），
+        // 但服务端自己报的 updatedAt 又没有比本地更新——这通常意味着请求被路由到了服务端某个
+        // 刚启动、还未感知到最新写入的实例（例如另一台管理员设备刚创建完班级）。
+        // 不要就此断定“确实没有班级”，稍等一下强制重新拉取一次，命中新数据后即可自愈，
+        // 不再需要用户手动刷新页面。
+        staleFirstSyncRetryDone.current = true;
+        window.setTimeout(() => { void refresh(true); }, STALE_FIRST_SYNC_RETRY_MS);
       }
       setHasPendingSync(false);
       setLastSyncAt(Date.now());
@@ -181,7 +201,7 @@ export function useExamSync({ onUpdate, intervalMs = 60000, bootstrapInstanceId,
     } finally {
       pulling.current = false;
     }
-  }, [applyLocal, applyPayload, reportSyncError]);
+  }, [applyLocal, applyPayload, reportSyncError, minRefreshMs]);
 
   useEffect(() => {
     let cancelled = false;

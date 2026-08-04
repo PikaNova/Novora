@@ -21,6 +21,7 @@ import { getDesignId, resolveManagedDesign, setDesignId } from '../utils/designP
 import { getCachedDeviceBinding, getClassBindingInstanceId } from '../services/classBinding';
 import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
+import LoadingState from '../components/LoadingState';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
@@ -150,9 +151,10 @@ function BoundExamPage() {
   const examLiveRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 数据链接：30s Neon 同步，所有设计共用同一份数据（含提醒管理配置）
-  const { refresh: refreshExamData, syncState: examDataSyncState, lastSyncAt: examDataLastSyncAt, hasPendingSync } = useExamSync({
-    intervalMs: 30000,
+  // 数据链接：考试前端保持快速同步，后台切换分科模式后无需手动刷新。
+  const { refresh: refreshExamData, syncState: examDataSyncState, lastSyncAt: examDataLastSyncAt, hasPendingSync, syncError } = useExamSync({
+    intervalMs: 5000,
+    minRefreshMs: 3000,
     onUpdate: ({ items: newItems, title: newTitle, alerts: newAlerts }) => {
       setItems(getResolvedExamItems()); if (newTitle) setTitle(newTitle);
       if (newAlerts) setAlerts(newAlerts);
@@ -374,7 +376,7 @@ function BoundExamPage() {
   return (
     <div className="exam-root">
       <TemporaryExamLauncher formalItems={getResolvedSchedule(nowTick).activeItems} externalOpen={temporaryOpen} onExternalHandled={() => setTemporaryOpen(false)} />
-      <Suspense fallback={<div className="exam-design-loading">正在载入展示设计…</div>}><Design
+      <Suspense fallback={<LoadingState kind="design" />}><Design
         vm={vm}
         onDismissNotification={dismiss}
         onBack={() => navigate('/')}
@@ -408,6 +410,7 @@ function BoundExamPage() {
             state={examDataSyncState}
             lastSyncAt={examDataLastSyncAt}
             hasPendingSync={hasPendingSync}
+            syncError={syncError}
             onRefresh={() => { void refreshExamData(true); }}
           />
         </div>

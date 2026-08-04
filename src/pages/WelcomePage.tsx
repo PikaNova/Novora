@@ -57,6 +57,8 @@ export default function WelcomePage() {
   const [occupiedClassIds, setOccupiedClassIds] = useState<string[]>([]);
   const [bindingClassId, setBindingClassId] = useState('');
   const { syncState, refresh } = useExamSync({
+    intervalMs: 10000,
+    minRefreshMs: 5000,
     bootstrapInstanceId: hasConfirmedDevicePurpose() ? undefined : getClassBindingInstanceId(),
     onBootstrapBinding: binding => { cacheDeviceBinding(binding); if (binding && !binding.revoked) markDevicePurposeConfirmed(); setRemoteBinding(binding); },
   });

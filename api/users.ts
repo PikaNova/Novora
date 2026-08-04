@@ -2,16 +2,18 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requestId, sendDatabaseError } from './_apiError.js';
 import { applyCors } from './_cors.js';
 import { randomBytes } from 'node:crypto';
+import { allScopeOnlyPermissionError, hasGradeLevelAccess } from '../src/shared/permissionRules.js';
 import {
   ALL_PERMISSIONS,
   authSql,
   canAccessClass,
-  canAccessGrade,
   changeOwnCredentials,
   changeOwnPassword,
   changeOwnUsername,
   ensureAuthTables,
+  getRecentLoginFailureAlerts,
   hasPermission,
+  invalidateLegacySharedToken,
   makePasswordHash,
   requireActor,
   writeAudit,
@@ -42,20 +44,43 @@ function scopes(value: unknown): AdminScope[] {
 
 async function replaceScopes(userId: number, next: AdminScope[]): Promise<void> {
   const sql = authSql();
-  await sql`DELETE FROM app_user_scopes WHERE user_id=${userId}`;
-  await Promise.all(next.map(scope => sql`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
-    VALUES (${userId}, ${scope.type}, ${scope.gradeId}, ${scope.classId}) ON CONFLICT DO NOTHING`));
+  await sql.transaction(transaction => [
+    transaction`DELETE FROM app_user_scopes WHERE user_id=${userId}`,
+    ...next.map(scope => transaction`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
+      VALUES (${userId}, ${scope.type}, ${scope.gradeId}, ${scope.classId}) ON CONFLICT DO NOTHING`),
+  ]);
 }
 
 function canDelegatePermissions(actor: AdminActor, permissions: Permission[]): boolean {
   return actor.permissions.includes('*') || (!permissions.includes('*') && permissions.every(permission => actor.permissions.includes(permission)));
 }
 
-function canDelegateScopes(actor: AdminActor, next: AdminScope[]): boolean {
+export function canDelegateScopes(actor: AdminActor, next: AdminScope[]): boolean {
   if (actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return true;
   return next.length > 0 && next.every(scope => scope.type === 'grade'
-    ? canAccessGrade(actor, scope.gradeId)
+    ? hasGradeLevelAccess(actor, scope.gradeId)
     : scope.type === 'class' && canAccessClass(actor, scope.gradeId, scope.classId));
+}
+
+export type VisibilityCandidate = {
+  scopes: AdminScope[];
+  permissions: Permission[];
+};
+
+export function filterVisibleUsers<T extends VisibilityCandidate>(actor: AdminActor | undefined, users: T[]): T[] {
+  if (!actor || actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return users;
+  return users.filter(user =>
+    canDelegatePermissions(actor, user.permissions) &&
+    user.scopes.length > 0 &&
+    user.scopes.every(scope => scope.type !== 'all' && (scope.type === 'grade'
+      ? hasGradeLevelAccess(actor, scope.gradeId)
+      : canAccessClass(actor, scope.gradeId, scope.classId))),
+  );
+}
+
+// Historical audit rows cannot be safely filtered to a grade or class scope.
+export function canReadAuditLog(actor: AdminActor): boolean {
+  return actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all');
 }
 
 function roleScopeError(roleId: string, next: AdminScope[]): string {
@@ -94,13 +119,20 @@ async function listUsers(actor?: AdminActor) {
       FROM app_users u JOIN app_roles r ON r.id=u.role_id ORDER BY u.created_at ASC` as unknown as Promise<UserRow[]>,
     sql`SELECT user_id, scope_type, grade_id, class_id FROM app_user_scopes ORDER BY id` as unknown as Promise<ScopeRow[]>,
   ]);
-  const result = users.map(user => ({
+  const scopesByUser = new Map<number, ScopeRow[]>();
+  for (const scope of scopeRows) {
+    const userId = Number(scope.user_id);
+    const bucket = scopesByUser.get(userId);
+    if (bucket) bucket.push(scope);
+    else scopesByUser.set(userId, [scope]);
+  }
+  const internal = users.map(user => ({
     id: Number(user.id), username: user.username, displayName: user.displayName, roleId: user.roleId, roleName: user.roleName,
     status: user.status, mustChangePassword: user.mustChangePassword, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt,
-    scopes: scopeRows.filter(scope => Number(scope.user_id) === Number(user.id)).map(scope => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
+    scopes: (scopesByUser.get(Number(user.id)) ?? []).map(scope => ({ type: scope.scope_type, gradeId: scope.grade_id, classId: scope.class_id })),
+    permissions: jsonPermissions(user.permissions),
   }));
-  if (!actor || actor.permissions.includes('*') || actor.scopes.some(scope => scope.type === 'all')) return result;
-  return result.filter((user: any) => canDelegatePermissions(actor, jsonPermissions(user.permissions)) && user.scopes.length > 0 && user.scopes.every((scope: AdminScope) => scope.type !== 'all' && (scope.type === 'grade' ? canAccessGrade(actor, scope.gradeId) : canAccessClass(actor, scope.gradeId, scope.classId))));
+  return filterVisibleUsers(actor, internal).map(({ permissions: _permissions, ...publicUser }) => publicUser);
 }
 
 async function canManageTarget(actor: AdminActor, userId: number): Promise<boolean> {
@@ -111,7 +143,7 @@ async function canManageTarget(actor: AdminActor, userId: number): Promise<boole
     sql`SELECT scope_type, grade_id, class_id FROM app_user_scopes WHERE user_id=${userId}` as unknown as Array<{ scope_type: AdminScope['type']; grade_id: string; class_id: string }>,
   ]);
   if (!target[0] || !canDelegatePermissions(actor, jsonPermissions(target[0].permissions)) || !targetScopes.length) return false;
-  return targetScopes.every(scope => scope.scope_type !== 'all' && (scope.scope_type === 'grade' ? canAccessGrade(actor, scope.grade_id) : canAccessClass(actor, scope.grade_id, scope.class_id)));
+  return targetScopes.every(scope => scope.scope_type !== 'all' && (scope.scope_type === 'grade' ? hasGradeLevelAccess(actor, scope.grade_id) : canAccessClass(actor, scope.grade_id, scope.class_id)));
 }
 
 async function listRoles() {
@@ -166,6 +198,8 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     const scopeError = roleScopeError(roleId, nextScopes);
     if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
+    const allScopeOnlyError = allScopeOnlyPermissionError(role.permissions, nextScopes);
+    if (allScopeOnlyError) return res.status(400).json({ ok: false, field: 'scopes', error: allScopeOnlyError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, field: 'scopes', error: '不能授予超出当前账号的数据范围' });
     const { hash, salt } = await makePasswordHash(password);
     const at = Date.now();
@@ -197,11 +231,19 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     const nextScopes = roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     const scopeError = roleScopeError(roleId, nextScopes);
     if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
+    const allScopeOnlyError = allScopeOnlyPermissionError(role.permissions, nextScopes);
+    if (allScopeOnlyError) return res.status(400).json({ ok: false, field: 'scopes', error: allScopeOnlyError });
     if (!canDelegateScopes(actor, nextScopes)) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
     if (!await ensureNotLastSuperAdmin(id, roleId, status)) return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
-    const updated = await sql`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id` as unknown as Array<{ id: number }>;
+    await invalidateLegacySharedToken();
+    const transactionResults = await sql.transaction(transaction => [
+      transaction`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id`,
+      transaction`DELETE FROM app_user_scopes WHERE user_id=${id}`,
+      ...nextScopes.map(scope => transaction`INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
+        VALUES (${id}, ${scope.type}, ${scope.gradeId}, ${scope.classId}) ON CONFLICT DO NOTHING`),
+    ]) as unknown as Array<Array<{ id: number }>>;
+    const updated = transactionResults[0] ?? [];
     if (!updated.length) return res.status(404).json({ ok: false, error: '用户不存在' });
-    await replaceScopes(id, nextScopes);
     await writeAudit(actor, 'user.update', 'user', String(id), { roleId, status });
     return res.json({ ok: true, users: await listUsers(actor) });
   }
@@ -214,6 +256,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     if (!target[0]) return res.status(404).json({ ok: false, error: '用户不存在' });
     if (!canDelegatePermissions(actor, jsonPermissions(target[0].permissions))) return res.status(403).json({ ok: false, error: '不能重置权限高于当前账号的用户密码' });
     const { hash, salt } = await makePasswordHash(password);
+    await invalidateLegacySharedToken();
     await sql`UPDATE app_users SET password_hash=${hash}, password_salt=${salt}, must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id}`;
     await writeAudit(actor, 'user.password.reset', 'user', String(id));
     return res.json({ ok: true });
@@ -291,9 +334,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const resource = text(req.method === 'GET' ? req.query?.resource : req.body?.resource, 30) || 'users';
     if (resource === 'roles') return await handleRoles(req, res, actor);
     if (resource === 'audit') {
-      if (!hasPermission(actor, 'audit.read')) return res.status(403).json({ ok: false, error: 'Forbidden' });
-      const logs = await authSql()`SELECT id, user_id AS "userId", username, action, resource_type AS "resourceType", resource_id AS "resourceId", grade_id AS "gradeId", class_id AS "classId", detail, created_at AS "createdAt" FROM app_audit_logs ORDER BY created_at DESC LIMIT 300`;
-      return res.json({ ok: true, logs });
+      if (!hasPermission(actor, 'audit.read') || !canReadAuditLog(actor)) return res.status(403).json({ ok: false, error: 'Forbidden' });
+      const [logs, loginFailureAlerts] = await Promise.all([
+        authSql()`SELECT id, user_id AS "userId", username, action, resource_type AS "resourceType", resource_id AS "resourceId", grade_id AS "gradeId", class_id AS "classId", detail, created_at AS "createdAt" FROM app_audit_logs ORDER BY created_at DESC LIMIT 300`,
+        getRecentLoginFailureAlerts(),
+      ]);
+      return res.json({ ok: true, logs, loginFailureAlerts });
     }
     return await handleUsers(req, res, actor);
   } catch (error) {

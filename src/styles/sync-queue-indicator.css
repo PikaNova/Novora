@@ -1,0 +1,75 @@
+.sync-queue-badge {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 3000;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 1.2;
+  background: rgba(15, 23, 42, 0.85);
+  color: #8ed5ff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.35);
+  pointer-events: none;
+  animation: syncQueueBadgeIn 0.18s ease;
+}
+
+.sync-queue-badge__pulse {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #38bdf8;
+  flex-shrink: 0;
+}
+
+.sync-queue-badge__pulse::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.45);
+  animation: syncQueueBadgePulse 1.4s ease-out infinite;
+}
+
+@keyframes syncQueueBadgePulse {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  70%, 100% { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes syncQueueBadgeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sync-queue-badge__icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  animation: syncQueueSpin 0.9s linear infinite;
+}
+
+@keyframes syncQueueSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sync-queue-badge__text {
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .sync-queue-badge {
+    top: 10px;
+    right: 10px;
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}

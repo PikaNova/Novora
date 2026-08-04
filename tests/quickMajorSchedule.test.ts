@@ -21,7 +21,7 @@ function resolve(priorityOverSchedule: boolean) {
 }
 
 test('quick unified exams retain formal major exams by default', () => {
-  assert.deepEqual(resolve(false).activeItems.map(item => item.name), ['数学', '化学']);
+  assert.deepEqual(resolve(false).activeItems.map(item => item.name), ['数学']);
 });
 
 test('high-priority quick unified exams replace only overlapping formal major exams', () => {

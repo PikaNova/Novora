@@ -1,0 +1,8 @@
+node_modules
+dist
+server-build
+.api-check
+.test-check
+.git
+.env
+*.log

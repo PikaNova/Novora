@@ -12,7 +12,7 @@ export default function Watermark({ exam = false }: { exam?: boolean }) {
         fontFamily: '"Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif',
       }}
     >
-      Created by PikaNova
+      Made by PikaNova
     </div>
   );
 }

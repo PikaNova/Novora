@@ -1,10 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash } from 'node:crypto';
 import { getAuthorConfig, getIngestToken, shouldSample } from './_authorClient.js';
-import { telemetryConfig } from './_telemetryConfig.js';
+import { resolveIpSalt, telemetryConfig } from './_telemetryConfig.js';
 
 const COLLECT_URL = telemetryConfig.collectUrl;
-const IP_SALT = telemetryConfig.ipSalt;
 
 function str(value: unknown, max = 512): string | null {
   if (value == null) return null;
@@ -39,13 +38,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    const appVersion = str(body.appVersion, 32);
+    const config = await getAuthorConfig();
+    if (!config.telemetryEnabled) {
+      res.json({ ok: true, skipped: true, reason: 'disabled' });
+      return;
+    }
+    if (appVersion && config.disabledVersions.includes(appVersion)) {
+      res.json({ ok: true, skipped: true, reason: 'version_disabled' });
+      return;
+    }
+    if (!shouldSample(config.sampleRate)) {
+      res.json({ ok: true, skipped: true, reason: 'sampled_out' });
+      return;
+    }
+
+    const token = await getIngestToken('v2', instanceId);
+    if (!token) {
+      res.json({ ok: true, skipped: true, reason: 'no_credential' });
+      return;
+    }
+
+    let ipHash: string | null = null;
     const ip = clientIp(req);
-    const ipHash = ip ? createHash('sha256').update(`${IP_SALT}|${ip}`).digest('hex').slice(0, 32) : null;
+    if (ip) {
+      try {
+        const salt = await resolveIpSalt();
+        ipHash = createHash('sha256').update(`${salt}|${ip}`).digest('hex').slice(0, 32);
+      } catch {
+        res.json({ ok: true, skipped: true, reason: 'privacy_config_unavailable' });
+        return;
+      }
+    }
     const country = str(req.headers['x-vercel-ip-country'], 8);
     const payload = {
       instanceId,
       event,
-      appVersion: str(body.appVersion, 32),
+      appVersion,
       commitSha: str(body.commitSha, 64),
       host: str(body.host, 128),
       vercelEnv: process.env.VERCEL_ENV || null,
@@ -60,26 +89,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       schoolName: str(body.schoolName, 80),
       province: str(body.province, 40),
     };
-
-    const config = await getAuthorConfig();
-    if (!config.telemetryEnabled) {
-      res.json({ ok: true, skipped: true, reason: 'disabled' });
-      return;
-    }
-    if (payload.appVersion && config.disabledVersions.includes(payload.appVersion)) {
-      res.json({ ok: true, skipped: true, reason: 'version_disabled' });
-      return;
-    }
-    if (!shouldSample(config.sampleRate)) {
-      res.json({ ok: true, skipped: true, reason: 'sampled_out' });
-      return;
-    }
-
-    const token = await getIngestToken('v2', instanceId);
-    if (!token) {
-      res.json({ ok: true, skipped: true, reason: 'no_credential' });
-      return;
-    }
 
     const targets = [
       COLLECT_URL,

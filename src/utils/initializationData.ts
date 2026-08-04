@@ -15,7 +15,7 @@ export interface InitializationResult {
   scheduleMode: ScheduleMode;
   selectedGradeId: string;
   selectedClassId: string;
-  initialization: { completedAt: number; wizardVersion: number; demoDataImported: boolean; province: string; schoolName: string; schoolFullName: string };
+  initialization: { completedAt: number; wizardVersion: number; demoDataImported: boolean; province: string; schoolName: string; schoolFullName: string; subjectTrackModeEnabled: boolean };
 }
 
 const cleanNames = (value: string) => value.split(/[，,、\n]/).map(item => item.trim()).filter(Boolean);
@@ -47,7 +47,7 @@ export function buildInitializationData(options: {
     items: options.mode === 'demo' ? [
       { id: `demo_exam_${stamp}_0`, name: '语文', startTime: `${tomorrow}T08:30:00`, endTime: `${tomorrow}T10:30:00`, enabled: true, order: 0 },
       { id: `demo_exam_${stamp}_1`, name: '数学', startTime: `${tomorrow}T14:00:00`, endTime: `${tomorrow}T16:00:00`, enabled: true, order: 1 },
-      { id: `demo_exam_${stamp}_2`, name: '英语', startTime: `${addDaysToDateKey(tomorrow, 1)}T08:30:00`, endTime: `${addDaysToDateKey(tomorrow, 1)}T10:00:00`, enabled: true, order: 2 },
+      { id: `demo_exam_${stamp}_2`, name: '外语', startTime: `${addDaysToDateKey(tomorrow, 1)}T08:30:00`, endTime: `${addDaysToDateKey(tomorrow, 1)}T10:00:00`, enabled: true, order: 2 },
     ] : [],
   }];
 
@@ -65,7 +65,7 @@ export function buildInitializationData(options: {
       excludeOfficialHolidays: options.excludeOfficialHolidays,
       order,
       items: [
-        { id: `demo_weekly_item_${stamp}_${order}_0`, name: order === 0 ? '数学周测' : '英语周测', weekday: order === 0 ? 3 : 4, startTime: '19:00', endTime: '20:00', enabled: true, order: 0, weekType: options.weekMode === 'ab' ? (order === 0 ? 'a' : 'b') : 'all' },
+        { id: `demo_weekly_item_${stamp}_${order}_0`, name: order === 0 ? '数学周测' : '外语周测', weekday: order === 0 ? 3 : 4, startTime: '19:00', endTime: '20:00', enabled: true, order: 0, weekType: options.weekMode === 'ab' ? (order === 0 ? 'a' : 'b') : 'all' },
       ],
     };
   }) : [];
@@ -81,6 +81,6 @@ export function buildInitializationData(options: {
     scheduleMode: options.scheduleMode,
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: Date.now(), wizardVersion: 2, demoDataImported: options.mode === 'demo', province: options.province.trim(), schoolName: options.schoolName.trim(), schoolFullName: `${options.province.trim()}${options.schoolName.trim()}` },
+    initialization: { completedAt: Date.now(), wizardVersion: 2, demoDataImported: options.mode === 'demo', province: options.province.trim(), schoolName: options.schoolName.trim(), schoolFullName: `${options.province.trim()}${options.schoolName.trim()}`, subjectTrackModeEnabled: true },
   };
 }

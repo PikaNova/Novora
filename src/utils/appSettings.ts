@@ -1,29 +1,55 @@
-import type { ExamItem, MajorExam, AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
-import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam';
-import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES, ALL_CONFLICT_SCOPES } from '../types/exam';
-import { normalizeWeeklyPlan } from './weeklySchedule';
-import { logger } from './logger';
-import { normalizeExamItems } from './examSchedule';
-import { mirrorAppSettings } from '../services/offlineStore';
-import type { SchoolClass, SchoolGrade } from '../types/school';
+import type { ExamItem, MajorExam, AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types/index.js';
+import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/exam.js';
+import { DEFAULT_WEEKLY_CONFLICT_POLICY, ALL_SCHEDULE_MODES } from '../types/exam.js';
+import { logger } from './logger.js';
+import { normalizeExamItems } from './examSchedule.js';
+import { mirrorAppSettings } from '../services/offlineStore.js';
+import type { SchoolClass, SchoolGrade } from '../types/school.js';
+import type { TimeSyncSettings } from './settings/timeSync.js';
+import { DEFAULT_TIME_SYNC_SETTINGS } from './settings/timeSync.js';
+import type { TypographyFontId, TypographySettings } from './settings/typography.js';
+import { DEFAULT_TYPOGRAPHY } from './settings/typography.js';
+import type { MotionMode } from './settings/motion.js';
+import { DEFAULT_MOTION_MODE } from './settings/motion.js';
+import type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch.js';
+import { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch.js';
+import { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design.js';
+import type { InitializationState } from './settings/school.js';
+import {
+  DEFAULT_INITIALIZATION,
+  normalizeGrades,
+  normalizeClasses,
+  normalizeSelectedGradeId,
+  normalizeSelectedClassId,
+  normalizeInitialization,
+} from './settings/school.js';
+import {
+  normalizeWeeklyPlan,
+  normalizeConflictPolicy,
+  resolveActiveWeeklyPlanIdByClass,
+} from './settings/weekly.js';
 
-export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types';
+export type { AlertState, AlertStateConfig, CustomReminder, AlertsSettings } from '../types/index.js';
 
-export interface TimeSyncSettings {
-  enabled: boolean;
-  provider: 'httpDate' | 'timeApi' | 'ntp';
-  httpDateUrl: string;
-  timeApiUrl: string;
-  ntpHost: string;
-  ntpPort: number;
-  manualOffsetMs: number;
-  offsetMs: number;
-  autoSyncEnabled: boolean;
-  autoSyncIntervalSec: number;
-  lastSyncAt: number;
-  lastRttMs?: number;
-  lastError?: string;
-}
+// 各设置领域的类型和规范化逻辑已经拆分到 ./settings/；在这里重导出以保持既有调用方兼容。
+export type { TimeSyncSettings } from './settings/timeSync.js';
+export type { TypographyFontId, TypographySettings } from './settings/typography.js';
+export { DEFAULT_TYPOGRAPHY } from './settings/typography.js';
+export type { MotionMode } from './settings/motion.js';
+export { DEFAULT_MOTION_MODE } from './settings/motion.js';
+export type { MajorBatchSubjectGroup, MajorBatchTimeSlot, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch.js';
+export { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch.js';
+export { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design.js';
+export type { InitializationState } from './settings/school.js';
+export {
+  DEFAULT_INITIALIZATION,
+  normalizeGrades,
+  normalizeClasses,
+  normalizeSelectedGradeId,
+  normalizeSelectedClassId,
+  normalizeInitialization,
+} from './settings/school.js';
+export { normalizeWeeklyPlan, normalizeConflictPolicy, resolveActiveWeeklyPlanIdByClass } from './settings/weekly.js';
 
 export interface ExamSettings {
   /** 当前激活的大型考试名称（= 大屏标题，为兼容旧版保留）。 */
@@ -45,14 +71,7 @@ export interface ExamSettings {
   classes: SchoolClass[];
   selectedGradeId: string;
   selectedClassId: string;
-  initialization: {
-    completedAt: number;
-    wizardVersion: number;
-    demoDataImported: boolean;
-    province: string;
-    schoolName: string;
-    schoolFullName: string;
-  };
+  initialization: InitializationState;
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
   designPolicy: DesignPolicy;
@@ -60,20 +79,6 @@ export interface ExamSettings {
   announcementPermanentlyHidden: boolean;
   updatedAt?: number;
 }
-
-export type TypographyFontId = 'design' | 'alibaba' | 'sourceHan' | 'smiley' | 'wenkai' | 'general' | 'jbmono';
-export interface TypographySettings {
-  navigation: TypographyFontId;
-  display: TypographyFontId;
-  content: TypographyFontId;
-  numeric: TypographyFontId;
-}
-export const DEFAULT_TYPOGRAPHY: TypographySettings = {
-  navigation: 'sourceHan', display: 'design', content: 'sourceHan', numeric: 'jbmono',
-};
-
-/** 动效模式：auto=跟随系统“减少动态效果”偏好；best-effects=开满动效；best-performance=关停动画/过渡/毛玻璃以省性能。 */
-export type MotionMode = 'auto' | 'best-effects' | 'best-performance';
 
 export interface AppSettings {
   version: number;
@@ -85,6 +90,7 @@ export interface AppSettings {
     motionMode: MotionMode;
   };
   exam: ExamSettings;
+  majorBatch: MajorBatchSettings;
   /** 全屏提醒浮层的统一管理设置。 */
   alerts: AlertsSettings;
   study: {
@@ -158,20 +164,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   hasVisited: false,
   general: {
     typography: DEFAULT_TYPOGRAPHY,
-    motionMode: 'auto',
-    timeSync: {
-      enabled: true,
-      provider: 'timeApi',
-      httpDateUrl: '/',
-      timeApiUrl: '/api/time',
-      ntpHost: 'ntp.aliyun.com',
-      ntpPort: 123,
-      manualOffsetMs: 0,
-      offsetMs: 0,
-      autoSyncEnabled: true,
-      autoSyncIntervalSec: 900,
-      lastSyncAt: 0,
-    },
+    motionMode: DEFAULT_MOTION_MODE,
+    timeSync: DEFAULT_TIME_SYNC_SETTINGS,
   },
   exam: {
     title: '2026年高考',
@@ -186,13 +180,14 @@ const DEFAULT_SETTINGS: AppSettings = {
     classes: [],
     selectedGradeId: '',
     selectedClassId: '',
-    initialization: { completedAt: 0, wizardVersion: 2, demoDataImported: false, province: '', schoolName: '', schoolFullName: '' },
+    initialization: DEFAULT_INITIALIZATION,
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
-    designPolicy: { rules: [], updatedAt: 0 },
+    designPolicy: DEFAULT_DESIGN_POLICY,
     alertEnabled: true,
     announcementPermanentlyHidden: false,
     updatedAt: 0,
   },
+  majorBatch: DEFAULT_MAJOR_BATCH_SETTINGS,
   alerts: DEFAULT_ALERTS,
   study: {
     alerts: { errorCenterMode: 'off' },
@@ -257,29 +252,13 @@ export function normalizeExam(raw: unknown): ExamSettings {
   let activeWeeklyPlanId: string | null = src.activeWeeklyPlanId ?? null;
   if (activeWeeklyPlanId && !weeklyPlans.some(p => p.id === activeWeeklyPlanId)) activeWeeklyPlanId = null;
   if (!activeWeeklyPlanId && weeklyPlans.length) activeWeeklyPlanId = weeklyPlans[0].id;
-  const grades = (Array.isArray(src.grades) ? src.grades : []).filter(Boolean).map((grade, index) => ({ id: String(grade.id), name: String(grade.name), order: Number.isFinite(grade.order) ? grade.order : index, enabled: grade.enabled !== false }));
-  const classes = (Array.isArray(src.classes) ? src.classes : []).filter(Boolean).map((item, index) => ({ id: String(item.id), gradeId: String(item.gradeId), name: String(item.name), order: Number.isFinite(item.order) ? item.order : index, enabled: item.enabled !== false })).filter(item => grades.some(grade => grade.id === item.gradeId));
-  const rawByClass = src.activeWeeklyPlanIdByClassId && typeof src.activeWeeklyPlanIdByClassId === 'object' ? src.activeWeeklyPlanIdByClassId : {};
-  const activeWeeklyPlanIdByClassId: Record<string, string | null> = {};
-  for (const item of classes) {
-    const value = rawByClass[item.id];
-    activeWeeklyPlanIdByClassId[item.id] = typeof value === 'string' && weeklyPlans.some(plan => plan.id === value && plan.classId === item.id) ? value : (weeklyPlans.find(plan => plan.classId === item.id)?.id ?? null);
-  }
-  const selectedGradeId = grades.some(grade => grade.id === src.selectedGradeId) ? String(src.selectedGradeId) : '';
-  const selectedClassId = classes.some(item => item.id === src.selectedClassId && item.gradeId === selectedGradeId) ? String(src.selectedClassId) : '';
-  const rawInitialization = (src.initialization && typeof src.initialization === 'object' ? src.initialization : {}) as Partial<ExamSettings['initialization']>;
-  const initialization = {
-    completedAt: Number(rawInitialization.completedAt ?? 0),
-    wizardVersion: Math.max(1, Number(rawInitialization.wizardVersion ?? 1)),
-    demoDataImported: rawInitialization.demoDataImported === true,
-    province: String(rawInitialization.province ?? '').trim(),
-    schoolName: String(rawInitialization.schoolName ?? '').trim(),
-    schoolFullName: String(rawInitialization.schoolFullName ?? rawInitialization.schoolName ?? '').trim(),
-  };
-  base.designPolicy = {
-    rules: Array.isArray(src.designPolicy?.rules) ? src.designPolicy.rules.filter(rule => rule && typeof rule.designId === 'string') : [],
-    updatedAt: Number(src.designPolicy?.updatedAt ?? 0),
-  };
+  const grades = normalizeGrades(src.grades);
+  const classes = normalizeClasses(src.classes, grades);
+  const activeWeeklyPlanIdByClassId = resolveActiveWeeklyPlanIdByClass(classes, weeklyPlans, src.activeWeeklyPlanIdByClassId);
+  const selectedGradeId = normalizeSelectedGradeId(src.selectedGradeId, grades);
+  const selectedClassId = normalizeSelectedClassId(src.selectedClassId, classes, selectedGradeId);
+  const initialization = normalizeInitialization(src.initialization);
+  base.designPolicy = normalizeDesignPolicy(src.designPolicy);
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
 
   return {
@@ -302,20 +281,6 @@ export function normalizeExam(raw: unknown): ExamSettings {
   };
 }
 
-/** 规范化冲突策略，补齐缺省并纠正非法值。 */
-export function normalizeConflictPolicy(raw: unknown): WeeklyConflictPolicy {
-  const s = (raw ?? {}) as Partial<WeeklyConflictPolicy>;
-  const scope = ALL_CONFLICT_SCOPES.includes(s.scope as never)
-    ? (s.scope as WeeklyConflictPolicy['scope'])
-    : DEFAULT_WEEKLY_CONFLICT_POLICY.scope;
-  return {
-    enabled: s.enabled !== false,
-    scope,
-    bufferBeforeMinutes: Number.isFinite(s.bufferBeforeMinutes) ? Math.max(0, Math.round(s.bufferBeforeMinutes as number)) : 0,
-    bufferAfterMinutes: Number.isFinite(s.bufferAfterMinutes) ? Math.max(0, Math.round(s.bufferAfterMinutes as number)) : 0,
-  };
-}
-
 export function getAppSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(APP_SETTINGS_KEY);
@@ -331,6 +296,7 @@ export function getAppSettings(): AppSettings {
         typography: { ...DEFAULT_TYPOGRAPHY, ...(parsed.general?.typography ?? {}) },
       },
       exam: normalizeExam(parsed.exam),
+      majorBatch: normalizeMajorBatchSettings(parsed.majorBatch),
       alerts: normalizeAlerts(parsed.alerts),
       study: {
         ...DEFAULT_SETTINGS.study,
@@ -360,6 +326,7 @@ export function updateAppSettings(partial: Partial<AppSettings> | ((c: AppSettin
             typography: { ...current.general.typography, ...(updates.general.typography ?? {}) } }
         : current.general,
       exam: updates.exam ? normalizeExam({ ...current.exam, ...updates.exam }) : current.exam,
+      majorBatch: updates.majorBatch ? normalizeMajorBatchSettings({ ...current.majorBatch, ...updates.majorBatch }) : current.majorBatch,
       alerts: updates.alerts ? normalizeAlerts({ ...current.alerts, ...updates.alerts }) : current.alerts,
     };
     localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
@@ -373,6 +340,10 @@ export function updateAppSettings(partial: Partial<AppSettings> | ((c: AppSettin
 
 export function updateExamSettings(updates: Partial<ExamSettings>): void {
   updateAppSettings(c => ({ exam: normalizeExam({ ...c.exam, ...updates }) }));
+}
+
+export function updateMajorBatchSettings(updates: Partial<MajorBatchSettings>): void {
+  updateAppSettings(c => ({ majorBatch: normalizeMajorBatchSettings({ ...c.majorBatch, ...updates }) }));
 }
 
 export function updateAlertsSettings(updates: Partial<AlertsSettings>): void {

@@ -3,6 +3,7 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   GraduationCap,
+  LayoutDashboard,
   MonitorCog,
   ShieldCheck,
   type LucideIcon,
@@ -11,6 +12,7 @@ import type { AdminTab } from '../types/exam';
 
 const ICONS: Record<AdminTab, LucideIcon> = {
   overview: ChartNoAxesCombined,
+  dashboard: LayoutDashboard,
   major: GraduationCap,
   weekly: CalendarDays,
   classes: ShieldCheck,

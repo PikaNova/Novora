@@ -1,13 +1,16 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, X } from "lucide-react";
 import type { MajorExam } from "../types";
 import type { SchoolClass, SchoolGrade } from "../types/school";
+import { ALL_TRACK_SUBJECTS, subjectAppliesToClass } from "../types/school";
+import { COMMON_EXAM_SUBJECTS } from "../data/subjects";
 import { DateTimeField } from "./touch-datetime-picker";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import SubjectIcon from "./SubjectIcon";
 import TimeRangePickerModal from "./TimeRangePickerModal";
 import AdminWizardSteps from "./AdminWizardSteps";
 import AdminModalPortal from './AdminModalPortal';
+import { APP_SETTINGS_CHANGED_EVENT, getAppSettings } from "../utils/appSettings";
 
 export interface QuickMajorPublishInput {
   name: string;
@@ -31,18 +34,7 @@ interface Props {
   onPublish: (input: QuickMajorPublishInput) => void;
 }
 
-const SUBJECTS = [
-  "语文",
-  "数学",
-  "英语",
-  "物理",
-  "化学",
-  "生物",
-  "政治",
-  "历史",
-  "地理",
-  "其他",
-];
+const SUBJECTS = [...COMMON_EXAM_SUBJECTS, "其他"];
 const DELAYS = [
   { label: "立即开始", minutes: 0 },
   { label: "5 分钟后", minutes: 5 },
@@ -123,8 +115,21 @@ export default function QuickMajorPublishModal({
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [timeFlowOpen, setTimeFlowOpen] = useState(false);
   const timeFlowSnapshotRef = useRef<null | { customStartTime: string; durationMinutes: number; crossDayConfirmed: boolean; useCustomStart: boolean }>(null);
+  const timeFlowAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [priorityOverSchedule, setPriorityOverSchedule] = useState(false);
   const [error, setError] = useState("");
+  const [subjectTrackModeEnabled, setSubjectTrackModeEnabled] = useState(() => getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
+  const [trackDispatchEnabled, setTrackDispatchEnabled] = useState(true);
+
+  useEffect(() => {
+    const sync = () => setSubjectTrackModeEnabled(getAppSettings().exam.initialization.subjectTrackModeEnabled !== false);
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   const startTime = useCustomStart
     ? `${examDate}T${customStartTime}`
@@ -135,12 +140,23 @@ export default function QuickMajorPublishModal({
     : "";
   const finalSubject =
     subject === OTHER_SUBJECT ? customSubject.trim() : subject;
+  const isElectiveSubject = subjectTrackModeEnabled && ALL_TRACK_SUBJECTS.includes(subject);
+  const canUseTrackDispatch = isElectiveSubject && !schoolWide && !lockedClassId && targetGradeIds.length > 0;
+  const trackMatchedClassIds = useMemo(() => {
+    if (!isElectiveSubject) return [] as string[];
+    return classes
+      .filter((item) => item.enabled && targetGradeIds.includes(item.gradeId) && subjectAppliesToClass(subject, item))
+      .map((item) => item.id);
+  }, [classes, isElectiveSubject, subject, targetGradeIds]);
+  const effectiveTrackDispatch = canUseTrackDispatch && trackDispatchEnabled;
   const effectiveTargetGradeIds = schoolWide ? [] : targetGradeIds;
   const effectiveTargetClassIds = schoolWide
     ? []
     : lockedClassId
       ? [lockedClassId]
-      : targetClassIds;
+      : effectiveTrackDispatch
+        ? trackMatchedClassIds
+        : targetClassIds;
   const classOptions = useMemo<ClassPickerOption[]>(() => {
     const gradeNames = new Map(grades.map((grade) => [grade.id, grade.name]));
     return classes
@@ -210,7 +226,7 @@ export default function QuickMajorPublishModal({
         setError("请填写本次统一考试名称。");
         return;
       }
-      if (!schoolWide && !targetGradeIds.length) {
+      if (!schoolWide && !lockedClassId && !targetGradeIds.length) {
         setError("请至少选择一个年级，或选择全校统一。");
         return;
       }
@@ -269,10 +285,16 @@ export default function QuickMajorPublishModal({
           <div className="quick-major-modal__head-actions">
             <span className="quick-major-modal__step">第 {step} / 3 步</span>
           </div>
+          <button
+            type="button"
+            className="admin-workflow-close quick-major-modal__close"
+            onClick={onClose}
+            aria-label="退出统一添加单科考试"
+            title="退出"
+          >
+            <X aria-hidden="true" />
+          </button>
         </div>
-        <button type="button" className="admin-workflow-close quick-major-modal__close" onClick={onClose} aria-label="退出统一添加单科考试" title="退出">
-          <X aria-hidden="true" />
-        </button>
         {error && <div className="admin-error">{error}</div>}
         <div className="admin-workflow-layout">
           <AdminWizardSteps
@@ -410,6 +432,26 @@ export default function QuickMajorPublishModal({
                   />
                 </label>
               )}
+              {canUseTrackDispatch && (
+                <div className="quick-major-track-match">
+                  <label className="quick-major-track-match__switch">
+                    <span>
+                      <strong>按选科下发</strong>
+                      <small>{trackDispatchEnabled ? `只发给包含${finalSubject}的班级` : "当前范围内班级都会收到"}</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={trackDispatchEnabled}
+                      onChange={(event) => setTrackDispatchEnabled(event.target.checked)}
+                    />
+                  </label>
+                  <p>
+                    {trackDispatchEnabled
+                      ? `预计下发 ${trackMatchedClassIds.length} 个班级；未分科班级默认接收所有科目。`
+                      : "已关闭选科过滤，将按上一步选择的年级/班级统一下发。"}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="quick-major-modal__section">
               <strong>开始方式</strong>
@@ -452,7 +494,7 @@ export default function QuickMajorPublishModal({
             <div className="quick-major-modal__section quick-major-time-settings">
               <strong>自定义时间</strong>
               <p>特殊时间安排可直接设置开始和结束时间，系统自动计算实际时长。</p>
-              <button type="button" className="quick-major-time-trigger" onClick={openTimeFlow}>
+              <button ref={timeFlowAnchorRef} type="button" className="quick-major-time-trigger" onClick={openTimeFlow}>
                 <span>{useCustomStart ? "已自定义开始与结束时间" : "当前按开始方式和常用时长计算"}</span>
                 <strong>{startTime.slice(11, 16)} - {previewEndTime.slice(11, 16)}</strong>
                 <small>{examDate} · {formatDuration(durationMinutes)}，点击自定义起止时间</small>
@@ -567,6 +609,8 @@ export default function QuickMajorPublishModal({
           contextLabel={examDate}
           presets={[]}
           initialCrossDay={crossDayConfirmed}
+          anchorRef={timeFlowAnchorRef}
+          anchorPlacement="right"
           onPreviewChange={applyTimeFlowDraft}
           onCancel={cancelTimeFlow}
           onConfirm={(nextStart, nextEnd, endNextDay) => {

@@ -36,6 +36,13 @@ export type AuditLog = {
   createdAt: number;
 };
 
+export type LoginFailureAlert = {
+  username: string;
+  failureCount: number;
+  windowStart: number;
+  latestFailureAt: number;
+};
+
 const token = () => localStorage.getItem('admin_auth_token') || '';
 
 export class AdminApiError extends Error {
@@ -48,10 +55,11 @@ export class AdminApiError extends Error {
   }
 }
 
-async function request(path: string, init: RequestInit = {}) {
+async function request(path: string, init: RequestInit = {}, bearerToken?: string) {
+  const authToken = bearerToken ?? token();
   const response = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(init.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(init.headers || {}) },
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.ok) throw new AdminApiError(data?.error || `HTTP ${response.status}`, data?.field, data?.code, data?.requestId || response.headers.get('X-Request-Id') || undefined);
@@ -84,8 +92,8 @@ export async function changeOwnUsername(currentPassword: string, username: strin
   await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-username', currentPassword, username }) });
 }
 
-export async function changeOwnCredentials(currentPassword: string, username: string, newPassword: string): Promise<string> {
-  const data = await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-credentials', currentPassword, username, newPassword }) });
+export async function changeOwnCredentials(currentPassword: string, username: string, newPassword: string, bearerToken?: string): Promise<string> {
+  const data = await request('/api/users', { method: 'POST', body: JSON.stringify({ resource: 'users', action: 'change-own-credentials', currentPassword, username, newPassword }) }, bearerToken);
   return String(data.username || username);
 }
 
@@ -102,4 +110,9 @@ export async function deleteManagedRole(id: string): Promise<ManagedRole[]> {
 export async function fetchAuditLogs(): Promise<AuditLog[]> {
   const data = await request('/api/users?resource=audit');
   return data.logs || [];
+}
+
+export async function fetchAuditOverview(): Promise<{ logs: AuditLog[]; loginFailureAlerts: LoginFailureAlert[] }> {
+  const data = await request('/api/users?resource=audit');
+  return { logs: data.logs || [], loginFailureAlerts: data.loginFailureAlerts || [] };
 }
