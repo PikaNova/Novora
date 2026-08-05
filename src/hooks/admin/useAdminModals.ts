@@ -105,6 +105,7 @@ export function useAdminModals(params: {
     if (adminTab === "users" && accountView) return;
     const permissionByTab: Record<AdminTab, string> = {
       overview: "overview.read",
+      dashboard: "overview.read",
       major: "major.read",
       weekly: "weekly.read",
       classes: "school.read",
