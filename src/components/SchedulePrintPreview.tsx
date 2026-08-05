@@ -62,6 +62,7 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
   const exportSheetRefs = useRef<Array<HTMLElement | null>>([]);
   const settings = getAppSettings().exam;
   const schoolName = settings.initialization.schoolFullName || settings.initialization.schoolName || '未设置学校名称';
+  const schoolLogo = settings.initialization.schoolLogo ?? '';
   const instanceId = getClassBindingInstanceId();
   const exportedAt = useMemo(() => new Date().toLocaleString('zh-CN', { hour12: false }), []);
   const weekEnd = addDaysToDateKey(weekStart, 6);
@@ -142,9 +143,9 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
       <div className="schedule-preview__actions">{exportError && <span className="schedule-preview__error" role="alert">{exportError}</span>}<button disabled={exporting} onClick={() => void downloadPdf()}><Download />{exporting ? '正在生成 PDF' : '下载 PDF'}</button><button title="关闭预览" aria-label="关闭预览" onClick={onClose}><X /></button></div>
     </header>
     <main className="schedule-preview__stage">
-      <div className="schedule-preview__pages">{pages.map(page => <ScheduleSheet key={page.key} visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={page.gradeName} className={page.className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}</div>
+      <div className="schedule-preview__pages">{pages.map(page => <ScheduleSheet key={page.key} visible={page.visible} groups={page.groups} schoolName={schoolName} schoolLogo={schoolLogo} sheetTitle={sheetTitle} gradeName={page.gradeName} className={page.className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}</div>
       <div className="schedule-export-host" aria-hidden="true">
-      {pages.map((page, index) => <ScheduleSheet key={page.key} ref={element => { exportSheetRefs.current[index] = element; }} exportMode visible={page.visible} groups={page.groups} schoolName={schoolName} sheetTitle={sheetTitle} gradeName={page.gradeName} className={page.className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}
+      {pages.map((page, index) => <ScheduleSheet key={page.key} ref={element => { exportSheetRefs.current[index] = element; }} exportMode visible={page.visible} groups={page.groups} schoolName={schoolName} schoolLogo={schoolLogo} sheetTitle={sheetTitle} gradeName={page.gradeName} className={page.className} periodText={page.periodText} instanceId={instanceId} exportedAt={exportedAt} sheetStyle={sheetStyle} />)}
       </div>
     </main>
   </div>, document.body);
@@ -153,16 +154,16 @@ export default function SchedulePrintPreview({ entries, gradeName, className, on
 type ScheduleSheetProps = {
   visible: PrintScheduleEntry[];
   groups: Array<{ date: string; entries: PrintScheduleEntry[] }>;
-  schoolName: string; sheetTitle: string; gradeName: string; className: string;
+  schoolName: string; schoolLogo: string; sheetTitle: string; gradeName: string; className: string;
   periodText: string; instanceId: string; exportedAt: string; sheetStyle: React.CSSProperties;
   exportMode?: boolean;
 };
 
-const ScheduleSheet = React.forwardRef<HTMLElement, ScheduleSheetProps>(function ScheduleSheet({ visible, groups, schoolName, sheetTitle, gradeName, className, periodText, instanceId, exportedAt, sheetStyle, exportMode = false }, ref) {
+const ScheduleSheet = React.forwardRef<HTMLElement, ScheduleSheetProps>(function ScheduleSheet({ visible, groups, schoolName, schoolLogo, sheetTitle, gradeName, className, periodText, instanceId, exportedAt, sheetStyle, exportMode = false }, ref) {
   return <article ref={ref} className={`schedule-sheet${visible.length > 10 ? ' is-dense' : ''}${exportMode ? ' schedule-sheet--export' : ''}`} style={sheetStyle}>
-    <header className="schedule-sheet__head"><img src="/icon-512-rounded.png" alt="Novora 图标" /><div><span>{schoolName}</span><h1>{sheetTitle}</h1></div></header>
+    <header className="schedule-sheet__head"><img src={schoolLogo || "/icon-512-rounded.png"} alt={schoolLogo ? "学校图标" : "Novora 图标"} /><div><span>{schoolName}</span><h1>{sheetTitle}</h1></div></header>
     <dl className="schedule-sheet__meta"><div><dt>适用范围</dt><dd>{gradeName}{className && className !== '全年级' ? ` · ${className}` : ' · 全年级'}</dd></div><div><dt>安排日期</dt><dd>{periodText}</dd></div><div><dt>设备实例号</dt><dd>{instanceId}</dd></div><div><dt>导出时间</dt><dd>{exportedAt}</dd></div></dl>
     {groups.length ? <div className="schedule-sheet__days">{groups.map(group => <section className="schedule-day" key={group.date} style={{ '--schedule-day-min-height': `${Math.max(66, group.entries.length * 68 + 14)}px` } as React.CSSProperties}><header className="schedule-day__date"><strong>{group.date.slice(5).replace('-', ' / ')}</strong><span>{WEEKDAYS[isoWeekdayOfDateKey(group.date)]}</span></header><div className="schedule-day__events">{group.entries.map((item, index) => <article className="schedule-event" key={`${item.date}-${item.name}-${item.startTime}-${index}`}><time>{item.startTime}<i>至</i>{item.endTime}</time><div><strong className="schedule-event__subject"><SubjectIcon subject={item.name} size={15} />{item.name}</strong>{item.note && <span>{item.note}</span>}</div></article>)}</div></section>)}</div> : <div className="schedule-sheet__empty"><strong>当前日期范围内暂无考试安排</strong><span>请返回管理后台添加考试后重新预览。</span></div>}
-    <footer className="schedule-sheet__footer"><span>Novora · 考试管理与教室大屏</span><span>Made by PikaNova</span></footer>
+    <footer className="schedule-sheet__footer"><span className="schedule-sheet__brand"><img src="/icon-512-rounded.png" alt="Novora 图标" />Novora · 考试管理与教室大屏</span><span>Made by PikaNova</span></footer>
   </article>;
 });
