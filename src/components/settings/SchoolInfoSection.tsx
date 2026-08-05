@@ -107,13 +107,13 @@ export default function SchoolInfoSection({
                 </button>
               )}
             </div>
-            {uploadError && (
-              <p className="set-note set-note--warn">{uploadError}</p>
-            )}
-            <p className="set-note">
-              图标会显示在考试页顶部与首页学校信息左侧；自动裁剪为正方形并压缩至 256×256。
-            </p>
           </div>
+          {uploadError && (
+            <p className="set-note set-note--warn">{uploadError}</p>
+          )}
+          <p className="set-note">
+            图标会显示在考试页顶部与首页学校信息左侧；自动裁剪为正方形并压缩至 256×256。
+          </p>
           <div className="set-note">
             完整校名：
             <strong>
