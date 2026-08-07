@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Clock3 } from "lucide-react";
+import Mascot from "./Mascot";
 import TimeRangePickerModal from "./TimeRangePickerModal";
 import { COMMON_EXAM_SUBJECTS, normalizeSubjectList } from "../data/subjects";
 import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchTimeSlot } from "../utils/appSettings";
@@ -176,7 +177,7 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
           <span>用于批量添加分考试时快速选择科目组合，与批量添加弹窗中的设置共享</span>
         </div>
         {subjectGroups.length === 0 ? (
-          <p className="set-note">暂无自定义科目组，可在下方创建。</p>
+          <p className="set-note"><Mascot className="mascot-inline" size={28} alt="" />暂无自定义科目组，可在下方创建。</p>
         ) : (
           <ul className="batch-preset-list">
             {subjectGroups.map((item, index) => (
@@ -292,7 +293,7 @@ export default function BatchPresetSettingsPanel({ canEdit }: { canEdit: boolean
           <span>用于批量添加分考试时快速选择场次安排，与批量添加弹窗中的设置共享</span>
         </div>
         {timeGroups.length === 0 ? (
-          <p className="set-note">暂无自定义时间组，可在下方创建。</p>
+          <p className="set-note"><Mascot className="mascot-inline" size={28} alt="" />暂无自定义时间组，可在下方创建。</p>
         ) : (
           <ul className="batch-preset-list">
             {timeGroups.map((item, index) => (

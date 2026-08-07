@@ -1,5 +1,6 @@
 import React from "react";
 import { CalendarDays } from "lucide-react";
+import Mascot from "../Mascot";
 import SubjectIcon from "../SubjectIcon";
 import type { IsoWeekday, WeeklyExamItem, WeeklyPlan } from "../../types/exam";
 import type { ItemEdit } from "../../hooks/weekly/useWeeklyItemModal";
@@ -106,6 +107,7 @@ export default function WeeklyItemsList({
 
       {items.length === 0 ? (
         <div className="admin-empty">
+          <Mascot className="mascot-empty" size={64} alt="" />
           <div className="admin-empty__icon">
             <CalendarDays />
           </div>
