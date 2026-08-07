@@ -968,7 +968,22 @@ export default function MajorBatchAddModal({
               {step === 0 ? "取消" : "上一步"}
             </button>
             {step < 1 && (
-              <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" type="button" onClick={() => setStep(1)}>
+              <button
+                className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
+                type="button"
+                onClick={() => {
+                  if (!subjects.length) {
+                    setError("请至少选择一个科目。");
+                    return;
+                  }
+                  if (!startDate) {
+                    setError("请先选择起始日期。");
+                    return;
+                  }
+                  setError("");
+                  setStep(1);
+                }}
+              >
                 下一步
               </button>
             )}

@@ -131,6 +131,16 @@ function draftScopes(draft: UserDraft, classes: SchoolClass[]): AdminScope[] {
   ];
 }
 
+function validateUserDraftFields(draft: UserDraft) {
+  const errors: Record<string, string> = {};
+  if (!draft.id && !/^[A-Za-z0-9._-]{3,40}$/.test(draft.username.trim()))
+    errors.username = "请输入 3-40 位字母、数字、点、横线或下划线";
+  if (!draft.displayName.trim()) errors.displayName = "请输入显示名称";
+  if (!draft.id && draft.password.length < 8)
+    errors.password = "初始密码至少需要 8 位";
+  if (!draft.roleId) errors.roleId = "请选择角色";
+  return errors;
+}
 function validateUserScopes(draft: UserDraft) {
   if (draft.roleId === "super_admin" || draft.allScope) return "";
   if (draft.roleId === "class_admin" && !draft.classIds.length)
@@ -180,6 +190,8 @@ export default function UserManagementPanel({
     BatchCredential[] | null
   >(null);
   const [userErrors, setUserErrors] = useState<Record<string, string>>({});
+  const [roleError, setRoleError] = useState("");
+  const [batchUserError, setBatchUserError] = useState("");
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
   const [roleWizardStep, setRoleWizardStep] = useState(0);
   const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
@@ -326,16 +338,7 @@ export default function UserManagementPanel({
 
   const submitUser = async () => {
     if (!userDraft) return;
-    const errors: Record<string, string> = {};
-    if (
-      !userDraft.id &&
-      !/^[A-Za-z0-9._-]{3,40}$/.test(userDraft.username.trim())
-    )
-      errors.username = "请输入 3-40 位字母、数字、点、横线或下划线";
-    if (!userDraft.displayName.trim()) errors.displayName = "请输入显示名称";
-    if (!userDraft.id && userDraft.password.length < 8)
-      errors.password = "初始密码至少需要 8 位";
-    if (!userDraft.roleId) errors.roleId = "请选择角色";
+    const errors = validateUserDraftFields(userDraft);
     const scopeError = validateUserScopes(userDraft);
     if (scopeError) errors.scopes = scopeError;
     if (Object.keys(errors).length) {
@@ -683,12 +686,13 @@ export default function UserManagementPanel({
                 <input
                   className="admin-input"
                   value={batchUserDraft.prefix}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setBatchUserError("");
                     setBatchUserDraft(
                       (value) =>
                         value && { ...value, prefix: event.target.value },
-                    )
-                  }
+                    );
+                  }}
                   placeholder="class_admin"
                 />
               </label>
@@ -698,12 +702,13 @@ export default function UserManagementPanel({
                   className="admin-input"
                   type="password"
                   value={batchUserDraft.password}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setBatchUserError("");
                     setBatchUserDraft(
                       (value) =>
                         value && { ...value, password: event.target.value },
-                    )
-                  }
+                    );
+                  }}
                   placeholder="至少 8 位，首次登录后必须修改"
                 />
               </label>
@@ -715,11 +720,12 @@ export default function UserManagementPanel({
               <ClassMultiPicker
                 options={classPickerOptions}
                 selectedIds={batchUserDraft.classIds}
-                onChange={(ids) =>
+                onChange={(ids) => {
+                  setBatchUserError("");
                   setBatchUserDraft(
                     (value) => value && { ...value, classIds: ids },
-                  )
-                }
+                  );
+                }}
               />
             </div>
             <p className="admin-major-card__hint">
@@ -736,6 +742,7 @@ export default function UserManagementPanel({
             </div>}
               </div>
             </div>
+            {batchUserError && <div className="admin-error">{batchUserError}</div>}
             <div className="admin-modal__actions">
               <button
                 className="admin-btn"
@@ -745,8 +752,19 @@ export default function UserManagementPanel({
                 {batchUserWizardStep === 0 ? "取消" : "上一步"}
               </button>
               {batchUserWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => {
-                if (batchUserWizardStep === 0 && (!batchUserDraft.prefix.trim() || batchUserDraft.password.length < 8)) return;
-                if (batchUserWizardStep === 1 && !batchUserDraft.classIds.length) return;
+                if (batchUserWizardStep === 0 && !batchUserDraft.prefix.trim()) {
+                  setBatchUserError("请填写账号前缀。");
+                  return;
+                }
+                if (batchUserWizardStep === 0 && batchUserDraft.password.length < 8) {
+                  setBatchUserError("初始密码至少需要 8 位。");
+                  return;
+                }
+                if (batchUserWizardStep === 1 && !batchUserDraft.classIds.length) {
+                  setBatchUserError("请至少选择一个班级。");
+                  return;
+                }
+                setBatchUserError("");
                 setBatchUserWizardStep((value) => value + 1);
               }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy || !batchUserDraft.classIds.length} onClick={() => void submitBatchUsers()}>{busy ? "正在创建…" : `创建 ${batchUserDraft.classIds.length} 个账号`}</button>}
             </div>
@@ -821,13 +839,14 @@ export default function UserManagementPanel({
             <>
               <button
                 className="admin-btn"
-                onClick={() =>
+                onClick={() => {
+                  setBatchUserError("");
                   setBatchUserDraft({
                     prefix: "class_admin",
                     password: "",
                     classIds: [],
-                  })
-                }
+                  });
+                }}
               >
                 批量添加班级管理员
               </button>
@@ -854,9 +873,10 @@ export default function UserManagementPanel({
           {section === "roles" && canManageRoles && (
             <button
               className="admin-btn admin-btn--primary"
-              onClick={() =>
-                setRoleDraft({ name: "", description: "", permissions: [] })
-              }
+              onClick={() => {
+                setRoleError("");
+                setRoleDraft({ name: "", description: "", permissions: [] });
+              }}
             >
               新建角色
             </button>
@@ -1105,14 +1125,15 @@ export default function UserManagementPanel({
                   <div className="user-management__actions">
                     <button
                       className="admin-btn"
-                      onClick={() =>
+                      onClick={() => {
+                        setRoleError("");
                         setRoleDraft({
                           id: role.id,
                           name: role.name,
                           description: role.description,
                           permissions: role.permissions,
-                        })
-                      }
+                        });
+                      }}
                     >
                       编辑
                     </button>
@@ -1382,9 +1403,12 @@ export default function UserManagementPanel({
                 {userWizardStep === 0 ? "取消" : "上一步"}
               </button>
               {userWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => {
-                if (userWizardStep === 0 && (!userDraft.username.trim() || !userDraft.displayName.trim() || !userDraft.roleId || (!userDraft.id && userDraft.password.length < 8))) {
-                  setUserErrors((value) => ({ ...value, username: !userDraft.username.trim() ? "请填写用户名" : value.username, displayName: !userDraft.displayName.trim() ? "请填写显示名称" : value.displayName, roleId: !userDraft.roleId ? "请选择角色" : value.roleId, password: !userDraft.id && userDraft.password.length < 8 ? "初始密码至少 8 位" : value.password }));
-                  return;
+                if (userWizardStep === 0) {
+                  const stepErrors = validateUserDraftFields(userDraft);
+                  if (Object.keys(stepErrors).length) {
+                    setUserErrors((value) => ({ ...value, ...stepErrors }));
+                    return;
+                  }
                 }
                 if (userWizardStep === 1) {
                   const scopeError = validateUserScopes(userDraft);
@@ -1488,6 +1512,7 @@ export default function UserManagementPanel({
             </div>}
               </div>
             </div>
+            {roleError && <div className="admin-error">{roleError}</div>}
             <div className="admin-modal__actions">
               <button
                 className="admin-btn"
@@ -1495,7 +1520,18 @@ export default function UserManagementPanel({
               >
                 {roleWizardStep === 0 ? "取消" : "上一步"}
               </button>
-              {roleWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (roleWizardStep === 0 && !roleDraft.name.trim()) return; setRoleWizardStep((value) => value + 1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitRole()}>{busy ? "保存中…" : "保存角色"}</button>}
+              {roleWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => {
+                if (roleWizardStep === 0 && !roleDraft.name.trim()) {
+                  setRoleError("请填写角色名称。");
+                  return;
+                }
+                if (roleWizardStep === 1 && !roleDraft.permissions.length) {
+                  setRoleError("请至少选择一项权限。");
+                  return;
+                }
+                setRoleError("");
+                setRoleWizardStep((value) => value + 1);
+              }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" disabled={busy} onClick={() => void submitRole()}>{busy ? "保存中…" : "保存角色"}</button>}
             </div>
           </div>
         </AdminModalPortal>

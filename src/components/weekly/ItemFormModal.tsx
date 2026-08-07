@@ -186,7 +186,26 @@ export default function ItemFormModal({
           </div>
           <div className="admin-modal__actions">
             <button className="admin-btn" onClick={itemWizardStep === 0 ? () => { setWeeklyTimeFlowOpen(false); setEditing(null); setCustomWeeklySubjectActive(false); setEditError(""); } : () => setItemWizardStep((value) => value - 1)}>{itemWizardStep === 0 ? "取消" : "上一步"}</button>
-            {itemWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => { if (itemWizardStep === 0 && !editing.name.trim()) { setEditError("请先选择或填写周测科目。"); return; } setEditError(""); setItemWizardStep((value) => value + 1); }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitItemModal}>确认并保存</button>}
+            {itemWizardStep < 2 ? <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={() => {
+                if (itemWizardStep === 0 && !editing.name.trim()) {
+                  setEditError("请先选择或填写周测科目。");
+                  return;
+                }
+                if (itemWizardStep === 1) {
+                  const start = editing.startTime || "";
+                  const end = editing.endTime || "";
+                  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) {
+                    setEditError("请设置有效的开始和结束时间。");
+                    return;
+                  }
+                  if (!editing.endNextDay && end <= start) {
+                    setEditError("结束时间必须晚于开始时间（跨日请勾选次日结束）。");
+                    return;
+                  }
+                }
+                setEditError("");
+                setItemWizardStep((value) => value + 1);
+              }}>下一步</button> : <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitItemModal}>确认并保存</button>}
           </div>
         </div>
       </AdminModalPortal>
