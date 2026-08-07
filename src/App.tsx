@@ -6,6 +6,7 @@ import DeviceHeartbeat from './components/DeviceHeartbeat';
 import NoticeHost from './components/NoticeHost';
 import AppDialogHost from './components/AppDialogHost';
 import SyncQueueIndicator from './components/SyncQueueIndicator';
+import './styles/mascot.css';
 import LoadingState from './components/LoadingState';
 const WelcomePage = lazy(() => import('./pages/WelcomePage'));
 const ExamPage = lazy(() => import('./pages/ExamPage'));

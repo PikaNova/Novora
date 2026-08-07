@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import Mascot from "../Mascot";
 import { APP_VERSION } from "../../services/telemetry";
 import { useAboutSettings } from "../../hooks/settings/useAboutSettings";
 
@@ -55,6 +56,10 @@ export default function AboutSection() {
             >
               在新标签页打开 README.md
             </button>
+          </div>
+          <div className="about-mascot-row">
+            <Mascot className="about-mascot" size={72} alt="项目吉祥物" />
+            <span>彩蛋：开发者偷偷塞的吉祥物，每次打开会换一位。</span>
           </div>
         </div>
         {readmeOpen && (

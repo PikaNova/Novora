@@ -15,6 +15,7 @@ import { classDisplayName } from "../utils/classSettings";
 import { notify } from "../services/notify";
 import { confirmDialog } from "../services/appDialog";
 import { beginBatch, endBatch } from "../services/syncQueue";
+import Mascot from "./Mascot";
 import ClassMultiPicker, { type ClassPickerOption } from "./ClassMultiPicker";
 import InlineSelect from "./InlineSelect";
 import DesignPolicyManager from "./DesignPolicyManager";
@@ -496,6 +497,7 @@ export default function DeviceStatusPanel({
       )}
       {!loading && displayedGroups.length === 0 && (
         <div className="admin-empty">
+          <Mascot className="mascot-empty" size={64} alt="" />
           <p>{deviceCategory === "removed" ? "暂无已删除设备" : "暂无符合条件的有效设备"}</p>
         </div>
       )}
