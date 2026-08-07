@@ -11,7 +11,7 @@
 .login-mascot {
   position: absolute;
   right: 14px;
-  bottom: 12px;
+  top: 12px;
   opacity: 0.9;
   border: 2px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.32);
@@ -24,7 +24,7 @@
   transform: rotate(-6deg) scale(1.1);
 }
 @keyframes mascot-peek {
-  from { opacity: 0; transform: translateY(10px) scale(0.9); }
+  from { opacity: 0; transform: translateY(-10px) scale(0.9); }
   to { opacity: 0.9; transform: none; }
 }
 
