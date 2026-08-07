@@ -18,6 +18,7 @@ import { getOfficialHolidayName } from "../data/officialHolidays";
 import { type PrintScheduleDocument } from "./SchedulePrintPreview";
 import { type ClassPickerOption } from "./ClassMultiPicker";
 import { CalendarDays } from "lucide-react";
+import Mascot from "./Mascot";
 import {
   useWeeklyPlanModal,
   type LastDeleted,
@@ -345,6 +346,7 @@ export default function WeeklyPanel({
             </button>
           </div>
           <div className="admin-empty">
+            <Mascot className="mascot-empty" size={64} alt="" />
             <div className="admin-empty__icon">
               <CalendarDays />
             </div>
@@ -406,6 +408,7 @@ export default function WeeklyPanel({
             </button>
           </div>
           <div className="admin-empty">
+            <Mascot className="mascot-empty" size={64} alt="" />
             <div className="admin-empty__icon">
               <CalendarDays />
             </div>

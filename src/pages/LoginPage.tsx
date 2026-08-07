@@ -7,6 +7,7 @@ import { useRetryCountdown } from '../hooks/useRetryCountdown';
 import { computeLockedUntil, formatRetryMessage, loginLockoutRetryAfterMs } from '../utils/retryCountdown';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
+import Mascot from '../components/Mascot';
 import SuperAdminRepairLink from '../components/SuperAdminRepairLink';
 import { ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
 import { safeLoginDestination } from '../utils/safeNavigation';
@@ -169,6 +170,7 @@ export default function LoginPage() {
         {!initializing && <SuperAdminRepairLink />}
         </>}
         <Link className="login-card__back" to="/"><ArrowLeft aria-hidden="true" />返回首页</Link>
+        <Mascot className="login-mascot" size={52} alt="" />
       </section>
       <footer className="login-page__footer">Novora · 考试管理与教室大屏</footer>
       <Watermark />

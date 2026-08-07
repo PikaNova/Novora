@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatClockInZone, getZonedParts } from "../utils/zonedTime";
 import { logoutAdmin } from "../services/examService";
+import Mascot from "./Mascot";
 import { Activity, CalendarDays, CalendarRange, CheckCircle2, Clock3, Monitor, PlayCircle, Sun, Timer } from "lucide-react";
 import "../styles/dashboard.css";
 
@@ -105,7 +106,12 @@ function Kpi({ icon, value, label }: { icon: React.ReactNode; value: number | st
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <div className="dashboard-empty">{text}</div>;
+  return (
+    <div className="dashboard-empty">
+      <Mascot className="mascot-empty" size={64} alt="" />
+      {text}
+    </div>
+  );
 }
 
 function EntryRow({ entry, now, showCountdown }: { entry: DashboardEntry; now: number; showCountdown: boolean }) {

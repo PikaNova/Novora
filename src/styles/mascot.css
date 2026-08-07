@@ -1,0 +1,69 @@
+/* Mascot easter egg styles */
+.mascot {
+  border-radius: 50%;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* 登录页角落 */
+.login-card { position: relative; }
+.login-mascot {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  opacity: 0.9;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.32);
+  pointer-events: auto;
+  animation: mascot-peek 0.8s cubic-bezier(0.25, 0.8, 0.3, 1);
+  transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+.login-card:hover .login-mascot,
+.login-mascot:hover {
+  transform: rotate(-6deg) scale(1.1);
+}
+@keyframes mascot-peek {
+  from { opacity: 0; transform: translateY(10px) scale(0.9); }
+  to { opacity: 0.9; transform: none; }
+}
+
+/* 空状态 */
+.mascot-empty {
+  display: block;
+  margin: 0 auto 10px;
+  opacity: 0.85;
+  animation: mascot-bob 3s ease-in-out infinite;
+}
+@keyframes mascot-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* 关于页彩蛋 */
+.about-mascot-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.about-mascot {
+  width: 72px;
+  height: 72px;
+  border: 2px solid rgba(148, 180, 208, 0.24);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+.about-mascot-row span {
+  color: rgba(235, 244, 250, 0.6);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-mascot,
+  .mascot-empty,
+  .login-mascot,
+  .mascot-empty {
+    animation: none;
+  }
+}
