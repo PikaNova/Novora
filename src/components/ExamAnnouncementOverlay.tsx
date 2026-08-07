@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import type { Announcement } from '../services/announcements';
 import AnnouncementList from './AnnouncementList';
 import { Megaphone } from 'lucide-react';
+import Mascot from './Mascot';
 import '../styles/exam-announcement-overlay.css';
 
 type Props = {
@@ -49,7 +50,7 @@ export default function ExamAnnouncementOverlay({ open, announcements, loading, 
           {loading ? (
             <div className="eann-empty">公告加载中…</div>
           ) : announcements.length === 0 ? (
-            <div className="eann-empty">暂无公告。</div>
+            <div className="eann-empty"><Mascot className="mascot-inline" size={32} alt="" />暂无公告。</div>
           ) : (
             <AnnouncementList announcements={announcements} formatTime={formatUpdatedAt} />
           )}

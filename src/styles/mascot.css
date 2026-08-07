@@ -67,3 +67,18 @@
     animation: none;
   }
 }
+/* 侧栏空考试卡内联吉祥物 */
+.admin-major-card__mascot {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+  opacity: 0.9;
+}
+
+/* 内联小吉祥物（表单空提示/公告空态） */
+.mascot-inline {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+  opacity: 0.85;
+}

@@ -72,6 +72,7 @@ import AiImportGuide from "../components/AiImportGuide";
 import AccessDenied from "../components/AccessDenied";
 import SchedulePrintPreview from "../components/SchedulePrintPreview";
 import BrandMark from "../components/BrandMark";
+import Mascot from "../components/Mascot";
 import LoadingState from "../components/LoadingState";
 import QuickMajorPublishModal, {
   type QuickMajorPublishInput,
@@ -1152,6 +1153,9 @@ export default function AdminPage() {
                   </span>
                 </div>
                 <div className="admin-major-card__active">
+                  {orderedScopedMajors.length === 0 && (
+                    <Mascot className="admin-major-card__mascot" size={34} alt="" />
+                  )}
                   <span
                     className="admin-major-card__active-name"
                     title={activeMajor?.name}
@@ -1518,6 +1522,7 @@ export default function AdminPage() {
               )}
               {items.length === 0 ? (
                 <div className="admin-empty">
+                  <Mascot className="mascot-empty" size={64} alt="" />
                   <div className="admin-empty__icon">
                     <CalendarDays />
                   </div>
@@ -2113,6 +2118,7 @@ export default function AdminPage() {
                   </div>
                   {alerts.custom.length === 0 ? (
                     <p className="admin-alerts__empty">
+                      <Mascot className="mascot-inline" size={28} alt="" />
                       暂无自定义提醒。可添加如「开考前 30 分钟入场」「结束前 5
                       分钟」等提示。
                     </p>
@@ -2282,7 +2288,7 @@ export default function AdminPage() {
             {annLoading ? (
               <div className="admin-announce__empty">公告加载中…</div>
             ) : anns.length === 0 ? (
-              <div className="admin-announce__empty">暂无公告。</div>
+              <div className="admin-announce__empty"><Mascot className="mascot-empty" size={48} alt="" />暂无公告。</div>
             ) : (
               <AnnouncementList announcements={anns} formatTime={fmtAnnTime} />
             )}

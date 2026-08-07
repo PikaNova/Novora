@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { SchoolClass, SchoolGrade } from "../types/school";
 import AdminModalPortal from './AdminModalPortal';
+import Mascot from './Mascot';
 import {
   getAdminUser,
   logoutAdmin,
@@ -985,7 +986,7 @@ export default function UserManagementPanel({
           )}
           <div className="user-management__list">
             {batchDeleteMode && batchDeleteUsers.length === 0 ? (
-              <div className="admin-empty"><p>当前年级没有可批量删除的账号。</p></div>
+              <div className="admin-empty"><Mascot className="mascot-empty" size={64} alt="" /><p>当前年级没有可批量删除的账号。</p></div>
             ) : (batchDeleteMode ? batchDeleteUsers : users).map((user) => (
               <article
                 className={`user-management__row${user.status === "disabled" ? " is-disabled" : ""}${batchDeleteMode ? " is-batch" : ""}`}
@@ -1162,6 +1163,7 @@ export default function UserManagementPanel({
             ))
           ) : (
             <div className="admin-empty">
+              <Mascot className="mascot-empty" size={64} alt="" />
               <p>暂无操作记录</p>
             </div>
           )}
