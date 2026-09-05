@@ -25,6 +25,8 @@ test('buildExamRecordProjection maps a regular major to a draft record', () => {
   assert.equal(record.updatedAt, 150);
   assert.equal(record.createdBy, 7);
   assert.deepEqual(record.targetGradeIds, ['g1']);
+  assert.equal(record.temporary, false);
+  assert.equal(record.priorityOverSchedule, false);
 });
 
 test('buildExamRecordProjection marks quick and ended majors with lifecycle defaults', () => {
