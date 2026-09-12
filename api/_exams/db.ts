@@ -180,7 +180,7 @@ export function ensureTableOnce(): Promise<void> {
           transaction`CREATE INDEX IF NOT EXISTS device_commands_pending_idx ON device_commands(instance_id, status, created_at)`,
           transaction`CREATE TABLE IF NOT EXISTS app_diagnostic_settings (
           id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-          capture_on_error BOOLEAN NOT NULL DEFAULT FALSE,
+          capture_on_error BOOLEAN NOT NULL DEFAULT TRUE,
           before_seconds INTEGER NOT NULL DEFAULT 60,
           after_seconds INTEGER NOT NULL DEFAULT 30,
           retention_days INTEGER NOT NULL DEFAULT 7,
@@ -217,6 +217,10 @@ export function ensureTableOnce(): Promise<void> {
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_status ON app_diagnostic_bundles(status, created_at DESC)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_retry_due ON app_diagnostic_bundles(status, next_attempt_at, created_at)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_expiry ON app_diagnostic_bundles(status, expires_at)`,
+          // 保留日志改为默认开启：仅把仍是出厂默认设置、且从未被管理员改过的那一行翻正。
+          transaction`UPDATE app_diagnostic_settings SET capture_on_error=TRUE, updated_at=${Date.now()}
+            WHERE id=1 AND capture_on_error=FALSE AND before_seconds=60 AND after_seconds=30
+              AND retention_days=7 AND max_bundle_bytes=1048576`,
         ]);
         await sql`INSERT INTO app_diagnostic_settings (id, updated_at) VALUES (1, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
         await Promise.all([

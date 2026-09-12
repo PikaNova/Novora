@@ -2,7 +2,7 @@
 -- 运行时 ensureTableOnce() 会幂等创建；本文件用于部署迁移审计和手动 PostgreSQL 初始化。
 CREATE TABLE IF NOT EXISTS app_diagnostic_settings (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  capture_on_error BOOLEAN NOT NULL DEFAULT FALSE,
+  capture_on_error BOOLEAN NOT NULL DEFAULT TRUE,
   before_seconds INTEGER NOT NULL DEFAULT 60,
   after_seconds INTEGER NOT NULL DEFAULT 30,
   retention_days INTEGER NOT NULL DEFAULT 7,

@@ -13,6 +13,7 @@ RUN npm run serve:build
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
+RUN apk add --no-cache postgresql16-client
 COPY package.json package-lock.json ./
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN npm ci --omit=dev --ignore-scripts --registry=${NPM_REGISTRY} --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000

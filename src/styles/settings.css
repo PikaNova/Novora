@@ -76,6 +76,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* 内容列居中，避免宽屏下整列贴左 */
+  align-items: center;
   gap: 18px;
   padding: 24px;
 }

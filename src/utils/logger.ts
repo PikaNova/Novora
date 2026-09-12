@@ -74,7 +74,8 @@ export function getLocalLogEntries(from = 0, to = Date.now()): LocalLogEntry[] {
 export function getDiagnosticCaptureConfig(): DiagnosticCaptureConfig {
   const value = readJson<Partial<DiagnosticCaptureConfig>>(CAPTURE_KEY, {});
   return {
-    captureOnError: value.captureOnError === true,
+    // 默认开启：只有管理员显式关掉时才为 false。
+    captureOnError: value.captureOnError !== false,
     beforeSeconds: Math.min(Math.max(Number(value.beforeSeconds) || 60, 0), 300),
     afterSeconds: Math.min(Math.max(Number(value.afterSeconds) || 30, 0), 300),
     retentionDays: Math.min(Math.max(Number(value.retentionDays) || 7, 1), 30),
