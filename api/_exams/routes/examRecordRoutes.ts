@@ -1,11 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { SCHEMA_MIGRATION_LOCK_ID, type AdminActor, hasPermission, requireActor, writeAudit } from '../../_auth.js';
+import {
+  SCHEMA_MIGRATION_LOCK_ID,
+  type AdminActor,
+  ensureAuthTables,
+  hasPermission,
+  requireActor,
+  writeAudit,
+} from '../../_auth.js';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
 import { buildExamRecordProjection, projectCurrentExamRecords } from '../examRecordProjection.js';
 import { asRecord } from '../../../src/shared/typeGuards.js';
 import type { MajorExam } from '../../../src/types/index.js';
 import {
+  EXAM_RECORD_ACTION_PERMISSIONS,
   isExamRecordStatus,
   transitionExamRecordStatus,
   type ExamRecordAction,
@@ -316,6 +324,77 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
   });
 }
 
+type OperationRow = {
+  action?: unknown;
+  source_record_id?: unknown;
+  result_record_id?: unknown;
+  actor_id?: unknown;
+  actor_username?: unknown;
+  actor_display_name?: unknown;
+  from_status?: unknown;
+  to_status?: unknown;
+  reason?: unknown;
+  created_at?: unknown;
+};
+
+function operationJson(row: OperationRow): Record<string, unknown> {
+  return {
+    action: text(row.action),
+    actorId: nullableNumber(row.actor_id),
+    actorName: text(row.actor_display_name) || text(row.actor_username),
+    fromStatus: text(row.from_status),
+    toStatus: text(row.to_status),
+    reason: text(row.reason),
+    resultRecordId: text(row.result_record_id),
+    createdAt: number(row.created_at),
+  };
+}
+
+/**
+ * 考试详情页要用的操作记录：只返回调用方有权访问的那场考试的操作日志。
+ * 同时回放审计与操作日志两条链路，页面按「谁在什么时候把状态从哪改到哪」展示。
+ */
+async function handleRecordOperations(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'GET') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  const recordId = text(req.query?.recordId ?? req.query?.id)
+    .trim()
+    .slice(0, 128);
+  if (!recordId) {
+    error(res, 400, 'INVALID_RECORD_ID', '缺少考试记录 ID');
+    return;
+  }
+  await ensureTableOnce();
+  await ensureAuthTables();
+  const sql = database();
+  const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
+  if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
+    error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
+    return;
+  }
+  const limit = Math.max(1, Math.min(200, Math.trunc(number(req.query?.limit, 50))));
+  const operationRows = (await sql`
+    SELECT operations.action, operations.source_record_id, operations.result_record_id,
+      operations.actor_id, users.username AS actor_username, users.display_name AS actor_display_name,
+      operations.from_status, operations.to_status, operations.reason, operations.created_at
+    FROM exam_record_operations AS operations
+    LEFT JOIN app_users AS users ON users.id = operations.actor_id
+    WHERE operations.source_record_id = ${recordId}
+    ORDER BY operations.created_at DESC, operations.idempotency_key DESC
+    LIMIT ${limit}
+  `) as unknown as OperationRow[];
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(200).json({
+    ok: true,
+    data: operationRows.map((row) => operationJson(row)),
+    recordId,
+  });
+}
+
 function majorForRecord(row: RecordRow): Record<string, unknown> {
   return {
     id: text(row.id),
@@ -383,7 +462,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
-  const permission = action === 'copy' ? 'major.create' : action === 'archive' ? 'major.delete' : 'major.edit';
+  const permission = EXAM_RECORD_ACTION_PERMISSIONS[action];
   const actor = await requireActor(req, res, permission);
   if (!actor) return;
   const recordId = text(req.body?.id).trim().slice(0, 128);
@@ -624,6 +703,10 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
 export async function handleExamRecordRoute(req: VercelRequest, res: VercelResponse, actionName = ''): Promise<void> {
   if (req.method === 'GET' && text(req.query?.resource) === 'records') {
     await handleRecordList(req, res);
+    return;
+  }
+  if (req.method === 'GET' && text(req.query?.resource) === 'record-operations') {
+    await handleRecordOperations(req, res);
     return;
   }
   const action = ACTION_BY_NAME[actionName || text(req.body?.action)];

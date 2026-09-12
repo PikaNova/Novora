@@ -674,7 +674,7 @@ export default function AdminPage() {
               ) : adminTab === 'dashboard' ? (
                 <DashboardPanel />
               ) : adminTab === 'records' ? (
-                <ExamRecordsPanel grades={visibleGrades} classes={visibleClasses} />
+                <ExamRecordsPanel grades={visibleGrades} classes={visibleClasses} can={can} />
               ) : adminTab === 'weekly' ? (
                 <fieldset className="admin-permission-fieldset" disabled={!can('weekly.edit')}>
                   <WeeklyPanel

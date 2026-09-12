@@ -177,6 +177,20 @@ function listedIds(calls: { body: Record<string, unknown> }): string[] {
   return Array.isArray(rows) ? rows.map((row) => String((row as { id?: unknown }).id)) : [];
 }
 
+/** 走真实的 GET /api/exams?resource=record-operations 读操作日志。 */
+async function listOperations(token: string, recordId: string) {
+  const { res, calls } = makeRes();
+  const req = {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+    query: { resource: 'record-operations', recordId },
+    cookies: {},
+    body: {},
+  } as unknown as VercelRequest;
+  await handleExamRecordRoute(req, res);
+  return calls;
+}
+
 async function clearDatabase() {
   const sql = database();
   await sql`
@@ -696,4 +710,41 @@ test('考试列表：作用域与年级筛选在 SQL 层生效', async () => {
     listedIds(await listRecords(admin.token, { gradeId: 'g1', classIds: 'c1', pageSize: '50' })).sort(),
     ['scope-class', 'scope-g1', 'scope-school'],
   );
+});
+
+test('考试操作记录：详情页能读到操作者、前后状态与备注，越权记录返回 404', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([
+    { id: 'ops-g1', name: 'G1', targetGradeIds: ['g1'], startAt: Date.now() - 1_000, endAt },
+    { id: 'ops-g2', name: 'G2', targetGradeIds: ['g2'], startAt: Date.now() - 1_000, endAt },
+  ]);
+  const gradeAdmin = await createUser('ops-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+
+  await act(admin.token, 'record-publish', { id: 'ops-g1', reason: '开学考' });
+  await act(admin.token, 'record-start', { id: 'ops-g1' });
+  await act(admin.token, 'record-pause', { id: 'ops-g1', reason: '设备故障' });
+
+  const response = await listOperations(admin.token, 'ops-g1');
+  assert.equal(response.statusCode, 200);
+  const entries = response.body.data as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    entries.map((entry) => entry.action),
+    ['pause', 'start', 'publish'],
+    '操作记录按时间倒序返回',
+  );
+  const pause = entries[0] ?? {};
+  assert.equal(Number(pause.actorId), admin.id);
+  assert.ok(String(pause.actorName).length > 0, '操作记录要带上操作者名字');
+  assert.equal(String(pause.fromStatus), 'published');
+  assert.equal(String(pause.toStatus), 'published');
+  assert.equal(String(pause.reason), '设备故障');
+
+  const denied = await listOperations(gradeAdmin.token, 'ops-g2');
+  assert.equal(denied.statusCode, 404);
+  assert.equal(denied.body.code, 'RECORD_NOT_FOUND');
+  assert.equal((await listOperations(gradeAdmin.token, 'ops-g1')).statusCode, 200);
+
+  const missingId = await listOperations(admin.token, '');
+  assert.equal(missingId.statusCode, 400);
+  assert.equal(missingId.body.code, 'INVALID_RECORD_ID');
 });

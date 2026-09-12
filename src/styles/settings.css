@@ -126,8 +126,10 @@
 }
 
 @media (min-width: 701px) {
-  /* 固定外壳：页头与左栏不动，只有右侧内容滚动（与后台一致，避免 sticky 偏移错位）。 */
-  .set-page {
+  /* 固定外壳：页头与左栏不动，只有右侧内容滚动（与后台一致，避免 sticky 偏移错位）。
+     只作用于带分组栏的系统设置页（.set-page--shell）：本地设置、只读偏好页没有左栏，
+     套上 100dvh + overflow:hidden 会把首屏之后的内容直接裁掉且无法滚动。 */
+  .set-page--shell {
     display: flex;
     flex-direction: column;
     height: 100dvh;
@@ -135,7 +137,7 @@
     padding-bottom: 0;
     overflow: hidden;
   }
-  .set-header {
+  .set-page--shell .set-header {
     position: relative;
     flex: none;
   }
@@ -161,7 +163,7 @@
     overflow: auto;
   }
   /* 桌面用左栏；分组条只留给移动端（提高特异性，覆盖下方的基础样式） */
-  .set-page .set-group-nav {
+  .set-page--shell .set-group-nav {
     display: none;
   }
 }

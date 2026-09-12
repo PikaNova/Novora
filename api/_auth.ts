@@ -618,6 +618,10 @@ async function ensureDefaultSuperAdmin(password: string): Promise<void> {
   await ensureAuthTables();
   const users = assertRows(await authSql()`SELECT COUNT(*)::int AS count FROM app_users`, isCountRow, 'app_users');
   if (Number(users[0]?.count) > 0) return;
+  // 库里已经没有任何用户（新库或被清空）时，模块级缓存可能还指向已被删除的 app_auth 行。
+  // 不失效就会用「幽灵配置」建出管理员，但随后取 token_secret 时又读到 null，
+  // 表现为密码正确却登录失败（真实库集成用例会在清库后稳定复现）。
+  invalidateAuthConfigCache();
   let auth = await config();
   if (!auth) auth = await bootstrapAuth(password);
   if (!auth || !(await matches(password, auth.password_hash, auth.password_salt))) return;
