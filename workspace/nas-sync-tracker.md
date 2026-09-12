@@ -621,6 +621,20 @@ git push origin main
 | 验证 | `npm test` 479/479；API 类型检查通过；`git diff --check` 通过 |
 | 推送 | 本次提交将与追踪文件一起推送到 `future/upload/main` |
 
+## 2026-09-12 诊断日志手动发送 401 修复
+
+| 项目 | 状态 |
+|---|---|
+| 现象 | 学校端设置页「发送日期日志 / 发送错误日志」返回 401「登录状态已失效，请重新登录」 |
+| 现场证据 | `dev.pikachu2026.space.har` 中 `POST /api/diagnostic-logs` 请求不含任何 `Authorization`/Cookie，服务端按无凭据处理 |
+| 根因 | `src/services/diagnosticLogs.ts` 使用裸 `fetch`，只设置 `Content-Type`，从未附加管理员令牌；同页面的设置读取 401 被静默忽略，因此页面一直显示本地默认配置（`captureOnError=false`，也就不会保留错误日志包） |
+| 修复 | 请求封装统一附加 `Authorization: Bearer <admin_auth_token>` 并加 `cache: 'no-store'` |
+| 附带修复 | 错误日志包列表在进入设置页和保存策略后刷新（原先 `setBundles` 从未调用，列表不会更新） |
+| 回归测试 | 新增 `tests/diagnosticLogAuth.test.ts`，修复前两条断言为红，修复后转绿 |
+| 验证 | `npm test` 481/481；`typecheck:api`；lint 0 errors / 0 warnings；`npm run build`；`serve:build`；`git diff --check` |
+| 说明 | 修复在前端，dev 站点需重新构建部署后生效；管理员会话本身 24 小时有效，真正过期时仍需重新登录 |
+| 推送 | 待用户确认后推送 `future/upload/main` |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |
