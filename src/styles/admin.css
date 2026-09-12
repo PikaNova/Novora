@@ -1,5 +1,8 @@
 /* ===== 考试管理 admin.css ===== */
 .admin-page {
+  /* 后台外壳里页头是 sticky 的固定高度；左侧栏的 sticky 偏移与高度都以此为基准，
+     避免出现「栏顶钻到页头下面、栏底和视口底差 58px」的断层。 */
+  --admin-header-h: 58px;
   min-height: 100vh;
   background: #0d0d0d;
   color: #f0f0f0;
@@ -6758,7 +6761,7 @@
 }
 .admin-workspace > .admin-tabbar {
   position: sticky;
-  top: 0;
+  top: var(--admin-header-h);
   z-index: 24;
   display: flex;
   align-self: start;
@@ -6766,7 +6769,7 @@
   align-items: stretch;
   justify-content: flex-start;
   gap: 18px;
-  height: calc(100dvh - 58px);
+  height: calc(100dvh - var(--admin-header-h));
   min-height: 0;
   padding: 18px 12px;
   overflow-y: auto;
@@ -6789,7 +6792,7 @@
     grid-template-columns: 208px minmax(0, 1fr);
   }
   .admin-workspace > .admin-tabbar {
-    height: calc(100dvh - 58px);
+    height: calc(100dvh - var(--admin-header-h));
   }
   .admin-workspace > .admin-tabbar .admin-tab {
     padding-inline: 9px;
