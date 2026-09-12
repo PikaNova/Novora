@@ -212,23 +212,25 @@ docker volume rm novora_integration_pgdata
 - 静默错误摘要：`POST /api/error-report` 自动上报，只包含脱敏摘要，不含完整日志正文。
 - 完整诊断包：日志只存在本机，由管理员在 `/settings` 主动触发「按日期发送」或「按错误发送」，经 `POST /api/diagnostic-logs` 转发给作者端。失败包留在 `app_diagnostic_bundles`，按 60s / 120s / 240s 退避重试，最多 3 次，过期包不再发送。
 
+留存策略按管理员在设置页保存的 `retentionDays`（1-30 天，默认 7 天）执行，从包创建时刻计算过期。过期后服务端会清空正文以释放存储（`entry_count` 保留为历史计数，因此「`entry_count>0` 且正文为空」表示正文已清理），再过 30 天宽限期连记录一起删除。清理由 worker 与设置页列表读取触发，未挂 Cron 的部署也不会无限堆积。
+
 重试队列需要一个消费端点（与邮件队列同一套 Cron 思路）：
 
-| 端点                                       | 说明                                                                                                    |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `GET /api/diagnostic-worker?limit=`        | Cron 消费：单次默认 10 条、上限 25 条、8 秒预算，返回 `{considered, sent, failed, released, remaining}` |
-| `POST /api/diagnostic-logs?resource=retry` | 管理员手动触发同一套消费逻辑（需 `diagnostics.upload`）                                                 |
+| 端点                                       | 说明                                                                                                            |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `GET /api/diagnostic-worker?limit=`        | Cron 消费：单次默认 10 条、上限 25 条、8 秒预算，返回 `{considered, sent, failed, released, remaining, purged}` |
+| `POST /api/diagnostic-logs?resource=retry` | 管理员手动触发同一套消费逻辑（需 `diagnostics.upload`）                                                         |
 
 Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-worker`，外部定时器同理。配置 `DIAGNOSTIC_WORKER_SECRET` 后该端点要求 `Authorization: Bearer <secret>` 或 `x-cron-secret: <secret>`；未配置时与 `/api/email-worker` 一样开放，返回值只有计数、不含日志正文。
 
-`/api/status`（仅超管）新增 `diagnosticQueue` 字段：`retained / queued / sending / sent / failed / expired / dueNow / nextAttemptAt / lastError`，可直接判断队列是否积压。
+`/api/status`（仅超管）新增 `diagnosticQueue` 字段：`sending / sent / failed / expired / expiredWithEntries / dueNow / nextAttemptAt / lastError`，可直接判断队列是否积压、有多少过期正文待回收。
 
 ## 更新日志
 
 ### V2.7.6
 
 - 诊断日志：新增第二条上传链路（错误摘要仍静默上报，完整日志只在本机保留、由管理员在设置页按日期或按错误主动发送）；服务端记录 `content_bytes`、内容哈希、状态与访问审计，失败包按 60s / 120s / 240s 退避重试最多 3 次。
-- 诊断日志：新增 `/api/diagnostic-worker` Cron 消费端点与 `/api/status` 的 `diagnosticQueue` 队列统计；重试领取改为事务内 `FOR UPDATE SKIP LOCKED` 加 10 分钟租约，多实例并发不会重复发送，崩溃遗留的 sending 记录会被自动回收。
+- 诊断日志：新增 `/api/diagnostic-worker` Cron 消费端点与 `/api/status` 的 `diagnosticQueue` 队列统计；重试领取改为事务内 `FOR UPDATE SKIP LOCKED` 加 10 分钟租约，多实例并发不会重复发送，崩溃遗留的 sending 记录会被自动回收。保留期改为按设置页的 `retentionDays` 生效（原先写死 30 天），过期包清空正文并在宽限期后删除，避免正文无限堆积。
 - 修复：设置页的手动发送与保留策略请求未携带管理员令牌，导致始终返回「登录状态已失效」；已统一附加 `Authorization` 头，并修正错误日志包列表不刷新的问题。
 - 初始化向导：文档步骤移除内嵌 iframe 预览，保留“打开文档”新窗口跳转；10 秒阅读计时改为点击打开链接时启动。
 - 初始化向导：学校图标上传按钮视觉统一——44px 虚线占位与预览图同尺寸（选中前后布局零跳动）、统一描边风格的上传/移除按钮（移动端 44px 触控目标），上传控件不再使用浏览器原生样式。

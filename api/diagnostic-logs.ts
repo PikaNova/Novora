@@ -3,8 +3,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { database, ensureTableOnce } from './_exams/db.js';
 import { requireActor, writeAudit } from './_auth.js';
 import {
+  DEFAULT_RETENTION_DAYS,
   RETRY_CLAIM_TIMEOUT_MS,
+  clampRetentionDays,
   drainDiagnosticQueue,
+  purgeExpiredDiagnosticBundles,
+  retentionExpiresAt,
   retryDelayMs,
   sendDiagnosticBundle,
 } from './_diagnosticQueue.js';
@@ -17,7 +21,6 @@ import {
 
 const MAX_ENTRIES = 500;
 const MAX_BUNDLE_BYTES = 1_048_576;
-const DEFAULT_RETENTION_DAYS = 7;
 
 function numberValue(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -60,7 +63,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse): Promise<
   const capture = b.captureOnError === true;
   const before = Math.min(Math.max(Math.round(numberValue(b.beforeSeconds) ?? 60), 0), 300);
   const after = Math.min(Math.max(Math.round(numberValue(b.afterSeconds) ?? 30), 0), 300);
-  const retention = Math.min(Math.max(Math.round(numberValue(b.retentionDays) ?? DEFAULT_RETENTION_DAYS), 1), 30);
+  const retention = clampRetentionDays(numberValue(b.retentionDays) ?? DEFAULT_RETENTION_DAYS);
   const now = Date.now();
   await sql`UPDATE app_diagnostic_settings SET capture_on_error=${capture}, before_seconds=${before}, after_seconds=${after}, retention_days=${retention}, updated_at=${now} WHERE id=1`;
   await writeAudit(actor, 'diagnostics.settings.update', 'diagnostics', 'settings', {
@@ -89,6 +92,8 @@ async function handleCatalog(req: VercelRequest, res: VercelResponse): Promise<v
   const from = numberValue(req.query.from) ?? Date.now() - 7 * 86400000;
   const to = numberValue(req.query.to) ?? Date.now();
   await sql`UPDATE app_diagnostic_bundles SET status='expired' WHERE expires_at IS NOT NULL AND expires_at < ${Date.now()} AND status <> 'expired'`;
+  // 管理员浏览列表时顺带回收过期正文，避免在没挂 Cron 的部署里正文无限堆积。
+  await purgeExpiredDiagnosticBundles();
   const rows = await sql`SELECT bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code,
       from_ts, to_ts, entry_count, content_bytes, status, attempt_count, last_error, created_at, expires_at, sent_at, next_attempt_at
       FROM app_diagnostic_bundles WHERE from_ts <= ${to} AND to_ts >= ${from}
@@ -150,7 +155,9 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
   }
   const sql = database();
   const now = Date.now();
-  const expiresAt = now + 30 * 86400000;
+  // 保留期以管理员在设置页保存的 retention_days 为准，不再写死 30 天。
+  const settingsRows = await sql`SELECT retention_days FROM app_diagnostic_settings WHERE id=1`;
+  const expiresAt = retentionExpiresAt(now, settingsRows[0]?.retention_days ?? DEFAULT_RETENTION_DAYS);
   const existing = await sql`SELECT bundle_id, status FROM app_diagnostic_bundles WHERE bundle_id=${bundleId} LIMIT 1`;
   if (existing.length) {
     res.status(202).json({ ok: true, bundleId, status: existing[0].status, idempotent: true });

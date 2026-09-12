@@ -3,6 +3,7 @@ import test from 'node:test';
 import { database, ensureTableOnce } from '../../api/_exams/db.js';
 import {
   claimDueDiagnosticBundles,
+  purgeExpiredDiagnosticBundles,
   readDiagnosticQueueStats,
   releaseExpiredClaims,
 } from '../../api/_diagnosticQueue.js';
@@ -97,6 +98,62 @@ test('diagnostic queue: an expired lease is recovered and the queue can be count
   assert.equal(stats.sending, 0);
   assert.ok(stats.failed >= 2);
   assert.ok(stats.nextAttemptAt != null && stats.nextAttemptAt <= now);
+
+  await resetFixtures();
+});
+
+test('diagnostic queue: expired bundles release their payload and are deleted after the grace period', async () => {
+  await resetFixtures();
+  const now = Date.now();
+  const day = 86_400_000;
+  const expiredWithPayload = await insertFailedBundle({
+    suffix: 'purge-now',
+    nextAttemptAt: now - day,
+    status: 'expired',
+    expiresAt: now - 1_000,
+    createdAt: now - 2 * day,
+  });
+  await database()`UPDATE app_diagnostic_bundles
+    SET entries=${JSON.stringify([{ at: now - 2 * day, level: 'info', message: 'retained payload' }])}::jsonb,
+        entry_count=1, content_bytes=64
+    WHERE bundle_id=${expiredWithPayload}`;
+
+  const expiredLongAgo = await insertFailedBundle({
+    suffix: 'purge-old',
+    nextAttemptAt: now - 60 * day,
+    status: 'expired',
+    expiresAt: now - 40 * day,
+    createdAt: now - 60 * day,
+  });
+  await database()`UPDATE app_diagnostic_bundles
+    SET entries=${JSON.stringify([{ at: now - 60 * day, level: 'info', message: 'ancient payload' }])}::jsonb,
+        entry_count=1, content_bytes=64
+    WHERE bundle_id=${expiredLongAgo}`;
+
+  const live = await insertFailedBundle({ suffix: 'live', nextAttemptAt: now - 1, createdAt: now - 1_000 });
+  await database()`UPDATE app_diagnostic_bundles
+    SET entries=${JSON.stringify([{ at: now - 1_000, level: 'error', message: 'live payload' }])}::jsonb,
+        entry_count=1, content_bytes=64
+    WHERE bundle_id=${live}`;
+
+  const result = await purgeExpiredDiagnosticBundles({ now });
+  assert.equal(result.clearedEntries, 2, 'every expired bundle holding a payload must be released');
+  assert.equal(result.deletedRows, 1, 'only the bundle past the metadata grace period is deleted');
+
+  const rows = (await database()`SELECT bundle_id, entries, entry_count FROM app_diagnostic_bundles
+    WHERE bundle_id IN (${expiredWithPayload}, ${expiredLongAgo}, ${live})`) as unknown as Array<{
+    bundle_id: string;
+    entries: unknown[];
+    entry_count: number;
+  }>;
+  const byId = new Map(rows.map((row) => [row.bundle_id, row]));
+  assert.deepEqual(byId.get(expiredWithPayload)?.entries, [], 'expired payload must be released');
+  assert.equal(byId.get(expiredWithPayload)?.entry_count, 1, 'entry_count stays as historical metadata');
+  assert.equal(byId.has(expiredLongAgo), false, 'records past the grace period are removed');
+  assert.equal((byId.get(live)?.entries as unknown[]).length, 1, 'live bundles keep their payload');
+
+  const stats = await readDiagnosticQueueStats(now);
+  assert.equal(stats.expiredWithEntries, 0, 'nothing is left waiting for the purge');
 
   await resetFixtures();
 });

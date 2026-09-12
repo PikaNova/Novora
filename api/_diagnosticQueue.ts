@@ -6,25 +6,35 @@ import { getAuthorConfig, getIngestToken } from './_authorClient.js';
 import { telemetryConfig } from './_telemetryConfig.js';
 import { database } from './_exams/db.js';
 import {
+  EXPIRED_METADATA_GRACE_MS,
   MAX_RETRY_ATTEMPTS,
   RETRY_BASE_DELAY_MS,
   RETRY_CLAIM_TIMEOUT_MS,
   clampDrainLimit,
   nextAttemptAfterFailure,
-  retryDelayMs,
 } from './_diagnosticQueuePolicy.js';
 
 type Row = Record<string, unknown>;
 
-export { MAX_RETRY_ATTEMPTS, RETRY_CLAIM_TIMEOUT_MS, clampDrainLimit, retryDelayMs };
+export {
+  DEFAULT_RETENTION_DAYS,
+  MAX_RETRY_ATTEMPTS,
+  RETRY_CLAIM_TIMEOUT_MS,
+  clampDrainLimit,
+  clampRetentionDays,
+  retentionExpiresAt,
+  retryDelayMs,
+} from './_diagnosticQueuePolicy.js';
+
+export type DiagnosticPurgeResult = { clearedEntries: number; deletedRows: number };
 
 export type DiagnosticQueueStats = {
-  retained: number;
-  queued: number;
   sending: number;
   sent: number;
   failed: number;
   expired: number;
+  /** 已过期但仍占着正文的包数量；worker 每次运行会把它们清空。 */
+  expiredWithEntries: number;
   dueNow: number;
   nextAttemptAt: number | null;
   lastError: string | null;
@@ -38,6 +48,7 @@ export type DiagnosticDrainResult = {
   failed: number;
   released: number;
   remaining: number;
+  purged: DiagnosticPurgeResult;
   durationMs: number;
 };
 
@@ -179,6 +190,26 @@ export async function countDueDiagnosticBundles(now: number = Date.now()): Promi
   return Number(rows[0]?.n ?? 0);
 }
 
+/**
+ * 过期包的物理清理：先清空正文（entries JSONB 单包最大 1MB，不能随保留期无限堆积），
+ * 过了宽限期再删掉整行。entry_count 保留为历史计数，因此「entry_count>0 且 entries 为空」
+ * 就表示正文已被清理。
+ */
+export async function purgeExpiredDiagnosticBundles(options: { now?: number } = {}): Promise<DiagnosticPurgeResult> {
+  const now = options.now ?? Date.now();
+  const sql = database();
+  const cleared = await sql`
+    UPDATE app_diagnostic_bundles
+    SET entries='[]'::jsonb
+    WHERE status='expired' AND (expires_at IS NULL OR expires_at <= ${now}) AND jsonb_array_length(entries) > 0
+    RETURNING bundle_id`;
+  const deleted = await sql`
+    DELETE FROM app_diagnostic_bundles
+    WHERE status='expired' AND expires_at IS NOT NULL AND expires_at <= ${now - EXPIRED_METADATA_GRACE_MS}
+    RETURNING bundle_id`;
+  return { clearedEntries: cleared.length, deletedRows: deleted.length };
+}
+
 /** 有界消费：单次最多 limit 条，且不超过 deadlineMs，超时未发送的领取行退回队列。 */
 export async function drainDiagnosticQueue(
   options: { limit?: number; now?: number; deadlineMs?: number } = {},
@@ -186,6 +217,7 @@ export async function drainDiagnosticQueue(
   const startedAt = Date.now();
   const now = options.now ?? startedAt;
   const deadlineMs = Math.max(1_000, options.deadlineMs ?? 8_000);
+  const purged = await purgeExpiredDiagnosticBundles({ now });
   const { claimedUntil, rows } = await claimDueDiagnosticBundles({ limit: options.limit, now });
   let sent = 0;
   let failed = 0;
@@ -202,7 +234,7 @@ export async function drainDiagnosticQueue(
     else failed += 1;
   }
   const remaining = await countDueDiagnosticBundles();
-  return { considered: rows.length, sent, failed, released, remaining, durationMs: Date.now() - startedAt };
+  return { considered: rows.length, sent, failed, released, remaining, purged, durationMs: Date.now() - startedAt };
 }
 
 export async function readDiagnosticQueueStats(now: number = Date.now()): Promise<DiagnosticQueueStats> {
@@ -210,6 +242,8 @@ export async function readDiagnosticQueueStats(now: number = Date.now()): Promis
   const statusRows = await sql`SELECT status, COUNT(*)::int AS n FROM app_diagnostic_bundles GROUP BY status`;
   const counts: Record<string, number> = {};
   for (const row of statusRows) counts[String(row.status)] = Number(row.n ?? 0);
+  const purgeRows = await sql`SELECT COUNT(*)::int AS n FROM app_diagnostic_bundles
+    WHERE status='expired' AND (expires_at IS NULL OR expires_at <= ${now}) AND jsonb_array_length(entries) > 0`;
   const dueRows = await sql`SELECT COUNT(*)::int AS n FROM app_diagnostic_bundles
     WHERE status='failed' AND attempt_count < ${MAX_RETRY_ATTEMPTS}
       AND (next_attempt_at IS NULL OR next_attempt_at <= ${now})
@@ -220,12 +254,11 @@ export async function readDiagnosticQueueStats(now: number = Date.now()): Promis
     WHERE status='failed' AND last_error <> '' ORDER BY created_at DESC LIMIT 1`;
   const nextAttemptAt = nextRows[0]?.next_attempt_at;
   return {
-    retained: counts.retained ?? 0,
-    queued: counts.queued ?? 0,
     sending: counts.sending ?? 0,
     sent: counts.sent ?? 0,
     failed: counts.failed ?? 0,
     expired: counts.expired ?? 0,
+    expiredWithEntries: Number(purgeRows[0]?.n ?? 0),
     dueNow: Number(dueRows[0]?.n ?? 0),
     nextAttemptAt: nextAttemptAt == null ? null : Number(nextAttemptAt),
     lastError: typeof errorRows[0]?.last_error === 'string' ? (errorRows[0].last_error as string) : null,

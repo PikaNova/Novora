@@ -10,6 +10,25 @@ export const RETRY_MAX_DELAY_MS = 60 * 60_000;
 export const DEFAULT_DRAIN_LIMIT = 10;
 export const MAX_DRAIN_LIMIT = 25;
 
+export const MIN_RETENTION_DAYS = 1;
+export const MAX_RETENTION_DAYS = 30;
+export const DEFAULT_RETENTION_DAYS = 7;
+/** 过期后仍保留元数据的时间，便于事后核对；之后连记录一起清理。 */
+export const EXPIRED_METADATA_GRACE_MS = 30 * 86_400_000;
+
+/** 保留期取值统一夹到 1-30 天，非法值回落到默认 7 天。 */
+export function clampRetentionDays(value: unknown): number {
+  if (value == null || value === '') return DEFAULT_RETENTION_DAYS;
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return DEFAULT_RETENTION_DAYS;
+  return Math.min(Math.max(parsed, MIN_RETENTION_DAYS), MAX_RETENTION_DAYS);
+}
+
+/** 过期时间从包创建时刻算起，避免保存策略后新旧包使用不同基准。 */
+export function retentionExpiresAt(createdAt: number, retentionDays: unknown): number {
+  return createdAt + clampRetentionDays(retentionDays) * 86_400_000;
+}
+
 /** 第 n 次失败后的等待时间：60s、120s、240s…封顶 1 小时。 */
 export function retryDelayMs(attempts: number): number {
   const safeAttempts = Number.isFinite(attempts) ? Math.max(1, Math.floor(attempts)) : 1;
