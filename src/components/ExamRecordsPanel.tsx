@@ -1,55 +1,28 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
 import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, RefreshCw, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
+import { fetchExamRecords, type ExamRecordListEntry } from '../services/examRecords';
+import { formatApiError } from '../services/apiError';
+import { EXAM_RECORD_STATUS_LABELS, type ExamRecordDisplayStatus } from '../shared/examRecordContracts.js';
+import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import '../styles/exam-records.css';
 
-type RecordStatus = 'draft' | 'published' | 'ongoing' | 'ended' | 'archived';
 type RecordSource = 'regular' | 'quick';
-
-type ExamRecord = {
-  id: string;
-  name: string;
-  status: Exclude<RecordStatus, 'ongoing'>;
-  displayStatus: RecordStatus;
-  targetGradeIds: string[];
-  targetClassIds: string[];
-  source: RecordSource;
-  itemCount: number;
-  createdBy: number | null;
-  createdAt: number;
-  updatedAt: number;
-  startAt: number | null;
-  endAt: number | null;
-};
-
-type ApiResponse = {
-  ok?: boolean;
-  data?: ExamRecord[];
-  page?: number;
-  pageSize?: number;
-  total?: number;
-  totalPages?: number;
-  error?: string;
-};
 
 type Props = {
   grades: SchoolGrade[];
   classes: SchoolClass[];
+  /** 权限判定交给上层，动作按钮只显示当前账号真的能执行的项。 */
+  can: (permission: string) => boolean;
 };
 
-const STATUS_OPTIONS: Array<{ value: '' | RecordStatus; label: string }> = [
+const STATUS_OPTIONS: Array<{ value: '' | ExamRecordDisplayStatus; label: string }> = [
   { value: '', label: '全部状态' },
-  { value: 'draft', label: '草稿' },
-  { value: 'published', label: '待开始' },
-  { value: 'ongoing', label: '进行中' },
-  { value: 'ended', label: '已结束' },
-  { value: 'archived', label: '历史归档' },
+  ...(['draft', 'published', 'ongoing', 'ended', 'archived'] as ExamRecordDisplayStatus[]).map((status) => ({
+    value: status,
+    label: EXAM_RECORD_STATUS_LABELS[status],
+  })),
 ];
-
-function tokenHeaders(): HeadersInit {
-  const token = localStorage.getItem('admin_auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function formatTime(value: number | null): string {
   if (!value || !Number.isFinite(value)) return '未设置时间';
@@ -62,11 +35,7 @@ function formatTime(value: number | null): string {
   });
 }
 
-function statusLabel(status: RecordStatus): string {
-  return STATUS_OPTIONS.find((item) => item.value === status)?.label ?? '未知状态';
-}
-
-function scopeLabel(record: ExamRecord, grades: SchoolGrade[], classes: SchoolClass[]): string {
+function scopeLabel(record: ExamRecordListEntry, grades: SchoolGrade[], classes: SchoolClass[]): string {
   if (!record.targetGradeIds.length && !record.targetClassIds.length) return '全校';
   const gradeNames = record.targetGradeIds.map((id) => grades.find((grade) => grade.id === id)?.name ?? id).slice(0, 2);
   const classNames = record.targetClassIds.map((id) => classes.find((item) => item.id === id)?.name ?? id).slice(0, 2);
@@ -74,10 +43,10 @@ function scopeLabel(record: ExamRecord, grades: SchoolGrade[], classes: SchoolCl
   return `${labels.join('、')}${record.targetGradeIds.length + record.targetClassIds.length > labels.length ? ' 等' : ''}`;
 }
 
-export default function ExamRecordsPanel({ grades, classes }: Props) {
-  const [records, setRecords] = useState<ExamRecord[]>([]);
+export default function ExamRecordsPanel({ grades, classes, can }: Props) {
+  const [records, setRecords] = useState<ExamRecordListEntry[]>([]);
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<'' | RecordStatus>('');
+  const [status, setStatus] = useState<'' | ExamRecordDisplayStatus>('');
   const [gradeId, setGradeId] = useState('');
   const [source, setSource] = useState<'' | RecordSource>('');
   const [timeScope, setTimeScope] = useState<'all' | 'upcoming' | 'past'>('all');
@@ -89,36 +58,31 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [detailId, setDetailId] = useState('');
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
     setError('');
-    const params = new URLSearchParams({ resource: 'records', page: String(page), pageSize: String(pageSize) });
-    if (query.trim()) params.set('q', query.trim());
-    if (status) params.set('status', status);
-    if (gradeId) {
-      params.set('gradeId', gradeId);
-      const classIds = classes.filter((item) => item.gradeId === gradeId).map((item) => item.id);
-      if (classIds.length) params.set('classIds', classIds.join(','));
-    }
-    if (source) params.set('source', source);
-    if (timeScope !== 'all') params.set('time', timeScope);
-    if (createdBy.trim()) params.set('createdBy', createdBy.trim());
     try {
-      const response = await fetch(`/api/exams?${params.toString()}`, {
-        headers: tokenHeaders(),
-        cache: 'no-store',
+      const result = await fetchExamRecords({
+        page,
+        pageSize,
+        q: query.trim() || undefined,
+        status: status || undefined,
+        gradeId: gradeId || undefined,
+        classIds: gradeId ? classes.filter((item) => item.gradeId === gradeId).map((item) => item.id) : undefined,
+        source: source || undefined,
+        time: timeScope === 'all' ? undefined : timeScope,
+        createdBy: createdBy.trim() || undefined,
       });
-      const payload = (await response.json().catch(() => null)) as ApiResponse | null;
-      if (!response.ok || !payload?.ok) throw new Error(payload?.error || '考试列表读取失败');
-      setRecords(Array.isArray(payload.data) ? payload.data : []);
-      setTotal(Number(payload.total) || 0);
-      setTotalPages(Number(payload.totalPages) || 0);
+      setRecords(result.data);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
     } catch (caught) {
       setRecords([]);
       setTotal(0);
       setTotalPages(0);
-      setError(caught instanceof Error ? caught.message : '考试列表读取失败');
+      setError(formatApiError(caught, '考试列表读取失败'));
     } finally {
       setLoading(false);
     }
@@ -128,10 +92,16 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
     void loadRecords();
   }, [loadRecords, refreshKey]);
 
-  const updateFilter = (setter: (value: string) => void, value: string) => {
-    setter(value);
-    setPage(1);
-  };
+  /** 筛选项变化一律回到第一页；DOM 事件的值会被放宽成 string，这里集中收窄一次。 */
+  const filterHandler =
+    <T extends string>(setter: Dispatch<SetStateAction<T>>) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setter(event.target.value as T);
+      setPage(1);
+    };
+
+  // 详情始终取列表里的最新一行：动作完成后列表刷新，抽屉里的状态与时间会跟着更新。
+  const detailRecord = detailId ? (records.find((item) => item.id === detailId) ?? null) : null;
 
   return (
     <main className="exam-records-panel">
@@ -158,16 +128,11 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
         <label className="exam-records-search">
           <Search size={16} aria-hidden="true" />
           <span className="sr-only">搜索考试</span>
-          <input
-            value={query}
-            onChange={(event) => updateFilter(setQuery, event.target.value)}
-            placeholder="搜索名称或编号"
-            type="search"
-          />
+          <input value={query} onChange={filterHandler(setQuery)} placeholder="搜索名称或编号" type="search" />
         </label>
         <label>
           <span>状态</span>
-          <select value={status} onChange={(event) => updateFilter(setStatus, event.target.value)}>
+          <select value={status} onChange={filterHandler(setStatus)}>
             {STATUS_OPTIONS.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -177,7 +142,7 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
         </label>
         <label>
           <span>年级</span>
-          <select value={gradeId} onChange={(event) => updateFilter(setGradeId, event.target.value)}>
+          <select value={gradeId} onChange={filterHandler(setGradeId)}>
             <option value="">全部年级</option>
             {grades.map((grade) => (
               <option key={grade.id} value={grade.id}>
@@ -188,7 +153,7 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
         </label>
         <label>
           <span>来源</span>
-          <select value={source} onChange={(event) => updateFilter(setSource, event.target.value)}>
+          <select value={source} onChange={filterHandler(setSource)}>
             <option value="">全部来源</option>
             <option value="regular">正式考试</option>
             <option value="quick">快速考试</option>
@@ -196,7 +161,7 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
         </label>
         <label>
           <span>时间</span>
-          <select value={timeScope} onChange={(event) => updateFilter(setTimeScope, event.target.value)}>
+          <select value={timeScope} onChange={filterHandler(setTimeScope)}>
             <option value="all">全部时间</option>
             <option value="upcoming">即将开始</option>
             <option value="past">已结束</option>
@@ -207,7 +172,10 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
           <input
             className="exam-records-creator-input"
             value={createdBy}
-            onChange={(event) => updateFilter(setCreatedBy, event.target.value.replace(/[^0-9]/g, ''))}
+            onChange={(event) => {
+              setCreatedBy(event.target.value.replace(/[^0-9]/g, ''));
+              setPage(1);
+            }}
             placeholder="创建人编号"
             inputMode="numeric"
           />
@@ -233,6 +201,7 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
               <span role="columnheader">时间</span>
               <span role="columnheader">科目</span>
               <span role="columnheader">创建人</span>
+              <span role="columnheader">操作</span>
             </div>
             {records.map((record) => (
               <div className="exam-records-table__row" role="row" key={record.id}>
@@ -241,7 +210,7 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
                   <code>{record.id}</code>
                 </div>
                 <span className={`exam-records-status is-${record.displayStatus}`} role="cell">
-                  {statusLabel(record.displayStatus)}
+                  {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
                 </span>
                 <span className="exam-records-scope" role="cell">
                   {scopeLabel(record, grades, classes)}
@@ -255,6 +224,16 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
                 </span>
                 <span className="exam-records-creator" role="cell">
                   {record.createdBy == null ? '系统' : `#${record.createdBy}`}
+                </span>
+                <span className="exam-records-row-actions" role="cell">
+                  <button
+                    className="admin-btn admin-btn--ghost"
+                    type="button"
+                    onClick={() => setDetailId(record.id)}
+                    aria-label={`查看 ${record.name || record.id} 详情`}
+                  >
+                    详情
+                  </button>
                 </span>
               </div>
             ))}
@@ -288,6 +267,17 @@ export default function ExamRecordsPanel({ grades, classes }: Props) {
           </button>
         </div>
       </footer>
+
+      {detailRecord && (
+        <ExamRecordDetailDrawer
+          record={detailRecord}
+          grades={grades}
+          classes={classes}
+          can={can}
+          onClose={() => setDetailId('')}
+          onChanged={() => setRefreshKey((value) => value + 1)}
+        />
+      )}
     </main>
   );
 }
