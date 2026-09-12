@@ -158,7 +158,8 @@
     min-height: 0;
     overflow: auto;
   }
-  .set-group-nav {
+  /* 桌面用左栏；分组条只留给移动端（提高特异性，覆盖下方的基础样式） */
+  .set-page .set-group-nav {
     display: none;
   }
 }
