@@ -7,6 +7,8 @@ import {
   DEVICE_ONLINE_WINDOW_MS,
   parseDeviceCommand,
 } from '../../../src/shared/deviceContracts.js';
+import { parseExamVersion } from '../../../src/shared/examContracts.js';
+import { isEdgeDeployment } from '../../_deployTarget.js';
 
 type DeviceHeartbeatRow = {
   grade_id: string;
@@ -14,6 +16,7 @@ type DeviceHeartbeatRow = {
   revoked: boolean;
   is_management: boolean;
   temporary_command?: unknown;
+  exam_version?: unknown;
 };
 
 export async function handleDeviceBinding(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -163,13 +166,13 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
         OR device_instances.current_subject IS DISTINCT FROM EXCLUDED.current_subject
         OR device_instances.exam_start IS DISTINCT FROM EXCLUDED.exam_start
         OR device_instances.exam_end IS DISTINCT FROM EXCLUDED.exam_end
-      RETURNING grade_id, class_id, revoked, is_management, temporary_command`) as unknown as DeviceHeartbeatRow[];
+      RETURNING grade_id, class_id, revoked, is_management, temporary_command, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version`) as unknown as DeviceHeartbeatRow[];
     // 跳过写入时拿不到 RETURNING 行；把这个补读并进下面同一个事务，避免多一次往返。
     const needsRowFallback = writtenRows.length === 0;
     const commandResults = await sql.transaction((transaction) => [
       ...(needsRowFallback
         ? [
-            transaction`SELECT grade_id, class_id, revoked, is_management, temporary_command FROM device_instances WHERE instance_id=${instanceId}`,
+            transaction`SELECT grade_id, class_id, revoked, is_management, temporary_command, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version FROM device_instances WHERE instance_id=${instanceId}`,
           ]
         : []),
       transaction`UPDATE device_commands SET status='expired', failure_reason='命令已过期' WHERE instance_id=${instanceId} AND status IN ('pending','claimed') AND expires_at IS NOT NULL AND expires_at <= ${now}`,
@@ -201,6 +204,9 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
         })
       : null;
     const hasBinding = !!device && (device.revoked === true || device.is_management === true || !!device.class_id);
+    // 仅 Vercel：把当前快照版本号随心跳带回，设备据此决定要不要再拉一次快照，
+    // 这样常规轮询只剩心跳这一条请求；本地部署后续走 WSS 推送，不带这个字段。
+    const examVersion = parseExamVersion(device?.exam_version);
     res.status(200).json({
       ok: true,
       revoked: device?.revoked === true,
@@ -213,6 +219,7 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
           }
         : null,
       command: queued ?? parseDeviceCommand(device?.temporary_command) ?? null,
+      ...(isEdgeDeployment() ? { version: examVersion } : {}),
     });
   };
   try {

@@ -44,6 +44,34 @@ export function examEtag(updatedAt: unknown): string {
   return `"exam-${Number.isFinite(value) ? value : 0}"`;
 }
 
+/** 快照版本号转成整数，非法值一律归零。 */
+export function parseExamVersion(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+/**
+ * 版本化快照的查询串。版本号同时是边缘缓存的键：数据没变就一直是同一个 URL，
+ * 因此可以把整份快照长期缓存，只有写入后版本变化才会产生新的 URL。
+ */
+export function examSnapshotQuery(version: unknown): string {
+  return `resource=snapshot&v=${parseExamVersion(version)}`;
+}
+
+/**
+ * 是否用“长期可缓存的版本化快照”回应这次读取。只有 Vercel 部署、且请求里的版本
+ * 与当前版本一致时成立；版本过期时按老路径返回且不缓存，避免把新内容缓存到旧版本 URL 下。
+ */
+export function isCurrentSnapshotRequest(input: {
+  edgeDeployment: boolean;
+  requestedVersion: unknown;
+  currentVersion: unknown;
+}): boolean {
+  if (!input.edgeDeployment) return false;
+  const requested = parseExamVersion(input.requestedVersion);
+  return requested > 0 && requested === parseExamVersion(input.currentVersion);
+}
+
 /** The complete exam fields that admin save hooks compose before a version is assigned. */
 export type ExamSavePayload = Omit<ExamPayload, 'updatedAt' | 'ok' | 'binding' | 'metadata' | 'lifecycle'>;
 
