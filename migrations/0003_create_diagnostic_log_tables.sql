@@ -36,9 +36,11 @@ CREATE TABLE IF NOT EXISTS app_diagnostic_bundles (
   requested_by BIGINT,
   created_at BIGINT NOT NULL,
   expires_at BIGINT,
-  sent_at BIGINT
+  sent_at BIGINT,
+  next_attempt_at BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_time ON app_diagnostic_bundles(from_ts, to_ts);
 CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_error ON app_diagnostic_bundles(error_event_id, fingerprint);
 CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_status ON app_diagnostic_bundles(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_retry_due ON app_diagnostic_bundles(status, next_attempt_at, created_at);
