@@ -206,6 +206,8 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
                   });
                   setMajorError('');
                 }}
+                disabled={activeMajor?.archivedAt != null}
+                title={activeMajor?.archivedAt != null ? '已归档的考试需要先取消归档才能修改' : undefined}
               >
                 设置
               </button>
@@ -214,7 +216,8 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
               <button
                 className="admin-btn admin-btn--danger"
                 onClick={() => setDeleteMajorOpen(true)}
-                disabled={majors.length <= 1}
+                disabled={majors.length <= 1 || activeMajor?.archivedAt != null}
+                title={activeMajor?.archivedAt != null ? '已归档的考试需要先取消归档才能删除' : undefined}
               >
                 删除
               </button>
@@ -223,6 +226,14 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
           <p className="admin-major-card__hint">
             切换年级只改变后台管理内容；大屏始终按设备绑定班级所属年级自动匹配适用考试。
           </p>
+          {activeMajor?.archivedAt != null && (
+            <div className="admin-warning-banner">
+              <span>
+                <strong>已归档</strong>
+                这场考试是只读历史，不能修改或删除。需要调整请先到「考试管理」取消归档。
+              </span>
+            </div>
+          )}
           {activeMajorTrackSubjects.length > 0 && (
             <div className="admin-warning-banner admin-warning-banner--structured">
               {subjectTrackModeEnabled ? (
@@ -261,12 +272,17 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
               const running =
                 item && new Date(item.startTime).getTime() <= adminNow && new Date(item.endTime).getTime() > adminNow;
               const displayStatus = getQuickMajorDisplayStatus(major, orderedScopedMajors, adminNow, visibleClasses);
+              // 已归档即只读：延长 / 结束 / 转正式 / 删除全部按只读处理（服务端同样会冻结）。
+              const quickMajorReadOnly = major.archivedAt != null;
               const canManageQuickMajor =
-                can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major));
+                !quickMajorReadOnly &&
+                (can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major)));
               const canEndQuickMajor =
-                can('major.edit') || (can('major.quick_create') && canEndQuickTemporaryMajorInScope(major));
+                !quickMajorReadOnly &&
+                (can('major.edit') || (can('major.quick_create') && canEndQuickTemporaryMajorInScope(major)));
               const canDeleteQuickMajor =
-                can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major));
+                !quickMajorReadOnly &&
+                (can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major)));
               return (
                 <article key={major.id}>
                   <div>

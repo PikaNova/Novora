@@ -535,7 +535,10 @@ export default function AdminPage() {
       (classId) => visibleClasses.some((item) => item.id === classId),
       (gradeId) => visibleGrades.some((item) => item.id === gradeId),
     );
-  const canEditActiveMajor = can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
+  // 已归档的考试是只读历史（T-284-01）：即便有编辑权限也不给编辑，需先取消归档。
+  const canEditActiveMajor =
+    activeMajor?.archivedAt == null &&
+    (can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor)));
   const canDeleteActiveMajor =
     can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
   const canQuickPublish = can('major.create') || can('major.quick_create');

@@ -105,6 +105,15 @@ export function useAdminModals(params: {
 
   const can = useCallback((permission: string) => adminCan(permission, adminUser), [adminUser]);
 
+  // 深链入口：/admin?tab=major 直接落到对应模块（考试详情页的「编辑」按钮会用到）。
+  // 只在 locationSearch 变化时同步一次，不覆盖用户在页内切换的 tab。
+  useEffect(() => {
+    const requested = new URLSearchParams(locationSearch).get('tab');
+    if (!requested) return;
+    if (!ADMIN_NAV.some((item) => item.id === requested)) return;
+    setAdminTab(requested as AdminTab);
+  }, [locationSearch]);
+
   const openMyAccount = useCallback(() => {
     setDeniedModule('');
     navigate('/admin?tab=users&account=1');

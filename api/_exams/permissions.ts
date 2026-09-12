@@ -11,6 +11,49 @@ import { asRecord } from '../../src/shared/typeGuards.js';
 
 export const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
+/**
+ * 已归档的考试是只读历史（T-284-01）：快照里对应条目一律回退到服务端当前值，
+ * 也不允许从快照中移除——记录层靠快照里的条目做运行时投影，移除会让记录失去载体、
+ * 审计链出现孤儿。要修改必须先 unarchive。
+ *
+ * 返回被冻结的考试 id，路由会随保存响应回传，便于排查「改了却没生效」。
+ */
+export function freezeArchivedMajors(
+  current: ExamPayload,
+  body: Record<string, unknown>,
+): { body: Record<string, unknown>; frozenIds: string[] } {
+  if (!Array.isArray(body.majors)) return { body, frozenIds: [] };
+  const archivedById = new Map<string, unknown>();
+  for (const major of current.majors) {
+    const record = asRecord(major);
+    if (record.archivedAt == null) continue;
+    archivedById.set(String(record.id ?? ''), major);
+  }
+  if (!archivedById.size) return { body, frozenIds: [] };
+
+  const frozenIds: string[] = [];
+  const submittedIds = new Set<string>();
+  const majors: unknown[] = [];
+  for (const raw of body.majors) {
+    const id = String(asRecord(raw).id ?? '');
+    submittedIds.add(id);
+    const frozen = archivedById.get(id);
+    if (!frozen) {
+      majors.push(raw);
+      continue;
+    }
+    if (!sameJson(raw, frozen)) frozenIds.push(id);
+    majors.push(frozen);
+  }
+  // 被删掉的归档考试按原相对顺序补回，避免历史记录凭空消失。
+  for (const [id, major] of archivedById) {
+    if (submittedIds.has(id)) continue;
+    frozenIds.push(id);
+    majors.push(major);
+  }
+  return { body: { ...body, majors }, frozenIds };
+}
+
 const isOwnedQuickTemporaryMajor = (actor: AdminActor, major: unknown) => {
   const source = asRecord(major);
   return source.source === 'quick' && source.temporary === true && source.createdBy === actor.id;

@@ -10,6 +10,7 @@ import {
 } from '../../_auth.js';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
 import { buildExamRecordProjection, projectCurrentExamRecords } from '../examRecordProjection.js';
+import { operationLogKey } from '../operationLog.js';
 import { asRecord } from '../../../src/shared/typeGuards.js';
 import type { MajorExam } from '../../../src/types/index.js';
 import {
@@ -180,14 +181,6 @@ function planInput(row: RecordRow) {
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: number(row.paused_ms),
   };
-}
-
-/**
- * 非幂等动作（start / pause / resume / end 等）没有客户端幂等键，
- * 但 `exam_record_operations.idempotency_key` 是主键，必须给一个合成键。
- */
-function operationLogKey(recordId: string, action: string, at: number): string {
-  return `op_${recordId}_${action}_${at}_${randomUUID().slice(0, 8)}`;
 }
 
 function error(res: VercelResponse, status: number, code: string, message: string): void {

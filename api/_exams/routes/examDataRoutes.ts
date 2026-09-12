@@ -12,9 +12,16 @@ import {
 import { examPayload } from '../payload.js';
 import { examEtag, isCurrentSnapshotRequest } from '../../../src/shared/examContracts.js';
 import { isEdgeDeployment } from '../../_deployTarget.js';
-import { isolateQuickMajorCreate, sanitizeStaleSnapshot, validateMutation } from '../permissions.js';
+import {
+  freezeArchivedMajors,
+  isolateQuickMajorCreate,
+  sanitizeStaleSnapshot,
+  validateMutation,
+} from '../permissions.js';
 import { computeRemovedScopeIds } from '../scopeCleanup.js';
 import { projectCurrentExamRecords } from '../examRecordProjection.js';
+import { quickMajorTransitions } from '../quickMajorTransitions.js';
+import { operationLogKey } from '../operationLog.js';
 import type { ExamRow, UpdatedRow } from '../types.js';
 import {
   type AdminActor,
@@ -158,6 +165,10 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     res.status(400).json({ ok: false, error: 'items must be an array' });
     return;
   }
+  // 快速考试走本地优先保存管道，没有显式动作；这里留下旧 majors 以便保存后补记生命周期转换。
+  let priorMajors: unknown = null;
+  /** 本次保存中被「归档只读」挡下的考试 id（仅用于回传提示，不影响写入）。 */
+  let frozenArchivedIds: string[] = [];
   if (actor || action === 'initialize') {
     let currentRows: ExamRow[];
     try {
@@ -170,6 +181,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
         (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
     }
     const currentPayload = examPayload(currentRows[0] ?? {});
+    priorMajors = currentPayload.majors;
     // Scope 删除后，旧 token 仍可能在有效期内；无 scope 的受限账号不得借助
     // stale-snapshot 清洗把越权写请求伪装成“无变化”并获得 200。
     if (actor && !actor.permissions.includes('*') && actor.scopes.length === 0) {
@@ -206,11 +218,13 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       }
     }
     if (actor) {
-      req.body = sanitizeStaleSnapshot(
-        actor,
+      // 归档只读优先于其它清洗：已归档的考试任何人都改不动，需要修改先取消归档。
+      const archived = freezeArchivedMajors(
         currentPayload,
         isolateQuickMajorCreate(actor, currentPayload, req.body ?? {}),
       );
+      frozenArchivedIds = archived.frozenIds;
+      req.body = sanitizeStaleSnapshot(actor, currentPayload, archived.body);
       const permission = validateMutation(actor, currentPayload, req.body ?? {});
       if (!permission.ok) {
         res.status(403).json({
@@ -328,11 +342,34 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     ]);
   }
   const recoveryKey = action === 'initialize' ? await ensureGeneratedRecoveryKey() : null;
+  // 快速考试的生命周期转换补记操作日志：本地优先路径也要留下「谁在什么时候改了什么」。
+  const quickTransitions = quickMajorTransitions(priorMajors, majors);
+  if (quickTransitions.length) {
+    await Promise.all(
+      quickTransitions.map(
+        (transition) => sql`
+        INSERT INTO exam_record_operations (
+          idempotency_key, action, source_record_id, result_record_id,
+          actor_id, from_status, to_status, reason, created_at
+        )
+        VALUES (${operationLogKey(transition.recordId, transition.action, updatedAt)}, ${transition.action},
+          ${transition.recordId}, ${transition.recordId}, ${actor?.id ?? null},
+          ${transition.fromStatus}, ${transition.toStatus}, '', ${updatedAt})
+        ON CONFLICT (idempotency_key) DO NOTHING
+      `,
+      ),
+    );
+  }
   if (actor)
     await writeAudit(actor, 'exam-data.update', 'exam_data', '1', {
       updatedAt,
     });
   res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
-  res.status(200).json({ ok: true, updatedAt, ...(recoveryKey ? { recoveryKey } : {}) });
+  res.status(200).json({
+    ok: true,
+    updatedAt,
+    ...(recoveryKey ? { recoveryKey } : {}),
+    ...(frozenArchivedIds.length ? { ignoredArchivedMajors: frozenArchivedIds } : {}),
+  });
   return;
 }
