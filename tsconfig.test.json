@@ -82,6 +82,7 @@
     "src/shared/typeGuards.ts",
     "src/shared/deviceContracts.ts",
     "src/shared/examContracts.ts",
-    "src/utils/deviceCommandReceipt.ts"
+    "src/utils/deviceCommandReceipt.ts",
+    "src/utils/fullscreenGuide.ts"
   ]
 }
