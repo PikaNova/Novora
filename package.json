@@ -23,9 +23,7 @@
     "serve": "npm run build && npm run serve:build && node server-build/server/serve.js",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
-    "update:local": "node scripts/update-local.cjs",
-    "db:backup": "node scripts/database-backup.cjs",
-    "db:restore": "node scripts/database-restore.cjs"
+    "update:local": "node scripts/update-local.cjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.5",

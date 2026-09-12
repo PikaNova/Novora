@@ -47,9 +47,6 @@
       DATABASE_URL: postgres://${POSTGRES_USER:-novora}:${POSTGRES_PASSWORD:-novora}@db:5432/${POSTGRES_DB:-novora}
     env_file:
       - .env
-    volumes:
-      # 备份落在宿主机 data/backups，容器重建也不会丢（.gitignore 已忽略 data/）
-      - ./data/backups:/app/data/backups
     depends_on:
       db:
         condition: service_healthy
