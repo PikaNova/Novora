@@ -1,12 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createVercelRequest, createVercelResponse, readBody } from './adapter.js';
 
-// Vercel 文件路由 → handler 模块名。health/status/email-worker 已合并进 system.ts，
+// Vercel 文件路由 → handler 模块名。health/status/email-worker/diagnostic-worker 已合并进 system.ts，
 // 由 system handler 按 URL 段 / ?sys= 区分（与 vercel.json rewrites 行为一致）。
 const MODULE_FOR_NAME: Record<string, string> = {
   'announcement-images': 'announcement-images',
   announcements: 'announcements',
   'email-worker': 'system',
+  'diagnostic-worker': 'system',
   emailAuth: 'emailAuth',
   'error-report': 'error-report',
   'diagnostic-logs': 'diagnostic-logs',

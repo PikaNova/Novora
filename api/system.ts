@@ -1,4 +1,5 @@
-// 系统相关 Serverless 函数合并：/api/health、/api/status、/api/email-worker 三个 URL
+// 系统相关 Serverless 函数合并：/api/health、/api/status、/api/email-worker、
+// /api/diagnostic-worker 四个 URL
 // 通过 vercel.json rewrites 指向本文件（?sys=...），合并为一个函数以符合 Vercel Hobby
 // “单次部署最多 12 个 Serverless Functions”的上限。
 // 兼容纯本地化部署：服务器信息全部来自 Node 运行时，不依赖 Vercel 专属能力。
@@ -11,6 +12,7 @@ import { assertRows, rowShape, isString, isDatabaseInt8, type DatabaseInt8 } fro
 import { requestId, sendDatabaseError } from './_apiError.js';
 import { loadSmtpConfig } from './emailAuth.js';
 import { drainOutbox } from './_emailQueue.js';
+import { clampDrainLimit, drainDiagnosticQueue, readDiagnosticQueueStats } from './_diagnosticQueue.js';
 import { readSchemaMigrationState, type SchemaMigrationState } from './_schemaMigration.js';
 
 let cachedVersion: string | null = null;
@@ -34,12 +36,19 @@ function appVersion(): string {
 
 function sysRoute(req: VercelRequest): string {
   const fromQuery = String(req.query?.sys ?? '');
-  if (fromQuery === 'health' || fromQuery === 'status' || fromQuery === 'email-worker') return fromQuery;
+  if (
+    fromQuery === 'health' ||
+    fromQuery === 'status' ||
+    fromQuery === 'email-worker' ||
+    fromQuery === 'diagnostic-worker'
+  )
+    return fromQuery;
   const pathname = String(req.url ?? '')
     .split('?')[0]
     .replace(/\/+$/, '');
   const segment = pathname.split('/').pop() ?? '';
-  if (segment === 'health' || segment === 'status' || segment === 'email-worker') return segment;
+  if (segment === 'health' || segment === 'status' || segment === 'email-worker' || segment === 'diagnostic-worker')
+    return segment;
   return '';
 }
 
@@ -472,10 +481,13 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
       res.status(403).json({ ok: false, code: 'PERMISSION_DENIED', error: '仅超级管理员可查看系统状态' });
       return;
     }
-    const [database, infra, mailQueue, events, recoveryConfigured, smtp, system] = await Promise.all([
+    // 诊断队列统计直接查表；与 collectDatabase 的 DDL 并行会让首次部署出现“表不存在”。
+    await ensureTableOnce();
+    const [database, infra, mailQueue, diagnosticQueue, events, recoveryConfigured, smtp, system] = await Promise.all([
       collectDatabase(),
       collectInfra(),
       collectMailQueue(),
+      readDiagnosticQueueStats(),
       collectEvents(),
       isAdminRecoveryConfigured(),
       loadSmtpConfig(),
@@ -498,10 +510,12 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
         recoveryConfigured,
         smtpConfigured: Boolean(smtp),
         smtpPreset: smtp ? smtpPresetOf(smtp.host) : null,
+        diagnosticWorkerProtected: Boolean(diagnosticWorkerSecret()),
       },
       database,
       infra,
       mailQueue,
+      diagnosticQueue,
       events,
       requestStats: readLocalRequestStats(),
     });
@@ -511,6 +525,44 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
 }
 
 // ── /api/email-worker（Cron 消费） ──────────────────────────────────
+/** 可选的 Cron 共享密钥；配置后要求调用方携带，未配置时保持与 email-worker 一致的开放行为。 */
+function diagnosticWorkerSecret(): string {
+  return (process.env.DIAGNOSTIC_WORKER_SECRET ?? '').trim();
+}
+
+function diagnosticWorkerAuthorized(req: VercelRequest): boolean {
+  const secret = diagnosticWorkerSecret();
+  if (!secret) return true;
+  const bearer = String(req.headers.authorization ?? '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+  const header = String(req.headers['x-cron-secret'] ?? '').trim();
+  return bearer === secret || header === secret;
+}
+
+// ── /api/diagnostic-worker（Cron 消费诊断包重试队列） ─────────────────
+async function handleDiagnosticWorker(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'GET') {
+    res.status(405).json({ ok: false, code: 'METHOD_NOT_ALLOWED', error: 'Method not allowed' });
+    return;
+  }
+  if (!diagnosticWorkerAuthorized(req)) {
+    res.status(401).json({ ok: false, code: 'WORKER_UNAUTHORIZED', error: '诊断队列 worker 密钥不正确' });
+    return;
+  }
+  try {
+    // worker 可能是部署后的第一个请求，先确保诊断表存在（模块级 Promise，仅首次真正执行 DDL）。
+    await ensureTableOnce();
+    const result = await drainDiagnosticQueue({
+      limit: clampDrainLimit(req.query?.limit),
+      deadlineMs: 8_000,
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    sendDatabaseError(req, res, error, 'write');
+  }
+}
+
 async function handleWorker(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     res.status(405).json({ ok: false, code: 'METHOD_NOT_ALLOWED', error: 'Method not allowed' });
@@ -539,6 +591,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return handleStatus(req, res);
     case 'email-worker':
       return handleWorker(req, res);
+    case 'diagnostic-worker':
+      return handleDiagnosticWorker(req, res);
     default:
       res.status(404).json({ ok: false, code: 'NOT_FOUND', error: 'Not found' });
   }
