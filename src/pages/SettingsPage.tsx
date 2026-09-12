@@ -115,7 +115,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className={'set-page' + (scrolled ? ' is-scrolled' : '')}>
+    <div className={'set-page set-page--shell' + (scrolled ? ' is-scrolled' : '')}>
       <header className="set-header">
         <div className="set-header__left">
           <button className="set-back" onClick={() => navigate('/admin')}>
