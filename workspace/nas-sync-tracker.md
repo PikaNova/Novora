@@ -697,6 +697,30 @@ git push origin main
 | 提交 | `35f2a37` 诊断留存与过期清理；`0c68384` 对应追踪文档；`eb296f0` 页面控件移出导航栏；`9ede747` 对应追踪文档；`a44bfeb` 左栏滚动边界修复；`8fad953` 对应追踪文档 |
 | 说明 | 本次为前端外壳与诊断链路改动，dev 站点需重新构建部署后生效；`DIAGNOSTIC_WORKER_SECRET` 与 `/api/diagnostic-worker` 的 Cron 挂载仍待部署侧配置 |
 
+## 2026-09-12 诊断日志界面控件统一
+
+| 项目 | 状态 |
+|---|---|
+| 诉求 | 诊断日志界面的输入框、选择器、时间选择器全部改用项目统一格式，并要求以后新增界面同样遵守 |
+| 替换 | 布尔复选框 → `Switch`；错误前/后秒数 → `set-input set-input--sm` + `inputMode="numeric"`；开始/结束日期 → `DateTimeField(mode="date", className="set-date-time-field")`；布局改为 `set-card__head` / `set-fieldset` + `set-row` + `set-label`，行内按钮包 `set-inline-actions` |
+| 补齐 | 原先「保存保留策略」能保存却无法修改的 `retentionDays`，新增 `InlineSelect`（1/3/7/14/30 天，当前值不在预设时自动补入），与后端 1-30 天限制一致 |
+| 约定沉淀 | 新增仓库根目录 `AGENTS.md`：写明「前端表单控件必须用统一组件」，附开关/选择器/日期时间/文本数字/行布局对照表与参考示例，供后续会话与新增界面遵循 |
+| 验证 | 真实界面实测（临时库 + 本地服务 3102）：诊断日志区块内原生 `input[type=date]` 0 个、原生 `select` 0 个、`.set-switch` 1 个、数字输入 class 均为 `set-input set-input--sm`、`.set-date-time-field` 2 个、`.inline-select` 1 个；点击日期字段弹出项目自带 `.tdp-field` 选择器而非原生日期控件 |
+| 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`git diff --check`；`format:check` 仅剩 3 个既有文件 |
+
+## 2026-09-12 大屏全屏体验三项改造（需求 4/5/6）
+
+| 项目 | 状态 |
+|---|---|
+| 需求 4 结束提醒双层化 | 考试结束且仍全屏时先弹中央 `alertdialog`（「本场考试已结束」+ 主按钮「退出全屏」+「若画面仍全屏，请按 Esc 或 F11 退出」，自动聚焦退出按钮），6 秒后收缩为常驻提醒条；提醒条保留到真正退出全屏，关闭只收起、可用小图标重新展开；桌面贴顶部、移动端贴底部安全区；新增 `fullscreenchange` 驱动的清理（Esc / 系统手势退出同样生效） |
+| 需求 5 双击指引 | 7 个设计组件的全屏按钮加 `data-fullscreen-toggle`；全屏下双击（`pointerup` 双触发，兼容鼠标与触摸）记录点击点，用 `getBoundingClientRect()` 定位真实按钮，绘制聚光圈 + 指向箭头，不再写死坐标；遮罩点击、Esc、退出全屏均可关闭；气泡与箭头按视口/安全区翻转收敛 |
+| 需求 6 不再强制全屏 | 删除静置 1 分钟自动 `enterFullscreen` 与全屏遮罩；改为非阻塞提示条「建议全屏展示，画面更完整」+ 进入全屏 / 稍后（10 分钟静默）/ 不再提示（localStorage 永久静默），无人操作 20 秒自动收起；真正的自动全屏前移到欢迎页「进入大屏」点击手势内，并新增 `?autofs=1` 供同源 `window.open` 场景加载后尝试一次 |
+| 坐标工具 | 新增 `src/utils/fullscreenGuide.ts`（`ringRect` / `arrowLine` / `placeBubble` / `clampNumber` 等纯函数）与 `tests/fullscreenGuide.test.ts`（10 条：边界夹取、安全区、边缘翻转、箭头落边、点击点落在按钮内等） |
+| 约定沉淀 | `AGENTS.md` 追加「大屏设计组件必须标记全屏按钮」，新增设计漏标记会导致指引静默失效 |
+| 验证 | 真实界面（临时库 + 本地服务 3104，用 SQL 造结束/进行中两场考试）：结束态弹窗 `role=alertdialog` 且焦点在退出按钮 → 6 秒后顶部条（top=14）出现并含收起按钮 → 收起/重新展开正常；双击后聚光圈覆盖真实按钮（ringCoversButton=true）、箭头从点击点指到按钮外沿、气泡在点击点旁，遮罩点击与 Esc 均可关闭；切到进行中考试后静置 60 秒只弹提示条（`fullscreen=false`、设计按钮仍为「进入全屏」），20 秒后自动收起 |
+| 回归 | `npm test` 496/496；lint 0 errors / 0 warnings；`npm run build`；`git diff --check`；`format:check` 仅剩 3 个既有文件 |
+| 环境 | 验证用临时 PostgreSQL（55433）与本地服务 3104 已停止并删除；本机 5432 未改动 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |

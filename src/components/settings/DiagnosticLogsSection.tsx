@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Send, ShieldCheck } from 'lucide-react';
+import { DateTimeField } from '../touch-datetime-picker';
+import InlineSelect from '../InlineSelect';
+import { Switch } from './Switch';
 import {
   entriesForDate,
   localDiagnosticSnapshot,
@@ -43,6 +46,14 @@ export default function DiagnosticLogsSection({
       end: Number.isFinite(end) ? end : Date.now(),
     };
   }, [from, to]);
+  // 保留天数与后端 1-30 天限制一致；当前值不在预设里时补进去，避免选择器显示空白。
+  const retentionOptions = useMemo(() => {
+    const presets = [1, 3, 7, 14, 30];
+    const days = presets.includes(config.retentionDays)
+      ? presets
+      : [...presets, config.retentionDays].sort((a, b) => a - b);
+    return days.map((day) => ({ value: String(day), label: `${day} 天` }));
+  }, [config.retentionDays]);
 
   async function save() {
     setBusy(true);
@@ -86,45 +97,60 @@ export default function DiagnosticLogsSection({
   if (!canRead) return null;
   return (
     <section className="set-card">
-      <h2 className="set-card__title">
-        <ShieldCheck size={18} />
-        诊断日志
-      </h2>
+      <div className="set-card__head">
+        <h2 className="set-card__title">
+          <ShieldCheck size={18} />
+          诊断日志
+        </h2>
+      </div>
       <p className="set-card__lead">
         静默错误摘要仍会独立上报。这里的日志只在本机保留，需管理员主动选择后才发送给作者端。
       </p>
-      <div className="set-row">
-        <span className="set-label">错误发生时保留前后日志</span>
-        <input
-          type="checkbox"
-          checked={config.captureOnError}
-          disabled={!canEdit}
-          onChange={(event) => setConfig({ ...config, captureOnError: event.target.checked })}
-        />
-      </div>
-      <div className="set-row">
-        <label>
-          错误前（秒）
+      <div className={`set-fieldset${canEdit ? '' : ' is-dim'}`}>
+        <div className="set-row">
+          <label className="set-label">错误发生时保留前后日志</label>
+          <Switch
+            checked={config.captureOnError}
+            disabled={!canEdit}
+            onChange={(value) => setConfig({ ...config, captureOnError: value })}
+          />
+        </div>
+        <div className="set-row">
+          <label className="set-label">错误前（秒）</label>
           <input
+            className="set-input set-input--sm"
             type="number"
             min={0}
             max={300}
+            inputMode="numeric"
             value={config.beforeSeconds}
             disabled={!canEdit}
             onChange={(event) => setConfig({ ...config, beforeSeconds: Number(event.target.value) })}
           />
-        </label>
-        <label>
-          错误后（秒）
+        </div>
+        <div className="set-row">
+          <label className="set-label">错误后（秒）</label>
           <input
+            className="set-input set-input--sm"
             type="number"
             min={0}
             max={300}
+            inputMode="numeric"
             value={config.afterSeconds}
             disabled={!canEdit}
             onChange={(event) => setConfig({ ...config, afterSeconds: Number(event.target.value) })}
           />
-        </label>
+        </div>
+        <div className="set-row">
+          <label className="set-label">日志保留天数</label>
+          <InlineSelect
+            className="set-input"
+            disabled={!canEdit}
+            value={String(config.retentionDays)}
+            onChange={(value) => setConfig({ ...config, retentionDays: Number(value) })}
+            options={retentionOptions}
+          />
+        </div>
       </div>
       {canEdit ? (
         <button className="set-btn set-btn--primary" disabled={busy} onClick={() => void save()}>
@@ -139,29 +165,50 @@ export default function DiagnosticLogsSection({
             按日期发送日志
           </h3>
           <div className="set-row">
-            <label>
-              开始日期 <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-            </label>
-            <label>
-              结束日期 <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-            </label>
-            <button className="set-btn" disabled={busy} onClick={() => void sendDate()}>
-              <Send size={15} />
-              发送日期日志
-            </button>
+            <label className="set-label">开始日期</label>
+            <DateTimeField
+              className="set-date-time-field"
+              mode="date"
+              value={from}
+              onChange={setFrom}
+              title="选择开始日期"
+              showFieldPreview={false}
+            />
+          </div>
+          <div className="set-row">
+            <label className="set-label">结束日期</label>
+            <DateTimeField
+              className="set-date-time-field"
+              mode="date"
+              value={to}
+              onChange={setTo}
+              title="选择结束日期"
+              showFieldPreview={false}
+            />
+          </div>
+          <div className="set-row">
+            <label className="set-label">发送所选日期范围的日志</label>
+            <div className="set-inline-actions">
+              <button className="set-btn" disabled={busy} onClick={() => void sendDate()}>
+                <Send size={15} />
+                发送日期日志
+              </button>
+            </div>
           </div>
           <h3 className="set-card__subtitle">按错误发送日志</h3>
           {bundles.length ? (
             bundles.map((bundle) => (
               <div className="set-row" key={bundle.bundleId}>
-                <span>
+                <span className="set-label">
                   {bundle.errorCode || '错误日志'} · {new Date(bundle.createdAt).toLocaleString()} ·{' '}
                   {bundle.entries.length} 条
                 </span>
-                <button className="set-btn" disabled={busy} onClick={() => void sendBundle(bundle)}>
-                  <Send size={15} />
-                  发送
-                </button>
+                <div className="set-inline-actions">
+                  <button className="set-btn" disabled={busy} onClick={() => void sendBundle(bundle)}>
+                    <Send size={15} />
+                    发送
+                  </button>
+                </div>
               </div>
             ))
           ) : (

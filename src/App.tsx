@@ -44,6 +44,7 @@ function AppContent() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/:group" element={<SettingsPage />} />
             <Route path="/preferences" element={<PreferencesPage />} />
             <Route path="/local-settings" element={<LocalSettingsPage />} />
             <Route path="/plugin/connect" element={<PluginConnectPage />} />
