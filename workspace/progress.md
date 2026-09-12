@@ -642,3 +642,11 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 顺带补上 `retentionDays` 选择器（1/3/7/14/30 天）——此前该项只能保存、界面上无法修改。
 - 新增仓库根 `AGENTS.md`，把「表单控件必须用统一组件」写成长期约定，附控件对照表与参考示例。
 - 验证：真实界面下原生 date/select 计数为 0、`.set-switch` 1、`.set-date-time-field` 2、`.inline-select` 1，日期字段弹出 `.tdp-field` 自有选择器；`npm test` 486/486、lint 0/0、build 通过。
+
+## Session: 大屏全屏体验改造 需求 4/5/6（2026-09-12）
+
+- 需求 4：结束提醒由「6.5 秒自动消失的浮层」改为两层——中央 `alertdialog`（自动聚焦退出按钮）→ 6 秒后收缩为常驻提醒条，保留到真正退出全屏；关闭仅收起、可重新展开；桌面顶部、移动端底部安全区。
+- 需求 5：7 个设计组件加 `data-fullscreen-toggle`；全屏下双击（含触摸双击）记录点击点，按真实按钮 `getBoundingClientRect()` 绘制聚光圈与箭头；遮罩点击 / Esc / 退出全屏关闭；坐标逻辑抽成 `src/utils/fullscreenGuide.ts` 并补 10 条单测。
+- 需求 6：删除静置自动全屏与全屏遮罩，改为非阻塞提示条（进入全屏 / 稍后 10 分钟 / 不再提示永久），20 秒自动收起；自动全屏移到欢迎页「进入大屏」点击手势内，并支持 `?autofs=1`。
+- 验证：真实界面下依次确认 alertdialog + 自动聚焦、6 秒后顶部常驻条、收起与重新展开、双击指引（聚光圈覆盖真实按钮、箭头指向按钮外沿）、遮罩/Esc 关闭、静置 60 秒仅提示条且未自动全屏、20 秒自动收起。
+- 回归：`npm test` 496/496、lint 0/0、`npm run build`、`git diff --check`；`AGENTS.md` 追加设计组件标记约定。
