@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getIngestToken, getAuthorConfig } from './_authorClient.js';
 import { telemetryConfig } from './_telemetryConfig.js';
 import { database, ensureTableOnce } from './_exams/db.js';
@@ -14,6 +14,8 @@ import {
 const MAX_ENTRIES = 500;
 const MAX_BUNDLE_BYTES = 1_048_576;
 const DEFAULT_RETENTION_DAYS = 7;
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_CLAIM_TIMEOUT_MS = 10 * 60_000;
 
 function numberValue(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -110,9 +112,9 @@ async function handleCatalog(req: VercelRequest, res: VercelResponse): Promise<v
   const sql = database();
   const from = numberValue(req.query.from) ?? Date.now() - 7 * 86400000;
   const to = numberValue(req.query.to) ?? Date.now();
-  await sql`UPDATE app_diagnostic_bundles SET status='expired' WHERE expires_at IS NOT NULL AND expires_at < ${Date.now()} AND status NOT IN ('sent', 'expired')`;
+  await sql`UPDATE app_diagnostic_bundles SET status='expired' WHERE expires_at IS NOT NULL AND expires_at < ${Date.now()} AND status <> 'expired'`;
   const rows = await sql`SELECT bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code,
-      from_ts, to_ts, entry_count, content_bytes, status, attempt_count, last_error, created_at, expires_at, sent_at
+      from_ts, to_ts, entry_count, content_bytes, status, attempt_count, last_error, created_at, expires_at, sent_at, next_attempt_at
       FROM app_diagnostic_bundles WHERE from_ts <= ${to} AND to_ts >= ${from}
       ORDER BY created_at DESC LIMIT 200`;
   res.json({
@@ -124,6 +126,7 @@ async function handleCatalog(req: VercelRequest, res: VercelResponse): Promise<v
       createdAt: Number(row.created_at),
       expiresAt: row.expires_at == null ? null : Number(row.expires_at),
       sentAt: row.sent_at == null ? null : Number(row.sent_at),
+      nextAttemptAt: row.next_attempt_at == null ? null : Number(row.next_attempt_at),
     })),
   });
 }
@@ -178,17 +181,29 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
     return;
   }
   await sql`INSERT INTO app_diagnostic_bundles
-    (bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code, from_ts, to_ts, entries, entry_count, content_bytes, app_version, commit_sha, status, requested_by, created_at, expires_at)
-    VALUES (${input.bundleId}, ${input.mode}, ${input.instanceId}, ${input.deviceId}, ${input.errorEventId}, ${input.fingerprint}, ${input.errorCode}, ${input.fromTs}, ${input.toTs}, ${serialized}::jsonb, ${entries.length}, ${Buffer.byteLength(serialized, 'utf8')}, ${input.appVersion}, ${input.commitSha}, 'sending', ${actor.id}, ${now}, ${expiresAt})`;
+    (bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code, from_ts, to_ts, entries, entry_count, content_bytes, app_version, commit_sha, status, requested_by, created_at, expires_at, next_attempt_at)
+    VALUES (${input.bundleId}, ${input.mode}, ${input.instanceId}, ${input.deviceId}, ${input.errorEventId}, ${input.fingerprint}, ${input.errorCode}, ${input.fromTs}, ${input.toTs}, ${serialized}::jsonb, ${entries.length}, ${Buffer.byteLength(serialized, 'utf8')}, ${input.appVersion}, ${input.commitSha}, 'sending', ${actor.id}, ${now}, ${expiresAt}, ${now + RETRY_CLAIM_TIMEOUT_MS})`;
+  const contentHash = createHash('sha256').update(serialized).digest('hex');
   const authorPayload = {
     schemaVersion: 1,
     uploadId: bundleId,
+    instanceId: input.instanceId,
+    deviceId: input.deviceId,
+    errorEventId: input.errorEventId,
+    fingerprint: input.fingerprint,
+    errorCode: input.errorCode,
     source: mode === 'date' ? 'manual-date' : 'manual-error',
     contentEncoding: 'json',
-    ...input,
+    fromTs: input.fromTs,
+    toTs: input.toTs,
+    entries: input.entries,
+    contentHash,
+    appVersion: input.appVersion,
+    commitSha: input.commitSha,
   };
-  const sent = await sendToAuthor(authorPayload as unknown as Record<string, unknown>, instanceId);
-  await sql`UPDATE app_diagnostic_bundles SET status=${sent.ok ? 'sent' : 'failed'}, attempt_count=1, last_error=${sent.ok ? '' : sent.detail || 'send_failed'}, sent_at=${sent.ok ? Date.now() : null} WHERE bundle_id=${bundleId}`;
+  const sent = await sendToAuthor(authorPayload, instanceId);
+  const nextAttemptAt = sent.ok ? null : Date.now() + 60_000;
+  await sql`UPDATE app_diagnostic_bundles SET status=${sent.ok ? 'sent' : 'failed'}, attempt_count=1, last_error=${sent.ok ? '' : sent.detail || 'send_failed'}, sent_at=${sent.ok ? Date.now() : null}, next_attempt_at=${nextAttemptAt} WHERE bundle_id=${bundleId}`;
   await writeAudit(actor, 'diagnostics.bundle.send', 'diagnostics', bundleId, {
     mode,
     entryCount: entries.length,
@@ -201,6 +216,60 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
     .json({ ok: true, bundleId, status: sent.ok ? 'sent' : 'failed', detail: sent.ok ? undefined : sent.detail });
 }
 
+async function handleRetry(req: VercelRequest, res: VercelResponse): Promise<void> {
+  const actor = await requireActor(req, res, 'diagnostics.upload');
+  if (!actor) return;
+  const sql = database();
+  const now = Date.now();
+  // Claim due rows atomically. The lease also lets a later invocation recover
+  // bundles left in `sending` by a crashed worker.
+  const claimedUntil = now + RETRY_CLAIM_TIMEOUT_MS;
+  const claimResults = await sql.transaction((transaction) => [transaction`
+    WITH stale AS (
+      UPDATE app_diagnostic_bundles
+      SET status='failed', last_error=CASE WHEN last_error='' THEN 'retry_claim_expired' ELSE last_error END
+      WHERE status='sending' AND next_attempt_at IS NOT NULL AND next_attempt_at <= ${now}
+      RETURNING bundle_id
+    ), due AS (
+      SELECT bundle_id
+      FROM app_diagnostic_bundles
+      WHERE status='failed' AND attempt_count < ${MAX_RETRY_ATTEMPTS}
+        AND (next_attempt_at IS NULL OR next_attempt_at <= ${now})
+        AND (expires_at IS NULL OR expires_at > ${now})
+      ORDER BY created_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 10
+    )
+    UPDATE app_diagnostic_bundles AS bundles
+    SET status='sending', next_attempt_at=${claimedUntil}
+    FROM due
+    WHERE bundles.bundle_id=due.bundle_id
+    RETURNING bundles.*
+  `]);
+  const rows = claimResults[0] ?? [];
+  let sent = 0;
+  for (const row of rows) {
+    const entries = Array.isArray(row.entries) ? row.entries : [];
+    const serialized = JSON.stringify(entries);
+    const payload = {
+      schemaVersion: 1, uploadId: String(row.bundle_id), instanceId: String(row.instance_id),
+      deviceId: row.device_id, errorEventId: row.error_event_id, fingerprint: row.fingerprint, errorCode: row.error_code,
+      source: row.mode === 'date' ? 'manual-date' : 'manual-error', contentEncoding: 'json',
+      fromTs: Number(row.from_ts), toTs: Number(row.to_ts), entries,
+      contentHash: createHash('sha256').update(serialized).digest('hex'), appVersion: row.app_version, commitSha: row.commit_sha,
+    };
+    const result = await sendToAuthor(payload, String(row.instance_id));
+    const attempts = Number(row.attempt_count || 0) + 1;
+    const completedAt = Date.now();
+    const next = result.ok || attempts >= MAX_RETRY_ATTEMPTS
+      ? null
+      : completedAt + Math.min(3_600_000, 60_000 * 2 ** Math.max(0, attempts - 1));
+    await sql`UPDATE app_diagnostic_bundles SET status=${result.ok ? 'sent' : 'failed'}, attempt_count=${attempts}, last_error=${result.ok ? '' : result.detail || 'send_failed'}, sent_at=${result.ok ? completedAt : null}, next_attempt_at=${next} WHERE bundle_id=${row.bundle_id} AND status='sending' AND next_attempt_at=${claimedUntil}`;
+    if (result.ok) sent += 1;
+  }
+  res.status(202).json({ ok: true, considered: rows.length, sent, remaining: Math.max(0, rows.length - sent) });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'PUT') {
@@ -211,6 +280,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     await ensureTableOnce();
     const resource = String(req.query.resource || (bodyOf(req).resource ?? ''));
     if (resource === 'settings') return handleSettings(req, res);
+    if (resource === 'retry' && req.method === 'POST') return handleRetry(req, res);
     if (req.method === 'GET') return handleCatalog(req, res);
     return handleSend(req, res);
   } catch (error) {

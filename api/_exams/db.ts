@@ -209,11 +209,13 @@ export function ensureTableOnce(): Promise<void> {
           requested_by BIGINT,
           created_at BIGINT NOT NULL,
           expires_at BIGINT,
-          sent_at BIGINT
+          sent_at BIGINT,
+          next_attempt_at BIGINT
         )`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_time ON app_diagnostic_bundles(from_ts, to_ts)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_error ON app_diagnostic_bundles(error_event_id, fingerprint)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_status ON app_diagnostic_bundles(status, created_at DESC)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_retry_due ON app_diagnostic_bundles(status, next_attempt_at, created_at)`,
         ]);
         await sql`INSERT INTO app_diagnostic_settings (id, updated_at) VALUES (1, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
         await Promise.all([
@@ -224,6 +226,7 @@ export function ensureTableOnce(): Promise<void> {
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_role_name TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS client_secret_hash TEXT NOT NULL DEFAULT ''`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS next_attempt_at BIGINT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_token_hash TEXT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_expires_at BIGINT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS grade_id TEXT NOT NULL DEFAULT ''`,

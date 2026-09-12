@@ -1,6 +1,6 @@
 # 进度日志
 
-## 会话：2026-09-06 双端进度整理、对话归档与远端同步
+## 会话：2026-09-06 双端进度理、对话归档与远端同步
 
 - 已核对学校端 `nas-upload-worktree/upload/main`：提交 `1fea6b8`（手动诊断日志上传），远端 `Novora-future/future/upload/main` 已存在，工作树干净。
 - 已完成作者端 `exam-board-telemetry-author` 诊断日志包接收、查询、状态管理和设备/错误事件关联；提交 `aae5e5c`、`326de61` 已推送到 `exam-board-telemetry/main`。
