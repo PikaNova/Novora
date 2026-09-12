@@ -2,7 +2,19 @@
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
-import { DEVICE_ONLINE_WINDOW_MS, parseDeviceCommand } from '../../../src/shared/deviceContracts.js';
+import {
+  DEVICE_HEARTBEAT_REFRESH_MS,
+  DEVICE_ONLINE_WINDOW_MS,
+  parseDeviceCommand,
+} from '../../../src/shared/deviceContracts.js';
+
+type DeviceHeartbeatRow = {
+  grade_id: string;
+  class_id: string;
+  revoked: boolean;
+  is_management: boolean;
+  temporary_command?: unknown;
+};
 
 export async function handleDeviceBinding(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = database();
@@ -136,20 +148,30 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
       await sql`UPDATE device_commands SET status='failed', failure_reason=${commandFailureReason || '设备执行失败'} WHERE id=${failedCommandId} AND instance_id=${instanceId} AND status IN ('pending','claimed')`;
       await sql`UPDATE device_instances SET temporary_command=NULL WHERE instance_id=${instanceId} AND temporary_command->>'id'=${failedCommandId}`;
     }
-    await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
+    // 心跳写入合并成一条语句：内容没变且 60 秒内已经刷新过 last_seen_at 时，DO UPDATE 的
+    // WHERE 不成立就不会真正写行（省掉一次 UPDATE 的 WAL 与死元组）；命中写入时用 RETURNING
+    // 直接取回绑定与命令状态，省掉原来紧跟其后的那次 SELECT。
+    const writtenRows =
+      (await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
       VALUES (${instanceId}, ${value('page')}, ${value('clientVersion', 40)}, ${value('status', 40)}, ${value('currentExam')}, ${value('currentSubject')}, ${value('examStart', 40)}, ${value('examEnd', 40)}, ${now}, ${now})
-      ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at, updated_at=EXCLUDED.updated_at`;
-    const rows =
-      (await sql`SELECT grade_id, class_id, revoked, is_management, temporary_command FROM device_instances WHERE instance_id=${instanceId}`) as unknown as Array<{
-        grade_id: string;
-        class_id: string;
-        revoked: boolean;
-        is_management: boolean;
-        temporary_command?: unknown;
-      }>;
-    const device = rows[0];
-    let pending: Array<Record<string, unknown>> = [];
+      ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at, updated_at=EXCLUDED.updated_at
+      WHERE device_instances.last_seen_at <= EXCLUDED.last_seen_at - ${DEVICE_HEARTBEAT_REFRESH_MS}
+        OR device_instances.page IS DISTINCT FROM EXCLUDED.page
+        OR device_instances.client_version IS DISTINCT FROM EXCLUDED.client_version
+        OR device_instances.status IS DISTINCT FROM EXCLUDED.status
+        OR device_instances.current_exam IS DISTINCT FROM EXCLUDED.current_exam
+        OR device_instances.current_subject IS DISTINCT FROM EXCLUDED.current_subject
+        OR device_instances.exam_start IS DISTINCT FROM EXCLUDED.exam_start
+        OR device_instances.exam_end IS DISTINCT FROM EXCLUDED.exam_end
+      RETURNING grade_id, class_id, revoked, is_management, temporary_command`) as unknown as DeviceHeartbeatRow[];
+    // 跳过写入时拿不到 RETURNING 行；把这个补读并进下面同一个事务，避免多一次往返。
+    const needsRowFallback = writtenRows.length === 0;
     const commandResults = await sql.transaction((transaction) => [
+      ...(needsRowFallback
+        ? [
+            transaction`SELECT grade_id, class_id, revoked, is_management, temporary_command FROM device_instances WHERE instance_id=${instanceId}`,
+          ]
+        : []),
       transaction`UPDATE device_commands SET status='expired', failure_reason='命令已过期' WHERE instance_id=${instanceId} AND status IN ('pending','claimed') AND expires_at IS NOT NULL AND expires_at <= ${now}`,
       transaction`UPDATE device_commands SET status='claimed', claimed_at=${now}
         WHERE id = (
@@ -159,19 +181,23 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
         )
         RETURNING id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason`,
     ]);
-    pending = commandResults[1] as unknown as Array<Record<string, unknown>>;
-    const queued = pending[0]
+    const device = (needsRowFallback ? commandResults[0] : writtenRows)[0] as DeviceHeartbeatRow | undefined;
+    const pending = commandResults[commandResults.length - 1] as unknown as Array<Record<string, unknown>>;
+    const claimed = pending[0];
+    // BIGINT 列在两种驱动下都可能以字符串返回，统一转成数字后再交给 parseDeviceCommand
+    //（与 deviceAdminRoutes 的读数口径一致），否则刚认领的命令会因为类型不符被丢弃。
+    const queued = claimed
       ? parseDeviceCommand({
-          id: pending[0].id,
-          action: pending[0].action,
-          minutes: pending[0].minutes,
-          createdAt: pending[0].created_at,
-          status: pending[0].status,
-          idempotencyKey: pending[0].idempotency_key,
-          expiresAt: pending[0].expires_at,
-          claimedAt: pending[0].claimed_at,
-          acknowledgedAt: pending[0].acknowledged_at,
-          failureReason: pending[0].failure_reason,
+          id: claimed.id,
+          action: claimed.action,
+          minutes: claimed.minutes == null ? undefined : Number(claimed.minutes),
+          createdAt: Number(claimed.created_at),
+          status: claimed.status,
+          idempotencyKey: claimed.idempotency_key,
+          expiresAt: claimed.expires_at == null ? undefined : Number(claimed.expires_at),
+          claimedAt: claimed.claimed_at == null ? undefined : Number(claimed.claimed_at),
+          acknowledgedAt: claimed.acknowledged_at == null ? undefined : Number(claimed.acknowledged_at),
+          failureReason: claimed.failure_reason,
         })
       : null;
     const hasBinding = !!device && (device.revoked === true || device.is_management === true || !!device.class_id);
