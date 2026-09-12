@@ -628,3 +628,9 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 修复：`.admin-page` 新增 `--admin-header-h: 58px`，左栏改用 `top: var(--admin-header-h)` 与 `height: calc(100dvh - var(--admin-header-h))`，701–900px 断点同步。
 - 验证：修复后同样条件 `top=58 / bottom=300 / 空隙 0`；921×912 常规视口下左栏底边同样贴齐；大型考试页上下文栏仍吸顶在内容区顶部；390px 宽度左栏隐藏、底部导航正常。
 - 环境：临时 PostgreSQL（55433）与本地服务（3100/3101）验证后已停止并删除；期间发现并清理了误生成的空文件 `$null`。
+
+## Session: 推送与追踪同步（2026-09-12）
+
+- 推送 `future/upload/main`：`6a81412 → 8fad953`（快进，远端无新提交）。
+- 本次推送包含 6 个提交：诊断留存与过期清理（S1）、对应追踪文档、后台页面控件移出导航栏、对应追踪文档、左栏滚动边界修复、对应追踪文档。
+- 部署侧待办：dev 站点重新构建部署；按需配置 `DIAGNOSTIC_WORKER_SECRET` 并挂载 `GET /api/diagnostic-worker` 的定时任务。

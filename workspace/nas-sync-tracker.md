@@ -689,6 +689,14 @@ git push origin main
 | 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`git diff --check` |
 | 环境 | 验证用临时 PostgreSQL（55433）与两个本地服务（3100/3101）已停止并删除；本机 5432 未改动 |
 
+## 2026-09-12 推送记录（诊断 S1 + 后台导航改造 + 左栏边界修复）
+
+| 项目 | 状态 |
+|---|---|
+| 远端 | `future/upload/main`，`6a81412 → 8fad953`（快进推送，无冲突） |
+| 提交 | `35f2a37` 诊断留存与过期清理；`0c68384` 对应追踪文档；`eb296f0` 页面控件移出导航栏；`9ede747` 对应追踪文档；`a44bfeb` 左栏滚动边界修复；`8fad953` 对应追踪文档 |
+| 说明 | 本次为前端外壳与诊断链路改动，dev 站点需重新构建部署后生效；`DIAGNOSTIC_WORKER_SECRET` 与 `/api/diagnostic-worker` 的 Cron 挂载仍待部署侧配置 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |
