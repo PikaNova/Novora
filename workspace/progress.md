@@ -1,5 +1,22 @@
 # 进度日志
 
+## 会话：2026-09-06 双端进度理、对话归档与远端同步
+
+- 已核对学校端 `nas-upload-worktree/upload/main`：提交 `1fea6b8`（手动诊断日志上传），远端 `Novora-future/future/upload/main` 已存在，工作树干净。
+- 已完成作者端 `exam-board-telemetry-author` 诊断日志包接收、查询、状态管理和设备/错误事件关联；提交 `aae5e5c`、`326de61` 已推送到 `exam-board-telemetry/main`。
+- 作者端验证：`npm test` 9/9、`npm run typecheck`、`npm run build` 全部通过；推送后工作树干净。
+- 作者端后续提交 `c5c4734 feat: audit diagnostic bundle access` 已推送，补充诊断包访问审计与后台展示关联；作者端当前远端与本地一致。
+- 已整理四组对话导出：版本规划整合、未来项目规划、考试功能规划、WebSocket 稳定性评估；原始 HTML/JSON/router 文件将纳入 future workspace。
+- 双端实现进度已写入同步追踪、任务计划、发现记录和会话汇总；未把未授权的旧仓库或运行时目录上传。
+
+## 会话：2026-09-06 P1 数据库集成门禁
+
+- 使用工作区内初始化的隔离 PostgreSQL 17 集群（端口 `15432`、数据库 `novora_integration`）运行服务端集成套件。
+- `npm run test:integration`：19/19 通过。
+- 已验证 schema 版本与迁移成功日志、重复初始化幂等、BIGINT 时间戳、并发写入、事务回滚、设备替换、权限边界和限流行为。
+- 测试完成后已停止临时 PostgreSQL；未触碰现有 `5432` 实例。
+- 临时集群目录位于 `.tmp-pg-integration`，删除操作被安全审查暂时拦截，需手动执行清理。
+
 ## 会话：2026-08-30 P1 API/客户端契约批次
 
 - 已建立考试与设备的共享类型契约和运行时解析。
@@ -525,34 +542,10 @@ The frontend repair is deployed but cannot activate because the live server fail
 - Tagged `v2.7.5` locally (push with the branch; create the GitHub Release from the tag so deployed instances see the update).
 - Drafted `workspace/novora-v2.8-design.md`: ExamRecord single-direction projection (majors stays authoritative), 4-state persisted lifecycle (ongoing derived), compatibility matrix for outbox/ETag/ClassIsland/heartbeat, migration/rollback plan, T-280-01..06 task split. Review required before implementation.
 
-## Session: v2.8.0 author center T-280-07 (2026-09-05)
+## Session: error report privacy hardening (2026-09-05)
 
-### Scope
-
-- 收口作者端基础实例概览契约；不接收考试正文、班级名单、用户数据或远程控制指令。
-- 目标仓库：`exam-board-telemetry/exam-board-telemetry-main`，当前基线为 `main` / `6b592de` / v1.16.0。
-
-### Completed
-
-- 新增 `api/_instanceContract.ts`，统一实例上报解析、字段长度限制、控制字符清理、v1/v2 通道归类、性能对象降级和实例摘要白名单。
-- `/api/collect` 改用共享实例契约，保持旧 `X-Telemetry-Key` 与短期 token 兼容，并保留旧数据库字段名。
-- `/api/overview` 使用共享实例摘要和统一 10 分钟在线窗口，不再把数据库任意列直接返回给作者端前端。
-- `/api/error-report`、`/api/issue-client-token` 复用同一字符串清理和通道归类规则。
-- 新增 `npm test` 和 4 个实例契约回归测试。
-- `npm run typecheck`：通过。
-- `npm run build:server`：通过。
-- `npm test`：4/4 通过。
-- `git diff --check`：通过。
-
-### Remaining
-
-- 前端 `npm run build` 在当前沙箱中被 esbuild 读取祖先目录权限阻止；提权构建申请因代理不可用未执行。
-- 尚未提交或推送；待前端构建验证后再决定版本号和提交说明。
-
-## Session: 服务端诊断上传重试队列收口（2026-09-12）
-
-- 将 `POST /api/diagnostic-logs?resource=retry` 的失败包领取改为事务化 `FOR UPDATE SKIP LOCKED`。
-- 为首次发送和重试发送增加 10 分钟租约；租约过期的 `sending` 记录会自动回收到 `failed`，避免进程崩溃后永久卡住。
-- 保持最多 3 次重试、指数退避和过期包不重试；发送结果更新增加租约条件，避免旧 worker 覆盖新状态。
-- 为 `next_attempt_at` 增加到期索引，并同步运行时建表迁移与 `0003` SQL 迁移。
-- 验证：`npm run typecheck:api`、`npm test`（479/479）、`git diff --check` 全部通过。
+- Added `src/shared/errorReportContracts.ts`: versioned error types/levels, credential and personal-data redaction, operational context allowlist, URL/query stripping, dynamic ID normalization, and stable fingerprints.
+- Updated client error reporting with non-`instanceof Error` capture, bounded local queue, finite retries, online flush, and silent failure behavior.
+- Updated `api/error-report.ts` to re-sanitize legacy/forged payloads before forwarding; `schoolName`, `userAgent`, `host`, `province`, `tz`, and `lang` are retained with bounds/control-character cleaning, while raw business context remains excluded.
+- Added 5 privacy/fingerprint regression tests; `npm test` passes 458/458; API typecheck, lint, format, and diff check pass.
+- Production Vite build was attempted but blocked by the managed sandbox authorization service (503), not by a source compilation error.

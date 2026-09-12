@@ -633,3 +633,35 @@ git push origin main
 | 集成测试 | 未运行；当前环境未提供 `INTEGRATION_DATABASE_URL`，`127.0.0.1:15432` 无 PostgreSQL |
 
 复制幂等键复用时返回冲突，且命中历史幂等结果会再次执行作用域校验，避免跨作用域泄露结果。下一步建议进入管理 UI 列表（v2.8.1 T-281-03/04），或先补齐独立 PostgreSQL 后执行集成矩阵。
+
+## 2026-09-06 会话整理与追踪同步
+
+### 同步内容
+
+- 将根工作区最新的 `progress.md`、`task_plan.md`、`findings.md` 同步到 `workspace/`，并将其纳入版本控制。
+- 记录 P1 数据库集成门禁结果：隔离 PostgreSQL 17（`127.0.0.1:15432`）上的 `npm run test:integration` 为 19/19 通过。
+- 保留 future 仓库已更新的 v2.8 设计稿和 `novora-version-tasks.md`，未用旧工作区副本覆盖。
+
+### 当前状态
+
+- 追踪入口：`workspace/nas-sync-tracker.md`
+- 最新进度：`workspace/progress.md`
+- 当前任务计划：`workspace/task_plan.md`
+- 当前发现与证据：`workspace/findings.md`
+- 数据库集成门禁已通过；临时 PostgreSQL 已停止，`.tmp-pg-integration` 尚待手动清理。
+
+## 2026-09-06 双端进度整理、对话归档与远端同步
+
+### 双端更新
+
+- 学校端 `nas-upload-worktree/upload/main`：`1fea6b8 feat: add manual diagnostic log upload`，远端 `Novora-future/future/upload/main` 已同步。
+- 作者端 `exam-board-telemetry-author/main`：`aae5e5c feat: add diagnostic bundle intake and error sections`、`326de61 fix: persist diagnostic device and event ids`，均已推送到 `exam-board-telemetry/main`。
+- 作者端随后提交 `c5c4734 feat: audit diagnostic bundle access` 也已推送，补充访问审计与后台关联展示。
+- 作者端验证：`npm test` 9/9、`npm run typecheck`、`npm run build` 通过，工作树干净。
+
+### 对话归档
+
+- 索引：`workspace/conversation-index.md`。
+- 原始导出：`share_6a92fda6.*`、`share_6a9bda6b.*`、`share_6a9bdada.*`、`share_6a9bdc53.*`。
+- 主题覆盖版本规划、未来路线、考试功能和 WebSocket 稳定性评估。
+- 不上传旧仓库、依赖目录、临时运行目录或数据库内容。
