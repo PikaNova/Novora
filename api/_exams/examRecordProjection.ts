@@ -106,7 +106,13 @@ export function buildExamRecordProjection(
   };
 }
 
-/** Upserts the projection without deleting records absent from the current snapshot. */
+/**
+ * Upserts the projection without deleting records absent from the current snapshot.
+ *
+ * 状态合并规则：`archived` 优先保留，因为已归档的考试在快照里仍然带着 `endedAt`，
+ * 若先判 EXCLUDED 就会被投影立刻改回 `ended`，归档动作等于无效；只有 unarchive
+ * 会在同一事务里显式把状态写回 `ended`，那时 `exam_records.status` 已不是 archived。
+ */
 export function projectExamRecords(
   transaction: SqlTx,
   majors: MajorExam[],
@@ -145,6 +151,7 @@ export function projectExamRecords(
           priority_over_schedule = EXCLUDED.priority_over_schedule,
           config = EXCLUDED.config,
           status = CASE
+            WHEN exam_records.status = 'archived' THEN 'archived'
             WHEN EXCLUDED.status = 'ended' THEN 'ended'
             WHEN exam_records.status = 'draft' AND EXCLUDED.status = 'published' THEN 'published'
             ELSE exam_records.status
@@ -214,6 +221,7 @@ export function projectCurrentExamRecords(transaction: SqlTx): Promise<Array<Rec
       priority_over_schedule = EXCLUDED.priority_over_schedule,
       config = EXCLUDED.config,
       status = CASE
+        WHEN exam_records.status = 'archived' THEN 'archived'
         WHEN EXCLUDED.status = 'ended' THEN 'ended'
         WHEN exam_records.status = 'draft' AND EXCLUDED.status = 'published' THEN 'published'
         ELSE exam_records.status

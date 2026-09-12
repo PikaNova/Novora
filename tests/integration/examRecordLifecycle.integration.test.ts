@@ -1,0 +1,588 @@
+/**
+ * 考试记录生命周期动作的真实库集成测试。
+ *
+ * 覆盖四类断言：状态机边界、权限与作用域、幂等键复放、审计与操作日志。
+ * 只跑在 runner 注入的 disposable 库（INTEGRATION_DATABASE_URL）上。
+ */
+import assert from 'node:assert/strict';
+import { after, beforeEach, test } from 'node:test';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { BUILTIN_ROLES, authenticateUser, authSql, ensureAuthTables, makePasswordHash } from '../../api/_auth.js';
+import { database, ensureTableOnce } from '../../api/_exams/db.js';
+import { projectCurrentExamRecords } from '../../api/_exams/examRecordProjection.js';
+import { handleExamRecordRoute } from '../../api/_exams/routes/examRecordRoutes.js';
+import { __resetRateLimiterForTests } from '../../api/_rateLimiter.js';
+import examsHandler from '../../api/exams.js';
+
+type Scope = { type: 'all' | 'grade' | 'class'; gradeId?: string; classId?: string };
+type Login = { id: number; token: string };
+
+const adminPassword = process.env.ADMIN_PASSWORD ?? '';
+const MAX_EXTEND_MINUTES = 600;
+let admin: Login;
+
+function makeRes() {
+  const calls: { statusCode?: number; body: Record<string, unknown>; headers: Record<string, unknown> } = {
+    body: {},
+    headers: {},
+  };
+  const res: VercelResponse = {
+    setHeader(name: string, value: unknown) {
+      calls.headers[name] = value;
+      return res;
+    },
+    getHeader(name: string) {
+      return calls.headers[name];
+    },
+    status(code: number) {
+      calls.statusCode = code;
+      return res;
+    },
+    json(body: unknown) {
+      calls.statusCode ??= 200;
+      calls.body = body as Record<string, unknown>;
+      return res;
+    },
+    send(body: unknown) {
+      calls.statusCode ??= 200;
+      calls.body = body as Record<string, unknown>;
+      return res;
+    },
+    end() {
+      calls.statusCode ??= 200;
+      return res;
+    },
+  } as unknown as VercelResponse;
+  return { res, calls };
+}
+
+function makeReq(token: string, body: Record<string, unknown>, headers: Record<string, string> = {}): VercelRequest {
+  return {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, ...headers },
+    query: {},
+    cookies: {},
+    body,
+  } as unknown as VercelRequest;
+}
+
+/** 取响应体里的 `data`（记录 JSON），非对象时返回空对象，避免在断言里散落类型判断。 */
+function data(calls: { body: Record<string, unknown> }): Record<string, unknown> {
+  const value = calls.body.data;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** 直接打记录动作路由（绕开入口限流），仍然走真实的权限、写槽与落库路径。 */
+async function act(token: string, action: string, body: Record<string, unknown>, headers: Record<string, string> = {}) {
+  await openWriteSlot();
+  const { res, calls } = makeRes();
+  await handleExamRecordRoute(makeReq(token, body, headers), res, action);
+  return calls;
+}
+
+/** 经顶层 /api/exams 入口调用，用于验证动作确实被路由表放行。 */
+async function actThroughEntry(
+  token: string,
+  action: string,
+  body: Record<string, unknown>,
+  headers: Record<string, string> = {},
+) {
+  await openWriteSlot();
+  __resetRateLimiterForTests();
+  const { res, calls } = makeRes();
+  await examsHandler(makeReq(token, { action, ...body }, headers) as unknown as VercelRequest, res);
+  return calls;
+}
+
+async function openWriteSlot() {
+  await database()`UPDATE write_throttle SET next_allowed_at = ${-Date.now()} WHERE id = 1`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type SeedMajor = {
+  id: string;
+  name?: string;
+  startAt?: number | null;
+  endAt?: number | null;
+  targetGradeIds?: string[];
+  targetClassIds?: string[];
+  source?: 'regular' | 'quick';
+};
+
+/** 只写权威快照，再走真实投影建 exam_records 行，保证两者一致。 */
+async function seedMajors(majors: SeedMajor[]): Promise<number> {
+  const now = Date.now();
+  const payload = majors.map((major, index) => ({
+    id: major.id,
+    name: major.name ?? major.id,
+    items: [],
+    order: index,
+    targetGradeIds: major.targetGradeIds ?? [],
+    targetClassIds: major.targetClassIds ?? [],
+    ...(major.startAt == null ? {} : { startAt: major.startAt }),
+    ...(major.endAt == null ? {} : { endAt: major.endAt }),
+    ...(major.source === 'quick' ? { source: 'quick', temporary: true } : {}),
+  }));
+  await database()`
+    UPDATE exam_data SET majors=${JSON.stringify(payload)}::jsonb, updated_at=${now} WHERE id=1
+  `;
+  await database().transaction((transaction) => [projectCurrentExamRecords(transaction)]);
+  return now;
+}
+
+async function readRecord(id: string) {
+  const rows = (await database()`SELECT * FROM exam_records WHERE id=${id}`) as unknown as Array<
+    Record<string, unknown>
+  >;
+  assert.ok(rows[0], `exam_records 里必须存在 ${id}`);
+  return rows[0];
+}
+
+async function readOperations(recordId: string) {
+  return (await database()`
+    SELECT action, source_record_id, result_record_id, actor_id, from_status, to_status, reason, created_at
+    FROM exam_record_operations
+    WHERE source_record_id=${recordId}
+  `) as unknown as Array<Record<string, unknown>>;
+}
+
+async function readSnapshotMajors() {
+  const rows = (await database()`SELECT majors FROM exam_data WHERE id=1`) as unknown as Array<{
+    majors?: Array<Record<string, unknown>>;
+  }>;
+  return Array.isArray(rows[0]?.majors) ? rows[0].majors : [];
+}
+
+async function clearDatabase() {
+  const sql = database();
+  await sql`
+    TRUNCATE TABLE
+      exam_records,
+      exam_record_operations,
+      exam_data,
+      app_audit_logs,
+      app_user_scopes,
+      app_users,
+      app_roles,
+      app_auth,
+      app_telemetry_config,
+      device_instances,
+      classisland_plugin_instances,
+      write_throttle
+    RESTART IDENTITY CASCADE
+  `;
+  await sql`INSERT INTO exam_data (id, items, title, updated_at) VALUES (1, '[]', '', 0)`;
+  await sql`INSERT INTO write_throttle (id, next_allowed_at) VALUES (1, 0)`;
+}
+
+async function seedRoles() {
+  const sql = authSql();
+  const now = Date.now();
+  for (const role of BUILTIN_ROLES) {
+    await sql`
+      INSERT INTO app_roles (id, name, description, permissions, built_in, created_at, updated_at)
+      VALUES (${role.id}, ${role.name}, ${role.description}, ${JSON.stringify(role.permissions)}::jsonb, TRUE, ${now}, ${now})
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
+}
+
+async function createUser(username: string, roleId: string, scopes: Scope[]): Promise<Login> {
+  const password = await makePasswordHash(`${username}-password`);
+  const now = Date.now();
+  const sql = authSql();
+  const rows = (await sql`
+    INSERT INTO app_users (username, display_name, password_hash, password_salt, role_id, status, must_change_password, token_version, created_at, updated_at)
+    VALUES (${username}, ${username}, ${password.hash}, ${password.salt}, ${roleId}, 'active', FALSE, 1, ${now}, ${now})
+    RETURNING id
+  `) as unknown as Array<{ id: number }>;
+  const id = Number(rows[0]?.id);
+  assert.ok(id > 0, 'test user must be created');
+  for (const scope of scopes) {
+    await sql`
+      INSERT INTO app_user_scopes (user_id, scope_type, grade_id, class_id)
+      VALUES (${id}, ${scope.type}, ${scope.gradeId ?? ''}, ${scope.classId ?? ''})
+    `;
+  }
+  const login = await authenticateUser(username, `${username}-password`);
+  assert.ok(login, 'test user must authenticate through the real auth path');
+  return { id, token: login.token };
+}
+
+beforeEach(async () => {
+  assert.ok(adminPassword.length >= 16, 'the integration runner must inject a strong temporary password');
+  await ensureTableOnce();
+  await ensureAuthTables();
+  await clearDatabase();
+  await seedRoles();
+  const login = await authenticateUser('admin', adminPassword);
+  assert.ok(login, 'the integration runner must bootstrap the disposable super administrator');
+  admin = { id: login.actor.id, token: login.token };
+  __resetRateLimiterForTests();
+});
+
+after(async () => {
+  await clearDatabase();
+  const rows = (await database()`
+    SELECT
+      (SELECT COUNT(*)::int FROM exam_records) AS record_count,
+      (SELECT COUNT(*)::int FROM exam_record_operations) AS operation_count
+  `) as unknown as Array<{ record_count: number; operation_count: number }>;
+  assert.equal(Number(rows[0]?.record_count), 0);
+  assert.equal(Number(rows[0]?.operation_count), 0);
+});
+
+test('考试生命周期：publish → start → pause → resume → extend → end → archive → unarchive 全程可用', async () => {
+  const startAt = Date.now() - 60_000;
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'lifecycle', startAt, endAt }]);
+
+  const published = await act(admin.token, 'record-publish', { id: 'lifecycle' });
+  assert.equal(published.statusCode, 200);
+  assert.equal(data(published).status, 'published');
+
+  const started = await act(admin.token, 'record-start', { id: 'lifecycle' });
+  assert.equal(started.statusCode, 200);
+  const actualStartAt = Number(data(started).actualStartAt);
+  assert.ok(actualStartAt > 0, '开考必须写入 actualStartAt');
+
+  const paused = await act(admin.token, 'record-pause', { id: 'lifecycle', reason: '设备异常' });
+  assert.equal(paused.statusCode, 200);
+  assert.ok(Number(data(paused).pausedAt) > 0, '暂停必须写入 pausedAt');
+  assert.equal(data(paused).status, 'published', '暂停不改变持久状态');
+
+  const resumed = await act(admin.token, 'record-resume', { id: 'lifecycle' });
+  assert.equal(resumed.statusCode, 200);
+  assert.equal(data(resumed).pausedAt, null);
+  assert.ok(Number(data(resumed).pausedMs) >= 0);
+
+  const extended = await act(
+    admin.token,
+    'record-extend',
+    { id: 'lifecycle', minutes: 15 },
+    { 'idempotency-key': 'extend-lifecycle-1' },
+  );
+  assert.equal(extended.statusCode, 200);
+  assert.equal(Number(data(extended).endAt), endAt + 15 * 60_000);
+
+  const replayed = await act(
+    admin.token,
+    'record-extend',
+    { id: 'lifecycle', minutes: 15 },
+    { 'idempotency-key': 'extend-lifecycle-1' },
+  );
+  assert.equal(replayed.statusCode, 200);
+  assert.equal(replayed.body.idempotent, true);
+  assert.equal(Number(data(replayed).endAt), endAt + 15 * 60_000, '同键重放不能再次叠加时长');
+
+  const ended = await act(admin.token, 'record-end', { id: 'lifecycle' });
+  assert.equal(ended.statusCode, 200);
+  assert.equal(data(ended).status, 'ended');
+  assert.ok(Number(data(ended).actualEndAt) > 0, '结束必须写入 actualEndAt');
+
+  const archived = await act(admin.token, 'record-archive', { id: 'lifecycle' });
+  assert.equal(archived.statusCode, 200);
+  assert.equal(data(archived).status, 'archived', '归档不能被快照投影改回 ended');
+  assert.equal((await readRecord('lifecycle')).status, 'archived', '归档状态必须真正落库，而不只是出现在响应里');
+
+  const unarchived = await act(admin.token, 'record-unarchive', { id: 'lifecycle' });
+  assert.equal(unarchived.statusCode, 200);
+  assert.equal(data(unarchived).status, 'ended');
+
+  const row = await readRecord('lifecycle');
+  assert.equal(row.status, 'ended');
+  assert.equal(row.paused_at, null);
+});
+
+test('考试生命周期：暂停期间结束会结算暂停时长，倒计时基准不把暂停算进考试用时', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'paused-end', startAt: Date.now() - 1_000, endAt }]);
+  await act(admin.token, 'record-publish', { id: 'paused-end' });
+  await act(admin.token, 'record-start', { id: 'paused-end' });
+  await act(admin.token, 'record-pause', { id: 'paused-end' });
+  await sleep(150);
+
+  const ended = await act(admin.token, 'record-end', { id: 'paused-end' });
+  assert.equal(ended.statusCode, 200);
+  assert.equal(data(ended).pausedAt, null);
+  const pausedMs = Number(data(ended).pausedMs);
+  assert.ok(pausedMs >= 100, `结束时应结算在途暂停时长，实际 ${pausedMs}ms`);
+  assert.equal(Number(data(ended).endAt), endAt);
+
+  const row = await readRecord('paused-end');
+  assert.equal(Number(row.paused_ms), pausedMs);
+  assert.equal(row.paused_at, null);
+});
+
+test('考试生命周期：非法转移与非法参数一律拒绝，且不写状态也不写操作日志', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'boundary', startAt: Date.now() - 1_000, endAt }]);
+
+  const pauseDraft = await act(admin.token, 'record-pause', { id: 'boundary' });
+  assert.equal(pauseDraft.statusCode, 409);
+  assert.equal(pauseDraft.body.code, 'ILLEGAL_STATE');
+
+  const endDraft = await act(admin.token, 'record-end', { id: 'boundary' });
+  assert.equal(endDraft.statusCode, 409);
+  assert.equal(endDraft.body.code, 'INVALID_STATUS_TRANSITION');
+
+  const archiveDraft = await act(admin.token, 'record-archive', { id: 'boundary' });
+  assert.equal(archiveDraft.statusCode, 409);
+  assert.equal(archiveDraft.body.code, 'INVALID_STATUS_TRANSITION');
+
+  const extendDraft = await act(
+    admin.token,
+    'record-extend',
+    { id: 'boundary', minutes: 10 },
+    { 'idempotency-key': 'extend-on-draft' },
+  );
+  assert.equal(extendDraft.statusCode, 409);
+  assert.equal(extendDraft.body.code, 'ILLEGAL_STATE');
+
+  const published = await act(admin.token, 'record-publish', { id: 'boundary' });
+  assert.equal(published.statusCode, 200);
+
+  assert.equal((await act(admin.token, 'record-start', { id: 'boundary' })).statusCode, 200);
+  const startTwice = await act(admin.token, 'record-start', { id: 'boundary' });
+  assert.equal(startTwice.statusCode, 409);
+  assert.equal(startTwice.body.code, 'ILLEGAL_STATE');
+
+  const resumeIdle = await act(admin.token, 'record-resume', { id: 'boundary' });
+  assert.equal(resumeIdle.statusCode, 409);
+  assert.equal(resumeIdle.body.code, 'ILLEGAL_STATE');
+
+  assert.equal((await act(admin.token, 'record-pause', { id: 'boundary' })).statusCode, 200);
+  const pauseTwice = await act(admin.token, 'record-pause', { id: 'boundary' });
+  assert.equal(pauseTwice.statusCode, 409);
+  assert.equal(pauseTwice.body.code, 'ILLEGAL_STATE');
+
+  const zeroMinutes = await act(
+    admin.token,
+    'record-extend',
+    { id: 'boundary', minutes: 0 },
+    { 'idempotency-key': 'extend-zero' },
+  );
+  assert.equal(zeroMinutes.statusCode, 409);
+  assert.equal(zeroMinutes.body.code, 'MISSING_ARGUMENT');
+
+  const tooManyMinutes = await act(
+    admin.token,
+    'record-extend',
+    { id: 'boundary', minutes: MAX_EXTEND_MINUTES + 1 },
+    { 'idempotency-key': 'extend-too-long' },
+  );
+  assert.equal(tooManyMinutes.statusCode, 409);
+  assert.equal(tooManyMinutes.body.code, 'MISSING_ARGUMENT');
+
+  const missingKey = await act(admin.token, 'record-extend', { id: 'boundary', minutes: 5 });
+  assert.equal(missingKey.statusCode, 400);
+  assert.equal(missingKey.body.code, 'IDEMPOTENCY_KEY_REQUIRED');
+
+  const missingRecord = await act(admin.token, 'record-start', { id: 'not-a-record' });
+  assert.equal(missingRecord.statusCode, 404);
+  assert.equal(missingRecord.body.code, 'RECORD_NOT_FOUND');
+
+  const row = await readRecord('boundary');
+  assert.equal(row.status, 'published', '被拒绝的动作不能改变持久状态');
+  assert.ok(Number(row.paused_at) > 0, '被拒绝的动作不能让已生效的暂停失效');
+  assert.equal(Number(row.end_at), endAt, '被拒绝的延长不能改动 end_at');
+
+  const operations = await readOperations('boundary');
+  assert.deepEqual(
+    operations.map((operation) => operation.action).sort(),
+    ['pause', 'publish', 'start'],
+    '只有成功的动作才写操作日志',
+  );
+});
+
+test('考试生命周期：结束时间写回客户端快照，暂停状态不会被下一次投影冲掉', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'snapshot', startAt: Date.now() - 1_000, endAt }]);
+  await act(admin.token, 'record-publish', { id: 'snapshot' });
+  await act(admin.token, 'record-start', { id: 'snapshot' });
+  await act(admin.token, 'record-extend', { id: 'snapshot', minutes: 20 }, { 'idempotency-key': 'extend-snapshot' });
+  await act(admin.token, 'record-pause', { id: 'snapshot' });
+
+  const extendedEndAt = endAt + 20 * 60_000;
+  let majors = await readSnapshotMajors();
+  assert.equal(Number(majors[0]?.endAt), extendedEndAt);
+  assert.ok(Number(majors[0]?.actualStartAt) > 0);
+  assert.ok(Number(majors[0]?.pausedAt) > 0);
+
+  // 任何一次普通保存都会重跑投影；延长与暂停不能被快照旧值覆盖。
+  const now = Date.now();
+  await database()`UPDATE exam_data SET updated_at=${now} WHERE id=1`;
+  await database().transaction((transaction) => [projectCurrentExamRecords(transaction)]);
+
+  const row = await readRecord('snapshot');
+  assert.equal(Number(row.end_at), extendedEndAt, '投影不能把延长后的结束时间改回快照旧值');
+  assert.ok(Number(row.actual_start_at) > 0, '投影不能清掉开考时间');
+  assert.ok(Number(row.paused_at) > 0, '投影不能清掉暂停状态');
+  majors = await readSnapshotMajors();
+  assert.equal(Number(majors[0]?.pausedMs ?? 0), Number(row.paused_ms));
+});
+
+test('考试生命周期：幂等键不能跨记录或跨动作复用', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([
+    { id: 'idem-a', startAt: Date.now() - 1_000, endAt },
+    { id: 'idem-b', startAt: Date.now() - 1_000, endAt },
+  ]);
+  await act(admin.token, 'record-publish', { id: 'idem-a' });
+  await act(admin.token, 'record-publish', { id: 'idem-b' });
+
+  const first = await act(
+    admin.token,
+    'record-extend',
+    { id: 'idem-a', minutes: 5 },
+    { 'idempotency-key': 'shared-extend-key' },
+  );
+  assert.equal(first.statusCode, 200);
+
+  const otherRecord = await act(
+    admin.token,
+    'record-extend',
+    { id: 'idem-b', minutes: 5 },
+    { 'idempotency-key': 'shared-extend-key' },
+  );
+  assert.equal(otherRecord.statusCode, 409);
+  assert.equal(otherRecord.body.code, 'IDEMPOTENCY_KEY_REUSED');
+
+  const otherAction = await act(
+    admin.token,
+    'record-start',
+    { id: 'idem-a' },
+    { 'idempotency-key': 'shared-extend-key' },
+  );
+  assert.equal(otherAction.statusCode, 409);
+  assert.equal(otherAction.body.code, 'IDEMPOTENCY_KEY_REUSED');
+
+  const untouched = await readRecord('idem-b');
+  assert.equal(Number(untouched.end_at), endAt, '被拒绝的复用请求不能改动另一场考试');
+});
+
+test('考试生命周期：权限与作用域都按既有规则收紧', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([
+    { id: 'scoped-g1', targetGradeIds: ['g1'], startAt: Date.now() - 1_000, endAt },
+    { id: 'scoped-g2', targetGradeIds: ['g2'], startAt: Date.now() - 1_000, endAt },
+  ]);
+  const viewer = await createUser('lifecycle-viewer', 'viewer', [{ type: 'all' }]);
+  const gradeAdmin = await createUser('lifecycle-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+
+  const denied = await act(viewer.token, 'record-start', { id: 'scoped-g1' });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(denied.body.code, 'PERMISSION_DENIED');
+
+  const outOfScopeStart = await act(gradeAdmin.token, 'record-start', { id: 'scoped-g2' });
+  assert.equal(outOfScopeStart.statusCode, 404);
+  assert.equal(outOfScopeStart.body.code, 'RECORD_NOT_FOUND');
+
+  await act(admin.token, 'record-publish', { id: 'scoped-g1' });
+
+  const outOfScopePublish = await act(gradeAdmin.token, 'record-pause', { id: 'scoped-g2' });
+  assert.equal(outOfScopePublish.statusCode, 404);
+
+  const inScope = await act(gradeAdmin.token, 'record-start', { id: 'scoped-g1' });
+  assert.equal(inScope.statusCode, 200);
+  assert.ok(Number(data(inScope).actualStartAt) > 0);
+
+  const inScopeExtend = await act(
+    gradeAdmin.token,
+    'record-extend',
+    { id: 'scoped-g1', minutes: 30 },
+    { 'idempotency-key': 'extend-scoped-g1' },
+  );
+  assert.equal(inScopeExtend.statusCode, 200);
+
+  const operations = await readOperations('scoped-g1');
+  const start = operations.find((operation) => operation.action === 'start');
+  assert.equal(Number(start?.actor_id), gradeAdmin.id, '操作日志要记录真实操作者');
+});
+
+test('考试生命周期：每个动作都写操作日志与审计记录，包含操作者、前后状态与原因', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'audit-record', startAt: Date.now() - 1_000, endAt }]);
+
+  await act(admin.token, 'record-publish', { id: 'audit-record' });
+  await act(admin.token, 'record-start', { id: 'audit-record' });
+  await act(admin.token, 'record-pause', { id: 'audit-record', reason: '临时调休' });
+  await act(admin.token, 'record-resume', { id: 'audit-record', reason: '恢复' });
+  await act(
+    admin.token,
+    'record-extend',
+    { id: 'audit-record', minutes: 5, reason: '加时' },
+    { 'idempotency-key': 'extend-audit' },
+  );
+  await act(admin.token, 'record-end', { id: 'audit-record' });
+
+  const operations = await readOperations('audit-record');
+  assert.deepEqual(operations.map((operation) => operation.action).sort(), [
+    'end',
+    'extend',
+    'pause',
+    'publish',
+    'resume',
+    'start',
+  ]);
+  for (const operation of operations) {
+    assert.equal(Number(operation.actor_id), admin.id);
+    assert.equal(String(operation.source_record_id), 'audit-record');
+    assert.equal(String(operation.result_record_id), 'audit-record');
+    assert.ok(String(operation.from_status).length > 0, '每条操作日志都要有 from_status');
+    assert.ok(String(operation.to_status).length > 0, '每条操作日志都要有 to_status');
+    assert.ok(Number(operation.created_at) > 0);
+  }
+  const publish = operations.find((operation) => operation.action === 'publish');
+  assert.equal(String(publish?.from_status), 'draft');
+  assert.equal(String(publish?.to_status), 'published');
+  const pause = operations.find((operation) => operation.action === 'pause');
+  assert.equal(String(pause?.from_status), 'published');
+  assert.equal(String(pause?.to_status), 'published');
+  assert.equal(String(pause?.reason), '临时调休');
+  const end = operations.find((operation) => operation.action === 'end');
+  assert.equal(String(end?.to_status), 'ended');
+
+  const audits = (await database()`
+    SELECT action FROM app_audit_logs
+    WHERE resource_type='exam_record' AND resource_id='audit-record'
+  `) as unknown as Array<{ action: string }>;
+  assert.deepEqual(audits.map((entry) => entry.action).sort(), [
+    'exam.record.end',
+    'exam.record.extend',
+    'exam.record.pause',
+    'exam.record.publish',
+    'exam.record.resume',
+    'exam.record.start',
+  ]);
+});
+
+test('考试生命周期：顶层 /api/exams 入口放行新动作', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'route-record', startAt: Date.now() - 1_000, endAt }]);
+
+  const published = await actThroughEntry(admin.token, 'record-publish', { id: 'route-record' });
+  assert.equal(published.statusCode, 200);
+
+  const started = await actThroughEntry(admin.token, 'record-start', { id: 'route-record' });
+  assert.equal(started.statusCode, 200);
+  assert.ok(Number(data(started).actualStartAt) > 0);
+
+  const extended = await actThroughEntry(
+    admin.token,
+    'record-extend',
+    { id: 'route-record', minutes: 10 },
+    { 'idempotency-key': 'extend-route' },
+  );
+  assert.equal(extended.statusCode, 200);
+  assert.equal(Number(data(extended).endAt), endAt + 10 * 60_000);
+
+  // 路由证明：新动作必须落到记录处理器（404 RECORD_NOT_FOUND），
+  // 而不是被当成普通数据保存请求。
+  const routed = await actThroughEntry(admin.token, 'record-resume', { id: 'missing-record' });
+  assert.equal(routed.statusCode, 404);
+  assert.equal(routed.body.code, 'RECORD_NOT_FOUND');
+});
