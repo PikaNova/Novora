@@ -634,3 +634,11 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 推送 `future/upload/main`：`6a81412 → 8fad953`（快进，远端无新提交）。
 - 本次推送包含 6 个提交：诊断留存与过期清理（S1）、对应追踪文档、后台页面控件移出导航栏、对应追踪文档、左栏滚动边界修复、对应追踪文档。
 - 部署侧待办：dev 站点重新构建部署；按需配置 `DIAGNOSTIC_WORKER_SECRET` 并挂载 `GET /api/diagnostic-worker` 的定时任务。
+
+## Session: 诊断日志界面控件统一（2026-09-12）
+
+- `DiagnosticLogsSection` 原先用原生 `<input type="checkbox">`、`<input type="number">`、`<input type="date">`，与其余设置页不一致。
+- 统一为：`Switch`（开关）、`set-input set-input--sm` + `inputMode="numeric"`（数字）、`DateTimeField mode="date"` + `set-date-time-field`（日期）、`InlineSelect` + `set-input`（选择器）；布局改用 `set-card__head` / `set-fieldset` / `set-row` / `set-label` / `set-inline-actions`。
+- 顺带补上 `retentionDays` 选择器（1/3/7/14/30 天）——此前该项只能保存、界面上无法修改。
+- 新增仓库根 `AGENTS.md`，把「表单控件必须用统一组件」写成长期约定，附控件对照表与参考示例。
+- 验证：真实界面下原生 date/select 计数为 0、`.set-switch` 1、`.set-date-time-field` 2、`.inline-select` 1，日期字段弹出 `.tdp-field` 自有选择器；`npm test` 486/486、lint 0/0、build 通过。

@@ -697,6 +697,17 @@ git push origin main
 | 提交 | `35f2a37` 诊断留存与过期清理；`0c68384` 对应追踪文档；`eb296f0` 页面控件移出导航栏；`9ede747` 对应追踪文档；`a44bfeb` 左栏滚动边界修复；`8fad953` 对应追踪文档 |
 | 说明 | 本次为前端外壳与诊断链路改动，dev 站点需重新构建部署后生效；`DIAGNOSTIC_WORKER_SECRET` 与 `/api/diagnostic-worker` 的 Cron 挂载仍待部署侧配置 |
 
+## 2026-09-12 诊断日志界面控件统一
+
+| 项目 | 状态 |
+|---|---|
+| 诉求 | 诊断日志界面的输入框、选择器、时间选择器全部改用项目统一格式，并要求以后新增界面同样遵守 |
+| 替换 | 布尔复选框 → `Switch`；错误前/后秒数 → `set-input set-input--sm` + `inputMode="numeric"`；开始/结束日期 → `DateTimeField(mode="date", className="set-date-time-field")`；布局改为 `set-card__head` / `set-fieldset` + `set-row` + `set-label`，行内按钮包 `set-inline-actions` |
+| 补齐 | 原先「保存保留策略」能保存却无法修改的 `retentionDays`，新增 `InlineSelect`（1/3/7/14/30 天，当前值不在预设时自动补入），与后端 1-30 天限制一致 |
+| 约定沉淀 | 新增仓库根目录 `AGENTS.md`：写明「前端表单控件必须用统一组件」，附开关/选择器/日期时间/文本数字/行布局对照表与参考示例，供后续会话与新增界面遵循 |
+| 验证 | 真实界面实测（临时库 + 本地服务 3102）：诊断日志区块内原生 `input[type=date]` 0 个、原生 `select` 0 个、`.set-switch` 1 个、数字输入 class 均为 `set-input set-input--sm`、`.set-date-time-field` 2 个、`.inline-select` 1 个；点击日期字段弹出项目自带 `.tdp-field` 选择器而非原生日期控件 |
+| 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`git diff --check`；`format:check` 仅剩 3 个既有文件 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |
