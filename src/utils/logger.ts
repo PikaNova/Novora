@@ -59,6 +59,7 @@ function record(level: LocalLogLevel, args: unknown[]): void {
       typeof value === 'string' ? value : value instanceof Error ? `${value.name}: ${value.message}` : String(value),
     )
     .join(' ')
+    // eslint-disable-next-line no-control-regex -- security boundary for untrusted runtime log text
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .slice(0, 500);
   entries.push({ at: Date.now(), level, message });

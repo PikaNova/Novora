@@ -10,10 +10,22 @@ import {
 
 export type { DiagnosticCaptureConfig, LocalDiagnosticBundle };
 
+const TOKEN_KEY = 'admin_auth_token';
+
+function authorizationHeader(): Record<string, string> {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function request(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
   const response = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...authorizationHeader(), ...(init.headers || {}) },
   });
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : `请求失败（${response.status}）`);

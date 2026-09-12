@@ -51,6 +51,7 @@ export function sanitizeDiagnosticContext(value: unknown): Record<string, string
       continue;
     if (typeof raw === 'string') {
       const clean = raw
+        // eslint-disable-next-line no-control-regex -- security boundary for untrusted diagnostic text
         .replace(/[\u0000-\u001f\u007f]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
@@ -63,21 +64,27 @@ export function sanitizeDiagnosticContext(value: unknown): Record<string, string
 }
 
 export function sanitizeDiagnosticMessage(value: unknown, max = 500): string {
-  return String(value ?? '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/Bearer\s+[^\s,;]+|(?:password|token|cookie|authorization)\s*[=:]\s*(?!Bearer\b)[^\s,;]+/gi, '<redacted>')
-    .replace(
-      /(?:exam|subject|class|grade|school|student|question|answer|score)(?:\s|[_-])*(?:name|title|id|code)?\s*[:=]\s*[^,;\n]+/gi,
-      '<redacted>',
-    )
-    .replace(
-      /(?:考试|科目|班级|年级|学校|学生|题目|答案|成绩)(?:名称|标题|编号|代码|ID)?\s*[:：=]\s*[^，,；;\n]+/g,
-      '<redacted>',
-    )
-    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '<redacted>')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, max);
+  return (
+    String(value ?? '')
+      // eslint-disable-next-line no-control-regex -- security boundary for untrusted diagnostic text
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .replace(
+        /Bearer\s+[^\s,;]+|(?:password|token|cookie|authorization)\s*[=:]\s*(?!Bearer\b)[^\s,;]+/gi,
+        '<redacted>',
+      )
+      .replace(
+        /(?:exam|subject|class|grade|school|student|question|answer|score)(?:\s|[_-])*(?:name|title|id|code)?\s*[:=]\s*[^,;\n]+/gi,
+        '<redacted>',
+      )
+      .replace(
+        /(?:考试|科目|班级|年级|学校|学生|题目|答案|成绩)(?:名称|标题|编号|代码|ID)?\s*[:：=]\s*[^，,；;\n]+/g,
+        '<redacted>',
+      )
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '<redacted>')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max)
+  );
 }
 
 export function sanitizeDiagnosticEntry(value: unknown): DiagnosticLogEntry | null {
