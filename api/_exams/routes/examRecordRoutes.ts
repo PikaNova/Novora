@@ -230,49 +230,89 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
     error(res, 400, 'INVALID_CREATED_BY', '无效的创建人编号');
     return;
   }
-  const rows = (await sql`
-    SELECT id, runtime_major_id, name, description, status,
-      COALESCE(jsonb_array_length(items), 0) AS item_count,
-      target_grade_ids, target_class_ids, source, temporary, priority_over_schedule,
-      config, created_by, created_at, updated_at, start_at, end_at,
-      actual_start_at, actual_end_at, paused_at, paused_ms, published_at, ended_at, archived_at,
-      version, sort_order
-    FROM exam_records
-    ORDER BY updated_at DESC, sort_order ASC, id ASC
-  `) as unknown as RecordRow[];
   const now = Date.now();
-  const filtered = rows.filter((row) => {
-    if (!actorCanAccessRecord(actor, row)) return false;
-    if (statusFilter && displayStatus(row, now) !== statusFilter) return false;
-    if (search && !`${text(row.name)} ${text(row.id)}`.toLowerCase().includes(search)) return false;
-    const targetGradeIds = stringList(row.target_grade_ids);
-    const targetClassIds = stringList(row.target_class_ids);
-    const schoolWide = targetGradeIds.length === 0 && targetClassIds.length === 0;
-    if (
-      gradeId &&
-      !schoolWide &&
-      !targetGradeIds.includes(gradeId) &&
-      !classIds.some((id) => targetClassIds.includes(id))
+  const hasAllScope = hasPermission(actor, '*') || actor.scopes.some((scope) => scope.type === 'all');
+  const gradeScopeIds = actor.scopes.filter((scope) => scope.type === 'grade').map((scope) => scope.gradeId);
+  const classScopeIds = actor.scopes.filter((scope) => scope.type === 'class').map((scope) => scope.classId);
+  const searchPattern = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
+  const offset = (page - 1) * pageSize;
+  // 筛选与分页全部下推到 SQL：以前是整表 SELECT 回函数后内存过滤，记录一多就要把
+  // 整张表搬过来。这里用一个 CTE 同时取「命中总数」和当前页，越界页的 total 也准确。
+  const resultRows = (await sql`
+    WITH filtered AS (
+      SELECT id, runtime_major_id, name, description, status, items,
+        COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(items) = 'array' THEN items ELSE '[]'::jsonb END), 0) AS item_count,
+        target_grade_ids, target_class_ids, source, temporary, priority_over_schedule,
+        config, created_by, created_at, updated_at, start_at, end_at,
+        actual_start_at, actual_end_at, paused_at, paused_ms, published_at, ended_at, archived_at,
+        version, sort_order
+      FROM exam_records
+      WHERE
+        (${hasAllScope}::boolean
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(target_grade_ids) = 'array' THEN target_grade_ids ELSE '[]'::jsonb END
+            ) AS scope_value(value)
+            WHERE scope_value.value = ANY(${gradeScopeIds}::text[])
+          )
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(target_class_ids) = 'array' THEN target_class_ids ELSE '[]'::jsonb END
+            ) AS scope_value(value)
+            WHERE scope_value.value = ANY(${classScopeIds}::text[])
+          ))
+        AND (${statusFilter}::text = '' OR (
+          CASE
+            WHEN status = 'published' AND start_at IS NOT NULL AND end_at IS NOT NULL
+              AND start_at <= ${now}::bigint AND ${now}::bigint < end_at
+            THEN 'ongoing'
+            ELSE status
+          END = ${statusFilter}))
+        AND (${search}::text = '' OR name ILIKE ${searchPattern}::text OR id ILIKE ${searchPattern}::text)
+        AND (${gradeId}::text = ''
+          OR (jsonb_array_length(CASE WHEN jsonb_typeof(target_grade_ids) = 'array' THEN target_grade_ids ELSE '[]'::jsonb END) = 0
+              AND jsonb_array_length(CASE WHEN jsonb_typeof(target_class_ids) = 'array' THEN target_class_ids ELSE '[]'::jsonb END) = 0)
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(target_grade_ids) = 'array' THEN target_grade_ids ELSE '[]'::jsonb END
+            ) AS grade_value(value)
+            WHERE grade_value.value = ${gradeId}
+          )
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(target_class_ids) = 'array' THEN target_class_ids ELSE '[]'::jsonb END
+            ) AS class_value(value)
+            WHERE class_value.value = ANY(${classIds}::text[])
+          ))
+        AND (${sourceFilter}::text = '' OR source = ${sourceFilter})
+        AND (${createdByValue}::bigint IS NULL OR created_by = ${createdByValue}::bigint)
+        AND (${timeFilter}::text = ''
+          OR (${timeFilter} = 'upcoming' AND start_at IS NOT NULL AND start_at >= ${now}::bigint)
+          OR (${timeFilter} = 'past' AND end_at IS NOT NULL AND end_at < ${now}::bigint))
+    ),
+    paged AS (
+      SELECT * FROM filtered
+      ORDER BY updated_at DESC, sort_order ASC, id ASC
+      LIMIT ${pageSize} OFFSET ${offset}
     )
-      return false;
-    if (sourceFilter && (row.source === 'quick' ? 'quick' : 'regular') !== sourceFilter) return false;
-    if (createdByValue != null && nullableNumber(row.created_by) !== createdByValue) return false;
-    const startAt = nullableNumber(row.start_at);
-    const endAt = nullableNumber(row.end_at);
-    if (timeFilter === 'upcoming' && (startAt == null || startAt < now)) return false;
-    if (timeFilter === 'past' && (endAt == null || endAt >= now)) return false;
-    return true;
-  });
-  const start = (page - 1) * pageSize;
-  const data = filtered.slice(start, start + pageSize).map((row) => recordJson(row, now));
+    SELECT
+      (SELECT COUNT(*)::int FROM filtered) AS total_count,
+      COALESCE(
+        (SELECT jsonb_agg(p.* ORDER BY p.updated_at DESC, p.sort_order ASC, p.id ASC) FROM paged p),
+        '[]'::jsonb
+      ) AS page_rows
+  `) as unknown as Array<{ total_count?: unknown; page_rows?: unknown }>;
+  const total = Math.max(0, Math.trunc(number(resultRows[0]?.total_count)));
+  const pageRows = Array.isArray(resultRows[0]?.page_rows) ? (resultRows[0].page_rows as RecordRow[]) : [];
+  const data = pageRows.map((row) => recordJson(row, now));
   res.setHeader('Cache-Control', 'private, no-store');
   res.status(200).json({
     ok: true,
     data,
     page,
     pageSize,
-    total: filtered.length,
-    totalPages: Math.ceil(filtered.length / pageSize),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   });
 }
 

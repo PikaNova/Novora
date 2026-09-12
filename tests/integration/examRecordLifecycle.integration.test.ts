@@ -110,6 +110,7 @@ type SeedMajor = {
   targetGradeIds?: string[];
   targetClassIds?: string[];
   source?: 'regular' | 'quick';
+  createdBy?: number;
 };
 
 /** 只写权威快照，再走真实投影建 exam_records 行，保证两者一致。 */
@@ -124,6 +125,7 @@ async function seedMajors(majors: SeedMajor[]): Promise<number> {
     targetClassIds: major.targetClassIds ?? [],
     ...(major.startAt == null ? {} : { startAt: major.startAt }),
     ...(major.endAt == null ? {} : { endAt: major.endAt }),
+    ...(major.createdBy == null ? {} : { createdBy: major.createdBy }),
     ...(major.source === 'quick' ? { source: 'quick', temporary: true } : {}),
   }));
   await database()`
@@ -154,6 +156,25 @@ async function readSnapshotMajors() {
     majors?: Array<Record<string, unknown>>;
   }>;
   return Array.isArray(rows[0]?.majors) ? rows[0].majors : [];
+}
+
+/** 走真实的 GET /api/exams?resource=records 读列表（只读，不消耗写槽）。 */
+async function listRecords(token: string, query: Record<string, string> = {}) {
+  const { res, calls } = makeRes();
+  const req = {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+    query: { resource: 'records', ...query },
+    cookies: {},
+    body: {},
+  } as unknown as VercelRequest;
+  await handleExamRecordRoute(req, res);
+  return calls;
+}
+
+function listedIds(calls: { body: Record<string, unknown> }): string[] {
+  const rows = calls.body.data;
+  return Array.isArray(rows) ? rows.map((row) => String((row as { id?: unknown }).id)) : [];
 }
 
 async function clearDatabase() {
@@ -585,4 +606,94 @@ test('考试生命周期：顶层 /api/exams 入口放行新动作', async () =>
   const routed = await actThroughEntry(admin.token, 'record-resume', { id: 'missing-record' });
   assert.equal(routed.statusCode, 404);
   assert.equal(routed.body.code, 'RECORD_NOT_FOUND');
+});
+
+test('考试列表：筛选与分页下推到 SQL，越界页仍然返回准确总数', async () => {
+  const now = Date.now();
+  await seedMajors([
+    { id: 'list-past', name: '过往考试', startAt: now - 2 * 3_600_000, endAt: now - 3_600_000 },
+    { id: 'list-ongoing', name: '进行中的考试', startAt: now - 600_000, endAt: now + 3_600_000 },
+    { id: 'list-future', name: '未来考试', startAt: now + 3_600_000, endAt: now + 7_200_000, createdBy: 42 },
+    { id: 'list-draft', name: '草稿考试' },
+    { id: 'list-quick', name: '快速考试', source: 'quick' },
+  ]);
+  for (const id of ['list-past', 'list-ongoing', 'list-future']) {
+    assert.equal((await act(admin.token, 'record-publish', { id })).statusCode, 200);
+  }
+
+  const first = await listRecords(admin.token, { page: '1', pageSize: '2' });
+  assert.equal(first.statusCode, 200);
+  assert.equal(Number(first.body.total), 5);
+  assert.equal(Number(first.body.totalPages), 3);
+  assert.equal(listedIds(first).length, 2);
+  assert.equal(listedIds(await listRecords(admin.token, { page: '3', pageSize: '2' })).length, 1);
+
+  const beyond = await listRecords(admin.token, { page: '9', pageSize: '2' });
+  assert.deepEqual(listedIds(beyond), []);
+  assert.equal(Number(beyond.body.total), 5, '越界页不能把总数报成 0');
+  assert.equal(Number(beyond.body.totalPages), 3);
+
+  const seen = new Set<string>();
+  for (const page of ['1', '2', '3']) {
+    for (const id of listedIds(await listRecords(admin.token, { page, pageSize: '2' }))) seen.add(id);
+  }
+  assert.equal(seen.size, 5, '三页必须恰好覆盖五条记录，不重不漏');
+
+  // ongoing 是按时间窗派生的展示状态，不能和 published 混在一起
+  assert.deepEqual(listedIds(await listRecords(admin.token, { status: 'ongoing' })), ['list-ongoing']);
+  const published = listedIds(await listRecords(admin.token, { status: 'published' }));
+  assert.equal(published.includes('list-ongoing'), false);
+  assert.equal(published.includes('list-past'), true);
+  assert.equal(published.includes('list-future'), true);
+  assert.deepEqual(listedIds(await listRecords(admin.token, { status: 'draft' })), ['list-draft']);
+
+  assert.deepEqual(listedIds(await listRecords(admin.token, { q: '未来' })), ['list-future']);
+  assert.deepEqual(listedIds(await listRecords(admin.token, { source: 'quick' })), ['list-quick']);
+  assert.deepEqual(listedIds(await listRecords(admin.token, { createdBy: '42' })), ['list-future']);
+
+  const upcoming = listedIds(await listRecords(admin.token, { time: 'upcoming' }));
+  assert.equal(upcoming.includes('list-future'), true);
+  assert.equal(upcoming.includes('list-past'), false);
+  const past = listedIds(await listRecords(admin.token, { time: 'past' }));
+  assert.equal(past.includes('list-past'), true);
+  assert.equal(past.includes('list-future'), false);
+
+  assert.equal((await listRecords(admin.token, { status: 'nope' })).body.code, 'INVALID_STATUS');
+  assert.equal((await listRecords(admin.token, { source: 'nope' })).body.code, 'INVALID_SOURCE');
+  assert.equal((await listRecords(admin.token, { time: 'nope' })).body.code, 'INVALID_TIME_FILTER');
+  assert.equal((await listRecords(admin.token, { createdBy: '-1' })).body.code, 'INVALID_CREATED_BY');
+});
+
+test('考试列表：作用域与年级筛选在 SQL 层生效', async () => {
+  const now = Date.now();
+  const window = { startAt: now - 1_000, endAt: now + 3_600_000 };
+  await seedMajors([
+    { id: 'scope-g1', name: 'G1', targetGradeIds: ['g1'], ...window },
+    { id: 'scope-g2', name: 'G2', targetGradeIds: ['g2'], ...window },
+    { id: 'scope-class', name: 'C1', targetClassIds: ['c1'], ...window },
+    { id: 'scope-school', name: '全校', ...window },
+  ]);
+  const gradeAdmin = await createUser('list-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
+  const classAdmin = await createUser('list-class', 'class_admin', [{ type: 'class', gradeId: 'g1', classId: 'c1' }]);
+
+  assert.deepEqual(listedIds(await listRecords(admin.token, { pageSize: '50' })).sort(), [
+    'scope-class',
+    'scope-g1',
+    'scope-g2',
+    'scope-school',
+  ]);
+
+  const gradeVisible = listedIds(await listRecords(gradeAdmin.token, { pageSize: '50' })).sort();
+  assert.deepEqual(gradeVisible, ['scope-g1'], '年级管理员只看得到本年级的考试');
+  assert.deepEqual(listedIds(await listRecords(classAdmin.token, { pageSize: '50' })).sort(), ['scope-class']);
+
+  // 按年级筛选时全校考试要保留，班级参数按 targetClassIds 取交集
+  assert.deepEqual(listedIds(await listRecords(admin.token, { gradeId: 'g1', pageSize: '50' })).sort(), [
+    'scope-g1',
+    'scope-school',
+  ]);
+  assert.deepEqual(
+    listedIds(await listRecords(admin.token, { gradeId: 'g1', classIds: 'c1', pageSize: '50' })).sort(),
+    ['scope-class', 'scope-g1', 'scope-school'],
+  );
 });
