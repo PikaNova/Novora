@@ -27,10 +27,13 @@ export default function DiagnosticLogsSection({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (canRead)
-      void loadDiagnosticSettings()
-        .then(setConfig)
-        .catch(() => undefined);
+    if (!canRead) return;
+    // Local bundles are captured while the app runs, so re-read them whenever the section mounts
+    // instead of rendering the snapshot taken at first render.
+    setBundles(localDiagnosticSnapshot().bundles);
+    void loadDiagnosticSettings()
+      .then(setConfig)
+      .catch(() => undefined);
   }, [canRead]);
   const dateRange = useMemo(() => {
     const start = new Date(`${from}T00:00:00`).getTime();
@@ -46,6 +49,7 @@ export default function DiagnosticLogsSection({
     setMessage('');
     try {
       setConfig(await saveDiagnosticSettings(config));
+      setBundles(localDiagnosticSnapshot().bundles);
       setMessage('诊断日志保留策略已保存');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '保存失败');

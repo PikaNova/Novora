@@ -549,3 +549,44 @@ The frontend repair is deployed but cannot activate because the live server fail
 - Updated `api/error-report.ts` to re-sanitize legacy/forged payloads before forwarding; `schoolName`, `userAgent`, `host`, `province`, `tz`, and `lang` are retained with bounds/control-character cleaning, while raw business context remains excluded.
 - Added 5 privacy/fingerprint regression tests; `npm test` passes 458/458; API typecheck, lint, format, and diff check pass.
 - Production Vite build was attempted but blocked by the managed sandbox authorization service (503), not by a source compilation error.
+## Session: v2.8.0 author center T-280-07 (2026-09-05)
+
+### Scope
+
+- 收口作者端基础实例概览契约；不接收考试正文、班级名单、用户数据或远程控制指令。
+- 目标仓库：`exam-board-telemetry/exam-board-telemetry-main`，当前基线为 `main` / `6b592de` / v1.16.0。
+
+### Completed
+
+- 新增 `api/_instanceContract.ts`，统一实例上报解析、字段长度限制、控制字符清理、v1/v2 通道归类、性能对象降级和实例摘要白名单。
+- `/api/collect` 改用共享实例契约，保持旧 `X-Telemetry-Key` 与短期 token 兼容，并保留旧数据库字段名。
+- `/api/overview` 使用共享实例摘要和统一 10 分钟在线窗口，不再把数据库任意列直接返回给作者端前端。
+- `/api/error-report`、`/api/issue-client-token` 复用同一字符串清理和通道归类规则。
+- 新增 `npm test` 和 4 个实例契约回归测试。
+- `npm run typecheck`：通过。
+- `npm run build:server`：通过。
+- `npm test`：4/4 通过。
+- `git diff --check`：通过。
+
+### Remaining
+
+- 前端 `npm run build` 在当前沙箱中被 esbuild 读取祖先目录权限阻止；提权构建申请因代理不可用未执行。
+- 尚未提交或推送；待前端构建验证后再决定版本号和提交说明。
+
+## Session: 服务端诊断上传重试队列收口（2026-09-12）
+
+- 将 `POST /api/diagnostic-logs?resource=retry` 的失败包领取改为事务化 `FOR UPDATE SKIP LOCKED`。
+- 为首次发送和重试发送增加 10 分钟租约；租约过期的 `sending` 记录会自动回收到 `failed`，避免进程崩溃后永久卡住。
+- 保持最多 3 次重试、指数退避和过期包不重试；发送结果更新增加租约条件，避免旧 worker 覆盖新状态。
+- 为 `next_attempt_at` 增加到期索引，并同步运行时建表迁移与 `0003` SQL 迁移。
+- 验证：`npm run typecheck:api`、`npm test`（479/479）、`git diff --check` 全部通过。
+
+## Session: 诊断日志手动发送 401 修复（2026-09-12）
+
+- 现场：`dev.pikachu2026.space.har` 只有一条 `POST /api/diagnostic-logs`，返回 401 `AUTH_EXPIRED`；请求头中既无 `Authorization` 也无 Cookie。
+- 根因：`src/services/diagnosticLogs.ts` 的 `request()` 用裸 `fetch`，未附加 `admin_auth_token`，因此设置读取、策略保存、手动发送三条链路全部 401；设置读取的失败被 `.catch(() => undefined)` 吞掉，页面回落到本地默认配置（`captureOnError=false`），导致「按错误发送日志」永远为空。
+- 修复：请求封装统一加 `Authorization: Bearer <token>` 与 `cache: 'no-store'`。
+- 附带修复：`DiagnosticLogsSection` 在挂载和保存策略后刷新本地错误日志包列表（此前 `setBundles` 从未被调用）。
+- 回归测试：新增 `tests/diagnosticLogAuth.test.ts`（修复前红、修复后绿），并把 `diagnosticLogs.ts`、`telemetry.ts`、`logger.ts` 纳入 `tsconfig.test.json`。
+- 清理：按仓库约定为 3 处控制字符正则补 `no-control-regex` 免除注释，lint 回到 0 errors / 0 warnings。
+- 验证：`npm test` 481/481、`typecheck:api`、`npm run build`、`serve:build`、`git diff --check` 全部通过；`format:check` 仅剩 4 个本次未触及的既有文件。
