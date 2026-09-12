@@ -18,7 +18,7 @@ import { logoutAdmin } from '../services/examService';
 import { resolveDeviceCommandReceipt } from '../utils/deviceCommandReceipt';
 import { deviceHeartbeatIntervalMs } from '../shared/deviceContracts';
 import { jitteredIntervalMs } from '../shared/polling';
-import { CLOUD_VERSION_EVENT } from '../services/examService';
+import { CLOUD_VERSION_EVENT, markVersionedSnapshotSupport } from '../services/examService';
 
 export default function DeviceHeartbeat() {
   const { pathname, search } = useLocation();
@@ -82,6 +82,7 @@ export default function DeviceHeartbeat() {
         acknowledgedCommandId,
       }).then((result) => {
         if (typeof result.version === 'number') {
+          markVersionedSnapshotSupport();
           window.dispatchEvent(new CustomEvent(CLOUD_VERSION_EVENT, { detail: { version: result.version } }));
         }
         if (result.revoked) {

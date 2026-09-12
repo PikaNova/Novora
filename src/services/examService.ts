@@ -26,6 +26,12 @@ const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
 /**
+ * 版本化快照的能力标记：只有服务端在某次心跳里回过 version 才会置位。
+ * 本地 / Docker / 内网部署不会回这个字段，客户端因此连请求 URL 都保持改造前的形状，
+ * 后续本地改用 WSS 推送时也不会被这里的判断牵动。
+ */
+const VERSIONED_SNAPSHOT_SUPPORT_KEY = 'exam_board_versioned_snapshot_support';
+/**
  * 心跳会带上服务端当前的快照版本号（仅 Vercel 部署）。收到事件后由 useExamSync 决定
  * 是否需要拉取快照，避免再单独轮询一次。
  */
@@ -64,6 +70,22 @@ export function getCloudVersion(): number {
   }
 }
 
+export function supportsVersionedSnapshot(): boolean {
+  try {
+    return localStorage.getItem(VERSIONED_SNAPSHOT_SUPPORT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markVersionedSnapshotSupport(): void {
+  try {
+    localStorage.setItem(VERSIONED_SNAPSHOT_SUPPORT_KEY, '1');
+  } catch {
+    /* 隐私模式下退化为普通轮询 */
+  }
+}
+
 /** 最近一次成功读取或保存的云端完整快照，是三方合并的共同基线。 */
 export function getCloudSnapshot(): ExamPayload | null {
   try {
@@ -95,14 +117,15 @@ export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promis
     const isBootstrap = !!bootstrapInstanceId;
     const etag = isBootstrap ? null : localStorage.getItem(CLOUD_ETAG_KEY);
     if (etag) headers['If-None-Match'] = etag;
-    // 已知版本号时改用版本化快照 URL：数据没变就是同一个 URL，可被边缘长期缓存；
-    // 旧服务端会忽略这两个参数并照常返回，不影响兼容。
+    // 只有服务端确认支持（心跳带过 version）且本机已知版本时，才改用版本化快照 URL：
+    // 数据没变就是同一个 URL，可被边缘长期缓存；其它情况保持原来的请求形状。
     const cloudVersion = isBootstrap ? 0 : getCloudVersion();
-    const url = isBootstrap
-      ? `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`
-      : cloudVersion > 0
-        ? `${API_URL}?${examSnapshotQuery(cloudVersion)}`
-        : API_URL;
+    let url = API_URL;
+    if (isBootstrap) {
+      url = `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`;
+    } else if (cloudVersion > 0 && supportsVersionedSnapshot()) {
+      url = `${API_URL}?${examSnapshotQuery(cloudVersion)}`;
+    }
 
     const res = await fetchWithTimeout(
       url,
