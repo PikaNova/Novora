@@ -11,6 +11,7 @@ import { BUILTIN_ROLES, authenticateUser, authSql, ensureAuthTables, makePasswor
 import { database, ensureTableOnce } from '../../api/_exams/db.js';
 import { projectCurrentExamRecords } from '../../api/_exams/examRecordProjection.js';
 import { handleExamRecordRoute } from '../../api/_exams/routes/examRecordRoutes.js';
+import { handleExamDataPost } from '../../api/_exams/routes/examDataRoutes.js';
 import { __resetRateLimiterForTests } from '../../api/_rateLimiter.js';
 import examsHandler from '../../api/exams.js';
 
@@ -188,6 +189,18 @@ async function listOperations(token: string, recordId: string) {
     body: {},
   } as unknown as VercelRequest;
   await handleExamRecordRoute(req, res);
+  return calls;
+}
+
+/** 走真实的快照保存管道（快速考试在客户端就是改快照后保存）。 */
+async function saveExamData(token: string, majors: Array<Record<string, unknown>>, activeMajorId = '') {
+  await openWriteSlot();
+  const { res, calls } = makeRes();
+  await handleExamDataPost(
+    makeReq(token, { items: [], title: '', majors, activeMajorId, baseUpdatedAt: 0 }),
+    res,
+    Date.now(),
+  );
   return calls;
 }
 
@@ -747,4 +760,107 @@ test('考试操作记录：详情页能读到操作者、前后状态与备注�
   const missingId = await listOperations(admin.token, '');
   assert.equal(missingId.statusCode, 400);
   assert.equal(missingId.body.code, 'INVALID_RECORD_ID');
+});
+
+test('快速考试：走本地优先保存管道也会补齐生命周期操作日志', async () => {
+  const now = Date.now();
+  const quickMajor = {
+    id: 'quick-lifecycle',
+    name: '临时统一考试',
+    items: [],
+    order: 0,
+    targetGradeIds: [],
+    targetClassIds: [],
+    source: 'quick',
+    temporary: true,
+    startAt: now - 60_000,
+    endAt: now + 3_600_000,
+    createdAt: now,
+    createdBy: admin.id,
+    endedAt: null,
+  };
+
+  // 1) 发布：投影会建出 status=published 的记录行，并补记一条 publish
+  const published = await saveExamData(admin.token, [quickMajor], quickMajor.id);
+  assert.equal(published.statusCode, 200);
+  const record = await readRecord('quick-lifecycle');
+  assert.equal(record.status, 'published');
+  assert.equal(record.source, 'quick');
+  assert.equal(Number(record.start_at), quickMajor.startAt, '快速考试也要有考试窗口');
+  assert.equal(Number(record.end_at), quickMajor.endAt);
+  assert.deepEqual(
+    (await readOperations('quick-lifecycle')).map((entry) => entry.action),
+    ['publish'],
+  );
+
+  // 2) 延长：endAt 变大记一条 extend
+  const extendedEndAt = quickMajor.endAt + 5 * 60_000;
+  await saveExamData(admin.token, [{ ...quickMajor, endAt: extendedEndAt }], quickMajor.id);
+  // 3) 提前结束：记一条 end，记录状态跟着变
+  const endedAt = Date.now();
+  await saveExamData(admin.token, [{ ...quickMajor, endAt: extendedEndAt, endedAt }], quickMajor.id);
+  const endedRecord = await readRecord('quick-lifecycle');
+  assert.equal(endedRecord.status, 'ended');
+  assert.equal(endedRecord.actual_end_at, null, '客户端路径只写 endedAt，不补 actual_end_at');
+
+  const actionsAfterActions = (await readOperations('quick-lifecycle')).map((entry) => entry.action);
+  assert.deepEqual([...actionsAfterActions].sort(), ['end', 'extend', 'publish']);
+
+  const operations = await readOperations('quick-lifecycle');
+  for (const entry of operations) {
+    assert.equal(Number(entry.actor_id), admin.id, '快速考试的操作日志也要记录操作者');
+  }
+  const extendEntry = operations.find((entry) => entry.action === 'extend');
+  assert.equal(String(extendEntry?.from_status), 'published');
+  assert.equal(String(extendEntry?.to_status), 'published');
+  const endEntry = operations.find((entry) => entry.action === 'end');
+  assert.equal(String(endEntry?.to_status), 'ended');
+
+  // 4) 重复保存同一份快照不应重复记日志（outbox 重放安全）
+  await saveExamData(admin.token, [{ ...quickMajor, endAt: extendedEndAt, endedAt }], quickMajor.id);
+  assert.deepEqual((await readOperations('quick-lifecycle')).map((entry) => entry.action).sort(), [
+    'end',
+    'extend',
+    'publish',
+  ]);
+});
+
+test('归档只读：已归档考试的修改与删除在服务端被冻结', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'frozen', name: '待归档考试', startAt: Date.now() - 1_000, endAt }]);
+
+  assert.equal((await act(admin.token, 'record-publish', { id: 'frozen' })).statusCode, 200);
+  assert.equal((await act(admin.token, 'record-end', { id: 'frozen' })).statusCode, 200);
+  assert.equal((await act(admin.token, 'record-archive', { id: 'frozen' })).statusCode, 200);
+
+  const archivedMajor = (await readSnapshotMajors()).find((major) => major.id === 'frozen');
+  assert.ok(archivedMajor, '归档后快照里仍应保留这场考试');
+  assert.ok(Number(archivedMajor?.archivedAt) > 0, '归档动作要写入 archivedAt');
+
+  // 1) 改名 → 服务端回退归档版本
+  const renamed = await saveExamData(admin.token, [{ ...archivedMajor, name: '被改名的归档考试' }], 'frozen');
+  assert.equal(renamed.statusCode, 200);
+  assert.deepEqual(renamed.body.ignoredArchivedMajors, ['frozen']);
+  let snapshot = await readSnapshotMajors();
+  assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '待归档考试', '归档考试改名必须无效');
+
+  // 2) 从快照里删掉 → 会被补回
+  const removed = await saveExamData(admin.token, [], '');
+  assert.equal(removed.statusCode, 200);
+  assert.deepEqual(removed.body.ignoredArchivedMajors, ['frozen']);
+  snapshot = await readSnapshotMajors();
+  assert.equal(
+    snapshot.some((major) => major.id === 'frozen'),
+    true,
+    '归档考试不能被删除，否则记录会失去运行时载体',
+  );
+
+  // 3) 取消归档后可以正常编辑
+  assert.equal((await act(admin.token, 'record-unarchive', { id: 'frozen' })).statusCode, 200);
+  const editable = (await readSnapshotMajors()).find((major) => major.id === 'frozen');
+  const afterEdit = await saveExamData(admin.token, [{ ...editable, name: '取消归档后改名' }], 'frozen');
+  assert.equal(afterEdit.statusCode, 200);
+  assert.equal(afterEdit.body.ignoredArchivedMajors, undefined, '取消归档后不应再被冻结');
+  snapshot = await readSnapshotMajors();
+  assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '取消归档后改名');
 });

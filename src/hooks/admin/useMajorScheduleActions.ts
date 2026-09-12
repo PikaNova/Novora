@@ -502,6 +502,9 @@ export function useMajorScheduleActions(params: {
       priorityOverSchedule: input.priorityOverSchedule,
       createdAt: now,
       createdBy: adminUser?.id,
+      // 记录层需要考试窗口：快速考试没有单独的「开始/结束时间」输入，按首个科目时间与时长算出。
+      startAt: start,
+      endAt: start + input.durationMinutes * 60_000,
       endedAt: null,
     };
     const next = [...majors, quick];
@@ -517,7 +520,11 @@ export function useMajorScheduleActions(params: {
     commit(next, activeMajorId, true, successMessage);
     notify('success', successMessage, '临时统一考试已更新');
   };
-  const extendQuickMajor = (major: MajorExam) =>
+  const extendQuickMajor = (major: MajorExam) => {
+    const itemEnds = major.items.map((item) => new Date(item.endTime).getTime()).filter(Number.isFinite);
+    // 老数据没有 major.endAt，从最后一科结束时间推导，避免延长后两个口径不一致。
+    const currentEndAt = major.endAt ?? (itemEnds.length ? Math.max(...itemEnds) : null);
+    const nextEndAt = currentEndAt == null ? null : currentEndAt + 5 * 60_000;
     updateQuickMajor(
       major.id,
       {
@@ -525,18 +532,23 @@ export function useMajorScheduleActions(params: {
           ...item,
           endTime: toLocalInput(new Date(item.endTime).getTime() + 5 * 60_000),
         })),
+        ...(nextEndAt == null ? {} : { endAt: nextEndAt }),
       },
       `「${major.name}」已延长 5 分钟。`,
     );
-  const endQuickMajor = (major: MajorExam) =>
+  };
+  const endQuickMajor = (major: MajorExam) => {
+    const endedAt = Date.now();
     updateQuickMajor(
       major.id,
       {
-        endedAt: Date.now(),
+        endedAt,
+        actualEndAt: endedAt,
         items: major.items.map((item) => ({ ...item, enabled: false })),
       },
       `「${major.name}」已提前结束。`,
     );
+  };
   const promoteQuickMajor = (major: MajorExam) =>
     updateQuickMajor(
       major.id,

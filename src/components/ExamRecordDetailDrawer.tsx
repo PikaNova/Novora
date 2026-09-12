@@ -26,6 +26,11 @@ import type { SchoolClass, SchoolGrade } from '../types/school';
 const DEFAULT_EXTEND_MINUTES = 15;
 const MAX_EXTEND_MINUTES = 600;
 
+/** 操作日志里会出现、但不属于「记录动作」的条目（例如快速考试转正式）。 */
+const EXTRA_OPERATION_LABELS: Record<string, string> = {
+  promote: '转为正式考试',
+};
+
 type Props = {
   record: ExamRecordListEntry;
   grades: SchoolGrade[];
@@ -429,7 +434,11 @@ export default function ExamRecordDetailDrawer({ record, grades, classes, can, o
               <ul>
                 {operations.map((entry) => (
                   <li key={`${entry.action}-${entry.createdAt}-${entry.resultRecordId}`}>
-                    <strong>{EXAM_RECORD_ACTION_LABELS[entry.action as ExamRecordActionName] ?? entry.action}</strong>
+                    <strong>
+                      {EXAM_RECORD_ACTION_LABELS[entry.action as ExamRecordActionName] ??
+                        EXTRA_OPERATION_LABELS[entry.action] ??
+                        entry.action}
+                    </strong>
                     <span>{formatDateTime(entry.createdAt)}</span>
                     <span>{entry.actorName || (entry.actorId == null ? '系统' : `#${entry.actorId}`)}</span>
                     {entry.fromStatus && entry.toStatus && entry.fromStatus !== entry.toStatus && (
