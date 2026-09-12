@@ -620,3 +620,11 @@ The frontend repair is deployed but cannot activate because the live server fail
 - CSS：`admin-tabbar__mode*` 迁移到 `admin-context-bar*`（admin.css 与 admin-design.css）；桌面端吸顶横排，移动端页面内两列网格；≤700px 隐藏左侧栏，改由底部 `admin-mobile-nav` 承担切换。
 - 界面实测：DOM 断言导航容器内上下文栏 0 处、页面内 1 处；大型考试 2 字段、周测 3 字段；390px 视口下左栏隐藏、上下文栏两列、底部导航正常（测试用临时 PostgreSQL 与本地服务，已清理）。
 - 验证：`npm test` 486/486、lint 0/0、`npm run build`、`typecheck:api`、`git diff --check`。
+
+## Session: 后台左侧栏滚动边界修复（2026-09-12）
+
+- 复现：视口 1280×300 下把文档滚到底（286px），实测左栏 `top=0`（钻到 58px 高的 sticky 页头下方）、`bottom=242`，视口 300 → 底部露出 58px 空隙，与用户描述一致。
+- 根因：`.admin-workspace > .admin-tabbar` 写的是 `top: 0`，而高度是 `calc(100dvh - 58px)`，sticky 偏移与高度用了不同基准；页头 z-index 100 高于左栏 24，所以滚动时左栏被页头盖住。
+- 修复：`.admin-page` 新增 `--admin-header-h: 58px`，左栏改用 `top: var(--admin-header-h)` 与 `height: calc(100dvh - var(--admin-header-h))`，701–900px 断点同步。
+- 验证：修复后同样条件 `top=58 / bottom=300 / 空隙 0`；921×912 常规视口下左栏底边同样贴齐；大型考试页上下文栏仍吸顶在内容区顶部；390px 宽度左栏隐藏、底部导航正常。
+- 环境：临时 PostgreSQL（55433）与本地服务（3100/3101）验证后已停止并删除；期间发现并清理了误生成的空文件 `$null`。

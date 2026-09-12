@@ -677,6 +677,18 @@ git push origin main
 | 验证 | 真实界面实测（临时库 + 本地服务）：导航容器内 `admin-context-bar` 计数 0、页面内为 1；大型考试页 2 个字段、周测页 3 个字段；390px 宽度下左栏 `display:none`、上下文栏为两列网格、底部导航正常 |
 | 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`typecheck:api`；`git diff --check` |
 
+## 2026-09-12 后台左侧栏滚动边界修复
+
+| 项目 | 状态 |
+|---|---|
+| 现象 | 页面滚动时左侧导航栏"会一起滚动"、底部边界断层：栏顶钻到 sticky 页头下面，栏底距视口底还差 58px |
+| 复现 | 缩小视口使文档可滚动（1280×300，滚动 286px）后实测：`rail.top=0`、`rail.bottom=242`、`viewport=300` → 底部空隙 58px，正好等于页头高度 |
+| 根因 | 左栏在 `.admin-workspace` 里是 `position: sticky; top: 0; height: calc(100dvh - 58px)`：`top: 0` 会被 58px 高的 sticky 页头（z-index 100 > 24）盖住，而高度又按减去页头算，两者基准不一致 |
+| 修复 | 在 `.admin-page` 上抽出 `--admin-header-h: 58px`，左栏改为 `top: var(--admin-header-h)` + `height: calc(100dvh - var(--admin-header-h))`，让 sticky 偏移与高度共用同一基准（701–900px 断点同步） |
+| 验证 | 修复后同样条件下实测：`rail.top=58`、`rail.bottom=300`、底部空隙 0；常规视口（921×912）下左栏底边同样贴齐视口；大型考试页上下文栏仍吸顶在内容区顶部（`bar.top=content.top=58`）；390px 宽度左栏仍隐藏、底部导航正常 |
+| 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`git diff --check` |
+| 环境 | 验证用临时 PostgreSQL（55433）与两个本地服务（3100/3101）已停止并删除；本机 5432 未改动 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |
