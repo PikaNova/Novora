@@ -120,8 +120,16 @@ export function ensureTableOnce(): Promise<void> {
           action TEXT NOT NULL,
           source_record_id TEXT NOT NULL,
           result_record_id TEXT NOT NULL,
+          actor_id BIGINT,
+          from_status TEXT NOT NULL DEFAULT '',
+          to_status TEXT NOT NULL DEFAULT '',
+          reason TEXT NOT NULL DEFAULT '',
           created_at BIGINT NOT NULL
         )`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS actor_id BIGINT`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS from_status TEXT NOT NULL DEFAULT ''`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS to_status TEXT NOT NULL DEFAULT ''`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT ''`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_record_operations_created ON exam_record_operations(created_at DESC)`,
           transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
