@@ -34,6 +34,8 @@ type RecordRow = {
   end_at?: unknown;
   actual_start_at?: unknown;
   actual_end_at?: unknown;
+  paused_at?: unknown;
+  paused_ms?: unknown;
   published_at?: unknown;
   ended_at?: unknown;
   archived_at?: unknown;
@@ -118,6 +120,8 @@ function recordJson(row: RecordRow, now: number): Record<string, unknown> {
     endAt: nullableNumber(row.end_at),
     actualStartAt: nullableNumber(row.actual_start_at),
     actualEndAt: nullableNumber(row.actual_end_at),
+    pausedAt: nullableNumber(row.paused_at),
+    pausedMs: nullableNumber(row.paused_ms) ?? 0,
     publishedAt: nullableNumber(row.published_at),
     endedAt: nullableNumber(row.ended_at),
     archivedAt: nullableNumber(row.archived_at),
@@ -192,7 +196,7 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
       COALESCE(jsonb_array_length(items), 0) AS item_count,
       target_grade_ids, target_class_ids, source, temporary, priority_over_schedule,
       config, created_by, created_at, updated_at, start_at, end_at,
-      actual_start_at, actual_end_at, published_at, ended_at, archived_at,
+      actual_start_at, actual_end_at, paused_at, paused_ms, published_at, ended_at, archived_at,
       version, sort_order
     FROM exam_records
     ORDER BY updated_at DESC, sort_order ASC, id ASC
@@ -368,7 +372,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
               id, runtime_major_id, name, description, status, items,
               target_grade_ids, target_class_ids, source, temporary, priority_over_schedule,
               config, created_by, created_at, updated_at, start_at, end_at,
-              actual_start_at, actual_end_at, published_at, ended_at, archived_at, version, sort_order
+              actual_start_at, actual_end_at, paused_at, paused_ms, published_at, ended_at, archived_at, version, sort_order
             )
             SELECT ${copyProjection.id}, ${copyProjection.runtimeMajorId}, ${copyProjection.name}, ${copyProjection.description}, 'draft',
               ${JSON.stringify(copyProjection.items)}::jsonb, ${JSON.stringify(copyProjection.targetGradeIds)}::jsonb,

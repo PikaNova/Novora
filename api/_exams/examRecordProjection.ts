@@ -22,6 +22,8 @@ export type ExamRecordProjection = {
   endAt: number | null;
   actualStartAt: number | null;
   actualEndAt: number | null;
+  pausedAt?: number | null;
+  pausedMs?: number;
   publishedAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;
@@ -36,6 +38,8 @@ type MajorExtras = MajorExam & {
   endAt?: unknown;
   actualStartAt?: unknown;
   actualEndAt?: unknown;
+  pausedAt?: unknown;
+  pausedMs?: unknown;
   publishedAt?: unknown;
   archivedAt?: unknown;
 };
@@ -92,6 +96,8 @@ export function buildExamRecordProjection(
     endAt: finiteNumber(source.endAt),
     actualStartAt: finiteNumber(source.actualStartAt),
     actualEndAt: finiteNumber(source.actualEndAt),
+    pausedAt: finiteNumber(source.pausedAt),
+    pausedMs: finiteNumber(source.pausedMs) ?? 0,
     publishedAt: finiteNumber(source.publishedAt),
     endedAt,
     archivedAt: finiteNumber(source.archivedAt),
@@ -116,7 +122,7 @@ export function projectExamRecords(
           id, runtime_major_id, name, description, status, items,
           target_grade_ids, target_class_ids, source, temporary,
           priority_over_schedule, config, created_by, created_at, updated_at,
-          start_at, end_at, actual_start_at, actual_end_at, published_at,
+          start_at, end_at, actual_start_at, actual_end_at, paused_at, paused_ms, published_at,
           ended_at, archived_at, version, sort_order
         ) VALUES (
           ${record.id}, ${record.runtimeMajorId}, ${record.name}, ${record.description}, ${record.status},
@@ -124,7 +130,7 @@ export function projectExamRecords(
           ${JSON.stringify(record.targetClassIds)}::jsonb, ${record.source}, ${record.temporary},
           ${record.priorityOverSchedule}, ${JSON.stringify(record.config)}::jsonb, ${record.createdBy},
           ${record.createdAt}, ${record.updatedAt}, ${record.startAt}, ${record.endAt},
-          ${record.actualStartAt}, ${record.actualEndAt}, ${record.publishedAt}, ${record.endedAt},
+          ${record.actualStartAt}, ${record.actualEndAt}, ${record.pausedAt ?? null}, ${record.pausedMs ?? 0}, ${record.publishedAt}, ${record.endedAt},
           ${record.archivedAt}, ${record.version}, ${record.sortOrder}
         )
         ON CONFLICT (id) DO UPDATE SET
