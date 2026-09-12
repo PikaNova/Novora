@@ -62,7 +62,17 @@ const POST_ONLY_ROUTES: Record<string, RouteHandler> = {
   'reset-data': (req, res) => handleResetData(req, res),
 };
 
-const RECORD_ACTIONS = new Set(['record-publish', 'record-end', 'record-archive', 'record-unarchive', 'record-copy']);
+const RECORD_ACTIONS = new Set([
+  'record-publish',
+  'record-end',
+  'record-archive',
+  'record-unarchive',
+  'record-copy',
+  'record-start',
+  'record-pause',
+  'record-resume',
+  'record-extend',
+]);
 
 const GENERAL_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_WINDOW_MS, 10_000);
 const GENERAL_RATE_LIMIT_MAX_REQUESTS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_MAX_REQUESTS, 30);

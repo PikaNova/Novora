@@ -83,7 +83,6 @@ const isGuestDeviceRow = rowShape<{ revoked: boolean; grade_id: string; class_id
   class_id: isString,
   is_management: isBoolean,
 });
-const isGuestRoleNameRow = rowShape<{ name: string }>({ name: isString });
 const isAuthRow = rowShape<AuthRow>({
   password_hash: isString,
   password_salt: isString,
@@ -125,6 +124,16 @@ const isScopeRow = rowShape<{ scope_type: string; grade_id: string; class_id: st
 
 let sqlClient: DbClient | null = null;
 let setupPromise: Promise<void> | null = null;
+/**
+ * app_auth 是单行配置，但每次鉴权请求都会读一遍。实例内缓存 5 秒可以把管理端请求的
+ * Neon 往返各减一次；token_version 变更后最多 5 秒在其它实例生效，本实例写入时立即失效。
+ */
+const AUTH_CONFIG_CACHE_MS = 5_000;
+let authConfigCache: { at: number; row: AuthRow | null } | null = null;
+
+function invalidateAuthConfigCache(): void {
+  authConfigCache = null;
+}
 
 export function authSql() {
   if (sqlClient) return sqlClient;
@@ -425,12 +434,16 @@ export async function ensureTelemetryIpSalt(): Promise<string> {
 
 async function config(): Promise<AuthRow | null> {
   await ensureAuthTables();
+  const now = Date.now();
+  if (authConfigCache && now - authConfigCache.at < AUTH_CONFIG_CACHE_MS) return authConfigCache.row;
   const rows = assertRows(
     await authSql()`SELECT password_hash, password_salt, token_secret, token_version FROM app_auth WHERE id = 1`,
     isAuthRow,
     'app_auth',
   );
-  return rows[0] ?? null;
+  const row = rows[0] ?? null;
+  authConfigCache = { at: now, row };
+  return row;
 }
 
 export async function makePasswordHash(password: string): Promise<{ hash: string; salt: string }> {
@@ -597,6 +610,7 @@ async function bootstrapAuth(password: string): Promise<AuthRow | null> {
   const at = Date.now();
   await authSql()`INSERT INTO app_auth (id, password_hash, password_salt, token_secret, token_version, initialized_at, updated_at)
     VALUES (1, ${hash}, ${salt}, ${tokenSecret}, 1, ${at}, ${at}) ON CONFLICT (id) DO NOTHING`;
+  invalidateAuthConfigCache();
   return await config();
 }
 
@@ -666,6 +680,7 @@ async function userById(id: number): Promise<UserRow | null> {
  */
 export async function invalidateLegacySharedToken(): Promise<void> {
   await authSql()`UPDATE app_auth SET token_version=token_version+1, updated_at=${Date.now()} WHERE id=1`;
+  invalidateAuthConfigCache();
 }
 
 function signature(userId: number, expiresAt: number, version: number, secret: string): string {
@@ -896,14 +911,12 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
     const guestDevice = deviceRows[0];
     if (!guestDevice || guestDevice.revoked !== false || guestDevice.is_management === true) return null;
     if (String(guestDevice.grade_id) !== guestGradeId || String(guestDevice.class_id) !== guestClassId) return null;
-    const roleNameRows = assertRows(
-      await authSql()`SELECT name FROM app_roles WHERE id='viewer' LIMIT 1`,
-      isGuestRoleNameRow,
-      'app_roles',
-    );
-    const rolePermRows = assertRows(
-      await authSql()`SELECT permissions FROM app_roles WHERE id='viewer' LIMIT 1`,
-      rowShape<{ permissions: unknown }>({ permissions: (_value: unknown): _value is unknown => true }),
+    const guestRoleRows = assertRows(
+      await authSql()`SELECT name, permissions FROM app_roles WHERE id='viewer' LIMIT 1`,
+      rowShape<{ name: string; permissions: unknown }>({
+        name: isString,
+        permissions: (_value: unknown): _value is unknown => true,
+      }),
       'app_roles',
     );
     return {
@@ -911,8 +924,8 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
       username: guestInstanceId,
       displayName: '班级访客',
       roleId: 'viewer',
-      roleName: roleNameRows[0]?.name ?? '班级访客',
-      permissions: parsePermissions(rolePermRows[0]?.permissions),
+      roleName: guestRoleRows[0]?.name ?? '班级访客',
+      permissions: parsePermissions(guestRoleRows[0]?.permissions),
       scopes: [{ type: 'class', gradeId: guestGradeId, classId: guestClassId }],
       mustChangePassword: false,
     };

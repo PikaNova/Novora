@@ -14,6 +14,7 @@ import {
   type DeviceSetupConflict,
   type PluginBindingInfo,
 } from '../shared/deviceContracts';
+import { parseExamVersion } from '../shared/examContracts';
 
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
@@ -396,9 +397,13 @@ export async function sendDeviceCommand(
     );
 }
 
-export async function sendDeviceHeartbeat(
-  input: DeviceHeartbeatInput,
-): Promise<{ revoked: boolean; binding: DeviceBinding | null; command: DeviceCommand | null }> {
+export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<{
+  revoked: boolean;
+  binding: DeviceBinding | null;
+  command: DeviceCommand | null;
+  /** 服务端当前快照版本号；只有启用了该优化的部署（Vercel）才会返回。 */
+  version?: number;
+}> {
   if (heartbeatInFlight) return { revoked: false, binding: null, command: null };
   heartbeatInFlight = true;
   try {
@@ -441,7 +446,8 @@ export async function sendDeviceHeartbeat(
       }
     }
     const command = parseDeviceCommand(data.command);
-    return { revoked: false, binding, command };
+    const version = parseExamVersion(data.version);
+    return { revoked: false, binding, command, ...(version > 0 ? { version } : {}) };
   } catch {
     return { revoked: false, binding: null, command: null };
   } finally {

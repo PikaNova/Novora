@@ -12,7 +12,7 @@ import {
   hasPermission as sharedHasPermission,
   type PermissionScope,
 } from '../shared/permissionRules';
-import { parseExamPayload, type ExamPayload } from '../shared/examContracts';
+import { examSnapshotQuery, parseExamPayload, parseExamVersion, type ExamPayload } from '../shared/examContracts';
 
 export type { ExamPayload };
 
@@ -25,6 +25,18 @@ const GRADE_ADMIN_FIRST_LOGIN_KEY = 'novora_grade_admin_first_login';
 const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
+/**
+ * 边缘缓存能力标记：只有服务端在某次心跳里回过 version 才会置位。
+ * 置位后客户端才使用版本化快照 URL、并放弃公告的缓存穿透参数；
+ * 本地 / Docker / 内网部署不会置位，因此连请求形状都保持改造前不变，
+ * 后续本地改用 WSS 推送时也不会被这里的判断牵动。
+ */
+const EDGE_CACHE_SUPPORT_KEY = 'exam_board_edge_cache_support';
+/**
+ * 心跳会带上服务端当前的快照版本号（仅 Vercel 部署）。收到事件后由 useExamSync 决定
+ * 是否需要拉取快照，避免再单独轮询一次。
+ */
+export const CLOUD_VERSION_EVENT = 'exam-board:cloud-version';
 let lastExamApiError: ApiError | null = null;
 let lastAuthApiError: ApiError | null = null;
 let generatedRecoveryKey: string | null = null;
@@ -47,6 +59,31 @@ function rememberCloudSnapshot(payload: ExamPayload): void {
     localStorage.setItem(CLOUD_SNAPSHOT_KEY, JSON.stringify(payload));
   } catch {
     /* 离线/隐私模式下仍可正常使用当前会话数据 */
+  }
+}
+
+/** 本机已应用的云端快照版本号；0 表示还没同步过。 */
+export function getCloudVersion(): number {
+  try {
+    return parseExamVersion(localStorage.getItem(CLOUD_VERSION_KEY));
+  } catch {
+    return 0;
+  }
+}
+
+export function supportsEdgeCache(): boolean {
+  try {
+    return localStorage.getItem(EDGE_CACHE_SUPPORT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markEdgeCacheSupport(): void {
+  try {
+    localStorage.setItem(EDGE_CACHE_SUPPORT_KEY, '1');
+  } catch {
+    /* 隐私模式下退化为普通轮询 */
   }
 }
 
@@ -81,9 +118,15 @@ export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promis
     const isBootstrap = !!bootstrapInstanceId;
     const etag = isBootstrap ? null : localStorage.getItem(CLOUD_ETAG_KEY);
     if (etag) headers['If-None-Match'] = etag;
-    const url = isBootstrap
-      ? `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`
-      : API_URL;
+    // 只有服务端确认支持（心跳带过 version）且本机已知版本时，才改用版本化快照 URL：
+    // 数据没变就是同一个 URL，可被边缘长期缓存；其它情况保持原来的请求形状。
+    const cloudVersion = isBootstrap ? 0 : getCloudVersion();
+    let url = API_URL;
+    if (isBootstrap) {
+      url = `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`;
+    } else if (cloudVersion > 0 && supportsEdgeCache()) {
+      url = `${API_URL}?${examSnapshotQuery(cloudVersion)}`;
+    }
 
     const res = await fetchWithTimeout(
       url,

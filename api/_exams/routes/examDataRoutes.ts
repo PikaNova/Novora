@@ -10,7 +10,8 @@ import {
   updatedAtIntegerOverflow,
 } from '../db.js';
 import { examPayload } from '../payload.js';
-import { examEtag } from '../../../src/shared/examContracts.js';
+import { examEtag, isCurrentSnapshotRequest } from '../../../src/shared/examContracts.js';
+import { isEdgeDeployment } from '../../_deployTarget.js';
 import { isolateQuickMajorCreate, sanitizeStaleSnapshot, validateMutation } from '../permissions.js';
 import { computeRemovedScopeIds } from '../scopeCleanup.js';
 import { projectCurrentExamRecords } from '../examRecordProjection.js';
@@ -96,11 +97,24 @@ export async function handleExamDataGet(req: VercelRequest, res: VercelResponse,
     await ensureTableOnce();
     versionRows = await selectUpdatedAt();
   }
-  const etag = examEtag(versionRows[0]?.updated_at);
-  res.setHeader('ETag', etag);
-  if (req.headers['if-none-match'] === etag) {
-    res.status(304).end();
-    return;
+  const currentVersion = versionRows[0]?.updated_at;
+  const edgeDeployment = isEdgeDeployment();
+  const snapshotRequest = String(req.query?.resource ?? '') === 'snapshot';
+  if (isCurrentSnapshotRequest({ edgeDeployment, requestedVersion: req.query?.v, currentVersion })) {
+    // 版本化快照（仅 Vercel）：URL 里带着版本号，数据变化后客户端会换用新 URL，
+    // 所以这一份内容可以交给边缘长期缓存，命中时既不进函数也不查 Neon。
+    // 不使用 ETag 协商：这里要的就是「边缘直接返回整份快照」。
+    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=86400, stale-while-revalidate=3600');
+  } else {
+    // 改造前的行为：只做 ETag 协商缓存。版本已过期的快照请求也落到这里，
+    // 并显式 no-store，避免把当前内容错误地缓存到旧版本 URL 下。
+    if (edgeDeployment && snapshotRequest) res.setHeader('Cache-Control', 'private, no-store');
+    const etag = examEtag(currentVersion);
+    res.setHeader('ETag', etag);
+    if (req.headers['if-none-match'] === etag) {
+      res.status(304).end();
+      return;
+    }
   }
 
   let rows: ExamRow[];

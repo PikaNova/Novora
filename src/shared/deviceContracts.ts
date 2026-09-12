@@ -3,6 +3,12 @@ import { asFiniteNumber, asRecord } from './typeGuards.js';
 export const DEVICE_ONLINE_WINDOW_MS = 180_000;
 export const DEVICE_HEARTBEAT_ACTIVE_INTERVAL_MS = 30_000;
 export const DEVICE_HEARTBEAT_IDLE_INTERVAL_MS = 60_000;
+/**
+ * 心跳刷新 last_seen_at 的最小间隔：内容未变时跳过重复写入（省掉一次 UPDATE 的
+ * WAL 与死元组），同时保证在线窗口判定不会因为省写入而误判离线。
+ * 必须小于 DEVICE_ONLINE_WINDOW_MS，否则在线设备会被误判。
+ */
+export const DEVICE_HEARTBEAT_REFRESH_MS = 60_000;
 
 export type DeviceCommandAction = 'pause' | 'resume' | 'extend' | 'end';
 export type DeviceCommandStatus = 'pending' | 'claimed' | 'acknowledged' | 'failed' | 'expired';
@@ -57,10 +63,7 @@ const DEVICE_COMMAND_TRANSITIONS: Record<DeviceCommandStatus, readonly DeviceCom
   expired: [],
 };
 
-export function canTransitionDeviceCommand(
-  from: DeviceCommandStatus,
-  to: DeviceCommandStatus,
-): boolean {
+export function canTransitionDeviceCommand(from: DeviceCommandStatus, to: DeviceCommandStatus): boolean {
   return DEVICE_COMMAND_TRANSITIONS[from]?.includes(to) ?? false;
 }
 

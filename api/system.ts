@@ -286,26 +286,32 @@ async function collectDatabase(): Promise<{
   }
 }
 
+// 用 process.cpuUsage() 的两次差值代替原来的 600ms 采样窗口：旧实现每次取样都要让函数
+// 空转 600 毫秒，直接记进免费版的 GB-秒。取值含义改为“自上次取样以来的平均占用”。
 let cpuUsageCache: { at: number; value: number | null } | null = null;
+let lastCpuSample: { at: number; usage: NodeJS.CpuUsage } | null = null;
+
+function cpuPercentBetweenSample(now: number): number | null {
+  const usage = process.cpuUsage();
+  const previous = lastCpuSample;
+  lastCpuSample = { at: now, usage };
+  const cores = Math.max(1, cpus().length);
+  const clamp = (usedMs: number, capacityMs: number): number | null =>
+    capacityMs > 0 ? Math.min(100, Math.max(0, (usedMs / capacityMs) * 100)) : null;
+  if (previous && now > previous.at) {
+    const usedMs = (usage.user - previous.usage.user + (usage.system - previous.usage.system)) / 1000;
+    return clamp(usedMs, (now - previous.at) * cores);
+  }
+  // 冷启动后的第一次取样没有上一个基线，退回“进程启动至今的平均占用”。
+  const totalMs = (usage.user + usage.system) / 1000;
+  return clamp(totalMs, Math.max(1, process.uptime() * 1000) * cores);
+}
+
 async function currentCpuUsage(): Promise<number | null> {
-  if (cpuUsageCache && Date.now() - cpuUsageCache.at < 5000) return cpuUsageCache.value;
-  const sample = () => {
-    const list = cpus();
-    let idle = 0;
-    let total = 0;
-    for (const core of list) {
-      for (const value of Object.values(core.times)) total += value;
-      idle += core.times.idle;
-    }
-    return { idle, total };
-  };
-  const before = sample();
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  const after = sample();
-  const idleDelta = after.idle - before.idle;
-  const totalDelta = after.total - before.total;
-  const value = totalDelta > 0 ? Math.min(100, Math.max(0, 100 * (1 - idleDelta / totalDelta))) : null;
-  cpuUsageCache = { at: Date.now(), value };
+  const now = Date.now();
+  if (cpuUsageCache && now - cpuUsageCache.at < 5000) return cpuUsageCache.value;
+  const value = cpuPercentBetweenSample(now);
+  cpuUsageCache = { at: now, value };
   return value;
 }
 

@@ -4,6 +4,7 @@ import type { ExamItem } from '../src/types/index.js';
 import {
   DEVICE_HEARTBEAT_ACTIVE_INTERVAL_MS,
   DEVICE_HEARTBEAT_IDLE_INTERVAL_MS,
+  DEVICE_HEARTBEAT_REFRESH_MS,
   DEVICE_ONLINE_WINDOW_MS,
   deviceHeartbeatIntervalMs,
 } from '../src/shared/deviceContracts.js';
@@ -46,6 +47,16 @@ test('device heartbeats are slower while idle and keep the shared online window'
   assert.equal(deviceHeartbeatIntervalMs({ hasCurrentExam: true }), DEVICE_HEARTBEAT_ACTIVE_INTERVAL_MS);
   assert.equal(deviceHeartbeatIntervalMs({ hasNextExam: true }), DEVICE_HEARTBEAT_ACTIVE_INTERVAL_MS);
   assert.equal(DEVICE_ONLINE_WINDOW_MS, 180_000);
+});
+
+test('heartbeat write skipping never pushes an online device past the online window', () => {
+  // 心跳可以跳过“内容没变”的重复写入，但 last_seen_at 的刷新间隔必须留在线窗口之内，
+  // 否则设备还活着却会被仪表盘判成离线。
+  assert.ok(DEVICE_HEARTBEAT_REFRESH_MS > 0);
+  assert.ok(
+    DEVICE_HEARTBEAT_REFRESH_MS * 2 < DEVICE_ONLINE_WINDOW_MS,
+    'refresh interval must leave room for a missed heartbeat inside the online window',
+  );
 });
 
 test('exam ETag is derived only from the snapshot version', () => {

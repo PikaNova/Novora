@@ -635,6 +635,14 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 本次推送包含 6 个提交：诊断留存与过期清理（S1）、对应追踪文档、后台页面控件移出导航栏、对应追踪文档、左栏滚动边界修复、对应追踪文档。
 - 部署侧待办：dev 站点重新构建部署；按需配置 `DIAGNOSTIC_WORKER_SECRET` 并挂载 `GET /api/diagnostic-worker` 的定时任务。
 
+## Session: 商业化分层与开发差距（2026-09-12）
+
+- 新增 `workspace/novora-commercial-readiness.md`：分界线（教室侧免费/管理侧收费）、三条底线（不锁数据、不锁安全、Agent 组件免费能力收费）、现状能力归属表、三档套餐、License/Entitlement 模型与状态机、`canUse()` 标识清单、版本映射、过渡策略（内测免费签发）、三个坑。
+- 补充"开发差距（详细）"与"最短收费路径"两节：按 A~F 六组列出证据、缺口、依赖、验收与规模，并给出可压缩项（空间模型先做两级、v2.10 与 v2.11 并行、v2.9 错误中心后半段后置、内容包后置）。
+- 收费版本定位澄清：v2.10 是闭源镜像起点不是收费起点；v2.11 埋 License；v2.12 Agent 就位；建议 v2.13 停止免费签发即开始收费；v4.0 接支付。
+- 新增 `workspace/novora-update-backup-plan.md`：镜像分发 + updater sidecar + `.nbk` 备份恢复 + 跨机恢复方案（此前已完成）。
+- 进度盘点证据：`exam_record_operations` 表已建但零写入；`ExamRecordsPanel` 无详情视图；`docker-image.yml` 为 GitHub 模板；空间模型与设备身份缺失；作者端今日仍在提交错误中心能力。
+
 ## Session: 诊断日志界面控件统一（2026-09-12）
 
 - `DiagnosticLogsSection` 原先用原生 `<input type="checkbox">`、`<input type="number">`、`<input type="date">`，与其余设置页不一致。

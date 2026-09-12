@@ -22,6 +22,8 @@ export type ExamRecordProjection = {
   endAt: number | null;
   actualStartAt: number | null;
   actualEndAt: number | null;
+  pausedAt?: number | null;
+  pausedMs?: number;
   publishedAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;
@@ -36,6 +38,8 @@ type MajorExtras = MajorExam & {
   endAt?: unknown;
   actualStartAt?: unknown;
   actualEndAt?: unknown;
+  pausedAt?: unknown;
+  pausedMs?: unknown;
   publishedAt?: unknown;
   archivedAt?: unknown;
 };
@@ -92,6 +96,8 @@ export function buildExamRecordProjection(
     endAt: finiteNumber(source.endAt),
     actualStartAt: finiteNumber(source.actualStartAt),
     actualEndAt: finiteNumber(source.actualEndAt),
+    pausedAt: finiteNumber(source.pausedAt),
+    pausedMs: finiteNumber(source.pausedMs) ?? 0,
     publishedAt: finiteNumber(source.publishedAt),
     endedAt,
     archivedAt: finiteNumber(source.archivedAt),
@@ -100,7 +106,13 @@ export function buildExamRecordProjection(
   };
 }
 
-/** Upserts the projection without deleting records absent from the current snapshot. */
+/**
+ * Upserts the projection without deleting records absent from the current snapshot.
+ *
+ * 状态合并规则：`archived` 优先保留，因为已归档的考试在快照里仍然带着 `endedAt`，
+ * 若先判 EXCLUDED 就会被投影立刻改回 `ended`，归档动作等于无效；只有 unarchive
+ * 会在同一事务里显式把状态写回 `ended`，那时 `exam_records.status` 已不是 archived。
+ */
 export function projectExamRecords(
   transaction: SqlTx,
   majors: MajorExam[],
@@ -116,7 +128,7 @@ export function projectExamRecords(
           id, runtime_major_id, name, description, status, items,
           target_grade_ids, target_class_ids, source, temporary,
           priority_over_schedule, config, created_by, created_at, updated_at,
-          start_at, end_at, actual_start_at, actual_end_at, published_at,
+          start_at, end_at, actual_start_at, actual_end_at, paused_at, paused_ms, published_at,
           ended_at, archived_at, version, sort_order
         ) VALUES (
           ${record.id}, ${record.runtimeMajorId}, ${record.name}, ${record.description}, ${record.status},
@@ -124,7 +136,7 @@ export function projectExamRecords(
           ${JSON.stringify(record.targetClassIds)}::jsonb, ${record.source}, ${record.temporary},
           ${record.priorityOverSchedule}, ${JSON.stringify(record.config)}::jsonb, ${record.createdBy},
           ${record.createdAt}, ${record.updatedAt}, ${record.startAt}, ${record.endAt},
-          ${record.actualStartAt}, ${record.actualEndAt}, ${record.publishedAt}, ${record.endedAt},
+          ${record.actualStartAt}, ${record.actualEndAt}, ${record.pausedAt ?? null}, ${record.pausedMs ?? 0}, ${record.publishedAt}, ${record.endedAt},
           ${record.archivedAt}, ${record.version}, ${record.sortOrder}
         )
         ON CONFLICT (id) DO UPDATE SET
@@ -139,6 +151,7 @@ export function projectExamRecords(
           priority_over_schedule = EXCLUDED.priority_over_schedule,
           config = EXCLUDED.config,
           status = CASE
+            WHEN exam_records.status = 'archived' THEN 'archived'
             WHEN EXCLUDED.status = 'ended' THEN 'ended'
             WHEN exam_records.status = 'draft' AND EXCLUDED.status = 'published' THEN 'published'
             ELSE exam_records.status
@@ -208,6 +221,7 @@ export function projectCurrentExamRecords(transaction: SqlTx): Promise<Array<Rec
       priority_over_schedule = EXCLUDED.priority_over_schedule,
       config = EXCLUDED.config,
       status = CASE
+        WHEN exam_records.status = 'archived' THEN 'archived'
         WHEN EXCLUDED.status = 'ended' THEN 'ended'
         WHEN exam_records.status = 'draft' AND EXCLUDED.status = 'published' THEN 'published'
         ELSE exam_records.status
