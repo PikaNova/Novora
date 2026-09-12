@@ -590,3 +590,14 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 回归测试：新增 `tests/diagnosticLogAuth.test.ts`（修复前红、修复后绿），并把 `diagnosticLogs.ts`、`telemetry.ts`、`logger.ts` 纳入 `tsconfig.test.json`。
 - 清理：按仓库约定为 3 处控制字符正则补 `no-control-regex` 免除注释，lint 回到 0 errors / 0 warnings。
 - 验证：`npm test` 481/481、`typecheck:api`、`npm run build`、`serve:build`、`git diff --check` 全部通过；`format:check` 仅剩 4 个本次未触及的既有文件。
+
+## Session: 诊断队列运行闭环 P0（2026-09-12）
+
+- 缺口确认：`POST /api/diagnostic-logs?resource=retry` 全仓库没有调用方，`vercel.json` 也没有 crons，重试机制实际空转。
+- 新增 `api/_diagnosticQueue.ts`：`sendDiagnosticBundle`、`diagnosticPayloadFromRow`、`releaseExpiredClaims`、`claimDueDiagnosticBundles`、`finishClaimedDiagnosticBundle`、`releaseDiagnosticClaim`、`countDueDiagnosticBundles`、`drainDiagnosticQueue`、`readDiagnosticQueueStats`。
+- 新增 `api/_diagnosticQueuePolicy.ts`：纯策略（3 次上限、60/120/240s 封顶 1 小时、limit 夹取），让单元测试能固定边界而不依赖数据库。
+- 管理员重试端点改为调用共享 drain；新增 `GET /api/diagnostic-worker`（system.ts sys 路由 + vercel.json rewrite + server/routes.ts 映射），支持可选 `DIAGNOSTIC_WORKER_SECRET`。
+- `/api/status` 增加 `diagnosticQueue` 统计，并在 Promise.all 之前 `await ensureTableOnce()`，避免首次部署出现“表不存在”。
+- 测试：`tests/diagnosticQueuePolicy.test.ts`（新增）+ `tests/integration/diagnosticQueue.integration.test.ts`（新增，真实 PostgreSQL 并发领取与租约回收）。
+- 验证：`npm test` 484/484、`typecheck:api`、lint 0/0、`serve:build`、`test:integration` 23/23、`git diff --check`；本地服务实测 worker 401/200 与 status 统计。
+- 环境：临时 PostgreSQL 集群（55433）用于集成测试，测试后已停止并删除；本机 5432 实例未做任何改动。

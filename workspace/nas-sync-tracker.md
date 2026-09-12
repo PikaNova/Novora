@@ -635,6 +635,21 @@ git push origin main
 | 说明 | 修复在前端，dev 站点需重新构建部署后生效；管理员会话本身 24 小时有效，真正过期时仍需重新登录 |
 | 推送 | 待用户确认后推送 `future/upload/main` |
 
+## 2026-09-12 诊断队列运行闭环（P0）
+
+| 项目 | 状态 |
+|---|---|
+| 背景 | 重试端点此前没有任何调用方，失败包只会停在 `failed`；队列也无法从状态页观察 |
+| 共享实现 | 新增 `api/_diagnosticQueue.ts`（领取/租约/退避/发送/drain/统计）与纯策略 `api/_diagnosticQueuePolicy.ts`，管理员端点与 Cron worker 共用同一份逻辑 |
+| Cron 入口 | 新增 `GET /api/diagnostic-worker`（并入 `system.ts`，同步 `vercel.json` rewrite 与 `server/routes.ts`）；默认 10 条、上限 25 条、8 秒预算，返回 `considered/sent/failed/released/remaining/durationMs` |
+| 鉴权 | 可选 `DIAGNOSTIC_WORKER_SECRET`：配置后要求 `Authorization: Bearer` 或 `x-cron-secret`；未配置时与 `/api/email-worker` 一致开放，只返回计数 |
+| 可观测性 | `/api/status` 新增 `diagnosticQueue`：`retained/queued/sending/sent/failed/expired/dueNow/nextAttemptAt/lastError` |
+| 单元测试 | `tests/diagnosticQueuePolicy.test.ts`：退避 60/120/240s 封顶 1 小时、3 次上限、非法 limit 夹取 |
+| 集成测试 | `tests/integration/diagnosticQueue.integration.test.ts`：真实 PostgreSQL 下并发领取不重复、未到期/已过期/超次数不领取、租约回收与统计 |
+| 端到端 | 本地服务 + 临时库实测：无密钥 401；带密钥返回 `{ok:true,...}`；`/api/status` 返回 `diagnosticQueue`；管理员 retry 与 settings 正常 |
+| 验证 | `npm test` 484/484；`typecheck:api`；lint 0 errors / 0 warnings；`serve:build`；`test:integration` 23/23；`git diff --check` |
+| 说明 | 集成测试使用临时 PostgreSQL（55433，已停止并清理），未触碰本机 5432；`format:check` 仍剩 3 个本次未触及的既有文件 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |
