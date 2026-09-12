@@ -77,6 +77,10 @@
       "destination": "/api/system?sys=email-worker"
     },
     {
+      "source": "/api/diagnostic-worker",
+      "destination": "/api/system?sys=diagnostic-worker"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },

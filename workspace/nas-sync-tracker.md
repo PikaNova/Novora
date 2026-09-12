@@ -635,6 +635,68 @@ git push origin main
 | 说明 | 修复在前端，dev 站点需重新构建部署后生效；管理员会话本身 24 小时有效，真正过期时仍需重新登录 |
 | 推送 | 待用户确认后推送 `future/upload/main` |
 
+## 2026-09-12 诊断队列运行闭环（P0）
+
+| 项目 | 状态 |
+|---|---|
+| 背景 | 重试端点此前没有任何调用方，失败包只会停在 `failed`；队列也无法从状态页观察 |
+| 共享实现 | 新增 `api/_diagnosticQueue.ts`（领取/租约/退避/发送/drain/统计）与纯策略 `api/_diagnosticQueuePolicy.ts`，管理员端点与 Cron worker 共用同一份逻辑 |
+| Cron 入口 | 新增 `GET /api/diagnostic-worker`（并入 `system.ts`，同步 `vercel.json` rewrite 与 `server/routes.ts`）；默认 10 条、上限 25 条、8 秒预算，返回 `considered/sent/failed/released/remaining/durationMs` |
+| 鉴权 | 可选 `DIAGNOSTIC_WORKER_SECRET`：配置后要求 `Authorization: Bearer` 或 `x-cron-secret`；未配置时与 `/api/email-worker` 一致开放，只返回计数 |
+| 可观测性 | `/api/status` 新增 `diagnosticQueue`：`retained/queued/sending/sent/failed/expired/dueNow/nextAttemptAt/lastError` |
+| 单元测试 | `tests/diagnosticQueuePolicy.test.ts`：退避 60/120/240s 封顶 1 小时、3 次上限、非法 limit 夹取 |
+| 集成测试 | `tests/integration/diagnosticQueue.integration.test.ts`：真实 PostgreSQL 下并发领取不重复、未到期/已过期/超次数不领取、租约回收与统计 |
+| 端到端 | 本地服务 + 临时库实测：无密钥 401；带密钥返回 `{ok:true,...}`；`/api/status` 返回 `diagnosticQueue`；管理员 retry 与 settings 正常 |
+| 验证 | `npm test` 484/484；`typecheck:api`；lint 0 errors / 0 warnings；`serve:build`；`test:integration` 23/23；`git diff --check` |
+| 说明 | 集成测试使用临时 PostgreSQL（55433，已停止并清理），未触碰本机 5432；`format:check` 仍剩 3 个本次未触及的既有文件 |
+
+## 2026-09-12 诊断留存策略与过期清理（S1）
+
+| 项目 | 状态 |
+|---|---|
+| S1-1 保留期失效 | 发送时写死 30 天，设置页的 `retentionDays` 完全不生效；改为按 `app_diagnostic_settings.retention_days`（1-30 天，默认 7）从创建时刻计算 `expires_at`，夹取逻辑统一进 `_diagnosticQueuePolicy.ts` |
+| S1-2 过期包堆积 | 过期只改状态，`entries`（单包最大 1MB）永不回收；新增 `purgeExpiredDiagnosticBundles()`：过期即清空正文（`entry_count` 保留为历史计数），再过 30 天宽限期删除整行 |
+| 触发方式 | worker / 管理员重试的 drain 每次先清理；设置页列表读取也会触发一次，未挂 Cron 的部署同样不会堆积 |
+| S1-3 死状态 | `retained` / `queued` 从未被写入，已从 `/api/status` 的 `diagnosticQueue` 移除；数据库 CHECK 保留原值不做破坏性迁移，避免在旧库上重建约束失败 |
+| 可观测性 | `diagnosticQueue` 新增 `expiredWithEntries`（过期但正文未清理的积压量）；drain 返回值新增 `purged: {clearedEntries, deletedRows}` |
+| 索引 | 新增 `idx_diagnostic_bundles_expiry (status, expires_at)`，同步运行时建表与 `0003` 迁移 |
+| 测试 | 单元：保留期夹取与过期时间（含 null → 默认 7 天、非 30 天断言）；集成：`diagnosticLogsHandler.integration.test.ts` 用真实 handler + 真实管理员令牌验证 3 天策略落地；`diagnosticQueue.integration.test.ts` 新增清正文/删行/保留活跃包三类断言 |
+| 验证 | `npm test` 486/486；`typecheck:api`；lint 0 errors / 0 warnings；`serve:build`；`test:integration` 25/25；`git diff --check` |
+| 端到端 | 本地服务实测：worker 返回 `purged` 计数，插入过期包后实际被清理（`clearedEntries:1, deletedRows:1`），`/api/status` 返回新的 `diagnosticQueue` 结构 |
+| 环境 | 集成测试仍使用临时 PostgreSQL（55433），测试后已停止并删除；本机 5432 未改动 |
+
+## 2026-09-12 管理后台：页面控件移出导航栏
+
+| 项目 | 状态 |
+|---|---|
+| 诉求 | 进入「大型考试」「周测计划」时，左侧导航栏底部挂着运行模式/年级/班级选择，导航栏承担了页面状态；要求把这些内容放回页面本身，所有界面统一 |
+| 结构 | 新增 `src/components/admin/AdminContextBar.tsx`：页面内上下文栏（运行模式/年级/班级），状态仍由 `AdminPage` 持有 |
+| 导航栏 | `AdminTabBar` 只保留 8 个功能切换按钮，移除 modes 区块与 `has-context` 标记，相关 props 一并删除 |
+| 页面接入 | `AdminPage` 在 `.admin-content` 内、页面正文之上渲染上下文栏，仅「大型考试 / 周测计划」显示（与原行为一致，其他页本就没有这些控件） |
+| 样式 | `admin.css` / `admin-design.css` 的 `admin-tabbar__mode*` 规则迁移为 `admin-context-bar*`；桌面端为吸顶横排，移动端为页面内两列网格，左侧栏在 ≤700px 整体隐藏，功能切换交给底部 mobile-nav |
+| 验证 | 真实界面实测（临时库 + 本地服务）：导航容器内 `admin-context-bar` 计数 0、页面内为 1；大型考试页 2 个字段、周测页 3 个字段；390px 宽度下左栏 `display:none`、上下文栏为两列网格、底部导航正常 |
+| 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`typecheck:api`；`git diff --check` |
+
+## 2026-09-12 后台左侧栏滚动边界修复
+
+| 项目 | 状态 |
+|---|---|
+| 现象 | 页面滚动时左侧导航栏"会一起滚动"、底部边界断层：栏顶钻到 sticky 页头下面，栏底距视口底还差 58px |
+| 复现 | 缩小视口使文档可滚动（1280×300，滚动 286px）后实测：`rail.top=0`、`rail.bottom=242`、`viewport=300` → 底部空隙 58px，正好等于页头高度 |
+| 根因 | 左栏在 `.admin-workspace` 里是 `position: sticky; top: 0; height: calc(100dvh - 58px)`：`top: 0` 会被 58px 高的 sticky 页头（z-index 100 > 24）盖住，而高度又按减去页头算，两者基准不一致 |
+| 修复 | 在 `.admin-page` 上抽出 `--admin-header-h: 58px`，左栏改为 `top: var(--admin-header-h)` + `height: calc(100dvh - var(--admin-header-h))`，让 sticky 偏移与高度共用同一基准（701–900px 断点同步） |
+| 验证 | 修复后同样条件下实测：`rail.top=58`、`rail.bottom=300`、底部空隙 0；常规视口（921×912）下左栏底边同样贴齐视口；大型考试页上下文栏仍吸顶在内容区顶部（`bar.top=content.top=58`）；390px 宽度左栏仍隐藏、底部导航正常 |
+| 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`git diff --check` |
+| 环境 | 验证用临时 PostgreSQL（55433）与两个本地服务（3100/3101）已停止并删除；本机 5432 未改动 |
+
+## 2026-09-12 推送记录（诊断 S1 + 后台导航改造 + 左栏边界修复）
+
+| 项目 | 状态 |
+|---|---|
+| 远端 | `future/upload/main`，`6a81412 → 8fad953`（快进推送，无冲突） |
+| 提交 | `35f2a37` 诊断留存与过期清理；`0c68384` 对应追踪文档；`eb296f0` 页面控件移出导航栏；`9ede747` 对应追踪文档；`a44bfeb` 左栏滚动边界修复；`8fad953` 对应追踪文档 |
+| 说明 | 本次为前端外壳与诊断链路改动，dev 站点需重新构建部署后生效；`DIAGNOSTIC_WORKER_SECRET` 与 `/api/diagnostic-worker` 的 Cron 挂载仍待部署侧配置 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |

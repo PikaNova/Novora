@@ -216,6 +216,7 @@ export function ensureTableOnce(): Promise<void> {
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_error ON app_diagnostic_bundles(error_event_id, fingerprint)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_status ON app_diagnostic_bundles(status, created_at DESC)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_retry_due ON app_diagnostic_bundles(status, next_attempt_at, created_at)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_expiry ON app_diagnostic_bundles(status, expires_at)`,
         ]);
         await sql`INSERT INTO app_diagnostic_settings (id, updated_at) VALUES (1, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
         await Promise.all([

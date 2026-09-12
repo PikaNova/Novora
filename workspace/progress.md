@@ -590,3 +590,47 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 回归测试：新增 `tests/diagnosticLogAuth.test.ts`（修复前红、修复后绿），并把 `diagnosticLogs.ts`、`telemetry.ts`、`logger.ts` 纳入 `tsconfig.test.json`。
 - 清理：按仓库约定为 3 处控制字符正则补 `no-control-regex` 免除注释，lint 回到 0 errors / 0 warnings。
 - 验证：`npm test` 481/481、`typecheck:api`、`npm run build`、`serve:build`、`git diff --check` 全部通过；`format:check` 仅剩 4 个本次未触及的既有文件。
+
+## Session: 诊断队列运行闭环 P0（2026-09-12）
+
+- 缺口确认：`POST /api/diagnostic-logs?resource=retry` 全仓库没有调用方，`vercel.json` 也没有 crons，重试机制实际空转。
+- 新增 `api/_diagnosticQueue.ts`：`sendDiagnosticBundle`、`diagnosticPayloadFromRow`、`releaseExpiredClaims`、`claimDueDiagnosticBundles`、`finishClaimedDiagnosticBundle`、`releaseDiagnosticClaim`、`countDueDiagnosticBundles`、`drainDiagnosticQueue`、`readDiagnosticQueueStats`。
+- 新增 `api/_diagnosticQueuePolicy.ts`：纯策略（3 次上限、60/120/240s 封顶 1 小时、limit 夹取），让单元测试能固定边界而不依赖数据库。
+- 管理员重试端点改为调用共享 drain；新增 `GET /api/diagnostic-worker`（system.ts sys 路由 + vercel.json rewrite + server/routes.ts 映射），支持可选 `DIAGNOSTIC_WORKER_SECRET`。
+- `/api/status` 增加 `diagnosticQueue` 统计，并在 Promise.all 之前 `await ensureTableOnce()`，避免首次部署出现“表不存在”。
+- 测试：`tests/diagnosticQueuePolicy.test.ts`（新增）+ `tests/integration/diagnosticQueue.integration.test.ts`（新增，真实 PostgreSQL 并发领取与租约回收）。
+- 验证：`npm test` 484/484、`typecheck:api`、lint 0/0、`serve:build`、`test:integration` 23/23、`git diff --check`；本地服务实测 worker 401/200 与 status 统计。
+- 环境：临时 PostgreSQL 集群（55433）用于集成测试，测试后已停止并删除；本机 5432 实例未做任何改动。
+
+## Session: 诊断留存策略与过期清理 S1（2026-09-12）
+
+- S1-1：`handleSend` 原先写死 `now + 30 天`，设置页保存的 `retention_days` 形同虚设；改为读取设置行并按 `clampRetentionDays` 夹取（1-30，默认 7），新增纯函数 `retentionExpiresAt(createdAt, retentionDays)`。
+- S1-2：新增 `purgeExpiredDiagnosticBundles()`：过期包清空 `entries`（保留 `entry_count` 作为历史计数），超过 30 天宽限期删除整行；drain 与设置页列表读取都会触发，避免无 Cron 部署无限堆积。
+- S1-3：`retained`/`queued` 是死状态，已从 `/api/status` 的统计载荷移除；数据库 CHECK 保持不变（旧库重建约束有失败风险，收益不值）。
+- 可观测性：`diagnosticQueue` 增加 `expiredWithEntries`；drain 返回 `purged`；新增索引 `idx_diagnostic_bundles_expiry`。
+- 测试：新增 `tests/integration/diagnosticLogsHandler.integration.test.ts`（真实 handler + 真实超管令牌 + 桩作者端，断言 `expires_at - created_at === 3 天`）；队列集成测试新增清理断言；策略单测新增保留期用例。
+- 验证：`npm test` 486/486、`typecheck:api`、lint 0/0、`serve:build`、`test:integration` 25/25、`git diff --check`。
+- 端到端：本地服务 + 临时库实测 worker 的 `purged` 计数与真实清理效果（插入过期包 → `clearedEntries:1, deletedRows:1`）。
+
+## Session: 管理后台页面控件移出导航栏（2026-09-12）
+
+- 现状：`AdminTabBar` 除了功能切换，还在底部渲染运行模式/年级/班级，且依靠 `has-context` 类在移动端才显示左栏，导航栏因此绑定了页面状态。
+- 新增 `AdminContextBar`（运行模式/年级/班级），由 `AdminPage` 在 `.admin-content` 内渲染，仅大型考试与周测计划两页显示。
+- `AdminTabBar` 精简为纯功能切换（移除 modes 区块、`has-context`、6 个已无用的 props）。
+- CSS：`admin-tabbar__mode*` 迁移到 `admin-context-bar*`（admin.css 与 admin-design.css）；桌面端吸顶横排，移动端页面内两列网格；≤700px 隐藏左侧栏，改由底部 `admin-mobile-nav` 承担切换。
+- 界面实测：DOM 断言导航容器内上下文栏 0 处、页面内 1 处；大型考试 2 字段、周测 3 字段；390px 视口下左栏隐藏、上下文栏两列、底部导航正常（测试用临时 PostgreSQL 与本地服务，已清理）。
+- 验证：`npm test` 486/486、lint 0/0、`npm run build`、`typecheck:api`、`git diff --check`。
+
+## Session: 后台左侧栏滚动边界修复（2026-09-12）
+
+- 复现：视口 1280×300 下把文档滚到底（286px），实测左栏 `top=0`（钻到 58px 高的 sticky 页头下方）、`bottom=242`，视口 300 → 底部露出 58px 空隙，与用户描述一致。
+- 根因：`.admin-workspace > .admin-tabbar` 写的是 `top: 0`，而高度是 `calc(100dvh - 58px)`，sticky 偏移与高度用了不同基准；页头 z-index 100 高于左栏 24，所以滚动时左栏被页头盖住。
+- 修复：`.admin-page` 新增 `--admin-header-h: 58px`，左栏改用 `top: var(--admin-header-h)` 与 `height: calc(100dvh - var(--admin-header-h))`，701–900px 断点同步。
+- 验证：修复后同样条件 `top=58 / bottom=300 / 空隙 0`；921×912 常规视口下左栏底边同样贴齐；大型考试页上下文栏仍吸顶在内容区顶部；390px 宽度左栏隐藏、底部导航正常。
+- 环境：临时 PostgreSQL（55433）与本地服务（3100/3101）验证后已停止并删除；期间发现并清理了误生成的空文件 `$null`。
+
+## Session: 推送与追踪同步（2026-09-12）
+
+- 推送 `future/upload/main`：`6a81412 → 8fad953`（快进，远端无新提交）。
+- 本次推送包含 6 个提交：诊断留存与过期清理（S1）、对应追踪文档、后台页面控件移出导航栏、对应追踪文档、左栏滚动边界修复、对应追踪文档。
+- 部署侧待办：dev 站点重新构建部署；按需配置 `DIAGNOSTIC_WORKER_SECRET` 并挂载 `GET /api/diagnostic-worker` 的定时任务。

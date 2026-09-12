@@ -1,9 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, randomUUID } from 'node:crypto';
-import { getIngestToken, getAuthorConfig } from './_authorClient.js';
-import { telemetryConfig } from './_telemetryConfig.js';
 import { database, ensureTableOnce } from './_exams/db.js';
 import { requireActor, writeAudit } from './_auth.js';
+import {
+  DEFAULT_RETENTION_DAYS,
+  RETRY_CLAIM_TIMEOUT_MS,
+  clampRetentionDays,
+  drainDiagnosticQueue,
+  purgeExpiredDiagnosticBundles,
+  retentionExpiresAt,
+  retryDelayMs,
+  sendDiagnosticBundle,
+} from './_diagnosticQueue.js';
 import {
   normalizeDiagnosticLogMode,
   sanitizeDiagnosticEntry,
@@ -13,9 +21,6 @@ import {
 
 const MAX_ENTRIES = 500;
 const MAX_BUNDLE_BYTES = 1_048_576;
-const DEFAULT_RETENTION_DAYS = 7;
-const MAX_RETRY_ATTEMPTS = 3;
-const RETRY_CLAIM_TIMEOUT_MS = 10 * 60_000;
 
 function numberValue(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -30,32 +35,6 @@ function text(value: unknown, max: number): string | null {
 
 function bodyOf(req: VercelRequest): Record<string, unknown> {
   return req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-}
-
-async function sendToAuthor(
-  payload: Record<string, unknown>,
-  instanceId: string,
-): Promise<{ ok: boolean; detail?: string }> {
-  const config = await getAuthorConfig();
-  if (!config.errorReportEnabled) return { ok: false, detail: 'disabled' };
-  const token = await getIngestToken('v2', instanceId);
-  if (!token) return { ok: false, detail: 'no_credential' };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch(`${telemetryConfig.baseUrl}/api/diagnostic-log-bundles`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    if (response.ok || response.status === 202) return { ok: true };
-    return { ok: false, detail: `author_status_${response.status}` };
-  } catch {
-    return { ok: false, detail: 'author_unreachable' };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 async function handleSettings(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -84,7 +63,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse): Promise<
   const capture = b.captureOnError === true;
   const before = Math.min(Math.max(Math.round(numberValue(b.beforeSeconds) ?? 60), 0), 300);
   const after = Math.min(Math.max(Math.round(numberValue(b.afterSeconds) ?? 30), 0), 300);
-  const retention = Math.min(Math.max(Math.round(numberValue(b.retentionDays) ?? DEFAULT_RETENTION_DAYS), 1), 30);
+  const retention = clampRetentionDays(numberValue(b.retentionDays) ?? DEFAULT_RETENTION_DAYS);
   const now = Date.now();
   await sql`UPDATE app_diagnostic_settings SET capture_on_error=${capture}, before_seconds=${before}, after_seconds=${after}, retention_days=${retention}, updated_at=${now} WHERE id=1`;
   await writeAudit(actor, 'diagnostics.settings.update', 'diagnostics', 'settings', {
@@ -113,6 +92,8 @@ async function handleCatalog(req: VercelRequest, res: VercelResponse): Promise<v
   const from = numberValue(req.query.from) ?? Date.now() - 7 * 86400000;
   const to = numberValue(req.query.to) ?? Date.now();
   await sql`UPDATE app_diagnostic_bundles SET status='expired' WHERE expires_at IS NOT NULL AND expires_at < ${Date.now()} AND status <> 'expired'`;
+  // 管理员浏览列表时顺带回收过期正文，避免在没挂 Cron 的部署里正文无限堆积。
+  await purgeExpiredDiagnosticBundles();
   const rows = await sql`SELECT bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code,
       from_ts, to_ts, entry_count, content_bytes, status, attempt_count, last_error, created_at, expires_at, sent_at, next_attempt_at
       FROM app_diagnostic_bundles WHERE from_ts <= ${to} AND to_ts >= ${from}
@@ -174,7 +155,9 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
   }
   const sql = database();
   const now = Date.now();
-  const expiresAt = now + 30 * 86400000;
+  // 保留期以管理员在设置页保存的 retention_days 为准，不再写死 30 天。
+  const settingsRows = await sql`SELECT retention_days FROM app_diagnostic_settings WHERE id=1`;
+  const expiresAt = retentionExpiresAt(now, settingsRows[0]?.retention_days ?? DEFAULT_RETENTION_DAYS);
   const existing = await sql`SELECT bundle_id, status FROM app_diagnostic_bundles WHERE bundle_id=${bundleId} LIMIT 1`;
   if (existing.length) {
     res.status(202).json({ ok: true, bundleId, status: existing[0].status, idempotent: true });
@@ -201,8 +184,8 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
     appVersion: input.appVersion,
     commitSha: input.commitSha,
   };
-  const sent = await sendToAuthor(authorPayload, instanceId);
-  const nextAttemptAt = sent.ok ? null : Date.now() + 60_000;
+  const sent = await sendDiagnosticBundle(authorPayload, instanceId);
+  const nextAttemptAt = sent.ok ? null : Date.now() + retryDelayMs(1);
   await sql`UPDATE app_diagnostic_bundles SET status=${sent.ok ? 'sent' : 'failed'}, attempt_count=1, last_error=${sent.ok ? '' : sent.detail || 'send_failed'}, sent_at=${sent.ok ? Date.now() : null}, next_attempt_at=${nextAttemptAt} WHERE bundle_id=${bundleId}`;
   await writeAudit(actor, 'diagnostics.bundle.send', 'diagnostics', bundleId, {
     mode,
@@ -219,55 +202,8 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
 async function handleRetry(req: VercelRequest, res: VercelResponse): Promise<void> {
   const actor = await requireActor(req, res, 'diagnostics.upload');
   if (!actor) return;
-  const sql = database();
-  const now = Date.now();
-  // Claim due rows atomically. The lease also lets a later invocation recover
-  // bundles left in `sending` by a crashed worker.
-  const claimedUntil = now + RETRY_CLAIM_TIMEOUT_MS;
-  const claimResults = await sql.transaction((transaction) => [transaction`
-    WITH stale AS (
-      UPDATE app_diagnostic_bundles
-      SET status='failed', last_error=CASE WHEN last_error='' THEN 'retry_claim_expired' ELSE last_error END
-      WHERE status='sending' AND next_attempt_at IS NOT NULL AND next_attempt_at <= ${now}
-      RETURNING bundle_id
-    ), due AS (
-      SELECT bundle_id
-      FROM app_diagnostic_bundles
-      WHERE status='failed' AND attempt_count < ${MAX_RETRY_ATTEMPTS}
-        AND (next_attempt_at IS NULL OR next_attempt_at <= ${now})
-        AND (expires_at IS NULL OR expires_at > ${now})
-      ORDER BY created_at ASC
-      FOR UPDATE SKIP LOCKED
-      LIMIT 10
-    )
-    UPDATE app_diagnostic_bundles AS bundles
-    SET status='sending', next_attempt_at=${claimedUntil}
-    FROM due
-    WHERE bundles.bundle_id=due.bundle_id
-    RETURNING bundles.*
-  `]);
-  const rows = claimResults[0] ?? [];
-  let sent = 0;
-  for (const row of rows) {
-    const entries = Array.isArray(row.entries) ? row.entries : [];
-    const serialized = JSON.stringify(entries);
-    const payload = {
-      schemaVersion: 1, uploadId: String(row.bundle_id), instanceId: String(row.instance_id),
-      deviceId: row.device_id, errorEventId: row.error_event_id, fingerprint: row.fingerprint, errorCode: row.error_code,
-      source: row.mode === 'date' ? 'manual-date' : 'manual-error', contentEncoding: 'json',
-      fromTs: Number(row.from_ts), toTs: Number(row.to_ts), entries,
-      contentHash: createHash('sha256').update(serialized).digest('hex'), appVersion: row.app_version, commitSha: row.commit_sha,
-    };
-    const result = await sendToAuthor(payload, String(row.instance_id));
-    const attempts = Number(row.attempt_count || 0) + 1;
-    const completedAt = Date.now();
-    const next = result.ok || attempts >= MAX_RETRY_ATTEMPTS
-      ? null
-      : completedAt + Math.min(3_600_000, 60_000 * 2 ** Math.max(0, attempts - 1));
-    await sql`UPDATE app_diagnostic_bundles SET status=${result.ok ? 'sent' : 'failed'}, attempt_count=${attempts}, last_error=${result.ok ? '' : result.detail || 'send_failed'}, sent_at=${result.ok ? completedAt : null}, next_attempt_at=${next} WHERE bundle_id=${row.bundle_id} AND status='sending' AND next_attempt_at=${claimedUntil}`;
-    if (result.ok) sent += 1;
-  }
-  res.status(202).json({ ok: true, considered: rows.length, sent, remaining: Math.max(0, rows.length - sent) });
+  const result = await drainDiagnosticQueue({ limit: 10 });
+  res.status(202).json({ ok: true, ...result });
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {

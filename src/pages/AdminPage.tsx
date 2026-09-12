@@ -51,6 +51,7 @@ import { AdminHeader, AdminMobileNav, SYNC_META } from '../components/admin/Admi
 import { MajorModalWizard } from '../components/admin/MajorModalWizard';
 import { AlertsSettingsModal } from '../components/admin/AlertsSettingsModal';
 import { AdminTabBar } from '../components/admin/AdminTabBar';
+import { AdminContextBar } from '../components/admin/AdminContextBar';
 import { AdminAnnounceDialog } from '../components/admin/AdminAnnounceDialog';
 import { AdminIncompletePrompt } from '../components/admin/AdminIncompletePrompt';
 import { AiImportModal } from '../components/admin/AiImportModal';
@@ -637,16 +638,22 @@ export default function AdminPage() {
           can={can}
           selectAdminTab={selectAdminTab}
           visibleWeeklyPlans={visibleWeeklyPlans}
-          scheduleMode={scheduleMode}
-          handleScheduleModeChange={handleScheduleModeChange}
-          selectedGradeId={selectedGradeId}
-          changeSelectedGrade={changeSelectedGrade}
-          visibleGrades={visibleGrades}
-          selectedClassId={selectedClassId}
-          changeSelectedClass={changeSelectedClass}
-          visibleClasses={visibleClasses}
         />
         <div className="admin-content">
+          {(adminTab === 'major' || adminTab === 'weekly') && (
+            <AdminContextBar
+              adminTab={adminTab}
+              can={can}
+              scheduleMode={scheduleMode}
+              handleScheduleModeChange={handleScheduleModeChange}
+              selectedGradeId={selectedGradeId}
+              changeSelectedGrade={changeSelectedGrade}
+              visibleGrades={visibleGrades}
+              selectedClassId={selectedClassId}
+              changeSelectedClass={changeSelectedClass}
+              visibleClasses={visibleClasses}
+            />
+          )}
           <div
             key={adminTab}
             className={`admin-body admin-tab-transition${(['overview', 'dashboard', 'records', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ? ' admin-body--wide' : ''}`}

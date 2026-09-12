@@ -39,6 +39,7 @@
     "api/_exams/payload.ts",
     "api/_exams/permissions.ts",
     "api/_exams/db.ts",
+    "api/_diagnosticQueuePolicy.ts",
     "api/_exams/plugin.ts",
     "api/_apiError.ts",
     "api/exams.ts",
