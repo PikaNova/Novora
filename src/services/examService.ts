@@ -26,11 +26,12 @@ const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
 /**
- * 版本化快照的能力标记：只有服务端在某次心跳里回过 version 才会置位。
- * 本地 / Docker / 内网部署不会回这个字段，客户端因此连请求 URL 都保持改造前的形状，
+ * 边缘缓存能力标记：只有服务端在某次心跳里回过 version 才会置位。
+ * 置位后客户端才使用版本化快照 URL、并放弃公告的缓存穿透参数；
+ * 本地 / Docker / 内网部署不会置位，因此连请求形状都保持改造前不变，
  * 后续本地改用 WSS 推送时也不会被这里的判断牵动。
  */
-const VERSIONED_SNAPSHOT_SUPPORT_KEY = 'exam_board_versioned_snapshot_support';
+const EDGE_CACHE_SUPPORT_KEY = 'exam_board_edge_cache_support';
 /**
  * 心跳会带上服务端当前的快照版本号（仅 Vercel 部署）。收到事件后由 useExamSync 决定
  * 是否需要拉取快照，避免再单独轮询一次。
@@ -70,17 +71,17 @@ export function getCloudVersion(): number {
   }
 }
 
-export function supportsVersionedSnapshot(): boolean {
+export function supportsEdgeCache(): boolean {
   try {
-    return localStorage.getItem(VERSIONED_SNAPSHOT_SUPPORT_KEY) === '1';
+    return localStorage.getItem(EDGE_CACHE_SUPPORT_KEY) === '1';
   } catch {
     return false;
   }
 }
 
-export function markVersionedSnapshotSupport(): void {
+export function markEdgeCacheSupport(): void {
   try {
-    localStorage.setItem(VERSIONED_SNAPSHOT_SUPPORT_KEY, '1');
+    localStorage.setItem(EDGE_CACHE_SUPPORT_KEY, '1');
   } catch {
     /* 隐私模式下退化为普通轮询 */
   }
@@ -123,7 +124,7 @@ export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promis
     let url = API_URL;
     if (isBootstrap) {
       url = `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`;
-    } else if (cloudVersion > 0 && supportsVersionedSnapshot()) {
+    } else if (cloudVersion > 0 && supportsEdgeCache()) {
       url = `${API_URL}?${examSnapshotQuery(cloudVersion)}`;
     }
 

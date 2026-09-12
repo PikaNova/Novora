@@ -1,139 +1,84 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getClassBindingInstanceId, sendDeviceHeartbeat } from '../services/classBinding';
-import { APP_VERSION } from '../services/telemetry';
-import { getAppSettings } from '../utils/appSettings';
-import { getResolvedExamItems } from '../utils/appSchedule';
-import { nowMs, parseZonedTime } from '../utils/timeSource';
-import {
-  endTemporaryExam,
-  extendTemporaryExam,
-  getTemporaryExam,
-  setTemporaryExamPaused,
-} from '../services/temporaryExam';
+import { getClassBindingInstanceId } from '../services/classBinding';
+import { getAppSettings, updateExamSettings } from '../utils/appSettings';
+import { endTemporaryExam, extendTemporaryExam, setTemporaryExamPaused } from '../services/temporaryExam';
 import { notify } from '../services/notify';
 import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
-import { updateExamSettings } from '../utils/appSettings';
-import { logoutAdmin } from '../services/examService';
+import { CLOUD_VERSION_EVENT, logoutAdmin } from '../services/examService';
 import { resolveDeviceCommandReceipt } from '../utils/deviceCommandReceipt';
-import { deviceHeartbeatIntervalMs } from '../shared/deviceContracts';
-import { jitteredIntervalMs } from '../shared/polling';
-import { CLOUD_VERSION_EVENT, markVersionedSnapshotSupport } from '../services/examService';
+import { getSyncTransport, subscribeToSync } from '../sync/transport';
 
+/**
+ * 设备心跳与后台指令的副作用入口。
+ *
+ * 轮询节奏、请求体组装、命令去重都收在 src/sync/transport.ts；这里只负责
+ * 「收到命令 / 绑定变更 / 被撤销之后要做什么」。本地部署改用 WSS 时换掉传输实现即可，
+ * 这个组件不需要跟着改。
+ */
 export default function DeviceHeartbeat() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
+  // 回调里要读到最新的路由信息，用 ref 固定。
+  const pathnameRef = useRef(pathname);
+  const searchRef = useRef(search);
+  pathnameRef.current = pathname;
+  searchRef.current = search;
 
   useEffect(() => {
-    let acknowledgedCommandId = '';
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (timer) clearTimeout(timer);
-      const now = nowMs();
-      const items = getResolvedExamItems(now);
-      const current = items.find(
-        (item) => item.enabled && parseZonedTime(item.startTime) <= now && parseZonedTime(item.endTime) > now,
-      );
-      const temporary = getTemporaryExam();
-      const temporaryActive = temporary && temporary.status !== 'ended' && new Date(temporary.endTime).getTime() > now;
-      const delay = jitteredIntervalMs(
-        deviceHeartbeatIntervalMs({
-          temporaryActive,
-          hasCurrentExam: Boolean(current),
-        }),
-      );
-      timer = setTimeout(send, delay);
-    };
-    const send = () => {
-      void sendPluginViewerHeartbeat(pluginInstanceFromSearch(search), getClassBindingInstanceId());
-      const now = nowMs();
-      const items = getResolvedExamItems(now);
-      const current = items.find(
-        (item) => item.enabled && parseZonedTime(item.startTime) <= now && parseZonedTime(item.endTime) > now,
-      );
-      const next = current ?? items.find((item) => item.enabled && parseZonedTime(item.startTime) > now);
-      const settings = getAppSettings();
-      const temporary = getTemporaryExam();
-      const temporaryActive = temporary && temporary.status !== 'ended' && new Date(temporary.endTime).getTime() > now;
-      const reportedExam = current ?? next;
-      const reportedKind = reportedExam?.kind;
-      const reportedExamName = !reportedExam
-        ? ''
-        : reportedKind === 'temporary'
-          ? `${reportedExam.name} - 临时考试`
-          : reportedKind === 'weekly'
-            ? '周测'
-            : reportedExam.majorName || settings.exam.title || '大型考试';
-      void sendDeviceHeartbeat({
-        page: pathname,
-        clientVersion: APP_VERSION,
-        status:
-          temporaryActive && temporary.status === 'paused'
-            ? 'temporary-paused'
-            : current
-              ? 'exam-running'
-              : next
-                ? 'waiting'
-                : 'idle',
-        currentExam: reportedExamName,
-        currentSubject: reportedExam?.name ?? '',
-        examStart: reportedExam?.startTime ?? '',
-        examEnd: reportedExam?.endTime ?? '',
-        acknowledgedCommandId,
-      }).then((result) => {
-        if (typeof result.version === 'number') {
-          markVersionedSnapshotSupport();
-          window.dispatchEvent(new CustomEvent(CLOUD_VERSION_EVENT, { detail: { version: result.version } }));
+    const transport = getSyncTransport();
+    const unsubscribe = subscribeToSync({
+      onTick: () => {
+        void sendPluginViewerHeartbeat(pluginInstanceFromSearch(searchRef.current), getClassBindingInstanceId());
+      },
+      onRevoked: () => {
+        logoutAdmin();
+        const current = pathnameRef.current;
+        const managementRoute = current === '/admin' || current.startsWith('/admin/') || current === '/settings';
+        const bindingRoute =
+          current === '/exam' ||
+          current === '/preferences' ||
+          current === '/local-settings' ||
+          current === '/plugin/connect';
+        if (managementRoute) navigate('/login?next=%2Fadmin&deviceRemoved=1', { replace: true });
+        else if (bindingRoute) navigate('/', { replace: true });
+      },
+      onBinding: (binding) => {
+        if (binding.revoked) return;
+        const currentBinding = getAppSettings().exam;
+        if (currentBinding.selectedGradeId !== binding.gradeId || currentBinding.selectedClassId !== binding.classId)
+          updateExamSettings({ selectedGradeId: binding.gradeId, selectedClassId: binding.classId });
+        if (binding.isManagement && pathnameRef.current === '/exam') {
+          navigate('/', { replace: true });
         }
-        if (result.revoked) {
-          logoutAdmin();
-          const managementRoute = pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/settings';
-          const bindingRoute =
-            pathname === '/exam' ||
-            pathname === '/preferences' ||
-            pathname === '/local-settings' ||
-            pathname === '/plugin/connect';
-          if (managementRoute) navigate('/login?next=%2Fadmin&deviceRemoved=1', { replace: true });
-          else if (bindingRoute) navigate('/', { replace: true });
-          return;
-        }
-        if (result.binding && !result.binding.revoked) {
-          const currentBinding = getAppSettings().exam;
-          if (
-            currentBinding.selectedGradeId !== result.binding.gradeId ||
-            currentBinding.selectedClassId !== result.binding.classId
-          )
-            updateExamSettings({ selectedGradeId: result.binding.gradeId, selectedClassId: result.binding.classId });
-          if (result.binding.isManagement && pathname === '/exam') {
-            navigate('/', { replace: true });
-            return;
-          }
-        }
-        const receipt = resolveDeviceCommandReceipt(result.command, acknowledgedCommandId);
+      },
+      onVersion: (version) => {
+        window.dispatchEvent(new CustomEvent(CLOUD_VERSION_EVENT, { detail: { version } }));
+      },
+      onCommand: (command) => {
+        const receipt = resolveDeviceCommandReceipt(command, '');
         if (!receipt) return;
-        const { command } = receipt;
         if (command.action === 'pause') setTemporaryExamPaused(true);
         if (command.action === 'resume') setTemporaryExamPaused(false);
         if (command.action === 'extend') extendTemporaryExam(command.minutes || 5);
         if (command.action === 'end') endTemporaryExam();
-        acknowledgedCommandId = command.id;
+        // 登记回执：传输层会在下一轮心跳里带上，并在执行后补发一次快速回执。
+        transport.noteCommandAcknowledged(command.id);
         notify(receipt.tone, receipt.message);
-        window.setTimeout(send, 250);
-      });
-      schedule();
-    };
-    send();
+      },
+    });
     const onVisible = () => {
-      if (document.visibilityState === 'visible') send();
+      if (document.visibilityState === 'visible') transport.tick();
     };
+    const onSettingsChanged = () => transport.tick();
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('exam-board:settings-changed', send);
+    window.addEventListener('exam-board:settings-changed', onSettingsChanged);
     return () => {
-      if (timer) clearTimeout(timer);
+      unsubscribe();
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('exam-board:settings-changed', send);
+      window.removeEventListener('exam-board:settings-changed', onSettingsChanged);
     };
-  }, [navigate, pathname, search]);
+  }, [navigate]);
 
   return null;
 }
