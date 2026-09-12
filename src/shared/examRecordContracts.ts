@@ -27,6 +27,10 @@ export interface ExamRecord {
   endAt: number | null;
   actualStartAt: number | null;
   actualEndAt: number | null;
+  /** 暂停起始时刻；null 表示当前不在暂停中。 */
+  pausedAt?: number | null;
+  /** 累计已暂停时长（毫秒）；倒计时按 endAt + pausedMs 计算。 */
+  pausedMs?: number;
   publishedAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;

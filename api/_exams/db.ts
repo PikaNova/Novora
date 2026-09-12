@@ -103,6 +103,8 @@ export function ensureTableOnce(): Promise<void> {
           end_at BIGINT,
           actual_start_at BIGINT,
           actual_end_at BIGINT,
+          paused_at BIGINT,
+          paused_ms BIGINT NOT NULL DEFAULT 0,
           published_at BIGINT,
           ended_at BIGINT,
           archived_at BIGINT,
@@ -111,6 +113,8 @@ export function ensureTableOnce(): Promise<void> {
         )`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_records_status ON exam_records(status)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_records_updated ON exam_records(updated_at DESC)`,
+          transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_at BIGINT`,
+          transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_ms BIGINT NOT NULL DEFAULT 0`,
           transaction`CREATE TABLE IF NOT EXISTS exam_record_operations (
           idempotency_key TEXT PRIMARY KEY,
           action TEXT NOT NULL,
