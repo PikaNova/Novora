@@ -665,6 +665,18 @@ git push origin main
 | 端到端 | 本地服务实测：worker 返回 `purged` 计数，插入过期包后实际被清理（`clearedEntries:1, deletedRows:1`），`/api/status` 返回新的 `diagnosticQueue` 结构 |
 | 环境 | 集成测试仍使用临时 PostgreSQL（55433），测试后已停止并删除；本机 5432 未改动 |
 
+## 2026-09-12 管理后台：页面控件移出导航栏
+
+| 项目 | 状态 |
+|---|---|
+| 诉求 | 进入「大型考试」「周测计划」时，左侧导航栏底部挂着运行模式/年级/班级选择，导航栏承担了页面状态；要求把这些内容放回页面本身，所有界面统一 |
+| 结构 | 新增 `src/components/admin/AdminContextBar.tsx`：页面内上下文栏（运行模式/年级/班级），状态仍由 `AdminPage` 持有 |
+| 导航栏 | `AdminTabBar` 只保留 8 个功能切换按钮，移除 modes 区块与 `has-context` 标记，相关 props 一并删除 |
+| 页面接入 | `AdminPage` 在 `.admin-content` 内、页面正文之上渲染上下文栏，仅「大型考试 / 周测计划」显示（与原行为一致，其他页本就没有这些控件） |
+| 样式 | `admin.css` / `admin-design.css` 的 `admin-tabbar__mode*` 规则迁移为 `admin-context-bar*`；桌面端为吸顶横排，移动端为页面内两列网格，左侧栏在 ≤700px 整体隐藏，功能切换交给底部 mobile-nav |
+| 验证 | 真实界面实测（临时库 + 本地服务）：导航容器内 `admin-context-bar` 计数 0、页面内为 1；大型考试页 2 个字段、周测页 3 个字段；390px 宽度下左栏 `display:none`、上下文栏为两列网格、底部导航正常 |
+| 回归 | `npm test` 486/486；lint 0 errors / 0 warnings；`npm run build`；`typecheck:api`；`git diff --check` |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |

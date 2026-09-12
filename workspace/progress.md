@@ -611,3 +611,12 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 测试：新增 `tests/integration/diagnosticLogsHandler.integration.test.ts`（真实 handler + 真实超管令牌 + 桩作者端，断言 `expires_at - created_at === 3 天`）；队列集成测试新增清理断言；策略单测新增保留期用例。
 - 验证：`npm test` 486/486、`typecheck:api`、lint 0/0、`serve:build`、`test:integration` 25/25、`git diff --check`。
 - 端到端：本地服务 + 临时库实测 worker 的 `purged` 计数与真实清理效果（插入过期包 → `clearedEntries:1, deletedRows:1`）。
+
+## Session: 管理后台页面控件移出导航栏（2026-09-12）
+
+- 现状：`AdminTabBar` 除了功能切换，还在底部渲染运行模式/年级/班级，且依靠 `has-context` 类在移动端才显示左栏，导航栏因此绑定了页面状态。
+- 新增 `AdminContextBar`（运行模式/年级/班级），由 `AdminPage` 在 `.admin-content` 内渲染，仅大型考试与周测计划两页显示。
+- `AdminTabBar` 精简为纯功能切换（移除 modes 区块、`has-context`、6 个已无用的 props）。
+- CSS：`admin-tabbar__mode*` 迁移到 `admin-context-bar*`（admin.css 与 admin-design.css）；桌面端吸顶横排，移动端页面内两列网格；≤700px 隐藏左侧栏，改由底部 `admin-mobile-nav` 承担切换。
+- 界面实测：DOM 断言导航容器内上下文栏 0 处、页面内 1 处；大型考试 2 字段、周测 3 字段；390px 视口下左栏隐藏、上下文栏两列、底部导航正常（测试用临时 PostgreSQL 与本地服务，已清理）。
+- 验证：`npm test` 486/486、lint 0/0、`npm run build`、`typecheck:api`、`git diff --check`。
