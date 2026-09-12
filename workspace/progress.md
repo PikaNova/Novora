@@ -601,3 +601,13 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 测试：`tests/diagnosticQueuePolicy.test.ts`（新增）+ `tests/integration/diagnosticQueue.integration.test.ts`（新增，真实 PostgreSQL 并发领取与租约回收）。
 - 验证：`npm test` 484/484、`typecheck:api`、lint 0/0、`serve:build`、`test:integration` 23/23、`git diff --check`；本地服务实测 worker 401/200 与 status 统计。
 - 环境：临时 PostgreSQL 集群（55433）用于集成测试，测试后已停止并删除；本机 5432 实例未做任何改动。
+
+## Session: 诊断留存策略与过期清理 S1（2026-09-12）
+
+- S1-1：`handleSend` 原先写死 `now + 30 天`，设置页保存的 `retention_days` 形同虚设；改为读取设置行并按 `clampRetentionDays` 夹取（1-30，默认 7），新增纯函数 `retentionExpiresAt(createdAt, retentionDays)`。
+- S1-2：新增 `purgeExpiredDiagnosticBundles()`：过期包清空 `entries`（保留 `entry_count` 作为历史计数），超过 30 天宽限期删除整行；drain 与设置页列表读取都会触发，避免无 Cron 部署无限堆积。
+- S1-3：`retained`/`queued` 是死状态，已从 `/api/status` 的统计载荷移除；数据库 CHECK 保持不变（旧库重建约束有失败风险，收益不值）。
+- 可观测性：`diagnosticQueue` 增加 `expiredWithEntries`；drain 返回 `purged`；新增索引 `idx_diagnostic_bundles_expiry`。
+- 测试：新增 `tests/integration/diagnosticLogsHandler.integration.test.ts`（真实 handler + 真实超管令牌 + 桩作者端，断言 `expires_at - created_at === 3 天`）；队列集成测试新增清理断言；策略单测新增保留期用例。
+- 验证：`npm test` 486/486、`typecheck:api`、lint 0/0、`serve:build`、`test:integration` 25/25、`git diff --check`。
+- 端到端：本地服务 + 临时库实测 worker 的 `purged` 计数与真实清理效果（插入过期包 → `clearedEntries:1, deletedRows:1`）。

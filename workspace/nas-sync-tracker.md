@@ -650,6 +650,21 @@ git push origin main
 | 验证 | `npm test` 484/484；`typecheck:api`；lint 0 errors / 0 warnings；`serve:build`；`test:integration` 23/23；`git diff --check` |
 | 说明 | 集成测试使用临时 PostgreSQL（55433，已停止并清理），未触碰本机 5432；`format:check` 仍剩 3 个本次未触及的既有文件 |
 
+## 2026-09-12 诊断留存策略与过期清理（S1）
+
+| 项目 | 状态 |
+|---|---|
+| S1-1 保留期失效 | 发送时写死 30 天，设置页的 `retentionDays` 完全不生效；改为按 `app_diagnostic_settings.retention_days`（1-30 天，默认 7）从创建时刻计算 `expires_at`，夹取逻辑统一进 `_diagnosticQueuePolicy.ts` |
+| S1-2 过期包堆积 | 过期只改状态，`entries`（单包最大 1MB）永不回收；新增 `purgeExpiredDiagnosticBundles()`：过期即清空正文（`entry_count` 保留为历史计数），再过 30 天宽限期删除整行 |
+| 触发方式 | worker / 管理员重试的 drain 每次先清理；设置页列表读取也会触发一次，未挂 Cron 的部署同样不会堆积 |
+| S1-3 死状态 | `retained` / `queued` 从未被写入，已从 `/api/status` 的 `diagnosticQueue` 移除；数据库 CHECK 保留原值不做破坏性迁移，避免在旧库上重建约束失败 |
+| 可观测性 | `diagnosticQueue` 新增 `expiredWithEntries`（过期但正文未清理的积压量）；drain 返回值新增 `purged: {clearedEntries, deletedRows}` |
+| 索引 | 新增 `idx_diagnostic_bundles_expiry (status, expires_at)`，同步运行时建表与 `0003` 迁移 |
+| 测试 | 单元：保留期夹取与过期时间（含 null → 默认 7 天、非 30 天断言）；集成：`diagnosticLogsHandler.integration.test.ts` 用真实 handler + 真实管理员令牌验证 3 天策略落地；`diagnosticQueue.integration.test.ts` 新增清正文/删行/保留活跃包三类断言 |
+| 验证 | `npm test` 486/486；`typecheck:api`；lint 0 errors / 0 warnings；`serve:build`；`test:integration` 25/25；`git diff --check` |
+| 端到端 | 本地服务实测：worker 返回 `purged` 计数，插入过期包后实际被清理（`clearedEntries:1, deletedRows:1`），`/api/status` 返回新的 `diagnosticQueue` 结构 |
+| 环境 | 集成测试仍使用临时 PostgreSQL（55433），测试后已停止并删除；本机 5432 未改动 |
+
 ## 2026-09-05 v2.8.0 学校服务端 T-280-01~03 收口
 
 | 项目 | 状态 |
