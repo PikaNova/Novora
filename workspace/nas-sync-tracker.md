@@ -822,3 +822,42 @@ git push origin main
 
 - `workspace/progress.md`、`workspace/findings.md`、`workspace/task_plan.md` 与本节同步更新。
 - dev 巡检截图：`workspace/dev-exam-center-2026-09-13/`（`focus-after-close.png`、`focus-settled.png` 为 P0 证据，`dev-30-placeholder-detail.png` 为初始化占位考试详情）。
+
+## 2026-09-12 ~ 09-13 两日全量清单
+
+### 学校端 · 9/12（`nas-upload-worktree/upload/main`）
+
+- 诊断链路：`1061daf` 上传重试加固、`dd776cd` 请求补 admin token、`83b96ea` 队列 worker 与状态统计、`35f2a37` 按保留期清理过期包。
+- 后台外壳：`eb296f0` 运行模式/年级/班级移出 rail、`a44bfeb` 修 rail 滚动边界。
+- 全屏体验：`060911b` 双层退出提醒 + `fullscreenchange` + 双击指引 + 静置改提示条，`4ee6e11` 记录。
+- 控件统一：`b3be70c` 诊断日志页换统一表单控件，`2ee7af9` 记录。
+- 系统设置：`eac5cf2` 左栏分组 + 分组视图、`aebd7d9` 隐藏分组 chip、`5d5353c` 诊断默认开启与内容居中。
+- 备份/恢复：`550c1ec` 落地 → `ba851ab` 撤回（代码保留 `feature/db-backup-restore`）。
+- 考试记录：`61b8e33` 暂停列与契约、`e247581` 操作规划器 + 单测、`5f0bef6` 投影与路由映射、`a0178cd` 操作日志列、`ac22b49` 动作接入路由、`8eb8dbb` 详情抽屉 + 操作记录接口、`49db5b1` 快速考试生命周期日志与归档只读。
+- 性能：`f7aa7db` 列表筛选分页下推 SQL；`66c777b`/`e28d8ac`/`cd6edf4`/`35c6197` Vercel 心跳、快照 URL、同步传输与公告缓存优化。
+- 修复：`9ffbacf` auth 配置缓存回归、`3bd5eb2` `/local-settings` 桌面滚动。
+- 文档：`e840a37` 商用就绪与更新/备份方案。
+
+### 学校端 · 9/13
+
+- `aba0617` 服务端板块预设 + `622610c` 一级菜单合并为「考试中心」。
+- `02fc6b3`/`e27886e`/`ce6adfa` 新建考试向导（类型选择、4 步、科目编辑、AI/JSON 导入）。
+- `96473b6`/`fd34942` dev 巡检问题清单与截图入库。
+
+### 作者端 · 9/12（`exam-board-telemetry-author/main`）
+
+- 诊断包接入：`dae7fde` 隔离脱敏、`1ebfd7c` 剥离 URL host、`ad6c273` 体积配置、`22d19d2` token 能力测试、`a804ecc` Postgres 集成、`8a1fc29` 事件数组导入。
+- 错误中心：`9f87117` P1 字段/筛选/白名单、`fb56717` 移动底部导航 + 生命周期测试、`cf35dc5` UNDEFINED_VALUE 修复、`9ba395b` 布局重建、`bc2afb8` 界面刷新、`7c03384` 诊断筛选。
+- 实例与统计：`c7388ef` 归档/恢复、`1926b7b` 停用实例排除统计、`68f0ba1` 分页 + 全量统计、`bf314d0` 概览冒烟 + 绑定修复。
+- 上报与趋势：`c62288e`/`20f6ebb` 上报学校展示与筛选、`0b2e0b5` 错误趋势、`a9551fb` 实例诊断报告导出、`2146e5a` 上报健康改按来数判定。
+- 状态与审计：`91020f3` reviewed 状态、`98e9ea1` 契约更正、`70c693f` 审计日志页 + 内容预览 + 契约文档、`3a3995d` 集成夹具修复。
+- 平台与数据：`6cb30d2` update-check、`abcfebd` 发布清单、`1aaa5a8` 单实例诊断面板、`9c5c77e` 健康看板、`f0ab56a`/`b92e1ed` JSONB 双编码修复、`97a1238`/`5fbb37f` 资产陈旧与中断归因。
+
+### 作者端 · 9/13
+
+- `beeb8f3` 作者端表格与标签的手机端可用性。
+
+### 两日合计
+
+- 学校端约 40 个提交（含 7 次远端 PR 合并）；作者端约 30 个提交。
+- 学校端验证：`npm test` 542/542、`typecheck:api`、lint、format、build 通过；真实库集成 42/43（唯一失败为诊断包保留期用例，全量跑失败、单跑通过）。
