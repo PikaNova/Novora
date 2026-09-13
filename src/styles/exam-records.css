@@ -121,6 +121,18 @@
   gap: 5px;
   white-space: nowrap;
 }
+.major-wizard-item-form {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 10px;
+  background: rgba(148, 180, 208, 0.04);
+}
+.major-wizard-item-form .admin-date-time-field {
+  width: 100%;
+}
 .major-wizard-checklist {
   display: grid;
   gap: 8px;

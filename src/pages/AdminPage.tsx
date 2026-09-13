@@ -24,6 +24,7 @@ import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
 import { runExamRecordAction } from '../services/examRecords';
 import { getShanghaiDateKey } from '../utils/weeklySchedule';
+import { examWindowFromItems } from '../utils/examWindow';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
@@ -353,6 +354,7 @@ export default function AdminPage() {
     openMajorStartTimeFlow,
     cancelMajorTimeFlow,
     commitEdit,
+    saveItem,
     setExamEnabled,
     remove,
     removeItems,
@@ -605,13 +607,7 @@ export default function AdminPage() {
   };
   // 科目时间 → 考试窗口：启用科目里最早的开始、最晚的结束。大型考试此前从不写窗口，
   // 导致「当前考试」为空、延长也用不了；向导第 3 步补上这个字段。
-  const majorWindow = (() => {
-    const timed = items.filter((item) => item.enabled && item.startTime && item.endTime);
-    const starts = timed.map((item) => new Date(item.startTime).getTime()).filter(Number.isFinite);
-    const ends = timed.map((item) => new Date(item.endTime).getTime()).filter(Number.isFinite);
-    if (!starts.length || !ends.length) return { start: null as number | null, end: null as number | null };
-    return { start: Math.min(...starts), end: Math.max(...ends) };
-  })();
+  const majorWindow = examWindowFromItems(items);
   const createDraftAndContinue = () => {
     if (majorModal?.mode !== 'add') return;
     if (wizardDraftCreated) {
@@ -950,6 +946,18 @@ export default function AdminPage() {
           onRemoveItem={remove}
           onOpenBatchAdd={() => setMajorBatchAddOpen(true)}
           onOpenEditor={openMajorEditor}
+          onSaveItem={(draft) =>
+            saveItem(
+              {
+                id: draft.id,
+                name: draft.name,
+                startTime: draft.startTime,
+                endTime: draft.endTime,
+                enabled: draft.enabled,
+              },
+              { longDurationConfirmed: draft.longConfirmed },
+            )
+          }
           onCreateAndContinue={createDraftAndContinue}
           publishBusy={publishBusy}
           onFinish={(publish) => void finishMajorWizard(publish)}
