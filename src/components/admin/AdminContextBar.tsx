@@ -1,13 +1,14 @@
 // 页面内上下文栏：运行模式 / 年级 / 班级。
 // 这些控件原先挂在左侧导航栏底部，导致导航栏承担了页面状态；现在跟随页面渲染，
 // 导航栏只负责功能切换。状态仍由 AdminPage 持有，这里只接收值与回调。
-import type { AdminTab, ScheduleMode } from '../../types/exam';
+import type { ScheduleMode } from '../../types/exam';
 import type { SchoolGrade, SchoolClass } from '../../types/school';
 import HelpTip from '../HelpTip';
 import InlineSelect from '../InlineSelect';
 
 export type AdminContextBarProps = {
-  adminTab: AdminTab;
+  /** 周测按班级编辑，需要班级选择；大型考试按年级即可。 */
+  showClassPicker: boolean;
   can: (permission: string) => boolean;
   scheduleMode: ScheduleMode;
   handleScheduleModeChange: (mode: ScheduleMode) => void;
@@ -20,7 +21,7 @@ export type AdminContextBarProps = {
 };
 
 export function AdminContextBar({
-  adminTab,
+  showClassPicker,
   can,
   scheduleMode,
   handleScheduleModeChange,
@@ -72,7 +73,7 @@ export function AdminContextBar({
           ]}
         />
       </label>
-      {adminTab === 'weekly' && (
+      {showClassPicker && (
         <label className="admin-context-bar__field">
           班级
           <InlineSelect

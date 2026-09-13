@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { adminCan, type AdminUserContext } from '../../services/examService';
-import type { AdminTab } from '../../types/exam';
+import type { AdminTab, ExamCenterView } from '../../types/exam';
 
 export const ADMIN_NAV: Array<{
   id: AdminTab;
@@ -11,13 +11,18 @@ export const ADMIN_NAV: Array<{
 }> = [
   { id: 'overview', label: '仪表盘', mobileLabel: '仪表盘', permission: 'overview.read' },
   { id: 'dashboard', label: '数据大屏', mobileLabel: '大屏', permission: 'overview.read' },
-  { id: 'records', label: '考试管理', mobileLabel: '考试管理', permission: 'major.read' },
-  { id: 'major', label: '大型考试', mobileLabel: '考试', permission: 'major.read' },
-  { id: 'weekly', label: '周测计划', mobileLabel: '周测', permission: 'weekly.read' },
+  { id: 'exam', label: '考试中心', mobileLabel: '考试', permission: 'major.read' },
   { id: 'classes', label: '年级与班级', mobileLabel: '班级', permission: 'school.read' },
   { id: 'devices', label: '设备管理', mobileLabel: '设备', permission: 'device.read' },
   { id: 'users', label: '用户与权限', mobileLabel: '用户', permission: 'user.read' },
 ];
+
+/** 旧的一级菜单深链映射到考试中心内部视图，保证旧链接与「编辑」按钮不失效。 */
+export const LEGACY_TAB_VIEWS: Record<string, { tab: AdminTab; view?: ExamCenterView }> = {
+  records: { tab: 'exam', view: 'current' },
+  major: { tab: 'exam', view: 'editor' },
+  weekly: { tab: 'exam', view: 'weekly' },
+};
 
 // Owns admin-shell navigation concerns: which tab is active, the "more" menu
 // (mobile nav overflow) placement/visibility, the permission-denied banner,
@@ -91,9 +96,7 @@ export function useAdminModals(params: {
     const permissionByTab: Record<AdminTab, string> = {
       overview: 'overview.read',
       dashboard: 'overview.read',
-      records: 'major.read',
-      major: 'major.read',
-      weekly: 'weekly.read',
+      exam: 'major.read',
       classes: 'school.read',
       devices: 'device.read',
       users: 'user.read',
@@ -110,8 +113,12 @@ export function useAdminModals(params: {
   useEffect(() => {
     const requested = new URLSearchParams(locationSearch).get('tab');
     if (!requested) return;
-    if (!ADMIN_NAV.some((item) => item.id === requested)) return;
-    setAdminTab(requested as AdminTab);
+    if (ADMIN_NAV.some((item) => item.id === requested)) {
+      setAdminTab(requested as AdminTab);
+      return;
+    }
+    const legacy = LEGACY_TAB_VIEWS[requested];
+    if (legacy) setAdminTab(legacy.tab);
   }, [locationSearch]);
 
   const openMyAccount = useCallback(() => {

@@ -14,7 +14,13 @@ export type { ExamRecordStatus as ExamStatus, ExamRecordDisplayStatus } from '..
 export type ScheduleMode = 'major-only' | 'weekly-only' | 'automatic';
 
 /** 后台当前编辑的模块（仅影响编辑界面，不决定大屏显示）。 */
-export type AdminTab = 'overview' | 'dashboard' | 'records' | 'major' | 'weekly' | 'classes' | 'devices' | 'users';
+export type AdminTab = 'overview' | 'dashboard' | 'exam' | 'classes' | 'devices' | 'users';
+
+/**
+ * 考试中心内部视图：前三个是同一份列表的三个板块口径，
+ * weekly 复用现有周测面板，editor 复用现有大型考试编辑器（二级页面，不进导航）。
+ */
+export type ExamCenterView = 'current' | 'schedule' | 'history' | 'weekly' | 'editor';
 
 export type DesignRuleScope = 'school' | 'grade' | 'class' | 'device';
 export interface DesignAssignmentRule {
