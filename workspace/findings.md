@@ -423,7 +423,7 @@
 
 ## 2026-09-13 dev 巡检：考试中心与新建向导问题清单
 
-巡检方式：本机 Chrome 无头 + CDP 驱动，`dev.pikachu2026.space` 以 admin 登录，逐视图抓取 DOM 与截图（截图目录 `visualizations/2026/09/13/01a09a1d-…/dev-exam-center/`）。
+巡检方式：本机 Chrome 无头 + CDP 驱动，`dev.pikachu2026.space` 以 admin 登录，逐视图抓取 DOM 与截图（截图已随文档入库：`workspace/dev-exam-center-2026-09-13/`）。
 
 ### P0（用户已反馈的"不是我创建的考试"）
 

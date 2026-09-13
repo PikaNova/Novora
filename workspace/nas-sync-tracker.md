@@ -821,4 +821,4 @@ git push origin main
 ### 产物
 
 - `workspace/progress.md`、`workspace/findings.md`、`workspace/task_plan.md` 与本节同步更新。
-- dev 巡检截图：`visualizations/2026/09/13/01a09a1d-…/dev-exam-center/`（`focus-after-close.png`、`focus-settled.png` 为 P0 证据）。
+- dev 巡检截图：`workspace/dev-exam-center-2026-09-13/`（`focus-after-close.png`、`focus-settled.png` 为 P0 证据，`dev-30-placeholder-detail.png` 为初始化占位考试详情）。
