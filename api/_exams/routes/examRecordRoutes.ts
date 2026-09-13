@@ -21,6 +21,8 @@ import {
   type ExamRecordDisplayStatus,
   type ExamRecordStatus,
 } from '../../../src/shared/examRecordContracts.js';
+import { addDaysToDateKey, getShanghaiDateKey } from '../../../src/utils/weeklySchedule.js';
+import { parseZonedTime } from '../../../src/utils/zonedTime.js';
 import {
   planExamOperation,
   type ExamOperationAction,
@@ -195,6 +197,21 @@ function normalizePageSize(value: unknown): number {
   return Math.max(1, Math.min(100, Math.trunc(number(value, 20))));
 }
 
+/**
+ * 考试中心的四个板块口径。产品语义放在服务端，客户端只传板块名，
+ * 避免"当前/安排/历史"的边界在前后端各写一份而漂移。
+ *
+ * - current：正在进行 / 暂停中 / 今天之内即将开始 / 时间窗已过但仍未结束（待处理）
+ * - schedule：已发布且尚未开始，且不在今天（含未定时间）；今天之内的归「当前考试」
+ * - draft：草稿
+ * - history：已结束（includeArchived=1 时并入已归档）
+ */
+const RECORD_LIST_PRESETS = ['current', 'schedule', 'draft', 'history'] as const;
+
+function isRecordListPreset(value: string): value is (typeof RECORD_LIST_PRESETS)[number] {
+  return (RECORD_LIST_PRESETS as readonly string[]).includes(value);
+}
+
 async function handleRecordList(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
@@ -214,6 +231,12 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
   const timeFilter = text(req.query?.time).trim();
   const createdByFilter = text(req.query?.createdBy).trim();
   const statusFilter = requestedStatus && requestedStatus !== 'all' ? requestedStatus : '';
+  const presetFilter = text(req.query?.preset).trim();
+  const includeArchived = text(req.query?.includeArchived).trim() === '1';
+  if (presetFilter && !isRecordListPreset(presetFilter)) {
+    error(res, 400, 'INVALID_PRESET', '无效的考试板块');
+    return;
+  }
   if (statusFilter && statusFilter !== 'ongoing' && !isExamRecordStatus(statusFilter)) {
     error(res, 400, 'INVALID_STATUS', '无效的考试状态');
     return;
@@ -232,6 +255,8 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
     return;
   }
   const now = Date.now();
+  // "今天之内"按上海自然日算：客户端只看得到板块名，边界由服务端算。
+  const todayEnd = parseZonedTime(`${addDaysToDateKey(getShanghaiDateKey(now), 1)}T00:00:00`);
   const hasAllScope = hasPermission(actor, '*') || actor.scopes.some((scope) => scope.type === 'all');
   const gradeScopeIds = actor.scopes.filter((scope) => scope.type === 'grade').map((scope) => scope.gradeId);
   const classScopeIds = actor.scopes.filter((scope) => scope.type === 'class').map((scope) => scope.classId);
@@ -290,10 +315,44 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         AND (${timeFilter}::text = ''
           OR (${timeFilter} = 'upcoming' AND start_at IS NOT NULL AND start_at >= ${now}::bigint)
           OR (${timeFilter} = 'past' AND end_at IS NOT NULL AND end_at < ${now}::bigint))
+        AND (${presetFilter}::text = '' OR (
+          CASE ${presetFilter}::text
+            WHEN 'current' THEN (
+              status = 'published' AND (
+                paused_at IS NOT NULL
+                OR (start_at IS NOT NULL AND end_at IS NOT NULL
+                    AND start_at <= ${now}::bigint AND ${now}::bigint < end_at)
+                OR (start_at IS NOT NULL AND start_at >= ${now}::bigint AND start_at < ${todayEnd}::bigint)
+                OR (end_at IS NOT NULL AND end_at <= ${now}::bigint)
+              )
+            )
+            WHEN 'schedule' THEN (
+              status = 'published' AND (start_at IS NULL OR start_at >= ${todayEnd}::bigint)
+            )
+            WHEN 'draft' THEN status = 'draft'
+            WHEN 'history' THEN status = 'ended' OR (${includeArchived}::boolean AND status = 'archived')
+            ELSE TRUE
+          END
+        ))
     ),
     paged AS (
       SELECT * FROM filtered
-      ORDER BY updated_at DESC, sort_order ASC, id ASC
+      ORDER BY
+        (CASE ${presetFilter}::text
+          WHEN 'current' THEN (
+            CASE
+              WHEN paused_at IS NOT NULL THEN 0
+              WHEN start_at IS NOT NULL AND end_at IS NOT NULL
+                AND start_at <= ${now}::bigint AND ${now}::bigint < end_at THEN 0
+              WHEN end_at IS NOT NULL AND end_at <= ${now}::bigint THEN 1
+              ELSE 2
+            END
+          )
+          ELSE 0
+        END),
+        (CASE WHEN ${presetFilter}::text IN ('current', 'schedule') THEN start_at END) ASC NULLS LAST,
+        (CASE WHEN ${presetFilter}::text = 'history' THEN COALESCE(ended_at, actual_end_at, updated_at) END) DESC NULLS LAST,
+        updated_at DESC, sort_order ASC, id ASC
       LIMIT ${pageSize} OFFSET ${offset}
     )
     SELECT

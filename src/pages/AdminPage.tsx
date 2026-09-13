@@ -25,7 +25,7 @@ import { formatApiError } from '../services/apiError';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
-import type { AdminTab } from '../types/exam';
+import type { AdminTab, ExamCenterView } from '../types/exam';
 import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
@@ -36,7 +36,7 @@ import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
 import { useAdminAuthSession } from '../hooks/admin/useAdminAuthSession';
 import { useAnnouncements } from '../hooks/admin/useAnnouncements';
-import { useAdminModals, ADMIN_NAV } from '../hooks/admin/useAdminModals';
+import { useAdminModals, ADMIN_NAV, LEGACY_TAB_VIEWS } from '../hooks/admin/useAdminModals';
 import { useInitializationWizard } from '../hooks/admin/useInitializationWizard';
 import { useAlertsSettings } from '../hooks/admin/useAlertsSettings';
 import { useWeeklyScheduleSync } from '../hooks/admin/useWeeklyScheduleSync';
@@ -51,6 +51,7 @@ import { AdminHeader, AdminMobileNav, SYNC_META } from '../components/admin/Admi
 import { MajorModalWizard } from '../components/admin/MajorModalWizard';
 import { AlertsSettingsModal } from '../components/admin/AlertsSettingsModal';
 import { AdminTabBar } from '../components/admin/AdminTabBar';
+import ExamCenterNav, { EXAM_CENTER_VIEWS, examCenterViews } from '../components/exam-center/ExamCenterNav';
 import { AdminContextBar } from '../components/admin/AdminContextBar';
 import { AdminAnnounceDialog } from '../components/admin/AdminAnnounceDialog';
 import { AdminIncompletePrompt } from '../components/admin/AdminIncompletePrompt';
@@ -104,10 +105,22 @@ export default function AdminPage() {
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [adminNow, setAdminNow] = useState(() => Date.now());
+  const [examView, setExamView] = useState<ExamCenterView>('current');
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
   }, []);
+  // 考试中心深链：/admin?tab=exam&view=schedule|history|weekly|editor（旧 tab=major/weekly 由 useAdminModals 兜底）
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('tab') === 'exam') {
+      const requested = params.get('view') ?? '';
+      if (EXAM_CENTER_VIEWS.includes(requested as ExamCenterView)) setExamView(requested as ExamCenterView);
+      return;
+    }
+    const legacy = LEGACY_TAB_VIEWS[params.get('tab') ?? ''];
+    if (legacy?.view) setExamView(legacy.view);
+  }, [location.search]);
 
   // ---- 领域 Hook 编排（顺序即依赖顺序）----
   const auth = useAdminAuthSession();
@@ -560,6 +573,30 @@ export default function AdminPage() {
     setDeniedModule('');
     setAdminTab(item.id);
   };
+  // 考试中心的内部板块：前三个是同一份列表的三个口径，weekly/editor 复用现有面板。
+  const availableExamViews = examCenterViews(can);
+  const selectExamView = (view: ExamCenterView) => {
+    setDeniedModule('');
+    setAdminTab('exam');
+    setExamView(view);
+  };
+  const examViewActive = adminTab === 'exam' ? examView : availableExamViews[0];
+  const examListView: 'current' | 'schedule' | 'history' =
+    examViewActive === 'schedule' || examViewActive === 'history' ? examViewActive : 'current';
+  // 「创建考试」按类型分流到已有的创建流程：大型考试进编辑器并直接开新建向导。
+  const openExamCreate = (kind: 'major' | 'quick' | 'weekly') => {
+    if (kind === 'weekly') {
+      selectExamView('weekly');
+      return;
+    }
+    if (kind === 'quick') {
+      setQuickMajorOpen(true);
+      return;
+    }
+    selectExamView('editor');
+    setMajorModal({ mode: 'add', name: '', targetGradeIds: selectedGradeId ? [selectedGradeId] : [] });
+    setMajorError('');
+  };
   const editDurationMs =
     editing?.startTime && editing?.endTime
       ? new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime()
@@ -607,11 +644,11 @@ export default function AdminPage() {
             can('alerts.edit') ||
             can('initialization.run'))
         }
-        canExportMajor={adminTab === 'major' && can('major.export')}
+        canExportMajor={adminTab === 'exam' && examViewActive === 'editor' && can('major.export')}
         showInitialization={
           can('initialization.run') && (!initialization.completedAt || grades.length === 0 || classes.length === 0)
         }
-        showMajorChip={hasScopedMajor && adminTab === 'major'}
+        showMajorChip={hasScopedMajor && adminTab === 'exam' && examViewActive === 'editor'}
         currentDeviceBinding={currentDeviceBinding}
         adminTab={adminTab}
         activeMajorName={activeMajor.name}
@@ -636,16 +673,12 @@ export default function AdminPage() {
         onExportJson={exportJson}
       />
       <div className="admin-workspace">
-        <AdminTabBar
-          adminTab={adminTab}
-          can={can}
-          selectAdminTab={selectAdminTab}
-          visibleWeeklyPlans={visibleWeeklyPlans}
-        />
+        <AdminTabBar adminTab={adminTab} can={can} selectAdminTab={selectAdminTab} />
         <div className="admin-content">
-          {(adminTab === 'major' || adminTab === 'weekly') && (
+          {adminTab === 'exam' && <ExamCenterNav view={examViewActive} can={can} onSelect={selectExamView} />}
+          {adminTab === 'exam' && (examViewActive === 'weekly' || examViewActive === 'editor') && (
             <AdminContextBar
-              adminTab={adminTab}
+              showClassPicker={examViewActive === 'weekly'}
               can={can}
               scheduleMode={scheduleMode}
               handleScheduleModeChange={handleScheduleModeChange}
@@ -658,8 +691,13 @@ export default function AdminPage() {
             />
           )}
           <div
-            key={adminTab}
-            className={`admin-body admin-tab-transition${(['overview', 'dashboard', 'records', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ? ' admin-body--wide' : ''}`}
+            key={`${adminTab}:${examViewActive}`}
+            className={`admin-body admin-tab-transition${
+              (['overview', 'dashboard', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ||
+              (adminTab === 'exam' && ['current', 'schedule', 'history'].includes(examViewActive))
+                ? ' admin-body--wide'
+                : ''
+            }`}
           >
             <Suspense fallback={<LoadingState kind="loading" layout="panel" />}>
               {adminTab === 'overview' ? (
@@ -676,9 +714,7 @@ export default function AdminPage() {
                 />
               ) : adminTab === 'dashboard' ? (
                 <DashboardPanel />
-              ) : adminTab === 'records' ? (
-                <ExamRecordsPanel grades={visibleGrades} classes={visibleClasses} can={can} />
-              ) : adminTab === 'weekly' ? (
+              ) : adminTab === 'exam' && examViewActive === 'weekly' ? (
                 <fieldset className="admin-permission-fieldset" disabled={!can('weekly.edit')}>
                   <WeeklyPanel
                     weeklyPlans={visibleWeeklyPlans}
@@ -706,6 +742,14 @@ export default function AdminPage() {
                     allowBatchApply={can('weekly.copy') && visibleClasses.length > 1}
                   />
                 </fieldset>
+              ) : adminTab === 'exam' && examViewActive !== 'editor' ? (
+                <ExamRecordsPanel
+                  grades={visibleGrades}
+                  classes={visibleClasses}
+                  preset={examListView}
+                  can={can}
+                  onCreate={openExamCreate}
+                />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel
                   grades={visibleGrades}

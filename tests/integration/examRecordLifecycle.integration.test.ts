@@ -14,6 +14,8 @@ import { handleExamRecordRoute } from '../../api/_exams/routes/examRecordRoutes.
 import { handleExamDataPost } from '../../api/_exams/routes/examDataRoutes.js';
 import { __resetRateLimiterForTests } from '../../api/_rateLimiter.js';
 import examsHandler from '../../api/exams.js';
+import { addDaysToDateKey, getShanghaiDateKey } from '../../src/utils/weeklySchedule.js';
+import { parseZonedTime } from '../../src/utils/zonedTime.js';
 
 type Scope = { type: 'all' | 'grade' | 'class'; gradeId?: string; classId?: string };
 type Login = { id: number; token: string };
@@ -760,6 +762,76 @@ test('考试操作记录：详情页能读到操作者、前后状态与备注�
   const missingId = await listOperations(admin.token, '');
   assert.equal(missingId.statusCode, 400);
   assert.equal(missingId.body.code, 'INVALID_RECORD_ID');
+});
+
+test('考试中心板块：四个口径互不重叠，「当前考试」按进行中 → 待结束 → 今天即将开始排序', async () => {
+  const now = Date.now();
+  const hour = 3_600_000;
+  const todayEnd = parseZonedTime(`${addDaysToDateKey(getShanghaiDateKey(now), 1)}T00:00:00`);
+  // 贴近午夜运行时不再构造"今天稍后"，避免边界抖动；其余断言不依赖它。
+  const todayLaterStart = todayEnd - now > 3 * hour ? now + hour : null;
+
+  const majors: SeedMajor[] = [
+    { id: 'cur-running', name: '进行中', startAt: now - hour, endAt: now + hour },
+    { id: 'cur-overrun', name: '待结束', startAt: now - 3 * hour, endAt: now - hour },
+    { id: 'next-tomorrow', name: '明天', startAt: todayEnd + 2 * hour, endAt: todayEnd + 3 * hour },
+    { id: 'next-unscheduled', name: '未定时间' },
+    { id: 'draft-only', name: '草稿' },
+  ];
+  if (todayLaterStart != null) {
+    majors.push({
+      id: 'cur-today',
+      name: '今天稍后',
+      startAt: todayLaterStart,
+      endAt: todayLaterStart + hour,
+    });
+  }
+  await seedMajors(majors);
+
+  const published = ['cur-running', 'cur-overrun', 'next-tomorrow', 'next-unscheduled'];
+  if (todayLaterStart != null) published.push('cur-today');
+  for (const id of published) {
+    assert.equal((await act(admin.token, 'record-publish', { id })).statusCode, 200, `${id} 应可发布`);
+  }
+
+  const currentIds = listedIds(await listRecords(admin.token, { preset: 'current', pageSize: '50' }));
+  const scheduleIds = listedIds(await listRecords(admin.token, { preset: 'schedule', pageSize: '50' }));
+  const draftIds = listedIds(await listRecords(admin.token, { preset: 'draft', pageSize: '50' }));
+
+  const expectedCurrent =
+    todayLaterStart == null ? ['cur-running', 'cur-overrun'] : ['cur-running', 'cur-overrun', 'cur-today'];
+  assert.deepEqual(currentIds, expectedCurrent, '当前考试：进行中 → 待结束 → 今天即将开始');
+  assert.deepEqual(scheduleIds, ['next-tomorrow', 'next-unscheduled'], '考试安排按开始时间升序，未定时间的排在最后');
+  assert.deepEqual(draftIds, ['draft-only']);
+
+  // 已发布的考试必须恰好落在一个板块里
+  const placed = [...currentIds, ...scheduleIds].sort();
+  assert.deepEqual(placed, [...published].sort(), '已发布的考试不能漏出三个板块之外');
+  assert.equal(
+    currentIds.some((id) => scheduleIds.includes(id)),
+    false,
+    '当前考试与考试安排不能重叠',
+  );
+
+  // 历史：默认不含归档，开关打开后并入
+  await act(admin.token, 'record-start', { id: 'cur-running' });
+  await act(admin.token, 'record-end', { id: 'cur-running' });
+  assert.deepEqual(listedIds(await listRecords(admin.token, { preset: 'history', pageSize: '50' })), ['cur-running']);
+  await act(admin.token, 'record-archive', { id: 'cur-running' });
+  assert.deepEqual(
+    listedIds(await listRecords(admin.token, { preset: 'history', pageSize: '50' })),
+    [],
+    '归档后默认从历史考试里隐藏',
+  );
+  assert.deepEqual(
+    listedIds(await listRecords(admin.token, { preset: 'history', includeArchived: '1', pageSize: '50' })),
+    ['cur-running'],
+    '打开归档开关后能翻出来',
+  );
+
+  const invalid = await listRecords(admin.token, { preset: 'nope' });
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(invalid.body.code, 'INVALID_PRESET');
 });
 
 test('快速考试：走本地优先保存管道也会补齐生命周期操作日志', async () => {

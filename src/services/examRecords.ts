@@ -81,6 +81,9 @@ export type ExamRecordListEntry = {
 export type ExamRecordListQuery = {
   page: number;
   pageSize: number;
+  /** 考试中心的板块口径；由服务端解释边界，客户端不再自行拼状态条件。 */
+  preset?: ExamRecordPreset;
+  includeArchived?: boolean;
   q?: string;
   status?: string;
   gradeId?: string;
@@ -89,6 +92,8 @@ export type ExamRecordListQuery = {
   time?: string;
   createdBy?: string;
 };
+
+export type ExamRecordPreset = 'current' | 'schedule' | 'draft' | 'history';
 
 export type ExamRecordListPage = {
   data: ExamRecordListEntry[];
@@ -154,6 +159,8 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
     page: String(query.page),
     pageSize: String(query.pageSize),
   });
+  if (query.preset) params.set('preset', query.preset);
+  if (query.includeArchived) params.set('includeArchived', '1');
   if (query.q) params.set('q', query.q);
   if (query.status) params.set('status', query.status);
   if (query.gradeId) {

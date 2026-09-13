@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
-import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, RefreshCw, Search } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, RefreshCw, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
-import { fetchExamRecords, type ExamRecordListEntry } from '../services/examRecords';
+import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
 import { formatApiError } from '../services/apiError';
-import { EXAM_RECORD_STATUS_LABELS, type ExamRecordDisplayStatus } from '../shared/examRecordContracts.js';
+import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import '../styles/exam-records.css';
 
@@ -12,17 +12,31 @@ type RecordSource = 'regular' | 'quick';
 type Props = {
   grades: SchoolGrade[];
   classes: SchoolClass[];
+  /** 板块口径：current 当前考试 / schedule 考试安排 / history 历史考试。 */
+  preset: Extract<ExamRecordPreset, 'current' | 'schedule' | 'history'>;
   /** 权限判定交给上层，动作按钮只显示当前账号真的能执行的项。 */
   can: (permission: string) => boolean;
+  /** 顶部「+ 创建考试」；由上层按类型路由到已有的创建流程。 */
+  onCreate?: (kind: 'major' | 'quick' | 'weekly') => void;
 };
 
-const STATUS_OPTIONS: Array<{ value: '' | ExamRecordDisplayStatus; label: string }> = [
-  { value: '', label: '全部状态' },
-  ...(['draft', 'published', 'ongoing', 'ended', 'archived'] as ExamRecordDisplayStatus[]).map((status) => ({
-    value: status,
-    label: EXAM_RECORD_STATUS_LABELS[status],
-  })),
-];
+const PRESET_COPY: Record<Props['preset'], { title: string; description: string; empty: string }> = {
+  current: {
+    title: '当前考试',
+    description: '正在进行的、今天稍后要开始的，以及时间已过但仍未结束的考试。',
+    empty: '当前没有需要关注的考试。',
+  },
+  schedule: {
+    title: '考试安排',
+    description: '明天及以后已发布的考试；未定时间的安排和草稿排在下面。',
+    empty: '还没有安排中的考试。',
+  },
+  history: {
+    title: '历史考试',
+    description: '已经结束的考试；归档默认隐藏，需要时在下方打开。',
+    empty: '还没有历史考试。',
+  },
+};
 
 function formatTime(value: number | null): string {
   if (!value || !Number.isFinite(value)) return '未设置时间';
@@ -43,13 +57,11 @@ function scopeLabel(record: ExamRecordListEntry, grades: SchoolGrade[], classes:
   return `${labels.join('、')}${record.targetGradeIds.length + record.targetClassIds.length > labels.length ? ' 等' : ''}`;
 }
 
-export default function ExamRecordsPanel({ grades, classes, can }: Props) {
+export default function ExamRecordsPanel({ grades, classes, preset, can, onCreate }: Props) {
   const [records, setRecords] = useState<ExamRecordListEntry[]>([]);
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<'' | ExamRecordDisplayStatus>('');
   const [gradeId, setGradeId] = useState('');
   const [source, setSource] = useState<'' | RecordSource>('');
-  const [timeScope, setTimeScope] = useState<'all' | 'upcoming' | 'past'>('all');
   const [createdBy, setCreatedBy] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(12);
@@ -59,6 +71,10 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [detailId, setDetailId] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [drafts, setDrafts] = useState<ExamRecordListEntry[]>([]);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [draftsLoading, setDraftsLoading] = useState(false);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -67,12 +83,12 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
       const result = await fetchExamRecords({
         page,
         pageSize,
+        preset,
+        includeArchived: preset === 'history' && showArchived,
         q: query.trim() || undefined,
-        status: status || undefined,
         gradeId: gradeId || undefined,
         classIds: gradeId ? classes.filter((item) => item.gradeId === gradeId).map((item) => item.id) : undefined,
         source: source || undefined,
-        time: timeScope === 'all' ? undefined : timeScope,
         createdBy: createdBy.trim() || undefined,
       });
       setRecords(result.data);
@@ -86,11 +102,40 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [classes, createdBy, gradeId, page, pageSize, query, source, status, timeScope]);
+  }, [classes, createdBy, gradeId, page, pageSize, preset, query, showArchived, source]);
 
   useEffect(() => {
     void loadRecords();
   }, [loadRecords, refreshKey]);
+
+  // 考试安排的草稿区：默认折叠，展开时单独拉一次，草稿不参与主列表分页。
+  useEffect(() => {
+    if (preset !== 'schedule' || !draftsOpen) return;
+    let active = true;
+    setDraftsLoading(true);
+    void fetchExamRecords({
+      page: 1,
+      pageSize: 50,
+      preset: 'draft',
+      q: query.trim() || undefined,
+      gradeId: gradeId || undefined,
+      classIds: gradeId ? classes.filter((item) => item.gradeId === gradeId).map((item) => item.id) : undefined,
+      source: source || undefined,
+      createdBy: createdBy.trim() || undefined,
+    })
+      .then((result) => {
+        if (active) setDrafts(result.data);
+      })
+      .catch(() => {
+        if (active) setDrafts([]);
+      })
+      .finally(() => {
+        if (active) setDraftsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [classes, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
 
   /** 筛选项变化一律回到第一页；DOM 事件的值会被放宽成 string，这里集中收窄一次。 */
   const filterHandler =
@@ -102,26 +147,39 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
 
   // 详情始终取列表里的最新一行：动作完成后列表刷新，抽屉里的状态与时间会跟着更新。
   const detailRecord = detailId ? (records.find((item) => item.id === detailId) ?? null) : null;
+  const copy = PRESET_COPY[preset];
 
   return (
     <main className="exam-records-panel">
       <header className="exam-records-panel__header">
         <div>
-          <span className="exam-records-panel__eyebrow">考试管理</span>
-          <h2>全部考试</h2>
-          <p>按状态、范围和时间快速定位考试记录。</p>
+          <span className="exam-records-panel__eyebrow">考试中心</span>
+          <h2>{copy.title}</h2>
+          <p>{copy.description}</p>
         </div>
-        <button
-          className="admin-btn admin-btn--ghost exam-records-panel__refresh"
-          type="button"
-          onClick={() => setRefreshKey((value) => value + 1)}
-          disabled={loading}
-          aria-label="刷新考试列表"
-          title="刷新考试列表"
-        >
-          <RefreshCw size={16} aria-hidden="true" />
-          刷新
-        </button>
+        <div className="exam-records-panel__actions">
+          <button
+            className="admin-btn admin-btn--ghost exam-records-panel__refresh"
+            type="button"
+            onClick={() => setRefreshKey((value) => value + 1)}
+            disabled={loading}
+            aria-label="刷新考试列表"
+            title="刷新考试列表"
+          >
+            <RefreshCw size={16} aria-hidden="true" />
+            刷新
+          </button>
+          {onCreate && (
+            <button
+              className="admin-btn admin-btn--primary exam-records-panel__create"
+              type="button"
+              onClick={() => onCreate('major')}
+            >
+              <Plus size={16} aria-hidden="true" />
+              创建考试
+            </button>
+          )}
+        </div>
       </header>
 
       <section className="exam-records-filters" aria-label="考试筛选">
@@ -129,16 +187,6 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
           <Search size={16} aria-hidden="true" />
           <span className="sr-only">搜索考试</span>
           <input value={query} onChange={filterHandler(setQuery)} placeholder="搜索名称或编号" type="search" />
-        </label>
-        <label>
-          <span>状态</span>
-          <select value={status} onChange={filterHandler(setStatus)}>
-            {STATUS_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
         </label>
         <label>
           <span>年级</span>
@@ -160,14 +208,6 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
           </select>
         </label>
         <label>
-          <span>时间</span>
-          <select value={timeScope} onChange={filterHandler(setTimeScope)}>
-            <option value="all">全部时间</option>
-            <option value="upcoming">即将开始</option>
-            <option value="past">已结束</option>
-          </select>
-        </label>
-        <label>
           <span>创建人</span>
           <input
             className="exam-records-creator-input"
@@ -182,14 +222,28 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
         </label>
       </section>
 
+      {preset === 'history' && (
+        <label className="exam-records-toggle">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(event) => {
+              setShowArchived(event.target.checked);
+              setPage(1);
+            }}
+          />
+          显示已归档的考试
+        </label>
+      )}
+
       {error && <div className="exam-records-feedback is-error">{error}</div>}
       {loading ? (
         <div className="exam-records-feedback">正在读取考试记录…</div>
       ) : records.length === 0 ? (
         <div className="exam-records-empty">
           <ClipboardList size={30} aria-hidden="true" />
-          <strong>没有匹配的考试</strong>
-          <span>调整筛选条件，或先在大型考试页面创建考试。</span>
+          <strong>{copy.empty}</strong>
+          <span>可以调整筛选条件，或用右上角「创建考试」新建一场。</span>
         </div>
       ) : (
         <section className="exam-records-table-wrap" aria-label="考试记录">
@@ -238,6 +292,39 @@ export default function ExamRecordsPanel({ grades, classes, can }: Props) {
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {preset === 'schedule' && (
+        <section className="exam-records-drafts" aria-label="草稿考试">
+          <button
+            className="admin-btn admin-btn--ghost exam-records-drafts__toggle"
+            type="button"
+            aria-expanded={draftsOpen}
+            onClick={() => setDraftsOpen((value) => !value)}
+          >
+            <ChevronRight size={16} aria-hidden="true" className={draftsOpen ? 'is-open' : undefined} />
+            草稿{drafts.length && draftsOpen ? `（${drafts.length}）` : ''}
+          </button>
+          {draftsOpen &&
+            (draftsLoading ? (
+              <p className="exam-records-drafts__hint">正在读取草稿…</p>
+            ) : drafts.length === 0 ? (
+              <p className="exam-records-drafts__hint">没有草稿。新建考试默认先存为草稿，会出现在这里。</p>
+            ) : (
+              <ul className="exam-records-drafts__list">
+                {drafts.map((record) => (
+                  <li key={record.id}>
+                    <button type="button" onClick={() => setDetailId(record.id)}>
+                      <strong>{record.name || record.id}</strong>
+                      <span>{record.itemCount} 科</span>
+                      <span>{record.startAt ? formatTime(record.startAt) : '时间待定'}</span>
+                      <em>草稿</em>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ))}
         </section>
       )}
 

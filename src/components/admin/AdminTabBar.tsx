@@ -8,10 +8,9 @@ export type AdminTabBarProps = {
   adminTab: AdminTab;
   can: (permission: string) => boolean;
   selectAdminTab: (item: (typeof ADMIN_NAV)[number]) => void;
-  visibleWeeklyPlans: unknown[];
 };
 
-export function AdminTabBar({ adminTab, can, selectAdminTab, visibleWeeklyPlans }: AdminTabBarProps) {
+export function AdminTabBar({ adminTab, can, selectAdminTab }: AdminTabBarProps) {
   return (
     <nav className="admin-tabbar" aria-label="管理功能">
       <div className="admin-tabbar__tabs">
@@ -26,7 +25,6 @@ export function AdminTabBar({ adminTab, can, selectAdminTab, visibleWeeklyPlans 
               <ModuleIcon module={item.id} size={16} />
             </span>
             {item.label}
-            {item.id === 'weekly' && visibleWeeklyPlans.length ? `（${visibleWeeklyPlans.length}）` : ''}
           </button>
         ))}
       </div>
