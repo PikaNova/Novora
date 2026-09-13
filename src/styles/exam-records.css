@@ -41,6 +41,110 @@
   align-items: center;
   gap: 6px;
 }
+.exam-records-create {
+  position: relative;
+}
+.exam-records-create__menu {
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 4px;
+  min-width: 240px;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 10px;
+  background: var(--adm-card, #0c1219);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.exam-records-create__menu button {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--adm-text-2, #a9bdd0);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-records-create__menu button:hover {
+  background: rgba(148, 180, 208, 0.1);
+}
+.exam-records-create__menu strong {
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.exam-records-create__menu span {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+}
+
+/* ―― 新建考试向导第 2 步：科目与时间 ―― */
+.major-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.major-wizard-items {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.major-wizard-items li {
+  display: grid;
+  grid-template-columns: minmax(80px, 1.2fr) minmax(140px, 1.6fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+.major-wizard-items strong {
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.major-wizard-items__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.major-wizard-checklist {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.major-wizard-checklist li {
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 13px;
+}
+.major-wizard-checklist li.is-ok::before {
+  margin-right: 6px;
+  color: var(--adm-success, #4cbe8c);
+  content: '✓';
+}
+.major-wizard-checklist li.is-bad::before {
+  margin-right: 6px;
+  color: #f3a0a0;
+  content: '!';
+}
 
 /* ―― 考试中心板块导航（一级菜单合并后的二级导航）―― */
 .exam-center-nav {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { AlertsSettings, ExamItem, MajorExam } from '../../types';
@@ -100,8 +100,13 @@ export function useMajorScheduleActions(params: {
   const [quickMajorOpen, setQuickMajorOpen] = useState(false);
   const [majorBatchAddOpen, setMajorBatchAddOpen] = useState(false);
 
+  // 只在弹窗「刚打开」时回到第一步：以前的依赖是整个 majorModal 对象，
+  // 于是弹窗内任何一次 setMajorModal（改名称、改范围、向导中途写草稿）都会把步骤打回 0。
+  const majorModalOpenRef = useRef(false);
   useEffect(() => {
-    if (majorModal) setMajorModalStep(0);
+    const open = Boolean(majorModal);
+    if (open && !majorModalOpenRef.current) setMajorModalStep(0);
+    majorModalOpenRef.current = open;
   }, [majorModal]);
 
   useEffect(() => {

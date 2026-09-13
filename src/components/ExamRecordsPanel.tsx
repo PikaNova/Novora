@@ -75,6 +75,7 @@ export default function ExamRecordsPanel({ grades, classes, preset, can, onCreat
   const [drafts, setDrafts] = useState<ExamRecordListEntry[]>([]);
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [draftsLoading, setDraftsLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -170,14 +171,41 @@ export default function ExamRecordsPanel({ grades, classes, preset, can, onCreat
             刷新
           </button>
           {onCreate && (
-            <button
-              className="admin-btn admin-btn--primary exam-records-panel__create"
-              type="button"
-              onClick={() => onCreate('major')}
-            >
-              <Plus size={16} aria-hidden="true" />
-              创建考试
-            </button>
+            <div className="exam-records-create">
+              <button
+                className="admin-btn admin-btn--primary exam-records-panel__create"
+                type="button"
+                aria-expanded={createOpen}
+                onClick={() => setCreateOpen((value) => !value)}
+              >
+                <Plus size={16} aria-hidden="true" />
+                创建考试
+              </button>
+              {createOpen && (
+                <div className="exam-records-create__menu" role="menu" aria-label="选择考试类型">
+                  {(
+                    [
+                      ['major', '大型考试', '有起止的正式考试，先存草稿再完善'],
+                      ['quick', '快速发布', '立刻统一下发到班级，保存即生效'],
+                      ['weekly', '周测计划', '周期性的课表安排'],
+                    ] as const
+                  ).map(([kind, label, hint]) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        onCreate(kind);
+                      }}
+                    >
+                      <strong>{label}</strong>
+                      <span>{hint}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </header>

@@ -22,6 +22,8 @@ import MajorBatchAddModal from '../components/MajorBatchAddModal';
 import TimeRangePickerModal from '../components/TimeRangePickerModal';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
+import { runExamRecordAction } from '../services/examRecords';
+import { getShanghaiDateKey } from '../utils/weeklySchedule';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
@@ -106,6 +108,9 @@ export default function AdminPage() {
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [adminNow, setAdminNow] = useState(() => Date.now());
   const [examView, setExamView] = useState<ExamCenterView>('current');
+  const [publishBusy, setPublishBusy] = useState(false);
+  // 向导第 1 步会把草稿写进库并关闭弹窗；用这个标记把向导重新拉回第 2 步，避免重复建草稿。
+  const [wizardDraftCreated, setWizardDraftCreated] = useState(false);
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
@@ -593,9 +598,78 @@ export default function AdminPage() {
       setQuickMajorOpen(true);
       return;
     }
-    selectExamView('editor');
     setMajorModal({ mode: 'add', name: '', targetGradeIds: selectedGradeId ? [selectedGradeId] : [] });
+    setWizardDraftCreated(false);
+    setMajorModalStep(0);
     setMajorError('');
+  };
+  // 科目时间 → 考试窗口：启用科目里最早的开始、最晚的结束。大型考试此前从不写窗口，
+  // 导致「当前考试」为空、延长也用不了；向导第 3 步补上这个字段。
+  const majorWindow = (() => {
+    const timed = items.filter((item) => item.enabled && item.startTime && item.endTime);
+    const starts = timed.map((item) => new Date(item.startTime).getTime()).filter(Number.isFinite);
+    const ends = timed.map((item) => new Date(item.endTime).getTime()).filter(Number.isFinite);
+    if (!starts.length || !ends.length) return { start: null as number | null, end: null as number | null };
+    return { start: Math.min(...starts), end: Math.max(...ends) };
+  })();
+  const createDraftAndContinue = () => {
+    if (majorModal?.mode !== 'add') return;
+    if (wizardDraftCreated) {
+      setMajorModalStep(2);
+      return;
+    }
+    const snapshot = { ...majorModal };
+    commitMajorModal(() => {});
+    // commitMajorModal 收尾会 setMajorModal(null)：这里把同一次填写原样放回去，
+    // 让第 2/3 步继续在同一场草稿上工作（而不是又建一条）。
+    setWizardDraftCreated(true);
+    setMajorModal(snapshot);
+    setMajorModalStep(2);
+  };
+  const openMajorEditor = () => {
+    setMajorModal(null);
+    setWizardDraftCreated(false);
+    setMajorError('');
+    selectExamView('editor');
+  };
+  const finishMajorWizard = async (publish: boolean) => {
+    if (!activeMajor?.id) return;
+    setMajorError('');
+    if (!publish) {
+      setMajorModal(null);
+      setWizardDraftCreated(false);
+      setMajorModalStep(0);
+      selectExamView('schedule');
+      return;
+    }
+    if (majorWindow.start == null || majorWindow.end == null) {
+      setMajorError('科目时间不完整，无法发布');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setMajorError('当前离线，联网后再发布');
+      return;
+    }
+    setPublishBusy(true);
+    try {
+      const next = majors.map((major) =>
+        major.id === activeMajor.id ? { ...major, startAt: majorWindow.start, endAt: majorWindow.end } : major,
+      );
+      // 先把考试窗口写进快照（服务端据此推导 start_at/end_at），再发布，避免竞态。
+      commit(next, activeMajor.id, false, '更新考试窗口');
+      await pushToServer(next, activeMajor.id, '更新考试窗口');
+      await runExamRecordAction({ id: activeMajor.id, action: 'publish' });
+      notify('success', `「${activeMajor.name}」已发布，教室大屏将在下一次同步时收到安排。`, '考试已发布');
+      const todayEnd = new Date(`${getShanghaiDateKey(Date.now())}T23:59:59+08:00`).getTime();
+      setMajorModal(null);
+      setWizardDraftCreated(false);
+      setMajorModalStep(0);
+      selectExamView(majorWindow.start < todayEnd ? 'current' : 'schedule');
+    } catch (error) {
+      setMajorError(formatApiError(error, '发布失败'));
+    } finally {
+      setPublishBusy(false);
+    }
   };
   const editDurationMs =
     editing?.startTime && editing?.endTime
@@ -868,6 +942,17 @@ export default function AdminPage() {
           backdropProps={backdropProps}
           commitMajorModal={commitMajorModal}
           setImportOpen={setImportOpen}
+          items={items}
+          windowStart={majorWindow.start}
+          windowEnd={majorWindow.end}
+          canManageItems={can('major.edit')}
+          onToggleItem={setExamEnabled}
+          onRemoveItem={remove}
+          onOpenBatchAdd={() => setMajorBatchAddOpen(true)}
+          onOpenEditor={openMajorEditor}
+          onCreateAndContinue={createDraftAndContinue}
+          publishBusy={publishBusy}
+          onFinish={(publish) => void finishMajorWizard(publish)}
         />
       )}
       {quickMajorOpen && (

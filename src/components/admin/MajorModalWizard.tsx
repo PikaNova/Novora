@@ -4,6 +4,9 @@ import AdminModalPortal from '../AdminModalPortal';
 import AdminWizardSteps, { AdminWorkflowClose } from '../AdminWizardSteps';
 import HelpTip from '../HelpTip';
 import InlineSelect from '../InlineSelect';
+import { fmtLocal } from '../../hooks/admin/adminPageUtils';
+import { formatDateTimeInZone } from '../../utils/zonedTime';
+import type { ExamItem } from '../../types';
 import type { SchoolGrade } from '../../types/school';
 import type { MajorModal } from '../../hooks/admin/useMajorScheduleActions';
 
@@ -23,6 +26,20 @@ export type MajorModalWizardProps = {
   backdropProps: BackdropProps;
   commitMajorModal: (onContinueToImport: () => void) => Promise<void> | void;
   setImportOpen: (open: boolean) => void;
+  /** 第 2/3 步：当前草稿的科目与考试窗口。 */
+  items: ExamItem[];
+  windowStart: number | null;
+  windowEnd: number | null;
+  canManageItems: boolean;
+  onToggleItem: (id: string, enabled: boolean) => void;
+  onRemoveItem: (item: ExamItem) => void;
+  onOpenBatchAdd: () => void;
+  onOpenEditor: () => void;
+  /** 第 1 步「创建并继续」：先把草稿写下来，再进入科目编辑。 */
+  onCreateAndContinue: () => void;
+  publishBusy: boolean;
+  /** 第 3 步：完成（存为草稿）或保存并发布。 */
+  onFinish: (publish: boolean) => void;
 };
 
 export function MajorModalWizard({
@@ -37,7 +54,24 @@ export function MajorModalWizard({
   backdropProps,
   commitMajorModal,
   setImportOpen,
+  items,
+  windowStart,
+  windowEnd,
+  canManageItems,
+  onToggleItem,
+  onRemoveItem,
+  onOpenBatchAdd,
+  onOpenEditor,
+  onCreateAndContinue,
+  publishBusy,
+  onFinish,
 }: MajorModalWizardProps) {
+  const isAddFlow = majorModal.mode === 'add' && majorModal.next !== 'import';
+  const enabledItems = items.filter((item) => item.enabled);
+  const timedItems = enabledItems.filter((item) => item.startTime && item.endTime);
+  const missingTime = enabledItems.length - timedItems.length;
+  const canPublish = enabledItems.length > 0 && missingTime === 0 && windowStart != null && windowEnd != null;
+
   return (
     <AdminModalPortal className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}>
       <div className="admin-modal admin-modal--wide admin-modal--workflow" onClick={(e) => e.stopPropagation()}>
@@ -58,10 +92,19 @@ export function MajorModalWizard({
         <div className="admin-workflow-layout">
           <AdminWizardSteps
             active={majorModalStep}
-            steps={[
-              { label: '考试名称', hint: '填写清晰的考试标题' },
-              { label: '适用范围', hint: '确认下发年级' },
-            ]}
+            steps={
+              isAddFlow
+                ? [
+                    { label: '考试名称', hint: '填写清晰的考试标题' },
+                    { label: '适用范围', hint: '确认下发年级' },
+                    { label: '科目与时间', hint: '安排各科场次' },
+                    { label: '确认', hint: '检查后保存或发布' },
+                  ]
+                : [
+                    { label: '考试名称', hint: '填写清晰的考试标题' },
+                    { label: '适用范围', hint: '确认下发年级' },
+                  ]
+            }
             summary={
               <>
                 <span>大型考试</span>
@@ -131,6 +174,99 @@ export function MajorModalWizard({
                 </p>
               </div>
             )}
+            {majorModalStep === 2 && (
+              <div className="admin-workflow-pane">
+                <div className="major-wizard-actions">
+                  <button className="admin-btn" type="button" onClick={onOpenBatchAdd} disabled={!canManageItems}>
+                    批量添加分考试
+                  </button>
+                  <button className="admin-btn admin-btn--ghost" type="button" onClick={onOpenEditor}>
+                    去编辑器逐项调整
+                  </button>
+                </div>
+                {items.length === 0 ? (
+                  <p className="admin-modal__body">
+                    还没有科目。可以「批量添加分考试」，或到编辑器里用 AI 识图 / JSON 导入一次灌入整张表。
+                  </p>
+                ) : (
+                  <ul className="major-wizard-items">
+                    {items.map((item) => (
+                      <li key={item.id}>
+                        <strong>{item.name}</strong>
+                        <span>
+                          {item.startTime && item.endTime
+                            ? `${fmtLocal(item.startTime)} - ${fmtLocal(item.endTime)}`
+                            : '未设时间'}
+                        </span>
+                        <label className="major-wizard-items__toggle">
+                          <input
+                            type="checkbox"
+                            checked={item.enabled}
+                            disabled={!canManageItems}
+                            onChange={(event) => onToggleItem(item.id, event.target.checked)}
+                          />
+                          启用
+                        </label>
+                        <button
+                          className="admin-btn admin-btn--danger"
+                          type="button"
+                          disabled={!canManageItems}
+                          onClick={() => onRemoveItem(item)}
+                        >
+                          删除
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="admin-workflow-review">
+                  <span>
+                    启用科目<strong>{enabledItems.length} 科</strong>
+                  </span>
+                  <span>
+                    考试窗口
+                    <strong>
+                      {windowStart != null && windowEnd != null
+                        ? `${formatDateTimeInZone(windowStart)} → ${formatDateTimeInZone(windowEnd)}`
+                        : '待科目时间'}
+                    </strong>
+                  </span>
+                </div>
+                {missingTime > 0 && (
+                  <p className="admin-error">还有 {missingTime} 个启用科目没有完整时间，补齐后才能发布。</p>
+                )}
+              </div>
+            )}
+            {majorModalStep === 3 && (
+              <div className="admin-workflow-pane">
+                <ul className="major-wizard-checklist">
+                  <li className={majorModal.name.trim() ? 'is-ok' : 'is-bad'}>
+                    考试名称：{majorModal.name.trim() || '未填写'}
+                  </li>
+                  <li className={majorModal.targetGradeIds.length || hasAllScope ? 'is-ok' : 'is-bad'}>
+                    适用范围：
+                    {majorModal.targetGradeIds.length
+                      ? visibleGrades.find((grade) => grade.id === majorModal.targetGradeIds[0])?.name || '指定年级'
+                      : '全校统一'}
+                  </li>
+                  <li className={enabledItems.length > 0 ? 'is-ok' : 'is-bad'}>
+                    启用科目：{enabledItems.length} 科{enabledItems.length === 0 ? '（至少 1 科）' : ''}
+                  </li>
+                  <li className={missingTime === 0 && enabledItems.length > 0 ? 'is-ok' : 'is-bad'}>
+                    科目时间：{missingTime === 0 ? '完整' : `${missingTime} 科缺少起止时间`}
+                  </li>
+                  <li className={windowStart != null && windowEnd != null ? 'is-ok' : 'is-bad'}>
+                    考试窗口：
+                    {windowStart != null && windowEnd != null
+                      ? `${formatDateTimeInZone(windowStart)} → ${formatDateTimeInZone(windowEnd)}`
+                      : '无法计算（缺科目时间）'}
+                  </li>
+                </ul>
+                <p className="admin-modal__body">
+                  保存为草稿会留在「考试安排」的草稿区；保存并发布会立刻下发到对应范围的教室大屏。
+                </p>
+              </div>
+            )}
           </div>
         </div>
         <div className="admin-modal__actions">
@@ -143,6 +279,7 @@ export function MajorModalWizard({
                 setMajorError('');
               }
             }}
+            disabled={publishBusy}
           >
             {majorModalStep ? '上一步' : '取消'}
           </button>
@@ -160,13 +297,47 @@ export function MajorModalWizard({
             >
               下一步
             </button>
-          ) : (
+          ) : majorModalStep === 1 && isAddFlow ? (
+            <button
+              className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
+              onClick={onCreateAndContinue}
+            >
+              创建并继续
+            </button>
+          ) : majorModalStep === 1 ? (
             <button
               className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
               onClick={() => commitMajorModal(() => setImportOpen(true))}
             >
               {majorModal.next === 'import' ? '创建并继续导入' : '确认保存'}
             </button>
+          ) : majorModalStep === 2 ? (
+            <button
+              className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
+              onClick={() => setMajorModalStep(3)}
+            >
+              下一步
+            </button>
+          ) : (
+            <>
+              <button
+                className="admin-btn admin-workflow-actions-spacer"
+                type="button"
+                disabled={publishBusy}
+                onClick={() => onFinish(false)}
+              >
+                存为草稿
+              </button>
+              <button
+                className="admin-btn admin-btn--primary"
+                type="button"
+                disabled={!canPublish || publishBusy}
+                title={canPublish ? undefined : '补齐科目与时间后才能发布'}
+                onClick={() => onFinish(true)}
+              >
+                {publishBusy ? '正在发布…' : '保存并发布'}
+              </button>
+            </>
           )}
         </div>
       </div>
