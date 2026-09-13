@@ -180,6 +180,14 @@ export function MajorModalWizard({
                   <button className="admin-btn" type="button" onClick={onOpenBatchAdd} disabled={!canManageItems}>
                     批量添加分考试
                   </button>
+                  <button
+                    className="admin-btn"
+                    type="button"
+                    onClick={() => setImportOpen(true)}
+                    disabled={!canManageItems}
+                  >
+                    AI 识图 / JSON 导入
+                  </button>
                   <button className="admin-btn admin-btn--ghost" type="button" onClick={onOpenEditor}>
                     去编辑器逐项调整
                   </button>
@@ -253,7 +261,12 @@ export function MajorModalWizard({
                     启用科目：{enabledItems.length} 科{enabledItems.length === 0 ? '（至少 1 科）' : ''}
                   </li>
                   <li className={missingTime === 0 && enabledItems.length > 0 ? 'is-ok' : 'is-bad'}>
-                    科目时间：{missingTime === 0 ? '完整' : `${missingTime} 科缺少起止时间`}
+                    科目时间：
+                    {enabledItems.length === 0
+                      ? '无启用科目'
+                      : missingTime === 0
+                        ? '完整'
+                        : `${missingTime} 科缺少起止时间`}
                   </li>
                   <li className={windowStart != null && windowEnd != null ? 'is-ok' : 'is-bad'}>
                     考试窗口：
