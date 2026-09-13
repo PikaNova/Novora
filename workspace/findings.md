@@ -420,3 +420,39 @@
 - `examService.ts` 的 4 处 `data.user as AdminUserContext` 盲转型全部替换为 `parseAdminUserContext` 形状校验：id/username/displayName/roleId/roleName/permissions/scopes 逐字段验证，非法返回 null；`refreshAdminUser` 改为"先验证后缓存"，坏数据不再进入 localStorage。
 - `adminUsers.ts` 的 users/roles/audit/loginFailureAlerts 响应不再直接信任 `data.x || []`，统一经 `parseList` + 逐项解析过滤；畸形条目被丢弃而不是渲染时崩溃。
 - 服务端发送方（`api/_apiError.ts`）与心跳读取侧已有逐字段校验，本轮未动。
+
+## 2026-09-13 dev 巡检：考试中心与新建向导问题清单
+
+巡检方式：本机 Chrome 无头 + CDP 驱动，`dev.pikachu2026.space` 以 admin 登录，逐视图抓取 DOM 与截图（截图目录 `visualizations/2026/09/13/01a09a1d-…/dev-exam-center/`）。
+
+### P0（用户已反馈的"不是我创建的考试"）
+
+| ID | 现象 | 证据 |
+|---|---|---|
+| P0-1 | 点「创建并继续」后，弹窗仍在，但**背后的视图被切成编辑器**；向导一关，用户看到的是编辑器里的**另一场考试**（旧草稿「111」），不是刚命名的那场 | 三处快照均为 `hasEditor: true / hasListPanel: false`，编辑器标题 `高一 · 111 · 0 科`，而 URL 仍是 `?tab=exam&view=schedule`（关闭后 4 秒与 13 秒两次读数一致） |
+| P0-2 | 四次新建尝试（名称分别为 `Codex测试B/C-可删`、`Codex巡检-可删`、`Codex聚焦-可删`）**都没有出现在草稿列表**，草稿始终是 `111 / 111` | 草稿区展开读数为 `['111','111']`，与创建前完全一致；怀疑草稿未落库，需服务端日志/DB 核对 |
+
+### P1
+
+| ID | 现象 | 说明 |
+|---|---|---|
+| P1-1 | 关闭创建向导后主列表**瞬间为空**且不回列表 | 关闭后立即读到 `rows: []`，9 秒后仍为空；用户观感是"考试消失了"。需要保留旧数据 + loading 占位，并回到来源视图 |
+| P1-2 | 向导第 2 步「科目与时间」只能看、要改就跳编辑器，而跳编辑器会踩 P0-1 | 链路断裂，逐项改时间的体验不可用 |
+| P1-3 | 顶部标题仍是「考试管理」，与「考试中心」并存 | 同一页面出现两个名字 |
+
+### P2（规范类）
+
+- 四个子页在内容区顶部横条，未进左侧 rail 分层。
+- 选择器/复选框/输入框不统一：原生 `<select>` 2 处（考试中心筛选）、复选框 6 种写法（`admin-toggle-label` / `init-check` / `quick-major-priority` / `exam-records-toggle` / `device-status__batch` / `class-management__row`，另有无外层类）、输入框两套（`admin-input` / `admin-date-time-field`）。
+- 字体未挂区域变量：`applyTypographySettings` 只写 `--font-region-*`，教室侧消费、后台与考试中心基本不消费，字体分区改不动这些界面。
+
+### 已确认的事实（非缺陷）
+
+- 列表里那条「大型考试」是**初始化向导**生成的：`initializationData.ts:78` 在非演示模式下写死该名字，id 前缀 `school_`，创建人显示"系统"（dev 上该记录 8 科、已被发布与开考）。
+- 草稿区两条「111」是用户此前测试留下的草稿。
+- 第 0 步直接关闭创建向导**不会**产生草稿。
+- 正常项：当前考试空态文案、历史考试 + 归档开关、周测计划视图（运行模式/年级/班级上下文栏正常）、详情抽屉（生命周期、操作记录、设备状态、计划时间未设置均正确）、控制台无报错。
+
+### 巡检期间的写操作
+
+- 仅创建尝试 4 次（名称均含 `Codex…-可删`），均未落库；未删除或修改任何既有考试。

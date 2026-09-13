@@ -606,3 +606,37 @@ Decision: use git commit --allow-empty so Vercel receives a new dev revision whi
 - [x] Add regression coverage; `npm test` 458/458, API typecheck, lint, format, and diff check pass.
 - [ ] School-local error persistence and author-side cross-instance aggregation remain the next v2.9.2 batches.
 - [ ] Commit/push awaits user instruction.
+
+## 当前会话：考试中心结构、新建向导与 dev 巡检（2026-09-13）
+
+### 目标
+
+- [x] 一级菜单合并：考试管理 + 大型考试 + 周测计划 → 考试中心（四板块）。
+- [x] 三个列表板块的服务端口径预设（current/schedule/draft/history），今天之内用上海自然日，四者互不重叠。
+- [x] 新建考试向导：类型选择 + 4 步（名称 / 范围 / 科目与时间 / 确认），默认存草稿，发布时写考试窗口。
+- [x] 顺手修复：auth 配置缓存回归、`/local-settings` 桌面端滚动、投影 archived 被改回 ended、向导步骤被重置。
+- [x] dev 站完整巡检，问题清单落盘 `workspace/findings.md`。
+- [ ] 四个子页面移入左侧 rail 分层（取消顶部横条），标题统一为「考试中心」。
+- [ ] 关闭创建向导时对空草稿询问「保留 / 丢弃」（A 方案）。
+- [ ] 初始化不再生成默认考试。
+- [ ] 全局统一选择器/复选框/输入框；文字挂 `--font-region-*` 跟随字体分区。
+
+### 待处理问题（来自 dev 巡检）
+
+| 级别 | 问题 | 位置 |
+|---|---|---|
+| P0 | 「创建并继续」后视图被切成编辑器且显示旧草稿「111」 | 向导第 1→2 步衔接 / `activeMajor` 回读 |
+| P0 | 新建草稿未出现在草稿列表（疑未落库） | 保存链路，需服务端/DB 核对 |
+| P1 | 关闭向导后主列表瞬间为空、不回来源视图 | 考试中心列表面板 |
+| P1 | 第 2 步改时间要跳编辑器，链路断 | 向导与编辑器衔接 |
+| P2 | 选择器/复选框/输入框不统一；字体未挂变量 | 全局规范 |
+
+### 实施顺序（已与用户确认）
+
+1. 批次 1（止血 + 结构）：向导不切视图、新建后明确设置当前编辑对象、关闭回来源视图并保留列表数据、四个子页进 rail、标题统一。
+2. 批次 2：A 方案（空草稿询问保留/丢弃，需补按 id 删草稿入口）、初始化不再生成默认考试。
+3. 批次 3：全局选择器/复选框/输入框原语统一 + 字体区域变量挂载。
+
+### 注意
+
+- 批次 1 要动的文件（AdminPage / 向导 / 导航）与此前并行会话在同一批，动手前需确认对方已停手，避免互相覆盖。

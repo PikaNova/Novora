@@ -782,3 +782,43 @@ git push origin main
 - 原始导出：`share_6a92fda6.*`、`share_6a9bda6b.*`、`share_6a9bdada.*`、`share_6a9bdc53.*`。
 - 主题覆盖版本规划、未来路线、考试功能和 WebSocket 稳定性评估。
 - 不上传旧仓库、依赖目录、临时运行目录或数据库内容。
+
+## 2026-09-13 考试中心合并、新建考试向导与 dev 巡检
+
+### 本周改动（学校端 `nas-upload-worktree/upload/main`）
+
+| 提交 | 内容 |
+|---|---|
+| `aba0617` | 服务端列表板块预设 `preset=current\|schedule\|draft\|history`，今天之内用上海自然日，四者互不重叠 |
+| `622610c` | 一级菜单合并为「考试中心」，内部四板块；旧深链 `?tab=records\|major\|weekly` 映射到对应视图 |
+| `02fc6b3` / `e27886e` / `ce6adfa` | 新建考试向导：类型选择 + 4 步；第 1 步落草稿；补齐科目编辑与 AI/JSON 导入入口 |
+| `8eb8dbb` | 考试详情抽屉 + `GET /api/exams?resource=record-operations` 操作记录接口 |
+| `f7aa7db` | 列表筛选与分页下推 SQL（一条 CTE 同时取总数与当前页） |
+| `ac22b49` | 生命周期动作接入路由（start/pause/resume/extend + 幂等键 + 操作日志），发布时写考试窗口 |
+| `3bd5eb2` | 修 `/local-settings` 桌面端无法滚动（固定外壳只应作用于系统设置页） |
+| `9ffbacf` | 修 auth 配置缓存回归：清空 `app_auth` 后缓存仍返回已删除的行，导致密码正确却登录失败 |
+
+### 验证
+
+- `npm test` 542/542、`npm run typecheck:api`、lint、`format:check`、`npm run build` 通过。
+- 真实库集成 42/43；唯一失败为 `diagnosticLogsHandler` 保留期用例（全量跑失败、单跑通过，与本批无关）。
+- 界面核验：本机 Chrome 无头 + CDP 逐视图抓取截图（考试中心三板块、草稿折叠、归档开关、周测视图、详情抽屉、向导第 2/3 步）。
+
+### dev 巡检关键发现
+
+| 级别 | 结论 |
+|---|---|
+| P0 | 点「创建并继续」后背后视图被切成编辑器，显示的是旧草稿「111」而非新建的那场——即用户反馈的"不是我创建的考试" |
+| P0 | 四次新建尝试均未出现在草稿列表，疑未落库，待服务端/DB 核对 |
+| P1 | 关闭创建向导后主列表瞬间为空且不回来源视图 |
+| P2 | 子页未进 rail 分层；选择器/复选框/输入框不统一；文字未挂 `--font-region-*` |
+| 事实 | 列表里那条「大型考试」由初始化向导生成（`initializationData.ts:78` 写死名字，创建人"系统"） |
+
+### 决定
+
+- 初始化不再生成默认考试；关闭创建向导时对空草稿询问「保留 / 丢弃」（A 方案）；四个子页移入左侧 rail；标题统一为「考试中心」；全局统一控件样式并与字体分区联动。
+
+### 产物
+
+- `workspace/progress.md`、`workspace/findings.md`、`workspace/task_plan.md` 与本节同步更新。
+- dev 巡检截图：`visualizations/2026/09/13/01a09a1d-…/dev-exam-center/`（`focus-after-close.png`、`focus-settled.png` 为 P0 证据）。
