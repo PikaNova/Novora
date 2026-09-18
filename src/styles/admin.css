@@ -1,3 +1,5 @@
+@import './controls.css';
+
 /* ===== 考试管理 admin.css ===== */
 .admin-page {
   /* 后台外壳里页头是 sticky 的固定高度；左侧栏的 sticky 偏移与高度都以此为基准，
@@ -1865,46 +1867,7 @@
   margin-bottom: 10px;
 }
 
-/* 开关拨杆 */
-.admin-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-.admin-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.admin-switch span {
-  position: absolute;
-  inset: 0;
-  background: #cbd5e1;
-  border-radius: 999px;
-  transition: background 0.2s;
-}
-.admin-switch span::before {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  left: 3px;
-  top: 3px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-.admin-switch input:checked + span {
-  background: #27ae60;
-}
-.admin-switch input:checked + span::before {
-  transform: translateX(18px);
-}
+/* 开关拨杆：统一实现在 styles/controls.css（见文件开头的 @import）。 */
 
 @media (max-width: 720px) {
   .admin-alerts__grid {
@@ -4209,41 +4172,7 @@
   font-size: 11px;
   line-height: 1.4;
 }
-.quick-major-track-match__switch input {
-  appearance: none;
-  position: relative;
-  flex: 0 0 auto;
-  width: 42px;
-  height: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  cursor: pointer;
-  transition:
-    background 0.18s,
-    border-color 0.18s;
-}
-.quick-major-track-match__switch input::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #d7e1e8;
-  transition:
-    transform 0.18s,
-    background 0.18s;
-}
-.quick-major-track-match__switch input:checked {
-  border-color: #4ab9ef;
-  background: rgba(52, 152, 219, 0.7);
-}
-.quick-major-track-match__switch input:checked::after {
-  transform: translateX(18px);
-  background: #fff;
-}
+/* 开关本体：统一实现在 styles/controls.css。 */
 .quick-major-track-match > p {
   margin: 0;
   color: rgba(235, 244, 250, 0.66);

@@ -1,3 +1,5 @@
+@import './controls.css';
+
 /* 文档自然滚动（v1.16.1）：不再用 height:100%+内部滚动，改跟随文档滚动，修复移动端地址栏/键盘下无法下滑；大屏页由 body.lock-scroll 单独锁定 */
 .set-page {
   min-height: 100dvh;
@@ -441,45 +443,7 @@ select.set-input {
   overflow-y: auto;
 }
 
-/* 开关 */
-.set-switch {
-  position: relative;
-  display: inline-block;
-  width: 42px;
-  height: 24px;
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-.set-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.set-switch span {
-  position: absolute;
-  inset: 0;
-  background: #3a3f47;
-  border-radius: 999px;
-  transition: background 0.2s;
-}
-.set-switch span::before {
-  content: '';
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  left: 3px;
-  top: 3px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.2s;
-}
-.set-switch input:checked + span {
-  background: #2ecc71;
-}
-.set-switch input:checked + span::before {
-  transform: translateX(18px);
-}
+/* 开关：统一实现在 styles/controls.css（写在文件开头的 @import）。 */
 
 /* Markdown 正文 */
 .md-body {

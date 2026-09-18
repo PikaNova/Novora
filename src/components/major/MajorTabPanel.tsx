@@ -230,7 +230,7 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
             <div className="admin-warning-banner">
               <span>
                 <strong>已归档</strong>
-                这场考试是只读历史，不能修改或删除。需要调整请先到「考试管理」取消归档。
+                这场考试是只读历史，不能修改或删除。需要调整请先到「考试中心」取消归档。
               </span>
             </div>
           )}

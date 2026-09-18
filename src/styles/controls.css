@@ -1,0 +1,69 @@
+/*
+ * 通用表单控件规格：后台（admin.css）与系统设置（settings.css）共用这一份。
+ *
+ * 开关是这里有过的最大分叉：`.set-switch`（设置页）、`.admin-switch`（提醒弹窗）、
+ * `.quick-major-track-match__switch`（快速考试）各写一套轨道与圆钮，尺寸 40×22 与 42×24 两种、
+ * 选中色绿蓝两种，前两者把轨道画在兄弟 span 上、第三者画在 input::after 上。
+ * 现在统一成一份：轨道画在 input 自身，容器只保留各自的行内布局，
+ * 所以调用方不再需要那个空的 `<span />`。
+ */
+.set-switch input,
+.admin-switch input,
+.quick-major-track-match__switch input {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: #3a3f47;
+  cursor: pointer;
+  transition:
+    background 0.18s,
+    border-color 0.18s;
+}
+.set-switch input::after,
+.admin-switch input::after,
+.quick-major-track-match__switch input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s;
+}
+.set-switch input:checked,
+.admin-switch input:checked,
+.quick-major-track-match__switch input:checked {
+  border-color: #2ecc71;
+  background: #2ecc71;
+}
+.set-switch input:checked::after,
+.admin-switch input:checked::after,
+.quick-major-track-match__switch input:checked::after {
+  transform: translateX(18px);
+}
+.set-switch input:focus-visible,
+.admin-switch input:focus-visible,
+.quick-major-track-match__switch input:focus-visible {
+  outline: 2px solid rgba(89, 184, 241, 0.8);
+  outline-offset: 2px;
+}
+.set-switch input:disabled,
+.admin-switch input:disabled,
+.quick-major-track-match__switch input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+/* 容器只负责行内布局：设置页与提醒弹窗里，开关自己独立成块。 */
+.set-switch,
+.admin-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  cursor: pointer;
+}

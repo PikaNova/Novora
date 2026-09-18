@@ -100,7 +100,7 @@ export function AdminHeader({
         </button>
         <BrandMark compact className="admin-header__brand" />
         <div className="admin-header__identity">
-          <h1 className="admin-header__title">考试管理</h1>
+          <h1 className="admin-header__title">管理后台</h1>
           <span>{ADMIN_NAV.find((item) => item.id === adminTab)?.label}</span>
         </div>
         {showMajorChip && (
