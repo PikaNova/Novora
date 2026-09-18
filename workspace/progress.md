@@ -791,3 +791,20 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 开关三种实现（`set-switch` / `admin-switch` / `quick-major-track-match__switch`）需要改组件标记才能收敛。
 - 顶部标题「考试管理」与「考试中心」并存（巡检 P1-3）。
 - 空草稿「保留 / 丢弃」、初始化不再生成默认考试仍未做。
+
+## 会话：开关收敛、空草稿与初始化（2026-09-18 第三批）
+
+- `6e0f09a` 开关收敛成一份实现（`styles/controls.css`，轨道画在 input 自身），三处旧写法删除；顶栏标题「考试管理」→「管理后台」（旁边已有当前模块名），归档提示里的旧名也改掉。
+- `1289b9c` 关闭创建向导时对空草稿追问「保留 / 丢弃」（A 方案，只针对本次向导建出来且没有科目的草稿，丢弃按 id 删除并推送快照）；初始化不再生成默认考试（演示模式仍给示例）。
+- `6769cc8` 给初始化补 2 条回归测试（非演示不产出考试；演示仍给示例）。
+
+### 验证
+
+- `npm test` 574/574、`npm run build`、`npm run typecheck:api` 通过；全量 `tsc` 仍只有 3 条既有 `useMajorScheduleActions` 报错。
+- 构建产物核对：两个 CSS chunk 都含统一开关选择器（修掉了一次 `@import` 被放到文件末尾导致设置页拿不到规格的问题）。
+- 按用户指示不再追 dev 构建，界面实测等部署后再做。
+
+### 下一批候选
+
+- 按钮统一（`admin-btn` / `set-btn` / `admin-item-btn` 三族，尺寸中/大/小、配色已一致）。
+- 部署后到 dev 复核巡检 P0-2（新建草稿是否出现在草稿列表）。
