@@ -39,6 +39,11 @@ type Props = {
   onClose: () => void;
   /** 动作成功后通知列表重新拉取（筛选条件由父组件保留）。 */
   onChanged: () => void;
+  /**
+   * 「编辑考试」的落点，由上层给：它知道要编辑哪一场、需不需要先切年级。
+   * 没有传时退回旧的 `?tab=major` 深链（只用于兼容旧调用方）。
+   */
+  onEdit?: () => void;
 };
 
 type PendingAction = { action: ExamRecordActionName; minutes?: number; reason?: string; idempotencyKey?: string };
@@ -121,7 +126,7 @@ function buildTimeline(record: ExamRecordListEntry, operations: ExamRecordOperat
   ];
 }
 
-export default function ExamRecordDetailDrawer({ record, grades, classes, can, onClose, onChanged }: Props) {
+export default function ExamRecordDetailDrawer({ record, grades, classes, can, onClose, onChanged, onEdit }: Props) {
   const navigate = useNavigate();
   const [operations, setOperations] = useState<ExamRecordOperationEntry[]>([]);
   const [operationsError, setOperationsError] = useState('');
@@ -303,6 +308,10 @@ export default function ExamRecordDetailDrawer({ record, grades, classes, can, o
                 type="button"
                 onClick={() => {
                   onClose();
+                  if (onEdit) {
+                    onEdit();
+                    return;
+                  }
                   navigate('/admin?tab=major');
                 }}
               >

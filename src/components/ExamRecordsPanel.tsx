@@ -7,6 +7,7 @@ import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../utils/weeklySchedule';
 import { buildWeeklyOccurrenceRows } from '../utils/weeklyOccurrenceRows';
 import { groupHistoryEntries, groupScheduleEntries } from '../utils/examListGrouping';
+import { readExamListFilters, writeExamListFilters } from '../utils/examListFilterMemory';
 import type { WeeklyPlan } from '../types/exam';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import InlineSelect from './InlineSelect';
@@ -27,6 +28,8 @@ type Props = {
   weeklyPlans?: WeeklyPlan[];
   weeklyPlanIdByClassId?: Record<string, string | null>;
   onOpenWeeklyEditor?: () => void;
+  /** 详情抽屉里的「编辑考试」：由上层定位到这场考试再进编辑器，面板自己不猜落点。 */
+  onEditRecord?: (record: ExamRecordListEntry) => void;
 };
 
 const PRESET_COPY: Record<Props['preset'], { title: string; description: string; empty: string }> = {
@@ -83,12 +86,15 @@ export default function ExamRecordsPanel({
   weeklyPlans,
   weeklyPlanIdByClassId,
   onOpenWeeklyEditor,
+  onEditRecord,
 }: Props) {
+  // 切板块或去编辑器会卸载本面板：筛选条件从内存快照读回，见 utils/examListFilterMemory。
+  const [rememberedFilters] = useState(() => readExamListFilters(preset));
   const [records, setRecords] = useState<ExamRecordListEntry[]>([]);
-  const [query, setQuery] = useState('');
-  const [gradeId, setGradeId] = useState('');
-  const [source, setSource] = useState<'' | RecordSource>('');
-  const [createdBy, setCreatedBy] = useState('');
+  const [query, setQuery] = useState(rememberedFilters?.query ?? '');
+  const [gradeId, setGradeId] = useState(rememberedFilters?.gradeId ?? '');
+  const [source, setSource] = useState<'' | RecordSource>(rememberedFilters?.source ?? '');
+  const [createdBy, setCreatedBy] = useState(rememberedFilters?.createdBy ?? '');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(12);
   const [total, setTotal] = useState(0);
@@ -97,11 +103,11 @@ export default function ExamRecordsPanel({
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [detailId, setDetailId] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived, setShowArchived] = useState(rememberedFilters?.showArchived ?? false);
   const [drafts, setDrafts] = useState<ExamRecordListEntry[]>([]);
-  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [draftsOpen, setDraftsOpen] = useState(rememberedFilters?.draftsOpen ?? false);
   const [draftsLoading, setDraftsLoading] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(rememberedFilters?.createOpen ?? false);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -134,6 +140,12 @@ export default function ExamRecordsPanel({
   useEffect(() => {
     void loadRecords();
   }, [loadRecords, refreshKey]);
+
+  // 记住筛选条件与几个展开状态：切板块、进编辑器再回来时，列表还在原来的口径上。
+  // 分页刻意不记，回来时从第一页开始。
+  useEffect(() => {
+    writeExamListFilters(preset, { query, gradeId, source, createdBy, showArchived, draftsOpen, createOpen });
+  }, [preset, query, gradeId, source, createdBy, showArchived, draftsOpen, createOpen]);
 
   // 考试安排的草稿区：默认折叠，展开时单独拉一次，草稿不参与主列表分页。
   useEffect(() => {
@@ -505,6 +517,7 @@ export default function ExamRecordsPanel({
           can={can}
           onClose={() => setDetailId('')}
           onChanged={() => setRefreshKey((value) => value + 1)}
+          onEdit={onEditRecord ? () => onEditRecord(detailRecord) : undefined}
         />
       )}
     </main>

@@ -22,9 +22,10 @@ import MajorBatchAddModal from '../components/MajorBatchAddModal';
 import TimeRangePickerModal from '../components/TimeRangePickerModal';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
-import { runExamRecordAction } from '../services/examRecords';
+import { runExamRecordAction, type ExamRecordListEntry } from '../services/examRecords';
 import { getShanghaiDateKey } from '../utils/weeklySchedule';
 import { examWindowFromItems } from '../utils/examWindow';
+import { resolveExamEditTarget } from '../utils/examRecordEditTarget';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
@@ -628,6 +629,28 @@ export default function AdminPage() {
     setMajorError('');
     selectExamView('editor');
   };
+  // 详情抽屉的「编辑考试」：先定位到那一场（必要时把年级切过去），再进编辑器。
+  // 编辑器展示的是「当前年级范围内按 editingMajorId 命中的那一场」，少了定位这一步，
+  // 用户点开的就是当前范围的第一场——也就是巡检里反馈过的「这根本不是我点的那场考试」。
+  const openExamRecordEditor = (record: ExamRecordListEntry) => {
+    const target = resolveExamEditTarget({
+      majors,
+      recordId: record.id,
+      currentGradeId: selectedGradeId,
+      classes: visibleClasses,
+    });
+    if (!target) {
+      notify(
+        'warning',
+        `「${record.name || record.id}」已不在本地考试数据里（可能刚被删除），刷新列表后再试。`,
+        '找不到这场考试',
+      );
+      return;
+    }
+    if (target.gradeId) changeSelectedGrade(target.gradeId);
+    setEditingMajorId(target.majorId);
+    selectExamView('editor');
+  };
   const finishMajorWizard = async (publish: boolean) => {
     if (!activeMajor?.id) return;
     setMajorError('');
@@ -822,6 +845,7 @@ export default function AdminPage() {
                   weeklyPlans={visibleWeeklyPlans}
                   weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
                   onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
+                  onEditRecord={can('major.edit') ? openExamRecordEditor : undefined}
                 />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel

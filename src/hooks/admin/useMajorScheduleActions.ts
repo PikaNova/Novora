@@ -5,6 +5,7 @@ import type { AlertsSettings, ExamItem, MajorExam } from '../../types';
 import type { SchoolClass, SchoolGrade } from '../../types/school';
 import { isTrackSubject, normalizeSubjectName } from '../../data/subjects';
 import { classesInMajorScope as sharedClassesInMajorScope, computeAutoTrackClassIds } from '../../utils/trackClassIds';
+import { majorAppliesToGrade as sharedMajorAppliesToGrade } from '../../utils/examRecordEditTarget';
 import type { InitializationState } from '../../utils/settings/school';
 import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId } from '../../utils/appSettings';
 import { getCloudSnapshot, saveExamsToServer, type AdminUserContext } from '../../services/examService';
@@ -144,14 +145,8 @@ export function useMajorScheduleActions(params: {
   });
 
   const majorAppliesToGrade = (major: MajorExam, gradeId: string) => {
-    if (!gradeId) return false;
-    if (major.targetGradeIds?.length) return major.targetGradeIds.includes(gradeId);
-    if (major.targetClassIds?.length) {
-      return major.targetClassIds.some((classId) =>
-        classes.some((item) => item.id === classId && item.gradeId === gradeId),
-      );
-    }
-    return true;
+    // 判定规则只有一份实现（详情抽屉定位「编辑考试」时要用同一条），这里只补上当前班级列表。
+    return sharedMajorAppliesToGrade(major, gradeId, classes);
   };
 
   const scopedMajors = selectedGradeId
