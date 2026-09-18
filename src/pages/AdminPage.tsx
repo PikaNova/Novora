@@ -45,7 +45,7 @@ import { useAdminModals, ADMIN_NAV, LEGACY_TAB_VIEWS } from '../hooks/admin/useA
 import { useInitializationWizard } from '../hooks/admin/useInitializationWizard';
 import { useAlertsSettings } from '../hooks/admin/useAlertsSettings';
 import { useWeeklyScheduleSync } from '../hooks/admin/useWeeklyScheduleSync';
-import { useMajorScheduleActions } from '../hooks/admin/useMajorScheduleActions';
+import { useMajorScheduleActions, type MajorModal } from '../hooks/admin/useMajorScheduleActions';
 import { useExamItemActions } from '../hooks/admin/useExamItemActions';
 import { useSchoolStructureActions } from '../hooks/admin/useSchoolStructureActions';
 import { useMajorImportExport } from '../hooks/admin/useMajorImportExport';
@@ -112,8 +112,11 @@ export default function AdminPage() {
   const [adminNow, setAdminNow] = useState(() => Date.now());
   const [examView, setExamView] = useState<ExamCenterView>('current');
   const [publishBusy, setPublishBusy] = useState(false);
-  // 向导第 1 步会把草稿写进库并关闭弹窗；用这个标记把向导重新拉回第 2 步，避免重复建草稿。
+  // 向导第 1 步会把草稿写进库、收起弹窗并直接进编辑器；用这个标记避免重复建草稿，
+  // 同时记住这次的填写内容（wizardSnapshotRef），好在左下角提示里点「下一步」回到确认步骤。
   const [wizardDraftCreated, setWizardDraftCreated] = useState(false);
+  const wizardSnapshotRef = useRef<NonNullable<MajorModal> | null>(null);
+  const [draftHintHidden, setDraftHintHidden] = useState(false);
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
@@ -613,16 +616,26 @@ export default function AdminPage() {
   const createDraftAndContinue = () => {
     if (majorModal?.mode !== 'add') return;
     if (wizardDraftCreated) {
-      setMajorModalStep(2);
+      setMajorModalStep(3);
       return;
     }
     const snapshot = { ...majorModal };
+    wizardSnapshotRef.current = snapshot;
     commitMajorModal(() => {});
-    // commitMajorModal 收尾会 setMajorModal(null)：这里把同一次填写原样放回去，
-    // 让第 2/3 步继续在同一场草稿上工作（而不是又建一条）。
     setWizardDraftCreated(true);
-    setMajorModal(snapshot);
-    setMajorModalStep(2);
+    setDraftHintHidden(false);
+    // 第 3 步（科目与时间）不在弹窗里编辑：草稿已经落库，直接把弹窗收起来进编辑器填科目，
+    // 左下角留一条提示；填完点提示里的「下一步」回到向导的「确认」步骤，再保存或发布。
+    setMajorModal(null);
+    setMajorModalStep(3);
+    selectExamView('editor');
+  };
+  /** 提示条里的「下一步」：把向导按原来的填写内容恢复到确认步骤。 */
+  const resumeMajorWizard = () => {
+    if (!wizardSnapshotRef.current) return;
+    setMajorError('');
+    setMajorModalStep(3);
+    setMajorModal(wizardSnapshotRef.current);
   };
   const openMajorEditor = () => {
     setMajorModal(null);
@@ -924,11 +937,8 @@ export default function AdminPage() {
                   orderedScopedMajors={orderedScopedMajors}
                   activeMajor={activeMajor}
                   items={items}
-                  canQuickPublish={canQuickPublish}
                   can={can}
-                  switchMajor={switchMajor}
                   isOwnQuickTemporaryMajor={isOwnQuickTemporaryMajor}
-                  setQuickMajorOpen={setQuickMajorOpen}
                   setMajorModal={setMajorModal}
                   setMajorError={setMajorError}
                   hasScopedMajor={hasScopedMajor}
@@ -983,6 +993,23 @@ export default function AdminPage() {
         </div>
       </div>
       <AdminMobileNav adminTab={adminTab} can={can} onSelectAdminTab={selectAdminTab} onOpenMyAccount={openMyAccount} />
+      {/* 新建向导第 3 步 → 编辑器：左下角提示，编完科目点「下一步」回到确认步骤。 */}
+      {wizardDraftCreated && !draftHintHidden && adminTab === 'exam' && examViewActive === 'editor' && (
+        <div className="admin-draft-hint" role="status" aria-live="polite">
+          <div className="admin-draft-hint__body">
+            <strong>正在编辑「{activeMajor?.name || '新考试'}」的科目</strong>
+            <span>在编辑器里添加或修改科目与时间，编辑完成后点击「下一步」继续确认并发布。</span>
+          </div>
+          <div className="admin-draft-hint__actions">
+            <button className="admin-btn admin-btn--primary" type="button" onClick={resumeMajorWizard}>
+              下一步
+            </button>
+            <button className="admin-btn admin-btn--ghost" type="button" onClick={() => setDraftHintHidden(true)}>
+              知道了
+            </button>
+          </div>
+        </div>
+      )}
       {gradeAdminSetupPromptOpen && (
         <GradeAdminSetupPromptModal
           visibleGrades={visibleGrades}

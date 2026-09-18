@@ -344,7 +344,11 @@
 }
 .exam-records-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 1.7fr) repeat(5, minmax(120px, 0.8fr));
+  /* 四列对应四个控件（搜索/年级/来源/创建人）。原来写了 6 列，后两列是空的；
+     而年级与来源是 InlineSelect（span.set-input），既不是 select 也不是 input，
+     拿不到下面那条统一外观，反而继承了设置页的 min-width:220px，
+     在 120px 的列里必然溢出去压住右边那个控件——就是「三个选择框重叠」。 */
+  grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
   padding: 12px;
@@ -372,6 +376,21 @@
 }
 .exam-records-filters select {
   padding: 0 9px;
+}
+/* 选择器（InlineSelect）与输入框用同一套外观与高度，不再借用设置页的 .set-input。 */
+.exam-records-filters .inline-select {
+  width: 100%;
+  min-width: 0;
+}
+.exam-records-filters .inline-select__trigger {
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 6px;
+  background: var(--adm-bg2, #10171f);
+  color: var(--adm-text, #eaf2f8);
+  font: inherit;
+  font-size: 12px;
 }
 .exam-records-creator-input {
   padding: 0 9px;
@@ -517,6 +536,51 @@
 .exam-records-table-wrap.is-refreshing {
   opacity: 0.55;
   transition: opacity 0.15s;
+}
+/* 新建向导第 3 步直接进编辑器时，左下角常驻提示：编辑完成后点「下一步」回确认步骤。 */
+.admin-draft-hint {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 10px;
+  background: var(--adm-card, #0c1219);
+  box-shadow: var(--adm-shadow-2, 0 18px 40px rgba(0, 0, 0, 0.3));
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.admin-draft-hint__body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.admin-draft-hint__body strong {
+  font-size: 13px;
+}
+.admin-draft-hint__body span {
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.admin-draft-hint__actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+@media (max-width: 700px) {
+  .admin-draft-hint {
+    right: 12px;
+    left: 12px;
+    bottom: 76px;
+    flex-wrap: wrap;
+    max-width: none;
+  }
 }
 .exam-records-count {
   font-variant-numeric: tabular-nums;

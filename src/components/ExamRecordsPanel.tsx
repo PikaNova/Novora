@@ -330,7 +330,6 @@ export default function ExamRecordsPanel({
         <label>
           <span>年级</span>
           <InlineSelect
-            className="set-input"
             value={gradeId}
             onChange={(value) => {
               setGradeId(value);
@@ -345,7 +344,6 @@ export default function ExamRecordsPanel({
         <label>
           <span>来源</span>
           <InlineSelect
-            className="set-input"
             value={source}
             onChange={(value) => {
               setSource(value as '' | RecordSource);

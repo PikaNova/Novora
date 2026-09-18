@@ -25,11 +25,8 @@ export interface MajorTabPanelProps {
   orderedScopedMajors: MajorExam[];
   activeMajor: MajorExam | null | undefined;
   items: ExamItem[];
-  canQuickPublish: boolean;
   can: (permission: string) => boolean;
-  switchMajor: (id: string) => void;
   isOwnQuickTemporaryMajor: (major: MajorExam) => boolean;
-  setQuickMajorOpen: (open: boolean) => void;
   setMajorModal: React.Dispatch<React.SetStateAction<MajorModal | null>>;
   setMajorError: (message: string) => void;
   hasScopedMajor: boolean;
@@ -86,11 +83,8 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
     orderedScopedMajors,
     activeMajor,
     items,
-    canQuickPublish,
     can,
-    switchMajor,
     isOwnQuickTemporaryMajor,
-    setQuickMajorOpen,
     setMajorModal,
     setMajorError,
     hasScopedMajor,
@@ -159,42 +153,13 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
               {items.length} 个分考试 · {items.filter((i) => i.enabled).length} 个启用
             </span>
           </div>
-          {orderedScopedMajors.length > 0 && (
-            <label className="admin-major-card__switch">
-              <span className="admin-major-card__switch-k">切换考试</span>
-              <InlineSelect
-                className="admin-input admin-major-select"
-                value={activeMajor?.id ?? ''}
-                onChange={switchMajor}
-                disabled={orderedScopedMajors.length === 1}
-                options={orderedScopedMajors.map((m) => ({
-                  value: m.id,
-                  label: `${m.name}（${m.items.length} 科）${!m.targetGradeIds?.length ? ' · 全校统一' : ''}`,
-                }))}
-              />
-            </label>
-          )}
+          {/*
+           * 这里不再提供「切换考试 / 快速发布 / 新建大型考试」三个入口：
+           * 编辑器现在只服务「编辑这一场考试的科目与时间」——从考试中心列表或新建向导进来，
+           * 改完回到列表。切考试、快速发布、新建都从考试中心的「创建考试」菜单走，
+           * 免得在这条流程里点到别的考试上去。
+           */}
           <div className="admin-major-card__btns">
-            {canQuickPublish && (
-              <button className="admin-btn admin-btn--primary" onClick={() => setQuickMajorOpen(true)}>
-                快速发布
-              </button>
-            )}
-            {can('major.create') && (
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={() => {
-                  setMajorModal({
-                    mode: 'add',
-                    name: '',
-                    targetGradeIds: selectedGradeId ? [selectedGradeId] : [],
-                  });
-                  setMajorError('');
-                }}
-              >
-                + 新建
-              </button>
-            )}
             {hasScopedMajor && can('major.edit') && (
               <button
                 className="admin-btn"
