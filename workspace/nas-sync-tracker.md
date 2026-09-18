@@ -948,3 +948,26 @@ git push origin main
 - 用 `dist` 里的真实 CSS 搭本地静态页 + 无头 Chrome 量几何：`.admin-input` = `1px solid rgba(255,255,255,.14)`；搜索标签 `display:flex`、`.sr-only` 1×1；向导科目行 5 个子元素同处一行（行高 49px）。
 - 桌面版看图工具不可用（`describe_ui`/`analyze_image`/`diagnose_error` 均返回 `Qwen3-VL-8B-Instruct has no provider supported`），用户截图内容未能读取，四项按文字描述 + dev 实测反推。
 - 待用户部署后回 dev 复验。
+
+## 2026-09-18 统一控件收口（按钮）
+
+| 提交 | 内容 |
+|---|---|
+| `b5dfa1d` | 三族按钮收成一份规格：`.admin-btn`（中）/ `.set-btn`（大）/ `.admin-item-btn`（小）原本各写一套边框、圆角、字号、字重、过渡与禁用态（配色本来就是同一组）。现在 `styles/controls.css` 里是一份基础外观 + 三个尺寸档 + 一组语义变体（主要/幽灵/危险 + 启用/停用/编辑/删除），`admin.css` 与 `settings.css` 只留各自的排布与图标尺寸。按钮规格刻意不用 `var()`（弹窗 portal 到 body，页面级变量取不到会让整条声明作废） |
+
+### 「统一控件」整体状态（09-13 巡检 P2 的三条）
+
+| 项 | 状态 |
+|---|---|
+| 选择器 | 全仓无原生 `<select>`，筛选/设置都用 `InlineSelect`；选择器与输入框共用同一组尺寸令牌 |
+| 复选框 | 一份方框+对勾规则覆盖全部写法（原先十几处各写一套，其中两处复制、两处用浏览器原生框）；行内标签统一排版，卡片式勾选行只共用方框 |
+| 输入框 | `admin-input` 与日期时间字段共用一组令牌（36px/6px/同描边），令牌挂在 `:root` 以适配弹窗 |
+| 开关 | 三处实现（set-switch / admin-switch / quick-major-track-match__switch）收成一份 |
+| 按钮 | 三族收成一份（`b5dfa1d`） |
+| 状态徽标 | 检查过：`.exam-records-status` 本来就是单一来源，无分叉 |
+| 字体分区 | 后台外壳已挂导航/标题/正文/数字四个 `--font-region-*`，与教室大屏同一组 |
+
+### 验证
+
+- `npm test` 574/574、`npm run build` 通过。
+- 用 `dist` 真实 CSS 搭静态页量几何：三个尺寸档分别为 `5px 12px/12.8px`、`8px 14px/13px/8px 圆角`、`4px 10px/12px`，变体配色一致（主要 `#3498db`、危险 `rgba(231,76,60,.08)`+`#ff8a7d`、启用绿、停用琥珀）。
