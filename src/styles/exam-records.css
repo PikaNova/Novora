@@ -583,11 +583,7 @@
   gap: 6px;
   white-space: nowrap;
 }
-/* 刷新时只是轻微降透明度，不再把列表换成占位（避免「考试突然没了」的观感）。 */
-.exam-records-table-wrap.is-refreshing {
-  opacity: 0.55;
-  transition: opacity 0.15s;
-}
+/* 刷新时列表保持原样：状态只体现在刷新按钮上（见 components/admin/RefreshButton）。 */
 /* 新建向导第 3 步直接进编辑器时，左下角常驻提示：编辑完成后点「下一步」回确认步骤。 */
 .admin-draft-hint {
   position: fixed;

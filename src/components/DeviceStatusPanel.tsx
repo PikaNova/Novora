@@ -17,6 +17,7 @@ import { confirmDialog } from '../services/appDialog';
 import { beginBatch, endBatch } from '../services/syncQueue';
 import Mascot from './Mascot';
 import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
+import RefreshButton from './admin/RefreshButton';
 import InlineSelect from './InlineSelect';
 import DesignPolicyManager from './DesignPolicyManager';
 import { getAdminUser, logoutAdmin } from '../services/examService';
@@ -323,9 +324,7 @@ export default function DeviceStatusPanel({
           </h2>
           <p>一个设备视图同时显示 Novora 看板、ClassIsland 插件、当前考试和班级绑定。</p>
         </div>
-        <button className="admin-btn" onClick={() => void load()} disabled={loading}>
-          刷新
-        </button>
+        <RefreshButton className="admin-btn" busy={loading} onRefresh={() => void load()} title="刷新设备状态" />
       </div>
       <DesignPolicyManager
         grades={selectableGrades}
@@ -442,7 +441,7 @@ export default function DeviceStatusPanel({
         <div className="device-status__current-note">当前设备固定显示在列表首位，不受搜索和班级筛选影响。</div>
       )}
       {error && <div className="admin-error">{error}</div>}
-      {loading && <div className="device-status__loading">正在读取设备状态…</div>}
+      {/* 刷新过程只体现在刷新按钮上：列表保持原样，不再插入「正在读取…」提示。 */}
       {!loading && displayedGroups.length === 0 && (
         <div className="admin-empty">
           <Mascot className="mascot-empty" size={64} alt="" />

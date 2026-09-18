@@ -183,6 +183,19 @@
   background: rgba(52, 152, 219, 0.1);
   color: #59b8f1;
 }
+
+/*
+ * 统一的刷新按钮：刷新时只在这颗按钮上转圈 / 显示「已刷新 12:34」，
+ * 列表本身保持原样（不清空、不置灰）。
+ */
+.refresh-button svg.is-spinning {
+  animation: refresh-button-spin 0.9s linear infinite;
+}
+@keyframes refresh-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 /*
  * 表单控件的尺寸/配色令牌。必须挂在 :root 上：弹窗走 AdminModalPortal 渲染到 body，
  * 已经不在 .admin-page 里了，只挂在页面根上会让 var() 解析失败——

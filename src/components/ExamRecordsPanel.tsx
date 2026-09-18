@@ -25,6 +25,7 @@ import {
 import { examTimeRange } from '../utils/examRecordTimeLabel';
 import type { WeeklyPlan } from '../types/exam';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
+import RefreshButton from './admin/RefreshButton';
 import InlineSelect from './InlineSelect';
 import '../styles/exam-records.css';
 
@@ -371,17 +372,12 @@ export default function ExamRecordsPanel({
           <p>{copy.description}</p>
         </div>
         <div className="exam-records-panel__actions">
-          <button
+          <RefreshButton
             className="admin-btn admin-btn--ghost exam-records-panel__refresh"
-            type="button"
-            onClick={() => setRefreshKey((value) => value + 1)}
-            disabled={loading}
-            aria-label="刷新考试列表"
+            busy={loading}
+            onRefresh={() => setRefreshKey((value) => value + 1)}
             title="刷新考试列表"
-          >
-            <RefreshCw size={16} aria-hidden="true" />
-            刷新
-          </button>
+          />
           {onCreate && (
             <div className="exam-records-create">
               <button
@@ -537,9 +533,7 @@ export default function ExamRecordsPanel({
         </div>
       ) : (
         <section
-          className={`exam-records-table-wrap${loading ? ' is-refreshing' : ''}${
-            density === 'compact' ? ' is-compact' : ''
-          }`}
+          className={`exam-records-table-wrap${density === 'compact' ? ' is-compact' : ''}`}
           aria-label={viewMode === 'class' ? '按班级查看' : '考试记录'}
         >
           {viewMode === 'class' ? (

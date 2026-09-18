@@ -731,7 +731,8 @@ export default function UserManagementPanel({
           {message}
         </div>
       )}
-      {loading ? (
+      {/* 刷新时保留上一次的用户/角色数据，只有「首次加载、手里还没有任何数据」才用占位。 */}
+      {loading && users.length === 0 && roles.length === 0 ? (
         <div className="admin-loading">正在读取用户权限…</div>
       ) : !canReadUsers ? (
         <section className="user-management__account-card">
