@@ -766,8 +766,15 @@ export default function AdminPage() {
         onExportJson={exportJson}
       />
       <div className="admin-workspace">
-        <AdminTabBar adminTab={adminTab} can={can} selectAdminTab={selectAdminTab} />
-        <div className={`admin-content${adminTab === 'exam' ? ' admin-content--exam-rail' : ''}`}>
+        <AdminTabBar
+          adminTab={adminTab}
+          can={can}
+          selectAdminTab={selectAdminTab}
+          examView={examViewActive}
+          onSelectExamView={selectExamView}
+        />
+        <div className="admin-content">
+          {/* 桌面端三个板块已经在左栏里（AdminTabBar 的缩进子项）；这里只在移动端兜底。 */}
           {adminTab === 'exam' && <ExamCenterNav view={examViewActive} can={can} onSelect={selectExamView} />}
           {adminTab === 'exam' && (examViewActive === 'weekly' || examViewActive === 'editor') && (
             <AdminContextBar

@@ -6787,6 +6787,42 @@
   justify-content: flex-start;
   text-align: left;
 }
+/* 一级菜单下面挂的缩进子项（目前只有考试中心的三个板块）。 */
+.admin-tab-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.admin-subnav {
+  display: grid;
+  gap: 2px;
+  margin: -2px 0 2px 18px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+.admin-subnav__item {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(240, 240, 240, 0.52);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.admin-subnav__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #dfe9f2;
+}
+.admin-subnav__item.is-active {
+  background: rgba(52, 152, 219, 0.16);
+  color: #b9e3ff;
+  font-weight: 600;
+}
 @media (max-width: 900px) and (min-width: 701px) {
   .admin-workspace {
     grid-template-columns: 208px minmax(0, 1fr);

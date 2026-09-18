@@ -158,13 +158,13 @@
   content: '!';
 }
 
-/* ―― 考试中心板块导航（一级菜单合并后的二级导航）―― */
+/*
+ * ―― 考试中心板块导航 ――
+ * 桌面端这三个板块是左侧主导航里的缩进子项（见 admin.css 的 .admin-subnav），
+ * 内容区不再有横条；移动端左栏整体收起，这里作为顶部分段条兜底。
+ */
 .exam-center-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 24px 12px;
-  border-bottom: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  display: none;
 }
 .exam-center-nav__item {
   padding: 7px 14px;
@@ -191,46 +191,15 @@
 }
 @media (max-width: 700px) {
   .exam-center-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
     padding: 0 12px 10px;
     overflow-x: auto;
-    flex-wrap: nowrap;
+    border-bottom: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
   }
   .exam-center-nav__item {
     white-space: nowrap;
-  }
-}
-
-/*
- * 桌面端把考试中心的板块导航放进左侧 rail（与「系统设置」的分组栏一致），
- * 移动端保持上面的横向分段条。只作用于挂了 --exam-rail 修饰类的 .admin-content。
- */
-@media (min-width: 701px) {
-  .admin-content--exam-rail {
-    display: grid;
-    grid-template-columns: 208px minmax(0, 1fr);
-    align-items: start;
-    gap: 0 16px;
-    padding: 12px;
-  }
-  .admin-content--exam-rail > .exam-center-nav {
-    grid-column: 1;
-    grid-row: 1 / span 3;
-    position: sticky;
-    top: 12px;
-    flex-direction: column;
-    flex-wrap: nowrap;
-    align-items: stretch;
-    padding: 8px;
-    border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
-    border-radius: 10px;
-    background: var(--adm-card, #0c1219);
-  }
-  .admin-content--exam-rail > .exam-center-nav__item {
-    text-align: left;
-  }
-  .admin-content--exam-rail > .admin-context-bar,
-  .admin-content--exam-rail > .admin-body {
-    grid-column: 2;
   }
 }
 .exam-records-toggle {
