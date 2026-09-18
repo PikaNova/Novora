@@ -6,6 +6,7 @@ import { formatApiError } from '../services/apiError';
 import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../utils/weeklySchedule';
 import { buildWeeklyOccurrenceRows } from '../utils/weeklyOccurrenceRows';
+import { groupHistoryEntries, groupScheduleEntries } from '../utils/examListGrouping';
 import type { WeeklyPlan } from '../types/exam';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import '../styles/exam-records.css';
@@ -186,6 +187,63 @@ export default function ExamRecordsPanel({
     });
   }, [preset, weeklyPlans, weeklyPlanIdByClassId, classes, grades]);
 
+  // 分组表头与记录行拍平成一条渲染流：安排页是 今天/明天/本周内/更晚，历史页是自然月。
+  const rowItems = useMemo(() => {
+    type Row =
+      { kind: 'group'; key: string; label: string } | { kind: 'record'; key: string; record: ExamRecordListEntry };
+    const rows: Row[] = [];
+    if (preset === 'schedule') {
+      for (const group of groupScheduleEntries(records, Date.now())) {
+        rows.push({ kind: 'group', key: `g-${group.key}`, label: group.label });
+        for (const record of group.items) rows.push({ kind: 'record', key: record.id, record });
+      }
+      return rows;
+    }
+    if (preset === 'history') {
+      for (const group of groupHistoryEntries(records)) {
+        rows.push({ kind: 'group', key: `g-${group.key}`, label: group.label });
+        for (const record of group.items) rows.push({ kind: 'record', key: record.id, record });
+      }
+      return rows;
+    }
+    return records.map((record) => ({ kind: 'record' as const, key: record.id, record }));
+  }, [preset, records]);
+
+  const renderRecordRow = (record: ExamRecordListEntry) => (
+    <div className="exam-records-table__row" role="row" key={record.id}>
+      <div className="exam-records-name" role="cell">
+        <strong title={record.name || record.id}>{record.name || '未命名考试'}</strong>
+        <code>{record.id}</code>
+      </div>
+      <span className={`exam-records-status is-${record.displayStatus}`} role="cell">
+        {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
+      </span>
+      <span className="exam-records-scope" role="cell">
+        {scopeLabel(record, grades, classes)}
+      </span>
+      <span className="exam-records-time" role="cell">
+        <CalendarClock size={14} aria-hidden="true" />
+        {record.startAt ? `${formatTime(record.startAt)} - ${formatTime(record.endAt)}` : '时间待定'}
+      </span>
+      <span className="exam-records-count" role="cell">
+        {record.itemCount} 科 · {record.source === 'quick' ? '快速' : '正式'}
+      </span>
+      <span className="exam-records-creator" role="cell">
+        {record.createdBy == null ? '系统' : `#${record.createdBy}`}
+      </span>
+      <span className="exam-records-row-actions" role="cell">
+        <button
+          className="admin-btn admin-btn--ghost"
+          type="button"
+          onClick={() => setDetailId(record.id)}
+          aria-label={`查看 ${record.name || record.id} 详情`}
+        >
+          详情
+        </button>
+      </span>
+    </div>
+  );
+
   return (
     <main className="exam-records-panel">
       <header className="exam-records-panel__header">
@@ -321,40 +379,15 @@ export default function ExamRecordsPanel({
               <span role="columnheader">创建人</span>
               <span role="columnheader">操作</span>
             </div>
-            {records.map((record) => (
-              <div className="exam-records-table__row" role="row" key={record.id}>
-                <div className="exam-records-name" role="cell">
-                  <strong title={record.name || record.id}>{record.name || '未命名考试'}</strong>
-                  <code>{record.id}</code>
+            {rowItems.map((row) =>
+              row.kind === 'group' ? (
+                <div className="exam-records-table__group" role="row" key={row.key}>
+                  {row.label}
                 </div>
-                <span className={`exam-records-status is-${record.displayStatus}`} role="cell">
-                  {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
-                </span>
-                <span className="exam-records-scope" role="cell">
-                  {scopeLabel(record, grades, classes)}
-                </span>
-                <span className="exam-records-time" role="cell">
-                  <CalendarClock size={14} aria-hidden="true" />
-                  {record.startAt ? `${formatTime(record.startAt)} - ${formatTime(record.endAt)}` : '时间待定'}
-                </span>
-                <span className="exam-records-count" role="cell">
-                  {record.itemCount} 科 · {record.source === 'quick' ? '快速' : '正式'}
-                </span>
-                <span className="exam-records-creator" role="cell">
-                  {record.createdBy == null ? '系统' : `#${record.createdBy}`}
-                </span>
-                <span className="exam-records-row-actions" role="cell">
-                  <button
-                    className="admin-btn admin-btn--ghost"
-                    type="button"
-                    onClick={() => setDetailId(record.id)}
-                    aria-label={`查看 ${record.name || record.id} 详情`}
-                  >
-                    详情
-                  </button>
-                </span>
-              </div>
-            ))}
+              ) : (
+                renderRecordRow(row.record)
+              ),
+            )}
           </div>
         </section>
       )}

@@ -427,6 +427,16 @@
   color: var(--adm-text-3, #879caf);
   font-size: 11px;
 }
+/* 分组表头（安排页：今天/明天/本周内/更晚；历史页：自然月） */
+.exam-records-table__group {
+  padding: 10px 14px 6px;
+  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  background: rgba(148, 180, 208, 0.04);
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .exam-records-name {
   display: grid;
   gap: 4px;
