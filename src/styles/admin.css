@@ -688,39 +688,7 @@
 .admin-item__select input {
   margin: 0;
 }
-.admin-item__select input[type='checkbox'] {
-  appearance: none;
-  display: inline-grid;
-  place-content: center;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  border: 1px solid rgba(174, 197, 213, 0.55);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.035);
-  cursor: pointer;
-  transition:
-    background 0.14s,
-    border-color 0.14s,
-    transform 0.14s;
-}
-.admin-item__select input[type='checkbox']::after {
-  content: '';
-  width: 8px;
-  height: 4px;
-  border: solid #fff;
-  border-width: 0 0 2px 2px;
-  transform: rotate(-45deg) scale(0);
-  transition: transform 0.14s;
-}
-.admin-item__select input[type='checkbox']:checked {
-  border-color: #3498db;
-  background: #2586d7;
-}
-.admin-item__select input[type='checkbox']:checked::after {
-  transform: rotate(-45deg) scale(1);
-}
+/* 复选框本体样式统一在文件末尾的「统一控件」那一份规则里，这里只留布局。 */
 .admin-item:hover {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -5099,6 +5067,13 @@
 .admin-toggle-label > input[type='checkbox'],
 .admin-long-duration input[type='checkbox'],
 .init-check input[type='checkbox'],
+.exam-records-toggle input[type='checkbox'],
+.quick-major-priority input[type='checkbox'],
+.admin-check input[type='checkbox'],
+.major-wizard-items__toggle input[type='checkbox'],
+.time-range-cross-day input[type='checkbox'],
+.admin-item__select input[type='checkbox'],
+.admin-import-preview input[type='checkbox'],
 .class-management__batch input[type='checkbox'],
 .class-management__row > input[type='checkbox'],
 .device-status__batch input[type='checkbox'],
@@ -5126,6 +5101,13 @@
 .admin-toggle-label > input[type='checkbox']::after,
 .admin-long-duration input[type='checkbox']::after,
 .init-check input[type='checkbox']::after,
+.exam-records-toggle input[type='checkbox']::after,
+.quick-major-priority input[type='checkbox']::after,
+.admin-check input[type='checkbox']::after,
+.major-wizard-items__toggle input[type='checkbox']::after,
+.time-range-cross-day input[type='checkbox']::after,
+.admin-item__select input[type='checkbox']::after,
+.admin-import-preview input[type='checkbox']::after,
 .class-management__batch input[type='checkbox']::after,
 .class-management__row > input[type='checkbox']::after,
 .device-status__batch input[type='checkbox']::after,
@@ -5145,6 +5127,13 @@
 .admin-toggle-label > input[type='checkbox']:checked,
 .admin-long-duration input[type='checkbox']:checked,
 .init-check input[type='checkbox']:checked,
+.exam-records-toggle input[type='checkbox']:checked,
+.quick-major-priority input[type='checkbox']:checked,
+.admin-check input[type='checkbox']:checked,
+.major-wizard-items__toggle input[type='checkbox']:checked,
+.time-range-cross-day input[type='checkbox']:checked,
+.admin-item__select input[type='checkbox']:checked,
+.admin-import-preview input[type='checkbox']:checked,
 .class-management__batch input[type='checkbox']:checked,
 .class-management__row > input[type='checkbox']:checked,
 .device-status__batch input[type='checkbox']:checked,
@@ -5159,6 +5148,13 @@
 .admin-toggle-label > input[type='checkbox']:checked::after,
 .admin-long-duration input[type='checkbox']:checked::after,
 .init-check input[type='checkbox']:checked::after,
+.exam-records-toggle input[type='checkbox']:checked::after,
+.quick-major-priority input[type='checkbox']:checked::after,
+.admin-check input[type='checkbox']:checked::after,
+.major-wizard-items__toggle input[type='checkbox']:checked::after,
+.time-range-cross-day input[type='checkbox']:checked::after,
+.admin-item__select input[type='checkbox']:checked::after,
+.admin-import-preview input[type='checkbox']:checked::after,
 .class-management__batch input[type='checkbox']:checked::after,
 .class-management__row > input[type='checkbox']:checked::after,
 .device-status__batch input[type='checkbox']:checked::after,
@@ -5168,6 +5164,62 @@
 .admin-major-targets input[type='checkbox']:checked::after,
 .set-reset-grid input[type='checkbox']:checked::after {
   transform: rotate(-45deg) scale(1);
+}
+/*
+ * 统一控件：复选框的标签排版。
+ * 后台历史上有 6 种复选框写法（admin-toggle-label / init-check / exam-records-toggle /
+ * quick-major-priority / device-status__batch / class-management__row）。方框与对勾已经由上面
+ * 一份规则统一，这里再统一「行内标签」这一类的字号、间距与颜色。
+ * 有意排除在外的三种：.init-check / .quick-major-priority 是带边框背景的卡片式勾选行
+ * （display: grid 两列），.set-switch 是开关控件，各自保留自己的布局。
+ */
+.admin-toggle-label,
+.exam-records-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(240, 240, 240, 0.75);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.admin-toggle-label > small {
+  color: rgba(240, 240, 240, 0.5);
+  font-size: 0.72rem;
+}
+/*
+ * 统一控件：输入框 / 选择器 / 日期时间字段共用同一套尺寸与配色。
+ * 「两套输入框」（admin-input 与 admin-date-time-field 里的 tdp-field）此前各写一套尺寸，
+ * 这里收在一组变量上；选择器（InlineSelect）本来就是这个尺寸，一并引用同一组变量。
+ */
+.admin-page {
+  --adm-ctl-h: 36px;
+  --adm-ctl-radius: 6px;
+  --adm-ctl-line: rgba(255, 255, 255, 0.14);
+  --adm-ctl-line-focus: rgba(89, 184, 241, 0.72);
+  --adm-ctl-bg: rgba(255, 255, 255, 0.05);
+  --adm-ctl-bg-focus: rgba(255, 255, 255, 0.08);
+  --adm-ctl-text: #edf3f7;
+}
+.admin-input,
+.admin-date-time-field .tdp-field {
+  min-height: var(--adm-ctl-h);
+  border: 1px solid var(--adm-ctl-line);
+  border-radius: var(--adm-ctl-radius);
+  background: var(--adm-ctl-bg);
+  color: var(--adm-ctl-text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.admin-input:focus,
+.admin-date-time-field .tdp-field:focus,
+.admin-date-time-field.is-open .tdp-field {
+  border-color: var(--adm-ctl-line-focus);
+  background: var(--adm-ctl-bg-focus);
+}
+.inline-select__trigger {
+  min-height: var(--adm-ctl-h, 36px);
+  border-radius: var(--adm-ctl-radius, 6px);
 }
 @media (max-width: 760px) {
   .user-management__row.is-batch {
@@ -5580,29 +5632,7 @@
 .admin-import-preview > label.is-skipped {
   opacity: 0.45;
 }
-.admin-import-preview input {
-  appearance: none;
-  display: grid;
-  place-content: center;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  border: 1px solid rgba(174, 197, 213, 0.55);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.035);
-}
-.admin-import-preview input:checked {
-  border-color: #3498db;
-  background: #2586d7;
-}
-.admin-import-preview input:checked::after {
-  content: '';
-  width: 8px;
-  height: 4px;
-  border: solid #fff;
-  border-width: 0 0 2px 2px;
-  transform: rotate(-45deg);
-}
+/* 复选框本体样式同上：统一在「统一控件」那一份规则里。 */
 .admin-import-preview span {
   display: grid;
   gap: 3px;
@@ -6822,6 +6852,25 @@
   background: rgba(52, 152, 219, 0.16);
   color: #b9e3ff;
   font-weight: 600;
+}
+/*
+ * 字体分区：后台外壳与教室大屏消费同一组区域变量（设置 → 字体里的导航/标题/正文/数字）。
+ * 正文由 .admin-page 上的 --font-region-content 承担，这里补上其余三个区域，
+ * 让「字体分区改不动后台」不再成立。
+ */
+.admin-header,
+.admin-tabbar,
+.admin-context-bar,
+.admin-mobile-nav {
+  font-family: var(--font-region-navigation, inherit);
+}
+.admin-header__title,
+.admin-content :is(h1, h2, h3),
+.admin-modal__title {
+  font-family: var(--font-region-display, var(--font-region-content, inherit));
+}
+.admin-content :is(code, kbd, samp, time) {
+  font-family: var(--font-region-numeric, inherit);
 }
 @media (max-width: 900px) and (min-width: 701px) {
   .admin-workspace {

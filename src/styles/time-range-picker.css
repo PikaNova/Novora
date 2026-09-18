@@ -317,11 +317,9 @@
   gap: 10px;
   cursor: pointer;
 }
-.time-range-cross-day input {
-  width: 19px;
-  height: 19px;
+.time-range-cross-day input[type='checkbox'] {
+  /* 方框本身由 admin.css 的统一复选框规则负责，这里只对齐与文字的基线。 */
   margin: 1px 0 0;
-  accent-color: #3498db;
 }
 .time-range-cross-day label span {
   display: grid;

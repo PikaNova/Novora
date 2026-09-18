@@ -203,12 +203,8 @@
   }
 }
 .exam-records-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  /* 尺寸、字号、颜色由 admin.css 的统一控件那一条负责，这里只留页面内的间距。 */
   margin: 0 0 12px;
-  color: var(--adm-text-3, #879caf);
-  font-size: 12px;
 }
 .exam-records-drafts {
   margin-top: 14px;
