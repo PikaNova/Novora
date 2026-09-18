@@ -861,3 +861,51 @@ git push origin main
 
 - 学校端约 40 个提交（含 7 次远端 PR 合并）；作者端约 30 个提交。
 - 学校端验证：`npm test` 542/542、`typecheck:api`、lint、format、build 通过；真实库集成 42/43（唯一失败为诊断包保留期用例，全量跑失败、单跑通过）。
+
+## 2026-09-18 考试中心：详情「编辑考试」定位与返回保留筛选
+
+### 学校端（`nas-upload-worktree/upload/main`）
+
+| 提交 | 内容 |
+|---|---|
+| `dde0491` | 详情抽屉的「编辑考试」不再只跳 `?tab=major`：按记录 id 在快照里定位到**那一场**，当前年级看不到它就先把年级切到它所属的年级，再进编辑器；快照里没有这个 id（已删除的草稿或不是大型考试）给提示而不是乱跳。落点规则抽成纯函数 `resolveExamEditTarget`，补 7 条单测 |
+| `dde0491` | 顺带补「返回保留筛选」：列表面板的筛选条件（关键词/年级/来源/创建人/归档开关/草稿区展开）改存内存快照（`utils/examListFilterMemory`），切板块、进编辑器再回来时保持原口径；分页刻意不记，回来从第一页开始 |
+| `dde0491` | `majorAppliesToGrade` 收敛成一份实现（`utils/examRecordEditTarget`），`useMajorScheduleActions` 转调，避免「某年级能不能看到这场考试」出现两套判定 |
+
+### 背景
+
+- 抽屉里的「编辑考试」原来的 `navigate('/admin?tab=major')` 只落到编辑器视图，而编辑器展示的是「当前年级范围内按 `editingMajorId` 命中的那一场」——点开的常常不是用户点的那场，与 09-13 巡检反馈的「不是我创建的考试」是同一类问题。
+- 列表面板由 `AdminPage` 用 `key={tab:view}` 挂载，切板块即卸载，`useState` 里的筛选条件原本会静默清零。
+
+### 验证
+
+- `npm test` 572/572（新增 7 条）；`npm run build` 通过。
+- 全量 `npx tsc -p tsconfig.json` 仍有 5 条既有报错（`useMajorScheduleActions` 3 条、`useWeeklyScheduleSync` 1 条、`AdminPage(100)` 1 条），逐条与 `HEAD` 对比确认改动前既有，本轮未新增。
+- **未做浏览器实测**：「点抽屉 → 编辑考试 → 返回看筛选」这条界面路径本轮只有单测与构建覆盖，需要一次 dev 站手工确认。
+
+### 考试中心遗留
+
+- 关闭创建向导时对空草稿询问「保留 / 丢弃」。
+- 初始化不再生成默认考试（`src/utils/initializationData.ts` 仍写死名字「大型考试」）。
+- 全局选择器/复选框/输入框统一（已起步：考试中心筛选换成 `InlineSelect`）、文字挂 `--font-region-*`。
+
+## 2026-09-18 考试中心：板块进左栏 + 统一控件第一批
+
+### 学校端（`nas-upload-worktree/upload/main`）
+
+| 提交 | 内容 |
+|---|---|
+| `269401e` | 三个板块（当前考试/考试安排/历史考试）从内容区 rail 改成**左侧主导航栏里的缩进子项**：点击直接切板块并选中父项；`.admin-content--exam-rail` 与它的 208px 栅格、吸顶样式一并删除。为 `AdminTabBar` 加了通用子项能力（`.admin-tab-group` + `.admin-subnav`），其它一级菜单以后可直接挂。`ExamCenterNav` 只在 ≤700px（左栏整体收起）作为顶部分段条兜底；板块元数据收敛成一份 `EXAM_CENTER_NAV_ITEMS`，左栏子项与移动端分段条共用 |
+| `6264d06` | 统一控件第一批：① 复选框——删除 `admin-item__select`、`admin-import-preview` 各自复制的一份方框实现，把 `major-wizard-items__toggle`、`time-range-cross-day`（原本是浏览器原生方框 + `accent-color`）等并入同一份规则；行内标签统一字号/间距/颜色，卡片式勾选行只共用方框、保留自己的网格；② 输入框与选择器——`admin-input`、`admin-date-time-field .tdp-field`、`InlineSelect` 触发器收敛到同一组 `--adm-ctl-*` 变量（36px 高、6px 圆角）；③ 字体分区——后台外壳补上导航/标题/数字三个 `--font-region-*` 区域（正文原本已挂），与教室大屏消费同一组变量 |
+
+### 验证
+
+- `npm test` 572/572；`npm run build` 通过。
+- 全量 `npx tsc -p tsconfig.json` 剩余 5 条既有报错，与改动前一致（`useMajorScheduleActions` 3、`useWeeklyScheduleSync` 1、`AdminPage(100)` 1），本轮未新增。
+- **未做浏览器实测**：左栏子项的观感、移动端分段条、统一后的复选框/输入框外观都需要在 dev 站确认一次（dev 上已有样本数据）。
+
+### 统一控件剩余
+
+- 开关类仍是三种实现（`set-switch` / `admin-switch` / `quick-major-track-match__switch`，前两者画在兄弟 `span` 上、后者画在 `input::after` 上），收敛需要改 3 处组件标记。
+- `ExamRecordsPanel` 之外的列表/表格里的按钮、徽标等还没有统一到一套原语。
+- 顶部标题文案仍是「考试管理」，与「考试中心」并存（09-13 巡检 P1-3）。

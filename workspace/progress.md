@@ -756,3 +756,38 @@ The frontend repair is deployed but cannot activate because the live server fail
 - 学校端 `upload/main` 两日共约 40 个提交（含 7 个远端 PR 合并），覆盖诊断链路、后台导航与设置、全屏体验、考试记录生命周期、列表性能、Vercel 往返优化与两处关键修复。
 - 作者端 `exam-board-telemetry-author/main` 两日共约 30 个提交，覆盖诊断包接入与加固、错误中心与统计口径、实例生命周期、诊断包状态与审计、发布清单与健康看板。
 - 两日验证：学校端 `npm test` 542/542、`typecheck:api`、lint、format、build 通过；真实库集成 42/43（唯一失败为诊断包保留期用例，全量跑失败、单跑通过）；作者端每批均跑单测 + typecheck + build。
+
+## 会话：考试中心详情「编辑考试」定位与返回保留筛选（2026-09-18）
+
+- 接手考试中心改造，确认基线：`upload/main` 与远端 `main`/`upload/main` 同为 `f870fd5`，工作树里另有并行会话的错误上报改动（未触碰）。
+- 修掉详情抽屉「编辑考试」的落点：原来只 `navigate('/admin?tab=major')`，编辑器展示的是「当前年级范围内按 `editingMajorId` 命中的那一场」，点开的常常不是用户点的那场。现在按记录 id 在快照里定位，当前年级看不到就先切到它所属的年级；快照里没有就提示而不是乱跳。
+- 补上「返回保留筛选」：切板块与进编辑器都会卸载列表面板，筛选条件原本静默清零；新增 `utils/examListFilterMemory` 存内存快照，回来时保持关键词/年级/来源/创建人/归档/草稿展开，分页不记。
+- 新提取纯函数 `resolveExamEditTarget`（含 `majorAppliesToGrade`、`gradeIdOwningMajor`），`useMajorScheduleActions` 的同名判定改为转调，避免两处漂移。
+
+### 验证
+
+- `npm test` 572/572（新增 7 条 `examRecordEditTarget` 用例）；`npm run build` 通过。
+- 全量 `npx tsc -p tsconfig.json` 仍有 5 条既有报错（`useMajorScheduleActions` 3 条 `Partial<ExamSettings>`/`WeeklyConflictPolicy`、`useWeeklyScheduleSync` 1 条、`AdminPage(100)` 1 条）；逐条回退对照确认为改动前既有，本轮未新增。
+- 未做浏览器实测：「点抽屉 → 编辑考试 → 返回看筛选」需要一次 dev 站手工确认。
+
+### 下一步
+
+- 空草稿的「保留 / 丢弃」询问（需按 id 删草稿入口）。
+- 初始化不再生成默认考试。
+- 全局控件统一与文字挂 `--font-region-*`。
+
+## 会话：考试中心板块进左栏 + 统一控件第一批（2026-09-18 续）
+
+- 板块导航按新方向重做：三个板块从内容区 rail 移到**左侧主导航栏的缩进子项**（`269401e`），点击子项直接切板块并选中父项；`.admin-content--exam-rail` 及其栅格/吸顶样式删除，内容区不再有横条。`AdminTabBar` 新增通用的子项能力（`admin-tab-group` + `admin-subnav`），移动端（≤700px，左栏整体收起）仍由 `ExamCenterNav` 顶部分段条兜底；板块元数据收敛成一份 `EXAM_CENTER_NAV_ITEMS`。
+- 统一控件第一批（`6264d06`）：复选框方框合并成一份规则（删除 `admin-item__select`、`admin-import-preview` 的重复实现，`major-wizard-items__toggle`、`time-range-cross-day` 等原生方框并入）；输入框与选择器收敛到同一组 `--adm-ctl-*` 变量（36px/6px）；后台外壳补上导航/标题/数字三个 `--font-region-*` 区域。
+
+### 验证
+
+- `npm test` 572/572；`npm run build` 通过；两个提交已推送（`f870fd5..6264d06`，`upload/main` 与 `main` 同步）。
+- 未做浏览器实测：左栏子项、移动端分段条、统一后的控件外观需在 dev 站确认一次（dev 已有样本数据）。
+
+### 统一控件剩余
+
+- 开关三种实现（`set-switch` / `admin-switch` / `quick-major-track-match__switch`）需要改组件标记才能收敛。
+- 顶部标题「考试管理」与「考试中心」并存（巡检 P1-3）。
+- 空草稿「保留 / 丢弃」、初始化不再生成默认考试仍未做。

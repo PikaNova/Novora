@@ -456,3 +456,26 @@
 ### 巡检期间的写操作
 
 - 仅创建尝试 4 次（名称均含 `Codex…-可删`），均未落库；未删除或修改任何既有考试。
+
+## 2026-09-18 代码复核：详情抽屉「编辑考试」跳到的不一定是那一场
+
+来源：读代码时发现（非浏览器实测）。`ExamRecordDetailDrawer` 的「编辑考试」原来执行 `navigate('/admin?tab=major')`，
+由 `LEGACY_TAB_VIEWS` 映射到考试中心的 `editor` 视图；而编辑器展示的 `activeMajor` 是
+`orderedScopedMajors.find((m) => m.id === editingMajorId) ?? orderedScopedMajors[0]`——即「**当前年级范围内**、按
+`editingMajorId` 命中的那一场，取不到就退回该范围的第一场」。
+
+两个后果：
+
+1. 抽屉里看的是 A，进编辑器可能编辑的是 B（`editingMajorId` 还是上次留下的值），与 09-13 巡检的「不是我创建的考试」同类；
+2. 若 A 的适用范围不包含当前选中的年级，即便把 `editingMajorId` 设成 A，`orderedScopedMajors` 里也找不到它，仍会退回第一场。
+
+同时在代码里确认：`AdminPage` 用 `key={`${adminTab}:${examViewActive}`}` 挂载 `admin-body`，切板块/进编辑器都会卸载
+`ExamRecordsPanel`，其 `useState` 里的筛选条件（关键词/年级/来源/创建人/归档/草稿展开）会静默清零，
+即版本任务 T-282-01 要求的「返回保留筛选」当时并不成立。
+
+处理：`dde0491`（落点抽成 `resolveExamEditTarget` + 内存筛选快照）。界面路径仍需一次 dev 站手工确认。
+
+## 2026-09-18 代码复核：初始化仍会生成默认考试
+
+`src/utils/initializationData.ts` 在非演示模式下仍写死一条名字为「大型考试」的记录（`majors`，第 79 行附近），
+与 09-13 决定「初始化不再生成默认考试」相矛盾；dev 上列表里那条 8 科、创建人显示「系统」的考试就来自这里。待改。
