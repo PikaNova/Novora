@@ -388,7 +388,9 @@ export default function ExamRecordsPanel({
       )}
 
       {error && <div className="exam-records-feedback is-error">{error}</div>}
-      {loading ? (
+      {/* 刷新时保留上一批数据：只有「第一次加载、手上还没有任何行」才用占位替换列表。
+          否则关闭创建向导 / 点刷新都会让列表瞬间变空（巡检 P1-1：用户以为考试没了）。 */}
+      {loading && records.length === 0 ? (
         <div className="exam-records-feedback">正在读取考试记录…</div>
       ) : records.length === 0 ? (
         <div className="exam-records-empty">
@@ -397,7 +399,7 @@ export default function ExamRecordsPanel({
           <span>可以调整筛选条件，或用右上角「创建考试」新建一场。</span>
         </div>
       ) : (
-        <section className="exam-records-table-wrap" aria-label="考试记录">
+        <section className={`exam-records-table-wrap${loading ? ' is-refreshing' : ''}`} aria-label="考试记录">
           <div className="exam-records-table" role="table">
             <div className="exam-records-table__row is-head" role="row">
               <span role="columnheader">考试</span>

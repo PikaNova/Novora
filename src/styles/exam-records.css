@@ -513,6 +513,11 @@
   gap: 6px;
   white-space: nowrap;
 }
+/* 刷新时只是轻微降透明度，不再把列表换成占位（避免「考试突然没了」的观感）。 */
+.exam-records-table-wrap.is-refreshing {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
 .exam-records-count {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
