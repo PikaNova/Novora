@@ -928,3 +928,23 @@ git push origin main
 
 - 列表/表格里的按钮、徽标尚未统一成一套原语（按钮目前有 `admin-btn` / `set-btn` / `admin-item-btn` 三个族，尺寸分别是中/大/小，配色一致）。
 - 巡检 P0-2「新建草稿未出现在草稿列表」需要在部署后到 dev 复核一次（本轮的空草稿改动与它相邻，但只覆盖「关掉空草稿」这一半）。
+
+## 2026-09-18 dev 实测修复四项（弹窗边框 / 搜索框 / 科目行 / 草稿）
+
+用户反馈四个现象，均在 dev 上用无头 Chrome + CDP 复现并定位（当时 dev 为 `6264d06` 版：左栏子项已在、顶栏仍是「考试管理」）。修复提交 `c10921b`。
+
+| 现象 | 根因（dev 实测证据） | 修复 |
+|---|---|---|
+| 弹窗里输入框没有边框 | `--adm-ctl-*` 定义在 `.admin-page`，弹窗 portal 渲染到 body → `var()` 失效、`border` 整条作废回退 `none`（实测 `border: 0px none`、高度 33px） | 令牌搬到 `controls.css` 的 `:root`，使用处全部补兜底值 |
+| 搜索框排版错误 | `class="sr-only"` 全项目未定义（自 `39799e1` 起），标签文字直接显示（实测 291×17）把输入框挤到第二行；标签同时被通用 label 规则改成单列 grid | 补通用 `.sr-only`；搜索标签用更高选择器锁回 flex 一行 |
+| 复选框/控件重叠 | `.major-wizard-items li` 只定义 4 列却有 5 个子元素，末位按钮掉行压在科目名下 | 补齐第 5 列；≤820px 改两行布局；按钮文案回到「改时间」 |
+| 草稿无法再次编辑 | `detailRecord` 只查主列表 `records`，草稿来自 `preset=draft` 请求，永远取不到 → 点草稿无反应（实测抽屉 `open:false`） | `records`+`drafts` 一起查；草稿行新增「编辑」按钮直达编辑器 |
+
+另按需求调整：创建向导第 2 步不再在弹窗内联编辑科目，「+ 添加科目」与每行「改时间」直接打开编辑器（内联表单、`onSaveItem` 与相关状态一并删除），弹窗只保留只读清单与启用/删除。
+
+### 验证
+
+- `npm test` 574/574、`npm run build` 通过；`tsc` 仍只有 3 条既有 `useMajorScheduleActions` 报错。
+- 用 `dist` 里的真实 CSS 搭本地静态页 + 无头 Chrome 量几何：`.admin-input` = `1px solid rgba(255,255,255,.14)`；搜索标签 `display:flex`、`.sr-only` 1×1；向导科目行 5 个子元素同处一行（行高 49px）。
+- 桌面版看图工具不可用（`describe_ui`/`analyze_image`/`diagnose_error` 均返回 `Qwen3-VL-8B-Instruct has no provider supported`），用户截图内容未能读取，四项按文字描述 + dev 实测反推。
+- 待用户部署后回 dev 复验。

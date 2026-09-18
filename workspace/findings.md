@@ -479,3 +479,23 @@
 
 `src/utils/initializationData.ts` 在非演示模式下仍写死一条名字为「大型考试」的记录（`majors`，第 79 行附近），
 与 09-13 决定「初始化不再生成默认考试」相矛盾；dev 上列表里那条 8 科、创建人显示「系统」的考试就来自这里。待改。
+
+## 2026-09-18 dev 实测（用户反馈 4 项）
+
+用户报的 4 个现象都在 dev 上用无头 Chrome + CDP 复现/定位过（当时 dev 部署的是 `6264d06` 那一版：左栏子项已在、顶栏标题仍是「考试管理」）。
+
+| # | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 弹窗里输入框没有边框（创建考试第 1 步「考试名称」） | 新令牌 `--adm-ctl-*` 定义在 `.admin-page` 上，但弹窗走 `AdminModalPortal` 渲染到 `body`，`var()` 取不到值 → `border: 1px solid var(--x)` 计算值阶段整条作废、`border-style` 回退 `none`。dev 上实测该输入框 `border: 0px none`、高度只有 33px（`min-height: var(--adm-ctl-h)` 同样失效） | `c10921b`：令牌搬到 `controls.css` 的 `:root`，所有使用处补兜底值 |
+| 2 | 搜索框排版错误 | 搜索标签写着 `class="sr-only"`，但这个类从 `39799e1` 起就没定义过，于是「搜索考试」四字直接显示（实测 291×17），把输入框挤到第二行；另外该标签同时命中 `.exam-records-filters > label` 的单列 grid | `c10921b`：补通用 `.sr-only`；搜索标签用更高选择器锁回 flex 一行 |
+| 3 | 复选框/控件重叠 | `.major-wizard-items li` 的 grid 只定义 4 列，行里却有 5 个子元素（科目名/时间/启用/改时间/删除），最后一个按钮掉到第二行落在科目名下方 | `c10921b`：补齐第 5 列，820px 以下改两行布局 |
+| 4 | 草稿无法再次编辑 | `detailRecord` 只在主列表 `records` 里按 id 找，草稿来自另一次 `preset=draft` 请求，永远找不到 → 点草稿无任何反应（实测抽屉 `open: false`） | `c10921b`：`records` 与 `drafts` 一起找；草稿行新增「编辑」按钮直接进编辑器 |
+
+校验方式：把 `dist` 里的真实 CSS 抽出来做本地静态页（无头 Chrome 量几何），确认修复后
+`.admin-input` 为 `1px solid rgba(255,255,255,.14)`、搜索标签 `display:flex` 且 `.sr-only` 为 1×1、
+向导科目行 5 个子元素同处一行（行高 49px）。
+
+**未能核对的部分**：用户提供的截图（`C:\Users\Administrator\Desktop\杂\截图\50ea1b9a…png`）无法读取——
+
+桌面版的看图工具（`describe_ui` / `analyze_image` / `diagnose_error`）全部返回
+`Model id : Qwen/Qwen3-VL-8B-Instruct , has no provider supported`。以上 4 项是按用户文字 + dev 站实测反推的，截图内容本身没有看到。

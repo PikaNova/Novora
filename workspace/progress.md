@@ -808,3 +808,21 @@ The frontend repair is deployed but cannot activate because the live server fail
 
 - 按钮统一（`admin-btn` / `set-btn` / `admin-item-btn` 三族，尺寸中/大/小、配色已一致）。
 - 部署后到 dev 复核巡检 P0-2（新建草稿是否出现在草稿列表）。
+
+## 会话：dev 实测修复四项（2026-09-18 第四批）
+
+用户反馈「弹窗输入框没边框 / 复选框重叠 / 搜索框排版错误 / 草稿无法再次编辑」，四项都在 dev 上用无头 Chrome + CDP 复现定位，修复见 `c10921b`：
+
+- **弹窗输入框没边框**：我把 `--adm-ctl-*` 挂在 `.admin-page`，弹窗经 portal 渲染到 body 后取不到值，`border: 1px solid var(--x)` 计算值阶段整条作废（dev 实测 `0px none`、高度 33px）。令牌搬到 `:root` + 全部补兜底。顺手全项目扫了一遍非 `:root` 变量定义，无同类风险。
+- **搜索框排版错误**：`sr-only` 类从 `39799e1` 起就没有定义，标签文字直接显示把输入框挤到第二行；补通用 `.sr-only` 并把搜索标签锁回 flex 一行。
+- **控件重叠**：向导科目行 grid 4 列装 5 个子元素，末位按钮掉行。补第 5 列 + 窄屏两行布局。
+- **草稿无法再次编辑**：`detailRecord` 只在主列表里找，草稿来自 `preset=draft`，永远取不到，点草稿无反应。改为两张列表一起找，草稿行加「编辑」直达编辑器。
+
+同时按需求把「添加分考试」的编辑动作从弹窗内联表单改回**直接打开编辑器**（内联表单与 `onSaveItem` 一并删除）。
+
+### 验证
+
+- `npm test` 574/574、`npm run build` 通过；`tsc` 仍只有 3 条既有报错。
+- 抽 `dist` 真实 CSS 做本地静态页量几何，四项修复都按预期（详见 `workspace/findings.md` 当日小节）。
+- 用户提供的截图无法读取：桌面版看图工具三个入口都返回 `Qwen3-VL-8B-Instruct has no provider supported`。
+- 待部署后回 dev 复验（dev 当前仍是 `6264d06` 版：左栏子项已在、顶栏仍写「考试管理」）。
