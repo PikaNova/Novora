@@ -458,7 +458,8 @@ export function useMajorScheduleActions(params: {
     commit(ms, nextActiveId, true, `删除大型考试「${activeMajor.name}」`);
     setDeleteMajorOpen(false);
   };
-  const removeQuickMajor = (major: MajorExam) => {
+  /** 按 id 删掉一场考试（草稿、临时考试都走这里），并推送快照。 */
+  const removeMajorById = (major: MajorExam, syncLabel: string) => {
     const ms = majors.filter((item) => item.id !== major.id).map((item, index) => ({ ...item, order: index }));
     const nextActiveId = activeMajorId === major.id ? (ms[0]?.id ?? '') : activeMajorId;
     const nextEditing = ms.find((item) => majorAppliesToGrade(item, selectedGradeId)) ?? ms[0];
@@ -471,8 +472,15 @@ export function useMajorScheduleActions(params: {
       if (selectedGradeId && nextEditing) next[selectedGradeId] = nextEditing.id;
       return next;
     });
-    commit(ms, nextActiveId, true, `删除临时考试「${major.name}」`);
+    commit(ms, nextActiveId, true, syncLabel);
+  };
+  const removeQuickMajor = (major: MajorExam) => {
+    removeMajorById(major, `删除临时考试「${major.name}」`);
     setQuickMajorDeleteTarget(null);
+  };
+  /** 关闭创建向导时丢弃空草稿（A 方案：只删还没填科目的那一场）。 */
+  const discardDraftMajor = (major: MajorExam) => {
+    removeMajorById(major, `丢弃草稿「${major.name}」`);
   };
   const publishQuickMajor = (input: QuickMajorPublishInput) => {
     const start = new Date(input.startTime).getTime();
@@ -610,6 +618,7 @@ export function useMajorScheduleActions(params: {
     commitMajorModal,
     removeMajor,
     removeQuickMajor,
+    discardDraftMajor,
     publishQuickMajor,
     updateQuickMajor,
     extendQuickMajor,

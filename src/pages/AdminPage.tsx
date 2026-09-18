@@ -26,6 +26,7 @@ import { runExamRecordAction, type ExamRecordListEntry } from '../services/examR
 import { getShanghaiDateKey } from '../utils/weeklySchedule';
 import { examWindowFromItems } from '../utils/examWindow';
 import { resolveExamEditTarget } from '../utils/examRecordEditTarget';
+import { confirmDialog } from '../services/appDialog';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
@@ -360,6 +361,7 @@ export default function AdminPage() {
     remove,
     removeItems,
     restoreExam,
+    discardDraftMajor,
   } = examItem;
   editingRef.current = editing;
   setEditingRef.current = setEditing as (value: unknown) => void;
@@ -628,6 +630,36 @@ export default function AdminPage() {
     setWizardDraftCreated(false);
     setMajorError('');
     selectExamView('editor');
+  };
+  /**
+   * 关闭创建向导（A 方案）。第 1 步「创建并继续」会把草稿真正落库，所以直接关掉就会在草稿区
+   * 留一条空考试——dev 上攒下的那几条 111/11/77 就是这么来的。这里只对「本次向导建出来、
+   * 且还没有任何科目」的草稿追问一次：保留可下次接着填，丢弃就从草稿里删掉。
+   * 有科目的草稿不打扰用户，照旧保留。
+   */
+  const closeMajorWizard = () => {
+    const draft = activeMajor;
+    const isBlankDraft = wizardDraftCreated && Boolean(draft?.id) && items.length === 0;
+    const reset = () => {
+      setMajorModal(null);
+      setWizardDraftCreated(false);
+      setMajorModalStep(0);
+      setMajorError('');
+    };
+    if (!isBlankDraft) {
+      reset();
+      return;
+    }
+    void confirmDialog({
+      title: '这场草稿还没有科目',
+      message: `「${draft.name}」还没填科目时间。保留它，下次可以接着填；丢弃会把它从草稿里删掉。`,
+      tone: 'warning',
+      confirmLabel: '丢弃草稿',
+      cancelLabel: '保留',
+    }).then((discard) => {
+      if (discard) discardDraftMajor(draft);
+      reset();
+    });
   };
   // 详情抽屉的「编辑考试」：先定位到那一场（必要时把年级切过去），再进编辑器。
   // 编辑器展示的是「当前年级范围内按 editingMajorId 命中的那一场」，少了定位这一步，
@@ -995,6 +1027,7 @@ export default function AdminPage() {
           onCreateAndContinue={createDraftAndContinue}
           publishBusy={publishBusy}
           onFinish={(publish) => void finishMajorWizard(publish)}
+          onClose={closeMajorWizard}
         />
       )}
       {quickMajorOpen && (

@@ -72,16 +72,18 @@ export function buildInitializationData(options: {
   const today = getShanghaiDateKey(Date.now());
   const tomorrow = addDaysToDateKey(today, 1);
   const targetGrade = grades[grades.length - 1];
-  const majorId = `${prefix}_major_${stamp}`;
-  const majors: MajorExam[] = [
-    {
-      id: majorId,
-      name: options.mode === 'demo' ? `${targetGrade?.name ?? '高三'}阶段测试（演示）` : '大型考试',
-      order: 0,
-      targetGradeIds: targetGrade ? [targetGrade.id] : [],
-      items:
-        options.mode === 'demo'
-          ? [
+  // 初始化不再生成默认考试：教室端与考试中心第一眼看到的应该是空态，
+  // 而不是一条创建人写着「系统」的占位考试（那条记录以前会一直躺在列表里，
+  // dev 上用户反馈的「不是我创建的考试」之一就是它）。演示模式仍给一份带科目的示例。
+  const majors: MajorExam[] =
+    options.mode === 'demo'
+      ? [
+          {
+            id: `${prefix}_major_${stamp}`,
+            name: `${targetGrade?.name ?? '高三'}阶段测试（演示）`,
+            order: 0,
+            targetGradeIds: targetGrade ? [targetGrade.id] : [],
+            items: [
               {
                 id: `demo_exam_${stamp}_0`,
                 name: '语文',
@@ -106,10 +108,10 @@ export function buildInitializationData(options: {
                 enabled: true,
                 order: 2,
               },
-            ]
-          : [],
-    },
-  ];
+            ],
+          },
+        ]
+      : [];
 
   const weeklyPlans: WeeklyPlan[] =
     options.mode === 'demo'
@@ -148,7 +150,7 @@ export function buildInitializationData(options: {
     grades,
     classes,
     majors,
-    activeMajorId: majorId,
+    activeMajorId: majors[0]?.id ?? '',
     weeklyPlans,
     activeWeeklyPlanId: weeklyPlans[0]?.id ?? null,
     activeWeeklyPlanIdByClassId,

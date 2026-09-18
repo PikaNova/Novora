@@ -44,6 +44,11 @@ export type MajorModalWizardProps = {
   publishBusy: boolean;
   /** 第 3 步：完成（存为草稿）或保存并发布。 */
   onFinish: (publish: boolean) => void;
+  /**
+   * 关闭向导。由上层决定要不要对「还没填科目的草稿」追问保留 / 丢弃，
+   * 所以这里不直接 setMajorModal(null)；没传时退回直接关闭。
+   */
+  onClose?: () => void;
 };
 
 export type WizardItemDraft = {
@@ -80,7 +85,9 @@ export function MajorModalWizard({
   onCreateAndContinue,
   publishBusy,
   onFinish,
+  onClose,
 }: MajorModalWizardProps) {
+  const closeModal = onClose ?? (() => setMajorModal(null));
   const [draftItem, setDraftItem] = useState<WizardItemDraft | null>(null);
   const [itemError, setItemError] = useState('');
   const [longConfirmed, setLongConfirmed] = useState(false);
@@ -104,7 +111,7 @@ export function MajorModalWizard({
   const canPublish = enabledItems.length > 0 && missingTime === 0 && windowStart != null && windowEnd != null;
 
   return (
-    <AdminModalPortal className="admin-modal-overlay" {...backdropProps(() => setMajorModal(null))}>
+    <AdminModalPortal className="admin-modal-overlay" {...backdropProps(closeModal)}>
       <div className="admin-modal admin-modal--wide admin-modal--workflow" onClick={(e) => e.stopPropagation()}>
         <h2 className="admin-modal__title admin-workflow-head">
           {majorModal.next === 'import'
@@ -115,7 +122,7 @@ export function MajorModalWizard({
         </h2>
         <AdminWorkflowClose
           onClick={() => {
-            setMajorModal(null);
+            closeModal();
             setMajorError('');
           }}
         />
@@ -428,7 +435,7 @@ export function MajorModalWizard({
             onClick={() => {
               if (majorModalStep) setMajorModalStep(0);
               else {
-                setMajorModal(null);
+                closeModal();
                 setMajorError('');
               }
             }}
