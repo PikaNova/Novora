@@ -116,7 +116,7 @@ export default function ExamRecordsPanel({
   const [source, setSource] = useState<'' | RecordSource>(rememberedFilters?.source ?? '');
   const [createdBy, setCreatedBy] = useState(rememberedFilters?.createdBy ?? '');
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(12);
+  const [pageSize, setPageSize] = useState(rememberedFilters?.pageSize ?? 25);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -128,6 +128,11 @@ export default function ExamRecordsPanel({
   const [draftsOpen, setDraftsOpen] = useState(rememberedFilters?.draftsOpen ?? false);
   const [draftsLoading, setDraftsLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(rememberedFilters?.createOpen ?? false);
+  const [moreOpen, setMoreOpen] = useState(rememberedFilters?.moreOpen ?? false);
+  const [density, setDensity] = useState<'comfortable' | 'compact'>(rememberedFilters?.density ?? 'comfortable');
+  const [viewMode, setViewMode] = useState<'exam' | 'class'>(rememberedFilters?.viewMode ?? 'exam');
+  const [expandedClassId, setExpandedClassId] = useState('');
+  const [weeklyExpanded, setWeeklyExpanded] = useState(false);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -164,8 +169,33 @@ export default function ExamRecordsPanel({
   // 记住筛选条件与几个展开状态：切板块、进编辑器再回来时，列表还在原来的口径上。
   // 分页刻意不记，回来时从第一页开始。
   useEffect(() => {
-    writeExamListFilters(preset, { query, gradeId, source, createdBy, showArchived, draftsOpen, createOpen });
-  }, [preset, query, gradeId, source, createdBy, showArchived, draftsOpen, createOpen]);
+    writeExamListFilters(preset, {
+      query,
+      gradeId,
+      source,
+      createdBy,
+      showArchived,
+      draftsOpen,
+      createOpen,
+      moreOpen,
+      pageSize,
+      density,
+      viewMode,
+    });
+  }, [
+    preset,
+    query,
+    gradeId,
+    source,
+    createdBy,
+    showArchived,
+    draftsOpen,
+    createOpen,
+    moreOpen,
+    pageSize,
+    density,
+    viewMode,
+  ]);
 
   // 考试安排的草稿区：默认折叠，展开时单独拉一次，草稿不参与主列表分页。
   useEffect(() => {
@@ -210,6 +240,8 @@ export default function ExamRecordsPanel({
   const detailRecord = detailId
     ? (records.find((item) => item.id === detailId) ?? drafts.find((item) => item.id === detailId) ?? null)
     : null;
+  /** 收在「更多筛选」里、但当前有生效值的条数（给折叠状态的按钮做提示）。 */
+  const hiddenFilterCount = (source ? 1 : 0) + (createdBy.trim() ? 1 : 0);
   const copy = PRESET_COPY[preset];
   // 周测只读实例：未来 7 天，按开始时间排序；编辑仍走周测计划编辑器。
   const weeklyRows = useMemo(() => {
@@ -271,6 +303,32 @@ export default function ExamRecordsPanel({
     }
     return rows;
   }, [collapsedGroups, groupedRows, records]);
+
+  /**
+   * 按班级视图：以班级为行，回答「这个班有哪些考试、最近一场什么时候」。
+   * 口径：只看当前筛选结果的**当前页**记录（服务端分页），够用来排当天冲突；
+   * 全校考试对每个班都算命中。
+   */
+  const classRows = useMemo(() => {
+    if (viewMode !== 'class') return [];
+    const covers = (record: ExamRecordListEntry, klass: SchoolClass) =>
+      record.targetClassIds.includes(klass.id) ||
+      record.targetGradeIds.includes(klass.gradeId) ||
+      (!record.targetClassIds.length && !record.targetGradeIds.length);
+    return classes
+      .map((klass) => ({
+        id: klass.id,
+        name: klass.name,
+        gradeName: grades.find((grade) => grade.id === klass.gradeId)?.name ?? '',
+        items: records
+          .filter((record) => covers(record, klass))
+          .sort((a, b) => (a.startAt ?? Number.MAX_SAFE_INTEGER) - (b.startAt ?? Number.MAX_SAFE_INTEGER)),
+      }))
+      .filter((row) => row.items.length > 0)
+      .sort(
+        (a, b) => (a.items[0].startAt ?? Number.MAX_SAFE_INTEGER) - (b.items[0].startAt ?? Number.MAX_SAFE_INTEGER),
+      );
+  }, [viewMode, classes, grades, records]);
 
   const renderRecordRow = (record: ExamRecordListEntry) => (
     <div className="exam-records-table__row" role="row" key={record.id}>
@@ -384,34 +442,72 @@ export default function ExamRecordsPanel({
             ]}
           />
         </label>
-        <label>
-          <span>来源</span>
-          <InlineSelect
-            value={source}
-            onChange={(value) => {
-              setSource(value as '' | RecordSource);
-              setPage(1);
-            }}
-            options={[
-              { value: '', label: '全部来源' },
-              { value: 'regular', label: '正式考试' },
-              { value: 'quick', label: '快速考试' },
-            ]}
-          />
-        </label>
-        <label>
-          <span>创建人</span>
-          <input
-            className="exam-records-creator-input"
-            value={createdBy}
-            onChange={(event) => {
-              setCreatedBy(event.target.value.replace(/[^0-9]/g, ''));
-              setPage(1);
-            }}
-            placeholder="创建人编号"
-            inputMode="numeric"
-          />
-        </label>
+        {/* 来源与创建人默认收进「更多筛选」；收起时若有生效值，按钮上带数量提示。 */}
+        {moreOpen && (
+          <>
+            <label>
+              <span>来源</span>
+              <InlineSelect
+                value={source}
+                onChange={(value) => {
+                  setSource(value as '' | RecordSource);
+                  setPage(1);
+                }}
+                options={[
+                  { value: '', label: '全部来源' },
+                  { value: 'regular', label: '正式考试' },
+                  { value: 'quick', label: '快速考试' },
+                ]}
+              />
+            </label>
+            <label>
+              <span>创建人</span>
+              <input
+                className="exam-records-creator-input"
+                value={createdBy}
+                onChange={(event) => {
+                  setCreatedBy(event.target.value.replace(/[^0-9]/g, ''));
+                  setPage(1);
+                }}
+                placeholder="创建人编号"
+                inputMode="numeric"
+              />
+            </label>
+          </>
+        )}
+        <div className="exam-records-filters__tools">
+          <button
+            className="admin-btn admin-btn--ghost exam-records-filters__more"
+            type="button"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((value) => !value)}
+          >
+            {moreOpen ? '收起筛选' : '更多筛选'}
+            {!moreOpen && hiddenFilterCount > 0 ? `（${hiddenFilterCount}）` : ''}
+          </button>
+          <label className="exam-records-filters__compact">
+            <span>视图</span>
+            <InlineSelect
+              value={viewMode}
+              onChange={(value) => setViewMode(value as 'exam' | 'class')}
+              options={[
+                { value: 'exam', label: '按考试' },
+                { value: 'class', label: '按班级' },
+              ]}
+            />
+          </label>
+          <label className="exam-records-filters__compact">
+            <span>密度</span>
+            <InlineSelect
+              value={density}
+              onChange={(value) => setDensity(value as 'comfortable' | 'compact')}
+              options={[
+                { value: 'comfortable', label: '舒适' },
+                { value: 'compact', label: '紧凑' },
+              ]}
+            />
+          </label>
+        </div>
       </section>
 
       {preset === 'history' && (
@@ -440,35 +536,94 @@ export default function ExamRecordsPanel({
           <span>可以调整筛选条件，或用右上角「创建考试」新建一场。</span>
         </div>
       ) : (
-        <section className={`exam-records-table-wrap${loading ? ' is-refreshing' : ''}`} aria-label="考试记录">
-          <div className="exam-records-table" role="table">
-            <div className="exam-records-table__row is-head" role="row">
-              <span role="columnheader">考试</span>
-              <span role="columnheader">状态</span>
-              <span role="columnheader">适用范围</span>
-              <span role="columnheader">时间</span>
-              <span role="columnheader">科目</span>
-              <span role="columnheader">操作</span>
-            </div>
-            {rowItems.map((row) =>
-              row.kind === 'group' ? (
-                <div className="exam-records-table__group" role="row" key={row.key}>
-                  <button
-                    className="exam-records-group-toggle"
-                    type="button"
-                    aria-expanded={!row.collapsed}
-                    onClick={() => toggleGroup(row.groupKey)}
-                  >
-                    <ChevronRight size={14} aria-hidden="true" className={row.collapsed ? undefined : 'is-open'} />
-                    {row.label}
-                    <em>{row.count}</em>
-                  </button>
-                </div>
+        <section
+          className={`exam-records-table-wrap${loading ? ' is-refreshing' : ''}${
+            density === 'compact' ? ' is-compact' : ''
+          }`}
+          aria-label={viewMode === 'class' ? '按班级查看' : '考试记录'}
+        >
+          {viewMode === 'class' ? (
+            <div className="exam-records-table exam-records-classview">
+              <div className="exam-records-table__row is-head" role="row">
+                <span role="columnheader">班级</span>
+                <span role="columnheader">年级</span>
+                <span role="columnheader">考试</span>
+                <span role="columnheader">最近一场</span>
+                <span role="columnheader">操作</span>
+              </div>
+              {classRows.length === 0 ? (
+                <p className="exam-records-drafts__hint">当前页里没有影响到班级的考试。</p>
               ) : (
-                renderRecordRow(row.record)
-              ),
-            )}
-          </div>
+                classRows.map((row) => (
+                  <div className="exam-records-classrow" key={row.id}>
+                    <div className="exam-records-table__row" role="row">
+                      <strong className="exam-records-classrow__name">{row.name}</strong>
+                      <span role="cell">{row.gradeName}</span>
+                      <span className="exam-records-count" role="cell">
+                        {row.items.length} 场
+                      </span>
+                      <span className="exam-records-time" role="cell">
+                        <CalendarClock size={14} aria-hidden="true" />
+                        {examTimeRange(row.items[0].startAt, row.items[0].endAt)}
+                      </span>
+                      <span className="exam-records-row-actions" role="cell">
+                        <button
+                          className="admin-btn admin-btn--ghost"
+                          type="button"
+                          aria-expanded={expandedClassId === row.id}
+                          onClick={() => setExpandedClassId((current) => (current === row.id ? '' : row.id))}
+                        >
+                          {expandedClassId === row.id ? '收起' : '展开'}
+                        </button>
+                      </span>
+                    </div>
+                    {expandedClassId === row.id && (
+                      <ul className="exam-records-classrow__list">
+                        {row.items.map((item) => (
+                          <li key={item.id}>
+                            <strong>{item.name || item.id}</strong>
+                            <span>{examTimeRange(item.startAt, item.endAt)}</span>
+                            <em>{EXAM_RECORD_STATUS_LABELS[item.displayStatus]}</em>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="exam-records-table" role="table">
+                <div className="exam-records-table__row is-head" role="row">
+                  <span role="columnheader">考试</span>
+                  <span role="columnheader">状态</span>
+                  <span role="columnheader">适用范围</span>
+                  <span role="columnheader">时间</span>
+                  <span role="columnheader">科目</span>
+                  <span role="columnheader">操作</span>
+                </div>
+                {rowItems.map((row) =>
+                  row.kind === 'group' ? (
+                    <div className="exam-records-table__group" role="row" key={row.key}>
+                      <button
+                        className="exam-records-group-toggle"
+                        type="button"
+                        aria-expanded={!row.collapsed}
+                        onClick={() => toggleGroup(row.groupKey)}
+                      >
+                        <ChevronRight size={14} aria-hidden="true" className={row.collapsed ? undefined : 'is-open'} />
+                        {row.label}
+                        <em>{row.count}</em>
+                      </button>
+                    </div>
+                  ) : (
+                    renderRecordRow(row.record)
+                  ),
+                )}
+              </div>
+            </>
+          )}
         </section>
       )}
 
@@ -485,21 +640,32 @@ export default function ExamRecordsPanel({
           {weeklyRows.length === 0 ? (
             <p className="exam-records-weekly__hint">未来 7 天没有周测安排。</p>
           ) : (
-            <ul className="exam-records-weekly__list">
-              {weeklyRows.map((row) => (
-                <li key={row.key}>
-                  <span className="exam-records-weekly__when">{weeklyDateLabel(row.dateKey, Date.now())}</span>
-                  <strong>{row.name}</strong>
-                  <span>
-                    {row.gradeName}
-                    {row.className}
-                  </span>
-                  <em>
-                    {row.startClock}–{row.endClock}
-                  </em>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="exam-records-weekly__list">
+                {(weeklyExpanded ? weeklyRows : weeklyRows.slice(0, 5)).map((row) => (
+                  <li key={row.key}>
+                    <span className="exam-records-weekly__when">{weeklyDateLabel(row.dateKey, Date.now())}</span>
+                    <strong>{row.name}</strong>
+                    <span>
+                      {row.gradeName}
+                      {row.className}
+                    </span>
+                    <em>
+                      {row.startClock}–{row.endClock}
+                    </em>
+                  </li>
+                ))}
+              </ul>
+              {weeklyRows.length > 5 && (
+                <button
+                  className="admin-btn admin-btn--ghost exam-records-weekly__more"
+                  type="button"
+                  onClick={() => setWeeklyExpanded((value) => !value)}
+                >
+                  {weeklyExpanded ? '收起' : `还有 ${weeklyRows.length - 5} 条`}
+                </button>
+              )}
+            </>
           )}
         </section>
       )}
@@ -551,6 +717,22 @@ export default function ExamRecordsPanel({
 
       <footer className="exam-records-pagination">
         <span>共 {total} 场</span>
+        <label className="exam-records-pagination__size">
+          <span>每页</span>
+          <InlineSelect
+            value={String(pageSize)}
+            onChange={(value) => {
+              setPageSize(Number(value));
+              setPage(1);
+            }}
+            options={[
+              { value: '12', label: '12 条' },
+              { value: '25', label: '25 条' },
+              { value: '50', label: '50 条' },
+            ]}
+            ariaLabel="每页条数"
+          />
+        </label>
         <div>
           <button
             className="admin-btn admin-btn--ghost"

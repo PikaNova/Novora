@@ -343,12 +343,11 @@
   font-style: normal;
 }
 .exam-records-filters {
-  display: grid;
-  /* 四列对应四个控件（搜索/年级/来源/创建人）。原来写了 6 列，后两列是空的；
-     而年级与来源是 InlineSelect（span.set-input），既不是 select 也不是 input，
-     拿不到下面那条统一外观，反而继承了设置页的 min-width:220px，
-     在 120px 的列里必然溢出去压住右边那个控件——就是「三个选择框重叠」。 */
-  grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(150px, 1fr));
+  /* 用 flex 换行代替固定列数：控件数量会随「更多筛选」变化，固定列数一旦对不上
+     就会出现空列或者控件被挤出格子（之前三个选择框重叠就是这么来的）。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 10px;
   margin-bottom: 16px;
   padding: 12px;
@@ -359,9 +358,27 @@
 .exam-records-filters label {
   display: grid;
   gap: 5px;
+  flex: 1 1 160px;
   min-width: 0;
   color: var(--adm-text-3, #879caf);
   font-size: 11px;
+}
+.exam-records-filters > label.exam-records-search {
+  flex: 2.2 1 260px;
+}
+/* 「视图 / 密度 / 更多筛选」工具区：固定在右侧，不参与筛选控件的伸缩。 */
+.exam-records-filters__tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+.exam-records-filters__tools label {
+  flex: 0 0 auto;
+}
+.exam-records-filters__tools .inline-select {
+  min-width: 104px;
 }
 .exam-records-filters select,
 .exam-records-filters input,
@@ -634,6 +651,63 @@
   padding: 5px 10px;
   font-size: 12px;
 }
+/* 紧凑密度：行高与留白收一档，并隐藏「科目」列（第 5 列）。 */
+.exam-records-table-wrap.is-compact .exam-records-table__row {
+  grid-template-columns: minmax(200px, 1.5fr) 88px minmax(140px, 1fr) minmax(170px, 1.1fr) 72px;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 12px;
+}
+.exam-records-table-wrap.is-compact .exam-records-table__row > :nth-child(5) {
+  display: none;
+}
+.exam-records-table-wrap.is-compact .exam-records-table__group {
+  padding: 6px 12px 4px;
+}
+/* 按班级视图：班级一行，展开看这个班的考试列表。 */
+.exam-records-classview .exam-records-table__row {
+  grid-template-columns: minmax(140px, 1.2fr) 96px 88px minmax(160px, 1fr) 82px;
+}
+.exam-records-classrow__name {
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-classrow__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 14px 12px;
+  border-top: 1px dashed var(--adm-line, rgba(148, 180, 208, 0.12));
+  list-style: none;
+}
+.exam-records-classrow__list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+.exam-records-classrow__list li strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-classrow__list li em {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+}
+/* 周测区默认只列前 5 条。 */
+.exam-records-weekly__more {
+  margin-top: 8px;
+}
 
 /* ── 考试详情抽屉 ───────────────────────────────────────────── */
 .exam-record-detail {
@@ -863,13 +937,23 @@
   height: 34px;
   padding: 0;
 }
+.exam-records-pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.exam-records-pagination__size .inline-select {
+  min-width: 104px;
+}
 
 @media (max-width: 900px) {
-  .exam-records-filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .exam-records-filters > label.exam-records-search {
+    flex: 1 1 100%;
   }
-  .exam-records-search {
-    grid-column: 1 / -1;
+  .exam-records-filters__tools {
+    flex: 1 1 100%;
+    margin-left: 0;
   }
 }
 @media (max-width: 700px) {

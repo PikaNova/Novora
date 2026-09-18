@@ -17,6 +17,14 @@ export type ExamListFilters = {
   showArchived: boolean;
   draftsOpen: boolean;
   createOpen: boolean;
+  /** 「更多筛选」是否展开（来源/创建人默认收在里面）。 */
+  moreOpen: boolean;
+  /** 每页条数（12/25/50）。 */
+  pageSize: number;
+  /** 表格密度：舒适 / 紧凑。 */
+  density: 'comfortable' | 'compact';
+  /** 视图：按考试 / 按班级。 */
+  viewMode: 'exam' | 'class';
 };
 
 const memory = new Map<string, ExamListFilters>();
