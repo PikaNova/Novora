@@ -819,6 +819,9 @@ export default function AdminPage() {
                   preset={examListView}
                   can={can}
                   onCreate={openExamCreate}
+                  weeklyPlans={visibleWeeklyPlans}
+                  weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+                  onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
                 />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel

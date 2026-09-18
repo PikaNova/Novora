@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
 import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, RefreshCw, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
 import { formatApiError } from '../services/apiError';
 import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
+import { addDaysToDateKey, getShanghaiDateKey } from '../utils/weeklySchedule';
+import { buildWeeklyOccurrenceRows } from '../utils/weeklyOccurrenceRows';
+import type { WeeklyPlan } from '../types/exam';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import '../styles/exam-records.css';
 
@@ -18,6 +21,10 @@ type Props = {
   can: (permission: string) => boolean;
   /** 顶部「+ 创建考试」；由上层按类型路由到已有的创建流程。 */
   onCreate?: (kind: 'major' | 'quick' | 'weekly') => void;
+  /** 周测并入「考试安排」：这里只读展示未来 7 天的周测实例，编辑仍回周测计划编辑器。 */
+  weeklyPlans?: WeeklyPlan[];
+  weeklyPlanIdByClassId?: Record<string, string | null>;
+  onOpenWeeklyEditor?: () => void;
 };
 
 const PRESET_COPY: Record<Props['preset'], { title: string; description: string; empty: string }> = {
@@ -57,7 +64,24 @@ function scopeLabel(record: ExamRecordListEntry, grades: SchoolGrade[], classes:
   return `${labels.join('、')}${record.targetGradeIds.length + record.targetClassIds.length > labels.length ? ' 等' : ''}`;
 }
 
-export default function ExamRecordsPanel({ grades, classes, preset, can, onCreate }: Props) {
+/** 今天 / 明天 / M-D，用于周测行的日期前缀。 */
+function weeklyDateLabel(dateKey: string, now: number): string {
+  const today = getShanghaiDateKey(now);
+  if (dateKey === today) return '今天';
+  if (dateKey === addDaysToDateKey(today, 1)) return '明天';
+  return dateKey.slice(5);
+}
+
+export default function ExamRecordsPanel({
+  grades,
+  classes,
+  preset,
+  can,
+  onCreate,
+  weeklyPlans,
+  weeklyPlanIdByClassId,
+  onOpenWeeklyEditor,
+}: Props) {
   const [records, setRecords] = useState<ExamRecordListEntry[]>([]);
   const [query, setQuery] = useState('');
   const [gradeId, setGradeId] = useState('');
@@ -149,6 +173,18 @@ export default function ExamRecordsPanel({ grades, classes, preset, can, onCreat
   // 详情始终取列表里的最新一行：动作完成后列表刷新，抽屉里的状态与时间会跟着更新。
   const detailRecord = detailId ? (records.find((item) => item.id === detailId) ?? null) : null;
   const copy = PRESET_COPY[preset];
+  // 周测只读实例：未来 7 天，按开始时间排序；编辑仍走周测计划编辑器。
+  const weeklyRows = useMemo(() => {
+    if (preset !== 'schedule' || !weeklyPlans?.length) return [];
+    return buildWeeklyOccurrenceRows({
+      plans: weeklyPlans,
+      activePlanIdByClassId: weeklyPlanIdByClassId,
+      classes,
+      grades,
+      now: Date.now(),
+      daysForward: 7,
+    });
+  }, [preset, weeklyPlans, weeklyPlanIdByClassId, classes, grades]);
 
   return (
     <main className="exam-records-panel">
@@ -320,6 +356,38 @@ export default function ExamRecordsPanel({ grades, classes, preset, can, onCreat
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {preset === 'schedule' && (
+        <section className="exam-records-weekly" aria-label="周测安排">
+          <header className="exam-records-weekly__head">
+            <h3>周测（未来 7 天）</h3>
+            {onOpenWeeklyEditor && (
+              <button className="admin-btn admin-btn--ghost" type="button" onClick={onOpenWeeklyEditor}>
+                打开周测计划
+              </button>
+            )}
+          </header>
+          {weeklyRows.length === 0 ? (
+            <p className="exam-records-weekly__hint">未来 7 天没有周测安排。</p>
+          ) : (
+            <ul className="exam-records-weekly__list">
+              {weeklyRows.map((row) => (
+                <li key={row.key}>
+                  <span className="exam-records-weekly__when">{weeklyDateLabel(row.dateKey, Date.now())}</span>
+                  <strong>{row.name}</strong>
+                  <span>
+                    {row.gradeName}
+                    {row.className}
+                  </span>
+                  <em>
+                    {row.startClock}–{row.endClock}
+                  </em>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       )}
 

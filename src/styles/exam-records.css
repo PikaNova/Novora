@@ -212,6 +212,64 @@
   padding-top: 12px;
   border-top: 1px dashed var(--adm-line-strong, rgba(148, 180, 208, 0.24));
 }
+/* ―― 考试安排里的周测（只读实例）―― */
+.exam-records-weekly {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 10px;
+  background: rgba(148, 180, 208, 0.03);
+}
+.exam-records-weekly__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.exam-records-weekly__head h3 {
+  margin: 0;
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.exam-records-weekly__hint {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-records-weekly__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-records-weekly__list li {
+  display: grid;
+  grid-template-columns: 52px minmax(120px, 1.6fr) minmax(90px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+.exam-records-weekly__when {
+  color: var(--adm-accent, #3b8fd0);
+  white-space: nowrap;
+}
+.exam-records-weekly__list strong {
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-weekly__list em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+  white-space: nowrap;
+}
 .exam-records-drafts__toggle {
   display: inline-flex;
   align-items: center;

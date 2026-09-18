@@ -5,12 +5,14 @@ export const EXAM_CENTER_VIEWS: readonly ExamCenterView[] = ['current', 'schedul
 
 type NavItem = { id: ExamCenterView; label: string; permission: string };
 
-/** 考试中心的四个板块；「编辑考试」是二级页面，不在这里出现。 */
+/**
+ * 考试中心的三个板块（当前/安排/历史）；「编辑考试」是二级页面，
+ * 「周测计划」并入「考试安排」，所以都不在这里出现。
+ */
 const ITEMS: NavItem[] = [
   { id: 'current', label: '当前考试', permission: 'major.read' },
   { id: 'schedule', label: '考试安排', permission: 'major.read' },
   { id: 'history', label: '历史考试', permission: 'major.read' },
-  { id: 'weekly', label: '周测计划', permission: 'weekly.read' },
 ];
 
 export type ExamCenterNavProps = {
