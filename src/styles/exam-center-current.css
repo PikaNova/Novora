@@ -1,0 +1,459 @@
+/* 「当前考试」实时态势页：工业控制台风格，重点是把「现在 / 还有多久 / 下一场」放在第一屏。 */
+.exam-now {
+  display: grid;
+  gap: 16px;
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+  color: var(--adm-text, #eaf2f8);
+}
+
+.exam-now__topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+}
+.exam-now__brand h1 {
+  margin: 2px 0 0;
+  font-size: 24px;
+  font-weight: 750;
+}
+.exam-now__eyebrow {
+  color: var(--adm-accent, #3b8fd0);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.exam-now__clock {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  margin-left: auto;
+}
+.exam-now__clock strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.exam-now__date {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-now__topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.exam-now__topbar-actions .admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-now-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--adm-text-2, #a9bdd0);
+}
+.exam-now-sync__dot,
+.exam-now-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--adm-text-3, #879caf);
+}
+.exam-now-sync.is-ok .exam-now-sync__dot,
+.exam-now-status.is-ok .exam-now-status__dot {
+  background: var(--adm-success, #4cbe8c);
+  box-shadow: 0 0 0 3px rgba(76, 190, 140, 0.14);
+}
+.exam-now-sync.is-warn .exam-now-sync__dot,
+.exam-now-status.is-warn .exam-now-status__dot {
+  background: var(--adm-warn, #dfa72f);
+  box-shadow: 0 0 0 3px rgba(223, 167, 47, 0.14);
+}
+.exam-now-sync.is-busy .exam-now-sync__dot,
+.exam-now-status.is-busy .exam-now-status__dot {
+  background: var(--adm-accent, #3b8fd0);
+  box-shadow: 0 0 0 3px rgba(59, 143, 208, 0.16);
+}
+
+.exam-now__banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--adm-radius-sm, 8px);
+  font-size: 13px;
+}
+.exam-now__banner.is-warn {
+  border: 1px solid rgba(223, 167, 47, 0.34);
+  background: var(--adm-warn-soft, rgba(223, 167, 47, 0.12));
+  color: #f0d08a;
+}
+
+.exam-now__hero {
+  display: grid;
+  gap: 12px;
+}
+.exam-now__concurrent {
+  margin: 0;
+  color: var(--adm-warn, #dfa72f);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.exam-now__grid {
+  display: grid;
+  gap: 12px;
+}
+.exam-now__grid.is-multi {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.exam-now-card {
+  display: grid;
+  gap: 8px;
+  padding: 20px 22px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius, 10px);
+  background: linear-gradient(180deg, var(--adm-bg2, #10171f) 0%, var(--adm-card, #0c1219) 100%);
+  box-shadow: var(--adm-shadow-1, 0 10px 26px rgba(0, 0, 0, 0.22));
+}
+.exam-now-card.is-hero {
+  padding: 28px 30px 24px;
+}
+.exam-now-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exam-now-card__kind {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-now-card__exam {
+  margin: 0;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 15px;
+}
+.exam-now-card h2 {
+  margin: 0;
+  font-size: 40px;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+}
+.exam-now-card.is-compact h2 {
+  font-size: 22px;
+}
+.exam-now-card__countdown {
+  margin: 6px 0 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 68px;
+  font-weight: 720;
+  line-height: 1.05;
+  letter-spacing: 0.03em;
+}
+.exam-now-card.is-compact .exam-now-card__countdown {
+  margin-top: 4px;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+.exam-now-card__countdown-label,
+.exam-now-card__elapsed,
+.exam-now-card__time,
+.exam-now-card__scope,
+.exam-now-card__hint {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 13px;
+}
+.exam-now-card__hint {
+  color: var(--adm-text-2, #a9bdd0);
+}
+
+.exam-now-card.is-running .exam-now-card__countdown,
+.exam-now-card.is-running .exam-now-pill {
+  color: #eaf2f8;
+}
+.exam-now-card.is-running {
+  border-color: rgba(59, 143, 208, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(59, 143, 208, 0.16),
+    var(--adm-shadow-2, 0 20px 44px rgba(0, 0, 0, 0.28));
+}
+.exam-now-card.is-paused {
+  border-color: rgba(223, 167, 47, 0.42);
+}
+.exam-now-card.is-paused .exam-now-card__countdown {
+  color: #f0d08a;
+}
+.exam-now-card.is-overdue {
+  border-color: rgba(224, 96, 96, 0.44);
+}
+.exam-now-card.is-overdue .exam-now-card__elapsed {
+  color: #f0a5a5;
+  font-variant-numeric: tabular-nums;
+}
+.exam-now-card.is-empty {
+  justify-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--adm-text-3, #879caf);
+}
+.exam-now-card.is-empty h2 {
+  font-size: 26px;
+  color: var(--adm-text, #eaf2f8);
+}
+
+.exam-now-card__track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.exam-now-card__track-time {
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.exam-now-card__track-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.16);
+  overflow: hidden;
+}
+.exam-now-card__track-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--adm-accent-deep, #2e86c1), var(--adm-accent, #3b8fd0));
+  transition: width var(--adm-dur-base, 240ms) linear;
+}
+.exam-now-card.is-paused .exam-now-card__track-bar > span {
+  background: linear-gradient(90deg, #b8862a, var(--adm-warn, #dfa72f));
+}
+
+.exam-now__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin: 12px 0 0;
+}
+.exam-now__facts div {
+  display: grid;
+  gap: 2px;
+}
+.exam-now__facts dt {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-now__facts dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.exam-now-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  font-size: 12px;
+  color: var(--adm-text-2, #a9bdd0);
+}
+.exam-now-pill.is-running {
+  border-color: rgba(59, 143, 208, 0.5);
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+  color: #9fd0f2;
+}
+.exam-now-pill.is-imminent {
+  border-color: rgba(76, 190, 140, 0.5);
+  background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
+  color: #9adcbc;
+}
+.exam-now-pill.is-paused {
+  border-color: rgba(223, 167, 47, 0.5);
+  background: var(--adm-warn-soft, rgba(223, 167, 47, 0.12));
+  color: #f0d08a;
+}
+.exam-now-pill.is-overdue {
+  border-color: rgba(224, 96, 96, 0.5);
+  background: var(--adm-danger-soft, rgba(224, 96, 96, 0.1));
+  color: #f0a5a5;
+}
+.exam-now-pill.is-ended {
+  color: var(--adm-text-3, #879caf);
+}
+
+.exam-now__section-label {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.exam-now__timeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius, 10px);
+  background: var(--adm-bg1, #0c1219);
+}
+.exam-now__timeline-slot {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+.exam-now__timeline-slot + .exam-now__timeline-slot {
+  padding-left: 12px;
+  border-left: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+}
+.exam-now__timeline-slot.is-current .exam-now__section-label {
+  color: var(--adm-accent, #3b8fd0);
+}
+.exam-now__placeholder {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 13px;
+}
+.exam-now__current-list,
+.exam-now__next-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-now__current-list li,
+.exam-now__next-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius-sm, 8px);
+  background: var(--adm-bg2, #10171f);
+  min-width: 0;
+}
+.exam-now__current-list strong,
+.exam-now__next-list strong {
+  font-size: 15px;
+}
+.exam-now__current-list span,
+.exam-now__next-list span {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.exam-now__current-list code {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: #9fd0f2;
+}
+.exam-now__next-list em {
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.exam-now__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.exam-now__action-buttons {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.exam-now__action-buttons .admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+}
+.exam-now__hint {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+
+.exam-now__statusbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-now-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 1080px) {
+  .exam-now__timeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .exam-now__timeline-slot + .exam-now__timeline-slot {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  }
+}
+
+@media (max-width: 620px) {
+  .exam-now {
+    padding: 14px 14px 26px;
+  }
+  .exam-now__topbar {
+    align-items: flex-start;
+  }
+  .exam-now__clock {
+    justify-items: start;
+    margin-left: 0;
+  }
+  .exam-now__clock strong {
+    font-size: 22px;
+  }
+  .exam-now-card,
+  .exam-now-card.is-hero {
+    padding: 18px 16px;
+  }
+  .exam-now-card h2 {
+    font-size: 28px;
+  }
+  .exam-now-card__countdown {
+    font-size: 44px;
+  }
+  .exam-now__facts {
+    gap: 10px 18px;
+  }
+  .exam-now__action-buttons {
+    width: 100%;
+  }
+  .exam-now__action-buttons .admin-btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
