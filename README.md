@@ -1,4 +1,4 @@
-# Novora v2.7.6
+# Novora v2.8.0
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
@@ -226,6 +226,16 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 `/api/status`（仅超管）新增 `diagnosticQueue` 字段：`sending / sent / failed / expired / expiredWithEntries / dueNow / nextAttemptAt / lastError`，可直接判断队列是否积压、有多少过期正文待回收。
 
 ## 更新日志
+
+### V2.8.0
+
+- 考试管理：新增考试记录层（`exam_records` 表 + 生命周期字段），由 `exam_data.majors` 单向投影生成，运行快照仍是唯一权威；离线 outbox、ETag 版本比较、ClassIsland 插件与设备心跳的读取契约保持不变。
+- 考试生命周期：草稿 → 待开始 → 进行中 → 已结束 → 历史归档（「进行中」按考试时间窗派生，不落库）；发布、开考、暂停、继续、延长、结束、归档、取消归档、复制走同一套 API，非法状态跳转返回 409，全部动作写审计日志与操作记录。
+- 考试管理页：新增「考试管理」标签页，支持按名称/编号、状态、年级（含班级）、来源、时间范围与创建人组合筛选；筛选与分页下推到 SQL，考试变多不再整表搬运。
+- 考试详情：点开列表任意一行可查看生命周期时间线、适用范围、科目数、计划时间、累计暂停（含顺延后的结束时间）与操作记录（操作者、前后状态、备注）。
+- 复制与历史：复制生成新的草稿考试（新 ID、清空发布与实际时间，原考试不受影响）；`copy` 与 `extend` 由服务端强制幂等键，网络重发不会重复复制或重复延时；已结束考试只读归档，可搜索。
+- 稳定性：缺失的静态资源（`/assets`、字体）一律 404 + `no-store`，不再拿 index.html 冒充脚本；Service Worker 拒绝缓存类型不符的响应，动态分包加载失败自动刷新一次（20 秒冷却），并在兜底页提供「清理缓存并刷新」。
+- 修复：数据大屏离开页面时未被接住的 `AbortError` 不再按程序缺陷上报（降级为 warning 并标记 `source=abort`）。
 
 ### V2.7.6
 

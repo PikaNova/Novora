@@ -19,6 +19,8 @@ import { bindTypographySettings } from './utils/typographySettings';
 import { bindMotionSettings } from './utils/motionSettings';
 import { reportPerformance } from './services/telemetry';
 import { installGlobalErrorReporting } from './services/errorReport';
+import { installChunkLoadRecovery } from './utils/chunkLoadRecovery';
+import { recordDiagnosticEvent, startDiagnosticTracking } from './utils/diagnostics';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 
@@ -39,6 +41,11 @@ startTimeSyncManager();
 bindTypographySettings();
 bindMotionSettings();
 installGlobalErrorReporting();
+// 资源版本不一致（页面跨越了一次发布）导致的分包加载失败：刷新一次即可恢复。
+installChunkLoadRecovery();
+// 出错上报需要「出错前发生了什么」：登记路由/接口/同步/在线状态的事件序列。
+startDiagnosticTracking();
+recordDiagnosticEvent('app.start', `${__APP_VERSION__} · ${__COMMIT_SHA__}`);
 // 仅生产环境注册 Service Worker：开发环境（vite dev）下残留的生产 SW 会拦截
 // Vite 的模块请求、用旧缓存覆盖 dev 资源，导致 `npm run dev` 打开后白屏。
 if (import.meta.env.PROD) {

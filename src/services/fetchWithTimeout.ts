@@ -1,4 +1,5 @@
 import { timeoutApiError } from './apiError';
+import { noteApiResult } from '../utils/diagnostics';
 
 /**
  * 带超时控制的 fetch 封装。
@@ -14,13 +15,26 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const endpoint = typeof url === 'string' ? url : url instanceof URL ? url.pathname : '';
+  const method = String(options.method || 'GET').toUpperCase();
+  const startedAt = Date.now();
 
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    noteApiResult({
+      endpoint,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      ok: response.ok,
+      method,
+    });
+    return response;
   } catch (err) {
     if ((err as Error).name === 'AbortError') {
+      noteApiResult({ endpoint, status: null, durationMs: Date.now() - startedAt, ok: false, method });
       throw timeoutApiError();
     }
+    noteApiResult({ endpoint, status: null, durationMs: Date.now() - startedAt, ok: false, method });
     throw err;
   } finally {
     clearTimeout(timer);

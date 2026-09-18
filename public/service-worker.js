@@ -1,6 +1,23 @@
-const SHELL_CACHE = 'novora-shell-v2.7.6-pwa-20260905-2';
-const RUNTIME_CACHE = 'novora-runtime-v2.7.6-pwa-20260905-2';
+// 缓存策略有改动时必须递增版本号：activate 阶段会删掉不同版本的旧缓存。
+const CACHE_VERSION = '20260912-3';
+const SHELL_CACHE = `novora-shell-v2.8.0-pwa-${CACHE_VERSION}`;
+const RUNTIME_CACHE = `novora-runtime-v2.8.0-pwa-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
+
+/**
+ * 只缓存真正拿到内容的响应。
+ * 服务端在静态资源缺失时可能把 index.html 当成 200 的兜底响应返回；这种响应一旦
+ * 按脚本/CSS 的 URL 写进缓存，该 URL 之后永远返回 HTML，动态 import 再也拿不到
+ * 真正的模块（Failed to fetch dynamically imported module）。
+ */
+function canCache(request, response) {
+  if (!response || response.status !== 200) return false;
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html') && request.mode !== 'navigate') return false;
+  if (request.destination === 'script' && !contentType.includes('javascript')) return false;
+  if (request.destination === 'style' && !contentType.includes('text/css')) return false;
+  return true;
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -54,7 +71,7 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const fetchPromise = fetch(request)
         .then((response) => {
-          if (response && response.status === 200) {
+          if (canCache(request, response)) {
             const clone = response.clone();
             caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, clone));
           }

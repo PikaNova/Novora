@@ -19,8 +19,13 @@ import {
   type DiagnosticLogBundleInput,
 } from '../src/shared/diagnosticLogContracts.js';
 
-const MAX_ENTRIES = 500;
-const MAX_BUNDLE_BYTES = 1_048_576;
+// 与作者端保持一致：单包 5000 条 / 8 MB。超限不静默截断，而是要求分片上报。
+const MAX_ENTRIES = 5000;
+const MAX_BUNDLE_BYTES = 8 * 1_048_576;
+
+function formatMb(bytes: number): string {
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
 
 function numberValue(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -95,7 +100,8 @@ async function handleCatalog(req: VercelRequest, res: VercelResponse): Promise<v
   // 管理员浏览列表时顺带回收过期正文，避免在没挂 Cron 的部署里正文无限堆积。
   await purgeExpiredDiagnosticBundles();
   const rows = await sql`SELECT bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code,
-      from_ts, to_ts, entry_count, content_bytes, status, attempt_count, last_error, created_at, expires_at, sent_at, next_attempt_at
+      from_ts, to_ts, entry_count, content_bytes, part_no, part_total, truncated_count,
+      status, attempt_count, last_error, created_at, expires_at, sent_at, next_attempt_at
       FROM app_diagnostic_bundles WHERE from_ts <= ${to} AND to_ts >= ${from}
       ORDER BY created_at DESC LIMIT 200`;
   res.json({
@@ -125,14 +131,26 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
     return;
   }
   const rawEntries = Array.isArray(b.entries) ? b.entries : [];
+  // 手动诊断包语义是「把日志全部交上来」：超限必须显式报错让客户端分片，
+  // 静默截断会让包看起来完整、实际少内容。
+  if (rawEntries.length > MAX_ENTRIES) {
+    res.status(413).json({
+      ok: false,
+      code: 'DIAGNOSTIC_LOG_TOO_MANY_ENTRIES',
+      error: `收到 ${rawEntries.length} 条，上限 ${MAX_ENTRIES} 条，请分片上报`,
+    });
+    return;
+  }
   const entries = rawEntries
-    .slice(0, MAX_ENTRIES)
     .map(sanitizeDiagnosticEntry)
     .filter((entry): entry is NonNullable<ReturnType<typeof sanitizeDiagnosticEntry>> => !!entry);
   if (!entries.length) {
     res.status(400).json({ ok: false, code: 'EMPTY_DIAGNOSTIC_LOG', error: '没有可发送的诊断日志' });
     return;
   }
+  const partTotal = Math.min(Math.max(Math.round(numberValue(b.partTotal) ?? 1), 1), 100);
+  const partNo = Math.min(Math.max(Math.round(numberValue(b.partNo) ?? 1), 1), partTotal);
+  const truncatedCount = Math.max(Math.round(numberValue(b.truncatedCount) ?? 0), 0);
   const bundleId = text(b.bundleId, 96) || `bundle_${randomUUID()}`;
   const input: DiagnosticLogBundleInput = {
     bundleId,
@@ -150,7 +168,11 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
   };
   const serialized = JSON.stringify(entries);
   if (Buffer.byteLength(serialized, 'utf8') > MAX_BUNDLE_BYTES) {
-    res.status(413).json({ ok: false, code: 'DIAGNOSTIC_LOG_TOO_LARGE', error: '诊断日志包超过 1 MB 限制' });
+    res.status(413).json({
+      ok: false,
+      code: 'DIAGNOSTIC_LOG_TOO_LARGE',
+      error: `当前 ${formatMb(Buffer.byteLength(serialized, 'utf8'))}，上限 ${formatMb(MAX_BUNDLE_BYTES)}，请分片上报`,
+    });
     return;
   }
   const sql = database();
@@ -164,8 +186,8 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
     return;
   }
   await sql`INSERT INTO app_diagnostic_bundles
-    (bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code, from_ts, to_ts, entries, entry_count, content_bytes, app_version, commit_sha, status, requested_by, created_at, expires_at, next_attempt_at)
-    VALUES (${input.bundleId}, ${input.mode}, ${input.instanceId}, ${input.deviceId}, ${input.errorEventId}, ${input.fingerprint}, ${input.errorCode}, ${input.fromTs}, ${input.toTs}, ${serialized}::jsonb, ${entries.length}, ${Buffer.byteLength(serialized, 'utf8')}, ${input.appVersion}, ${input.commitSha}, 'sending', ${actor.id}, ${now}, ${expiresAt}, ${now + RETRY_CLAIM_TIMEOUT_MS})`;
+    (bundle_id, mode, instance_id, device_id, error_event_id, fingerprint, error_code, from_ts, to_ts, entries, entry_count, content_bytes, app_version, commit_sha, status, requested_by, created_at, expires_at, next_attempt_at, part_no, part_total, truncated_count)
+    VALUES (${input.bundleId}, ${input.mode}, ${input.instanceId}, ${input.deviceId}, ${input.errorEventId}, ${input.fingerprint}, ${input.errorCode}, ${input.fromTs}, ${input.toTs}, ${serialized}::jsonb, ${entries.length}, ${Buffer.byteLength(serialized, 'utf8')}, ${input.appVersion}, ${input.commitSha}, 'sending', ${actor.id}, ${now}, ${expiresAt}, ${now + RETRY_CLAIM_TIMEOUT_MS}, ${partNo}, ${partTotal}, ${truncatedCount})`;
   const contentHash = createHash('sha256').update(serialized).digest('hex');
   const authorPayload = {
     schemaVersion: 1,
@@ -183,6 +205,10 @@ async function handleSend(req: VercelRequest, res: VercelResponse): Promise<void
     contentHash,
     appVersion: input.appVersion,
     commitSha: input.commitSha,
+    // 分片信息：客户端把「全量日志」拆成多包时，作者端据此还原顺序与截断条数。
+    partNo,
+    partTotal,
+    truncatedCount,
   };
   const sent = await sendDiagnosticBundle(authorPayload, instanceId);
   const nextAttemptAt = sent.ok ? null : Date.now() + retryDelayMs(1);

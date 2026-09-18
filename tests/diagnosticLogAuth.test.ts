@@ -43,13 +43,17 @@ testGlobals.__COMMIT_SHA__ = 'test';
 const { loadDiagnosticSettings, saveDiagnosticSettings, sendDiagnosticLogs } =
   await import('../src/services/diagnosticLogs.js');
 
-type CapturedRequest = { url: string; authorization: string | null };
+type CapturedRequest = { url: string; authorization: string | null; body: Record<string, unknown> };
 
 function stubFetch(payload: Record<string, unknown>): CapturedRequest[] {
   const captured: CapturedRequest[] = [];
   testGlobals.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
-    captured.push({ url: String(input), authorization: headers.get('authorization') });
+    captured.push({
+      url: String(input),
+      authorization: headers.get('authorization'),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
     return new Response(JSON.stringify(payload), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -68,10 +72,23 @@ test('manual diagnostic upload carries the admin bearer token', async () => {
   const originalFetch = globalThis.fetch;
   const captured = stubFetch({ ok: true, bundleId: 'bundle-1', status: 'sent' });
   try {
-    await sendDiagnosticLogs({ mode: 'date', fromTs: 1, toTs: 2, entries: [] });
+    // 空包现在会被客户端直接拒绝（手动上传必须是真实日志），这里用一条日志验证鉴权头。
+    await sendDiagnosticLogs({
+      mode: 'date',
+      // 0 表示「没有上次上传记录」：区间要落到第一条日志，而不是原样发 0。
+      fromTs: 0,
+      toTs: 2,
+      entries: [{ at: 2, level: 'info', message: 'diagnostic line' }],
+    });
     assert.equal(captured.length, 1);
     assert.equal(captured[0].url, '/api/diagnostic-logs');
     assert.equal(captured[0].authorization, 'Bearer token-under-test');
+    // 首次上传没有「上次上传」记录，区间也必须从第一条日志算起（fromTs>0），
+    // 否则服务端会按无效范围直接 400。
+    assert.equal(captured[0].body.fromTs, 2);
+    assert.ok(Number(captured[0].body.toTs) > 0);
+    assert.equal(captured[0].body.partNo, 1);
+    assert.equal(captured[0].body.partTotal, 1);
   } finally {
     testGlobals.fetch = originalFetch;
   }

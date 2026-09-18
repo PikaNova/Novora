@@ -63,7 +63,8 @@ export function sanitizeDiagnosticContext(value: unknown): Record<string, string
   return Object.keys(result).length ? result : null;
 }
 
-export function sanitizeDiagnosticMessage(value: unknown, max = 500): string {
+/** 默认上限与作者端一致（2000 字符）：手动包要保留完整日志，不再按 500 字符截断。 */
+export function sanitizeDiagnosticMessage(value: unknown, max = 2000): string {
   return (
     String(value ?? '')
       // eslint-disable-next-line no-control-regex -- security boundary for untrusted diagnostic text
@@ -100,4 +101,53 @@ export function sanitizeDiagnosticEntry(value: unknown): DiagnosticLogEntry | nu
     source: row.source == null ? null : sanitizeDiagnosticMessage(row.source, 80),
     context: sanitizeDiagnosticContext(row.context),
   };
+}
+
+// —— 手动诊断包分片 ——
+// 手动上传的语义是「把日志全部交上来」：体量超限时必须显式分片并如实标注截断条数，
+// 不允许静默丢内容。上限与作者端一致（5000 条 / 8 MB）。
+export const DIAGNOSTIC_BUNDLE_MAX_ENTRIES = 5000;
+export const DIAGNOSTIC_BUNDLE_MAX_BYTES = 8 * 1_048_576;
+/** 给 JSON 外壳留出余量，避免分片正好卡在上限上被服务端拒绝。 */
+const BUNDLE_BYTE_BUDGET = DIAGNOSTIC_BUNDLE_MAX_BYTES - 64 * 1024;
+export const DIAGNOSTIC_BUNDLE_MAX_PARTS = 20;
+
+function utf8Bytes(value: unknown): number {
+  const text = JSON.stringify(value);
+  if (typeof TextEncoder === 'function') return new TextEncoder().encode(text).length;
+  return text.length;
+}
+
+/**
+ * 按条数与字节数把日志切成多片。
+ * 超过 20 片时只保留前 20 片，并把被丢掉的条数如实写进 truncatedCount。
+ */
+export function splitDiagnosticParts(
+  entries: DiagnosticLogEntry[],
+  maxParts = DIAGNOSTIC_BUNDLE_MAX_PARTS,
+): {
+  parts: DiagnosticLogEntry[][];
+  truncatedCount: number;
+} {
+  const parts: DiagnosticLogEntry[][] = [];
+  let current: DiagnosticLogEntry[] = [];
+  let currentBytes = 2; // []
+  for (const entry of entries) {
+    const size = utf8Bytes(entry) + 1;
+    if (
+      current.length &&
+      (current.length >= DIAGNOSTIC_BUNDLE_MAX_ENTRIES || currentBytes + size > BUNDLE_BYTE_BUDGET)
+    ) {
+      parts.push(current);
+      current = [];
+      currentBytes = 2;
+    }
+    current.push(entry);
+    currentBytes += size;
+  }
+  if (current.length) parts.push(current);
+  if (parts.length <= maxParts) return { parts, truncatedCount: 0 };
+  const kept = parts.slice(0, maxParts);
+  const truncatedCount = parts.slice(maxParts).reduce((sum, part) => sum + part.length, 0);
+  return { parts: kept, truncatedCount };
 }

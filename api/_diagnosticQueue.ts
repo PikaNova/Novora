@@ -98,6 +98,9 @@ export function diagnosticPayloadFromRow(row: Row): Record<string, unknown> {
     contentHash: createHash('sha256').update(serialized).digest('hex'),
     appVersion: row.app_version,
     commitSha: row.commit_sha,
+    partNo: Number(row.part_no ?? 1) || 1,
+    partTotal: Number(row.part_total ?? 1) || 1,
+    truncatedCount: Number(row.truncated_count ?? 0) || 0,
   };
 }
 

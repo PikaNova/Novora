@@ -1,9 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { applyCors } from './_cors.js';
 import { telemetryConfig } from './_telemetryConfig.js';
+import { NOVORA_SCHEMA_VERSION } from './_schemaMigration.js';
 
 /**
- * 检查更新：读取 GitHub 最新发布版本，与客户端当前版本比较。
+ * 检查更新：优先读作者端发布清单（国内可达），GitHub 只作为兜底。
+ * - 发布清单：`GET ${TELEMETRY_BASE_URL}/api/releases/latest.json?channel=stable`
+ *   返回版本号以及 image / digest / minSchema —— 部署端据此决定拉哪个镜像、校验哪个摘要、
+ *   以及当前 schema 是否达标；GitHub 答不了这三个问题，且国内学校网络通常直连不通。
  * - 更新仓库默认 https://github.com/PikaNova/Novora，可用环境变量 GITHUB_REPO 覆盖。
  * - 可选 GITHUB_TOKEN 提升速率限制（私有仓库必填）。
  * - 结果在服务端内存缓存 5 分钟，降低 GitHub API 调用。
@@ -11,7 +15,11 @@ import { telemetryConfig } from './_telemetryConfig.js';
 
 const DEFAULT_REPOSITORY_URL = 'https://github.com/PikaNova/Novora';
 const DOCS_UPDATE_URL = 'https://docs.pikachu2026.space/guide/12-maintenance';
+const AUTHOR_MANIFEST_PATH = '/api/releases/latest.json';
 const CACHE_TTL = 5 * 60 * 1000;
+
+/** 发布渠道：默认 stable，可由 NOVORA_RELEASE_CHANNEL=beta 切到内测渠道。 */
+const RELEASE_CHANNEL = process.env.NOVORA_RELEASE_CHANNEL === 'beta' ? 'beta' : 'stable';
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
@@ -131,6 +139,62 @@ async function fetchLatest(repo: string): Promise<LatestInfo> {
   return { latest: null, releaseUrl: DOCS_UPDATE_URL, notes: null, publishedAt: null, source: 'none' };
 }
 
+/**
+ * 作者端发布清单：版本 + 镜像 + digest + 最低 schema。
+ * 拿不到（网络不可达 / 5xx / 未配置）时抛错，由调用方决定是否回退 GitHub。
+ */
+interface AuthorManifest {
+  latest: string | null;
+  origin: 'registry' | 'github';
+  releaseUrl: string | null;
+  notes: string | null;
+  publishedAt: string | null;
+  image: string | null;
+  digest: string | null;
+  minSchema: string | null;
+  warnings: string[];
+}
+
+function optionalText(value: unknown, max = 2048): string | null {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+async function fetchAuthorManifest(): Promise<AuthorManifest> {
+  const url = `${telemetryConfig.baseUrl}${AUTHOR_MANIFEST_PATH}?channel=${RELEASE_CHANNEL}`;
+  const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 8000);
+  if (!response.ok) throw new Error(`作者端发布清单 HTTP ${response.status}`);
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!data || data.ok !== true) throw new Error('作者端发布清单响应无效');
+  const version = optionalText(data.version, 64);
+  return {
+    latest: version ? version.replace(/^v/i, '') : null,
+    origin: data.origin === 'registry' ? 'registry' : 'github',
+    releaseUrl: optionalText(data.releaseUrl, 512),
+    notes: optionalText(data.notes, 4000),
+    publishedAt: optionalText(data.publishedAt, 64),
+    image: optionalText(data.image, 256),
+    digest: optionalText(data.digest, 128),
+    minSchema: optionalText(data.minSchema, 16),
+    warnings: Array.isArray(data.warnings)
+      ? data.warnings
+          .map((item) => optionalText(item, 200))
+          .filter((item): item is string => item !== null)
+          .slice(0, 5)
+      : [],
+  };
+}
+
+/** 本机 schema 是否达到清单要求；声明为纯数字才能比较，形如 13 或 13.1。 */
+function schemaReadiness(minSchema: string | null): { schemaVersion: number; schemaReady: boolean | null } {
+  if (!minSchema || !/^\d+(\.\d+){0,2}$/.test(minSchema)) {
+    return { schemaVersion: NOVORA_SCHEMA_VERSION, schemaReady: null };
+  }
+  const required = Number(minSchema.split('.')[0]);
+  return { schemaVersion: NOVORA_SCHEMA_VERSION, schemaReady: NOVORA_SCHEMA_VERSION >= required };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store');
   if (!applyCors(req, res, { methods: ['GET'], public: true })) return;
@@ -143,6 +207,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const currentRaw = Array.isArray(req.query.current) ? req.query.current[0] : req.query.current;
   const current = typeof currentRaw === 'string' && currentRaw ? currentRaw.replace(/^v/i, '') : '0.0.0';
 
+  // 1) 作者端发布清单优先：它同时给出镜像、digest 与最低 schema，GitHub 答不了这些。
+  let authorError: string | null = null;
+  try {
+    const manifest = await fetchAuthorManifest();
+    if (manifest.latest) {
+      const { schemaVersion, schemaReady } = schemaReadiness(manifest.minSchema);
+      res.status(200).json({
+        ok: true,
+        repo: 'author',
+        origin: manifest.origin,
+        current,
+        channel: RELEASE_CHANNEL,
+        latest: manifest.latest,
+        hasUpdate: cmpSemver(current, manifest.latest) < 0,
+        releaseUrl: manifest.releaseUrl || DOCS_UPDATE_URL,
+        notes: manifest.notes,
+        publishedAt: manifest.publishedAt,
+        image: manifest.image,
+        digest: manifest.digest,
+        minSchema: manifest.minSchema,
+        schemaVersion,
+        schemaReady,
+        warnings: manifest.warnings,
+        source: manifest.origin === 'registry' ? 'registry' : 'author',
+      });
+      return;
+    }
+    authorError = '作者端未登记发布版本';
+  } catch (error) {
+    authorError = error instanceof Error ? error.message : '作者端发布清单不可用';
+  }
+
+  // 2) GitHub 兜底：只回答版本号，拿不到镜像与 digest 时前端会提示未声明摘要校验。
   try {
     const repo = normalizeRepository(repositoryUrl);
     let data: LatestInfo;
@@ -152,45 +249,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       data = await fetchLatest(repo);
       cache = { at: Date.now(), repo, data };
     }
+    if (!data.latest) throw new Error(authorError || '没有可用的发布版本');
 
-    const hasUpdate = !!data.latest && cmpSemver(current, data.latest) < 0;
+    const { schemaVersion, schemaReady } = schemaReadiness(null);
     res.status(200).json({
       ok: true,
       repo,
+      origin: 'github',
       current,
+      channel: RELEASE_CHANNEL,
       latest: data.latest,
-      hasUpdate,
+      hasUpdate: cmpSemver(current, data.latest) < 0,
       releaseUrl: data.releaseUrl,
       notes: data.notes,
       publishedAt: data.publishedAt,
+      image: null,
+      digest: null,
+      minSchema: null,
+      schemaVersion,
+      schemaReady,
+      // 兜底路径必须显式说明：没有镜像清单就没法按 digest 校验。
+      warnings: [authorError ? `作者端发布清单不可用（${authorError}），已回退 GitHub` : '作者端未登记发布版本'],
       source: data.source,
     });
   } catch (error: unknown) {
-    try {
-      const authorUrl = `${telemetryConfig.baseUrl}/api/update-check?current=${encodeURIComponent(current)}`;
-      const authorRes = await fetchWithTimeout(authorUrl, { headers: { Accept: 'application/json' } }, 8000);
-      if (authorRes.ok) {
-        const author = await authorRes.json().catch(() => null);
-        const latest = author && typeof author.latest === 'string' ? author.latest : null;
-        if (latest) {
-          res.status(200).json({
-            ok: true,
-            repo: 'author',
-            current,
-            latest,
-            hasUpdate: cmpSemver(current, latest) < 0,
-            releaseUrl:
-              typeof author.releaseUrl === 'string' && author.releaseUrl ? author.releaseUrl : DOCS_UPDATE_URL,
-            notes: typeof author.notes === 'string' ? author.notes : null,
-            publishedAt: typeof author.publishedAt === 'string' ? author.publishedAt : null,
-            source: 'author',
-          });
-          return;
-        }
-      }
-    } catch {
-      /* fall through to 502 */
-    }
-    res.status(502).json({ ok: false, error: error instanceof Error ? error.message : '检查更新失败' });
+    // 两条路径都拿不到版本时必须报错：返回「已是最新」会让运维以为不需要升级。
+    const detail = error instanceof Error ? error.message : '检查更新失败';
+    res.status(502).json({ ok: false, error: authorError ? `${detail}（${authorError}）` : detail });
   }
 }

@@ -1,13 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthorConfig, getIngestToken, shouldSample } from './_authorClient.js';
+import { getAuthorConfig, getIngestToken } from './_authorClient.js';
 import { telemetryConfig } from './_telemetryConfig.js';
 import {
   buildErrorReportFingerprint,
   normalizeErrorReportLevel,
+  normalizeErrorReportSeverity,
+  normalizeErrorReportSource,
   normalizeErrorReportType,
+  sanitizeErrorReportBreadcrumbs,
   sanitizeErrorReportContext,
   sanitizeErrorReportPayload,
   sanitizeErrorReportPath,
+  sanitizeErrorReportRecord,
   sanitizeErrorReportStack,
   sanitizeErrorReportText,
 } from '../src/shared/errorReportContracts.js';
@@ -51,11 +55,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.json({ ok: true, skipped: true, reason: 'version_disabled' });
       return;
     }
-    if (!shouldSample(config.errorSampleRate)) {
-      res.json({ ok: true, skipped: true, reason: 'sampled_out' });
-      return;
-    }
-
     const type = normalizeErrorReportType(body.type || (body.apiEndpoint ? 'api' : undefined));
     const errorName = sanitizeErrorReportText(body.errorName, 120);
     const sanitizedMessage = sanitizeErrorReportText(message);
@@ -80,6 +79,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apiEndpoint,
       httpStatus: num(body.httpStatus),
       context: sanitizeErrorReportContext(body.context),
+      // 设备与归因字段：作者端按 device_id / error_source / severity 落库。
+      // 少了这里（或共享契约的白名单）它们会在中继层被静默丢掉。
+      deviceId: sanitizeErrorReportText(body.deviceId, 96),
+      errorSource: normalizeErrorReportSource(body.errorSource),
+      severity: normalizeErrorReportSeverity(body.severity),
+      operatorMessage: sanitizeErrorReportText(body.operatorMessage, 500),
+      suggestedAction: sanitizeErrorReportText(body.suggestedAction, 500),
+      retryable: typeof body.retryable === 'boolean' ? body.retryable : null,
+      requestId: sanitizeErrorReportText(body.requestId, 128),
+      traceId: sanitizeErrorReportText(body.traceId, 128),
+      migrationVersion: sanitizeErrorReportText(body.migrationVersion, 96),
+      // v2 诊断快照：网络/同步状态、事件序列、构建号与错误码；全部按同一套白名单过滤。
+      commitSha: sanitizeErrorReportText(body.commitSha, 96),
+      errorCode: sanitizeErrorReportText(body.errorCode, 96),
+      userMessage: sanitizeErrorReportText(body.userMessage, 300),
+      errorEventId: sanitizeErrorReportText(body.errorEventId, 96),
+      occurredAt: num(body.occurredAt),
+      networkState: sanitizeErrorReportRecord(body.networkState),
+      syncState: sanitizeErrorReportRecord(body.syncState),
+      breadcrumbs: sanitizeErrorReportBreadcrumbs(body.breadcrumbs),
       appVersion: sanitizeErrorReportText(body.appVersion, 32) || 'unknown',
       clientTs: num(body.clientTs),
       schoolName: sanitizeErrorReportText(body.schoolName, 80),

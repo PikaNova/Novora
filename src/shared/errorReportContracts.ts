@@ -1,4 +1,5 @@
-export const ERROR_REPORT_SCHEMA_VERSION = 1 as const;
+/** v2：在 v1 的基础上补充网络/同步快照、事件序列、构建号与错误码，便于作者端直接定位。 */
+export const ERROR_REPORT_SCHEMA_VERSION = 2 as const;
 export const ERROR_REPORT_CHANNEL = 'novora-client-v2' as const;
 
 export const ERROR_REPORT_TYPES = ['js', 'api', 'react', 'network', 'sync', 'database', 'unknown'] as const;
@@ -7,7 +8,25 @@ export type ErrorReportType = (typeof ERROR_REPORT_TYPES)[number];
 export const ERROR_REPORT_LEVELS = ['critical', 'error', 'warning', 'info'] as const;
 export type ErrorReportLevel = (typeof ERROR_REPORT_LEVELS)[number];
 
+/** 归因来源：与作者端 ERROR_SOURCE_LABEL 的键保持一致，客户端不得发明新枚举。 */
+export const ERROR_REPORT_SOURCES = [
+  'program',
+  'user_device',
+  'external_service',
+  'network',
+  'database',
+  'sync',
+  'device',
+  'client',
+] as const;
+export type ErrorReportSource = (typeof ERROR_REPORT_SOURCES)[number];
+
+/** 严重级别：与 ERROR_REPORT_LEVELS 同集合，单独命名便于作者端按 severity 落库。 */
+export const ERROR_REPORT_SEVERITIES = ERROR_REPORT_LEVELS;
+export type ErrorReportSeverity = (typeof ERROR_REPORT_LEVELS)[number];
+
 export const ERROR_CONTEXT_KEYS = [
+  // 请求维度
   'requestId',
   'operation',
   'retryable',
@@ -21,6 +40,23 @@ export const ERROR_CONTEXT_KEYS = [
   'queued',
   'online',
   'source',
+  // 应用状态：只允许计数与枚举，不放考试内容
+  'mode',
+  'stage',
+  'plansTotal',
+  'plansEnabled',
+  'itemsEnabled',
+  'scopeGroups',
+  'seriesTotal',
+  'pendingReports',
+  'captureEnabled',
+  'standalone',
+  'swActive',
+  'storageUsedKb',
+  'sinceLoadMs',
+  'offlineForMs',
+  'failedRequests',
+  'lastApiStatus',
 ] as const;
 const ALLOWED_CONTEXT_KEYS = new Set<string>(ERROR_CONTEXT_KEYS);
 
@@ -43,6 +79,27 @@ export interface ErrorReportPayload {
   apiEndpoint?: string | null;
   httpStatus?: number | null;
   context?: ErrorReportContext | null;
+  /** 动态分包/构建标识：版本号相同但构建不同的场景（如资源版本不一致）靠它区分。 */
+  commitSha?: string | null;
+  /** 已知错误码时上报，作者端据此给出运维说明与建议操作。 */
+  errorCode?: string | null;
+  /** 归因来源与严重级别：作者端缺省时会自行推断，带上则以客户端判定为准（client 归因除外）。 */
+  errorSource?: ErrorReportSource | null;
+  severity?: ErrorReportSeverity | null;
+  /** 给用户看的一句话说明（可选，作者端原样展示）。 */
+  userMessage?: string | null;
+  /** 给运维看的定位说明与建议操作（目录没有对应条目时作者端会兜底）。 */
+  operatorMessage?: string | null;
+  suggestedAction?: string | null;
+  retryable?: boolean | null;
+  requestId?: string | null;
+  traceId?: string | null;
+  migrationVersion?: string | null;
+  errorEventId?: string | null;
+  occurredAt?: number | null;
+  networkState?: ErrorReportContext | null;
+  syncState?: ErrorReportContext | null;
+  breadcrumbs?: ErrorReportContext[] | null;
   appVersion: string;
   clientTs?: number | null;
   schoolName?: string | null;
@@ -61,7 +118,24 @@ const MAX_ACTION_LENGTH = 100;
 const MAX_ENDPOINT_LENGTH = 160;
 const MAX_FINGERPRINT_LENGTH = 64;
 const MAX_CONTEXT_VALUE_LENGTH = 160;
+const MAX_DIAGNOSTIC_VALUE_LENGTH = 200;
+const MAX_CONTEXT_KEYS = 20;
+const MAX_DIAGNOSTIC_KEYS = 16;
+const MAX_BREADCRUMB_ROWS = 20;
+const MAX_BREADCRUMB_KEYS = 8;
+/** 毫秒时间戳约 1.7e12，放行到 1e15 既够用又能挡住异常值。 */
+const MAX_DIAGNOSTIC_NUMBER = 1e15;
 const MAX_ID_LENGTH = 96;
+const MAX_SOURCE_LENGTH = 32;
+const MAX_SEVERITY_LENGTH = 16;
+const MAX_REASON_LENGTH = 500;
+const MAX_REQUEST_ID_LENGTH = 128;
+const MAX_MIGRATION_VERSION_LENGTH = 96;
+
+const DIAGNOSTIC_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_.-]{0,47}$/;
+// 与服务端 _diagnosticBundleContract / 作者端 displaySanitizer 保持一致：这些键名一律不进快照。
+const UNSAFE_DIAGNOSTIC_KEY =
+  /(exam|student|question|answer|score|class|grade|school|token|cookie|password|passwd|secret|sql|body|payload|authorization|api[-_]?key|connection[-_]?string)/i;
 
 // Keep operational identifiers useful while removing values that can identify a person or expose credentials.
 const SECRET_VALUE_PATTERNS = [
@@ -141,14 +215,49 @@ export function sanitizeErrorReportContext(value: unknown): ErrorReportContext |
     if (typeof raw === 'string') {
       const sanitized = cleanText(raw, MAX_CONTEXT_VALUE_LENGTH);
       if (sanitized) result[key] = sanitized;
-    } else if (typeof raw === 'number' && Number.isFinite(raw) && Math.abs(raw) <= 1_000_000_000) {
+    } else if (typeof raw === 'number' && Number.isFinite(raw) && Math.abs(raw) <= MAX_DIAGNOSTIC_NUMBER) {
       result[key] = raw;
     } else if (typeof raw === 'boolean') {
       result[key] = raw;
     }
-    if (Object.keys(result).length >= ERROR_CONTEXT_KEYS.length) break;
+    if (Object.keys(result).length >= MAX_CONTEXT_KEYS) break;
   }
   return Object.keys(result).length ? result : null;
+}
+
+/**
+ * 网络/同步快照：键名走固定白名单正则，值只允许标量。
+ * 与 `context` 的区别是键名开放（由客户端定义），但同样禁止敏感键与业务正文。
+ */
+export function sanitizeErrorReportRecord(value: unknown, maxKeys = MAX_DIAGNOSTIC_KEYS): ErrorReportContext | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const result: ErrorReportContext = {};
+  for (const [rawKey, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (Object.keys(result).length >= maxKeys) break;
+    if (raw == null) continue;
+    const key = String(rawKey).slice(0, 48);
+    if (!DIAGNOSTIC_KEY_PATTERN.test(key) || UNSAFE_DIAGNOSTIC_KEY.test(key)) continue;
+    if (typeof raw === 'string') {
+      const sanitized = cleanText(raw, MAX_DIAGNOSTIC_VALUE_LENGTH);
+      if (sanitized) result[key] = sanitized;
+    } else if (typeof raw === 'number' && Number.isFinite(raw) && Math.abs(raw) <= MAX_DIAGNOSTIC_NUMBER) {
+      result[key] = raw;
+    } else if (typeof raw === 'boolean') {
+      result[key] = raw;
+    }
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+/** 出错前后的操作时间线，逐条过滤并限制条数。 */
+export function sanitizeErrorReportBreadcrumbs(value: unknown): ErrorReportContext[] | null {
+  if (!Array.isArray(value)) return null;
+  const rows: ErrorReportContext[] = [];
+  for (const row of value.slice(-MAX_BREADCRUMB_ROWS)) {
+    const sanitized = sanitizeErrorReportRecord(row, MAX_BREADCRUMB_KEYS);
+    if (sanitized) rows.push(sanitized);
+  }
+  return rows.length ? rows : null;
 }
 
 export function normalizeErrorReportType(value: unknown): ErrorReportType {
@@ -161,6 +270,19 @@ export function normalizeErrorReportLevel(value: unknown): ErrorReportLevel {
   return typeof value === 'string' && (ERROR_REPORT_LEVELS as readonly string[]).includes(value)
     ? (value as ErrorReportLevel)
     : 'error';
+}
+
+/** 非法或未声明的归因/级别一律落成 null，由作者端按错误码自行推断，不落原字符串。 */
+export function normalizeErrorReportSource(value: unknown): ErrorReportSource | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().toLowerCase().slice(0, MAX_SOURCE_LENGTH);
+  return (ERROR_REPORT_SOURCES as readonly string[]).includes(text) ? (text as ErrorReportSource) : null;
+}
+
+export function normalizeErrorReportSeverity(value: unknown): ErrorReportSeverity | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().toLowerCase().slice(0, MAX_SEVERITY_LENGTH);
+  return (ERROR_REPORT_SEVERITIES as readonly string[]).includes(text) ? (text as ErrorReportSeverity) : null;
 }
 
 export function buildErrorReportFingerprint(input: {
@@ -218,6 +340,28 @@ export function sanitizeErrorReportPayload(input: Partial<ErrorReportPayload>): 
         ? input.httpStatus
         : null,
     context: sanitizeErrorReportContext(input.context),
+    commitSha: cleanText(input.commitSha, 96),
+    errorCode: cleanText(input.errorCode, 96),
+    errorSource: normalizeErrorReportSource(input.errorSource),
+    severity: normalizeErrorReportSeverity(input.severity),
+    userMessage: cleanText(input.userMessage, 300),
+    operatorMessage: cleanText(input.operatorMessage, MAX_REASON_LENGTH),
+    suggestedAction: cleanText(input.suggestedAction, MAX_REASON_LENGTH),
+    retryable: typeof input.retryable === 'boolean' ? input.retryable : null,
+    requestId: cleanText(input.requestId, MAX_REQUEST_ID_LENGTH),
+    traceId: cleanText(input.traceId, MAX_REQUEST_ID_LENGTH),
+    migrationVersion: cleanText(input.migrationVersion, MAX_MIGRATION_VERSION_LENGTH),
+    errorEventId: sanitizeErrorReportId(input.errorEventId),
+    occurredAt:
+      typeof input.occurredAt === 'number' &&
+      Number.isFinite(input.occurredAt) &&
+      input.occurredAt > 0 &&
+      input.occurredAt <= MAX_DIAGNOSTIC_NUMBER
+        ? Math.round(input.occurredAt)
+        : null,
+    networkState: sanitizeErrorReportRecord(input.networkState),
+    syncState: sanitizeErrorReportRecord(input.syncState),
+    breadcrumbs: sanitizeErrorReportBreadcrumbs(input.breadcrumbs),
     appVersion: cleanText(input.appVersion, 32) || 'unknown',
     clientTs:
       typeof input.clientTs === 'number' && Number.isFinite(input.clientTs) && input.clientTs > 0

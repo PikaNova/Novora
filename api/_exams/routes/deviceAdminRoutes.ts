@@ -396,8 +396,11 @@ export async function handleDeviceCommand(req: VercelRequest, res: VercelRespons
     .trim()
     .slice(0, 160);
   if (idempotencyKey) {
-    const existing = (await sql`SELECT id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason
-      FROM device_commands WHERE instance_id=${instanceId} AND idempotency_key=${idempotencyKey} LIMIT 1`) as unknown as Array<Record<string, unknown>>;
+    const existing =
+      (await sql`SELECT id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason
+      FROM device_commands WHERE instance_id=${instanceId} AND idempotency_key=${idempotencyKey} LIMIT 1`) as unknown as Array<
+        Record<string, unknown>
+      >;
     if (existing[0]) {
       const command = {
         id: String(existing[0].id),
@@ -442,8 +445,11 @@ export async function handleDeviceCommand(req: VercelRequest, res: VercelRespons
     await sql`UPDATE device_instances SET temporary_command=${JSON.stringify(command)}::jsonb, updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
   }
   if (!inserted[0] && idempotencyKey) {
-    const existing = (await sql`SELECT id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason
-      FROM device_commands WHERE instance_id=${instanceId} AND idempotency_key=${idempotencyKey} LIMIT 1`) as unknown as Array<Record<string, unknown>>;
+    const existing =
+      (await sql`SELECT id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason
+      FROM device_commands WHERE instance_id=${instanceId} AND idempotency_key=${idempotencyKey} LIMIT 1`) as unknown as Array<
+        Record<string, unknown>
+      >;
     if (existing[0]) {
       persisted = {
         id: String(existing[0].id),

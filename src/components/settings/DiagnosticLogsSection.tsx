@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Send, ShieldCheck } from 'lucide-react';
-import { DateTimeField } from '../touch-datetime-picker';
 import InlineSelect from '../InlineSelect';
 import { Switch } from './Switch';
 import {
-  entriesForDate,
+  entriesSinceLastUpload,
+  getLastUploadAt,
   localDiagnosticSnapshot,
   saveDiagnosticSettings,
   sendDiagnosticLogs,
@@ -24,28 +24,23 @@ export default function DiagnosticLogsSection({
 }) {
   const [config, setConfig] = useState<DiagnosticCaptureConfig>(() => localDiagnosticSnapshot().config);
   const [bundles, setBundles] = useState<LocalDiagnosticBundle[]>(() => localDiagnosticSnapshot().bundles);
-  const [from, setFrom] = useState(() => new Date(Date.now() - 86400000).toISOString().slice(0, 10));
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(() => entriesSinceLastUpload('date').length);
+  const [lastUploadAt, setLastUploadAt] = useState(() => getLastUploadAt('date'));
 
   useEffect(() => {
     if (!canRead) return;
     // Local bundles are captured while the app runs, so re-read them whenever the section mounts
     // instead of rendering the snapshot taken at first render.
     setBundles(localDiagnosticSnapshot().bundles);
+    setPending(entriesSinceLastUpload('date').length);
+    setLastUploadAt(getLastUploadAt('date'));
     void loadDiagnosticSettings()
       .then(setConfig)
       .catch(() => undefined);
   }, [canRead]);
-  const dateRange = useMemo(() => {
-    const start = new Date(`${from}T00:00:00`).getTime();
-    const end = new Date(`${to}T23:59:59.999`).getTime();
-    return {
-      start: Number.isFinite(start) ? start : Date.now() - 86400000,
-      end: Number.isFinite(end) ? end : Date.now(),
-    };
-  }, [from, to]);
+  const lastUploadLabel = lastUploadAt > 0 ? new Date(lastUploadAt).toLocaleString() : '尚未上传过';
   // 保留天数与后端 1-30 天限制一致；当前值不在预设里时补进去，避免选择器显示空白。
   const retentionOptions = useMemo(() => {
     const presets = [1, 3, 7, 14, 30];
@@ -72,10 +67,28 @@ export default function DiagnosticLogsSection({
     setBusy(true);
     setMessage('');
     try {
-      const entries = entriesForDate(dateRange.start, dateRange.end);
-      if (!entries.length) throw new Error('所选日期没有可发送的本地日志');
-      const result = await sendDiagnosticLogs({ mode: 'date', fromTs: dateRange.start, toTs: dateRange.end, entries });
-      setMessage(`日期日志已${result.status === 'sent' ? '发送' : '加入失败记录'}：${result.bundleId}`);
+      // 手动上传=全量：默认区间是「上次上传以来的全部日志」，没有日志就如实报错，
+      // 不回退成当前快照，否则「全量」名不副实。
+      const from = getLastUploadAt('date');
+      const entries = entriesSinceLastUpload('date');
+      if (!entries.length) throw new Error('自上次上传以来没有新的本地日志');
+      const result = await sendDiagnosticLogs({
+        mode: 'date',
+        fromTs: from > 0 ? from + 1 : 0,
+        toTs: Date.now(),
+        entries,
+      });
+      setPending(entriesSinceLastUpload('date').length);
+      setLastUploadAt(getLastUploadAt('date'));
+      const extra = [
+        result.parts > 1 ? `分 ${result.parts} 片` : '',
+        result.truncatedCount > 0 ? `超出分片上限，被截断 ${result.truncatedCount} 条` : '',
+      ]
+        .filter(Boolean)
+        .join('，');
+      setMessage(
+        `全量日志已${result.status === 'sent' ? '发送' : '加入失败记录'}：${result.bundleId}${extra ? `（${extra}）` : ''}`,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '发送失败');
     } finally {
@@ -162,36 +175,17 @@ export default function DiagnosticLogsSection({
           <hr />
           <h3 className="set-card__subtitle">
             <Download size={16} />
-            按日期发送日志
+            发送全部日志
           </h3>
+          <p className="set-note">
+            区间：上次上传（{lastUploadLabel}）至今，共 {pending} 条待发送。超过 5000 条或 8 MB 时自动分片上传。
+          </p>
           <div className="set-row">
-            <label className="set-label">开始日期</label>
-            <DateTimeField
-              className="set-date-time-field"
-              mode="date"
-              value={from}
-              onChange={setFrom}
-              title="选择开始日期"
-              showFieldPreview={false}
-            />
-          </div>
-          <div className="set-row">
-            <label className="set-label">结束日期</label>
-            <DateTimeField
-              className="set-date-time-field"
-              mode="date"
-              value={to}
-              onChange={setTo}
-              title="选择结束日期"
-              showFieldPreview={false}
-            />
-          </div>
-          <div className="set-row">
-            <label className="set-label">发送所选日期范围的日志</label>
+            <label className="set-label">发送上次上传以来的全部日志</label>
             <div className="set-inline-actions">
               <button className="set-btn" disabled={busy} onClick={() => void sendDate()}>
                 <Send size={15} />
-                发送日期日志
+                发送全量日志
               </button>
             </div>
           </div>

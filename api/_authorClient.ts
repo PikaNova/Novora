@@ -4,7 +4,6 @@ export interface AuthorRemoteConfig {
   telemetryEnabled: boolean;
   errorReportEnabled: boolean;
   sampleRate: number;
-  errorSampleRate: number;
   maxStackLength: number;
   latestVersion: string;
   latestRepoUrl: string;
@@ -17,7 +16,6 @@ const DEFAULT_CONFIG: AuthorRemoteConfig = {
   telemetryEnabled: true,
   errorReportEnabled: true,
   sampleRate: 1,
-  errorSampleRate: 1,
   maxStackLength: 8000,
   latestVersion: '',
   latestRepoUrl: '',

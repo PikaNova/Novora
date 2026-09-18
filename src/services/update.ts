@@ -5,6 +5,8 @@
  * - triggerRedeploy：触发一键重新部署（需管理 token）。
  */
 
+import { recordUserAction } from '../utils/diagnostics';
+
 const CHECK_URL = '/api/update-check';
 const REDEPLOY_URL = '/api/redeploy';
 const TOKEN_KEY = 'admin_auth_token';
@@ -18,11 +20,22 @@ export interface UpdateInfo {
   releaseUrl?: string | null;
   notes?: string | null;
   publishedAt?: string | null;
-  source?: 'release' | 'tag' | 'none';
+  /** 版本来源：registry = 作者端登记的产品发布（权威）；github/release/tag = 兜底来源。 */
+  origin?: 'registry' | 'github';
+  source?: 'registry' | 'author' | 'release' | 'tag' | 'none';
+  channel?: 'stable' | 'beta';
+  /** 部署契约：拉哪个镜像、校验哪个摘要、要求 schema 到哪一版。 */
+  image?: string | null;
+  digest?: string | null;
+  minSchema?: string | null;
+  schemaVersion?: number | null;
+  schemaReady?: boolean | null;
+  warnings?: string[];
   error?: string;
 }
 
 export async function checkForUpdate(current: string): Promise<UpdateInfo> {
+  recordUserAction('检查更新');
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
@@ -81,6 +94,7 @@ export interface RedeployResult {
 }
 
 export async function triggerRedeploy(): Promise<RedeployResult> {
+  recordUserAction('触发重新部署');
   try {
     const headers: Record<string, string> = {};
     const token = localStorage.getItem(TOKEN_KEY);

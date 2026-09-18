@@ -196,7 +196,7 @@ export function ensureTableOnce(): Promise<void> {
           before_seconds INTEGER NOT NULL DEFAULT 60,
           after_seconds INTEGER NOT NULL DEFAULT 30,
           retention_days INTEGER NOT NULL DEFAULT 7,
-          max_bundle_bytes INTEGER NOT NULL DEFAULT 1048576,
+          max_bundle_bytes INTEGER NOT NULL DEFAULT 8388608,
           updated_at BIGINT NOT NULL DEFAULT 0
         )`,
           transaction`CREATE TABLE IF NOT EXISTS app_diagnostic_bundles (
@@ -233,6 +233,9 @@ export function ensureTableOnce(): Promise<void> {
           transaction`UPDATE app_diagnostic_settings SET capture_on_error=TRUE, updated_at=${Date.now()}
             WHERE id=1 AND capture_on_error=FALSE AND before_seconds=60 AND after_seconds=30
               AND retention_days=7 AND max_bundle_bytes=1048576`,
+          // 单包上限放宽到 8 MB（与作者端一致）：仍停留在旧出厂值 1 MB 的行一次性升上来。
+          transaction`UPDATE app_diagnostic_settings SET max_bundle_bytes=8388608, updated_at=${Date.now()}
+            WHERE id=1 AND max_bundle_bytes=1048576`,
         ]);
         await sql`INSERT INTO app_diagnostic_settings (id, updated_at) VALUES (1, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
         await Promise.all([
@@ -244,6 +247,9 @@ export function ensureTableOnce(): Promise<void> {
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS client_secret_hash TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS next_attempt_at BIGINT`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS part_no INTEGER NOT NULL DEFAULT 1`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS part_total INTEGER NOT NULL DEFAULT 1`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS truncated_count INTEGER NOT NULL DEFAULT 0`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_token_hash TEXT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_expires_at BIGINT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS grade_id TEXT NOT NULL DEFAULT ''`,

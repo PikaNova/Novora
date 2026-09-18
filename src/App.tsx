@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { applyPageSeo } from './utils/seo';
+import { recordDiagnosticEvent } from './utils/diagnostics';
 import ConsentGate from './components/ConsentGate';
 import PwaUpdateNotice from './components/PwaUpdateNotice';
 import DeviceHeartbeat from './components/DeviceHeartbeat';
@@ -33,6 +34,7 @@ function AppContent() {
   const { pathname } = location;
   React.useEffect(() => {
     applyPageSeo(pathname);
+    recordDiagnosticEvent('route', pathname);
   }, [pathname]);
   const content = (
     <>

@@ -1,5 +1,6 @@
 import { reportError } from './errorReport';
 import type { ApiErrorResponse } from '../shared/apiErrorContract.js';
+import type { ErrorReportSource } from '../shared/errorReportContracts.js';
 
 export type ApiErrorDetail = {
   status: number;
@@ -116,6 +117,16 @@ function isStabilityIssue(status: number, code: string): boolean {
   );
 }
 
+/**
+ * 只上报能确定的归因；不确定时留空，由作者端按错误码推断，避免把猜测写进聚合口径。
+ */
+function sourceForError(error: ApiError): ErrorReportSource | undefined {
+  if (error.status === 0 || error.code.startsWith('NETWORK_')) return 'network';
+  if (error.code.startsWith('DATABASE_')) return 'database';
+  if (error.code.startsWith('SYNC_')) return 'sync';
+  return undefined;
+}
+
 function reportIfStabilityIssue(error: ApiError, apiEndpoint?: string): void {
   if (!isStabilityIssue(error.status, error.code)) return;
   void reportError({
@@ -123,6 +134,10 @@ function reportIfStabilityIssue(error: ApiError, apiEndpoint?: string): void {
     errorName: error.code,
     type: error.status === 0 ? 'network' : error.code.startsWith('DATABASE_') ? 'database' : 'api',
     level: 'error',
+    errorCode: error.code,
+    errorSource: sourceForError(error),
+    retryable: error.retryable,
+    requestId: error.requestId,
     apiEndpoint,
     httpStatus: error.status,
     context: { requestId: error.requestId, operation: error.operation },

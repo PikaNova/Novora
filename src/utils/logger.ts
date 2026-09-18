@@ -7,7 +7,10 @@ export interface LocalLogEntry {
   message: string;
 }
 
-const MAX_ENTRIES = 500;
+// 与作者端手动诊断包上限对齐：5000 条 / 单条 2000 字符 / 7 天窗口。
+const MAX_ENTRIES = 5000;
+const MAX_MESSAGE_LENGTH = 2000;
+const RETENTION_MS = 7 * 86400000;
 const LOG_KEY = 'novora_runtime_log_v1';
 const BUNDLE_KEY = 'novora_diagnostic_bundles_v1';
 const CAPTURE_KEY = 'novora_diagnostic_capture_v1';
@@ -44,11 +47,37 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 const entries: LocalLogEntry[] = readJson<LocalLogEntry[]>(LOG_KEY, [])
-  .filter((entry) => entry && Number.isFinite(entry.at))
-  .slice(-MAX_ENTRIES);
+  .filter((entry) => entry && Number.isFinite(entry.at));
+
+/**
+ * 就地裁剪本地日志：先丢 7 天窗口外的条目，再在超限时优先丢 info/debug，
+ * 最后才从最旧的条目开始丢。这样「全量日志」在体量受限时也尽量保住 warn/error。
+ */
+function pruneEntries(now = Date.now()): void {
+  const cutoff = now - RETENTION_MS;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index].at < cutoff) entries.splice(index, 1);
+  }
+  if (entries.length <= MAX_ENTRIES) return;
+  let overflow = entries.length - MAX_ENTRIES;
+  for (let index = 0; index < entries.length && overflow > 0; ) {
+    const level = entries[index].level;
+    if (level === 'info' || level === 'debug') {
+      entries.splice(index, 1);
+      overflow -= 1;
+    } else {
+      index += 1;
+    }
+  }
+  if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+}
+
+pruneEntries();
+
 function persist(): void {
   try {
-    localStorageSafe()?.setItem(LOG_KEY, JSON.stringify(entries.slice(-MAX_ENTRIES)));
+    pruneEntries();
+    localStorageSafe()?.setItem(LOG_KEY, JSON.stringify(entries));
   } catch {
     /* best effort */
   }
@@ -61,9 +90,9 @@ function record(level: LocalLogLevel, args: unknown[]): void {
     .join(' ')
     // eslint-disable-next-line no-control-regex -- security boundary for untrusted runtime log text
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .slice(0, 500);
+    .slice(0, MAX_MESSAGE_LENGTH);
   entries.push({ at: Date.now(), level, message });
-  if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+  pruneEntries();
   persist();
 }
 

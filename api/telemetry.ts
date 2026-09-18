@@ -5,6 +5,31 @@ import { resolveIpSalt, telemetryConfig } from './_telemetryConfig.js';
 
 const COLLECT_URL = telemetryConfig.collectUrl;
 
+/** 部署形态白名单：与作者端约定一致，作者端对未知值一律落 unknown。 */
+const DEPLOY_TYPES = ['vercel', 'docker', 'nas', 'pm2', 'unknown'] as const;
+
+/**
+ * 归一化部署形态：只允许固定枚举，长度上限 16，非法值一律落 unknown（不落原字符串）。
+ * 请求体没带时（旧客户端）退回 NOVORA_DEPLOY_TYPE 环境变量，Vercel 上再自动识别，最后才 unknown。
+ */
+export function normalizeDeployType(value: unknown): string {
+  const fromBody = typeof value === 'string' ? value.trim() : '';
+  if (fromBody) {
+    const text = fromBody.toLowerCase().slice(0, 16);
+    return (DEPLOY_TYPES as readonly string[]).includes(text) ? text : 'unknown';
+  }
+  const candidates = [
+    process.env.NOVORA_DEPLOY_TYPE || '',
+    // 跑在 Vercel 上时不用额外配置也能报对。
+    process.env.VERCEL_ENV ? 'vercel' : '',
+  ];
+  for (const candidate of candidates) {
+    const text = candidate.trim().toLowerCase().slice(0, 16);
+    if ((DEPLOY_TYPES as readonly string[]).includes(text)) return text;
+  }
+  return 'unknown';
+}
+
 function str(value: unknown, max = 512): string | null {
   if (value == null) return null;
   const text = String(value).trim();
@@ -78,6 +103,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       commitSha: str(body.commitSha, 64),
       host: str(body.host, 128),
       vercelEnv: process.env.VERCEL_ENV || null,
+      deployType: normalizeDeployType(body.deployType),
       userAgent: str(body.userAgent, 512) || str(req.headers['user-agent'], 512),
       tz: str(body.tz, 64),
       lang: str(body.lang, 32),
