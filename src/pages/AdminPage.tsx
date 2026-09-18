@@ -637,6 +637,28 @@ export default function AdminPage() {
     setMajorModalStep(3);
     setMajorModal(wizardSnapshotRef.current);
   };
+  /**
+   * 删除一条草稿。入口在考试安排的草稿行与草稿详情抽屉里——以前只有「关向导时空草稿丢弃」
+   * 这一条删除路径，草稿一旦留下就只能发布或一直躺着（dev 上积的那几条就是这么来的）。
+   * 删除只动快照里的这场考试并推送，教室端不受影响（草稿还没发布）。
+   */
+  const discardExamDraft = async (record: ExamRecordListEntry): Promise<boolean> => {
+    const draft = majors.find((item) => item.id === record.id);
+    if (!draft) {
+      notify('warning', `「${record.name || record.id}」已不在本地考试数据里，刷新列表后再试。`, '找不到这场草稿');
+      return false;
+    }
+    const confirmed = await confirmDialog({
+      title: '删除这场草稿',
+      message: `「${draft.name || draft.id}」会从考试中心移除；它还没发布，教室端不受影响。`,
+      tone: 'danger',
+      confirmLabel: '删除草稿',
+    });
+    if (!confirmed) return false;
+    discardDraftMajor(draft);
+    notify('success', `草稿「${draft.name || draft.id}」已删除。`, '已删除草稿');
+    return true;
+  };
   const openMajorEditor = () => {
     setMajorModal(null);
     setWizardDraftCreated(false);
@@ -897,6 +919,7 @@ export default function AdminPage() {
                   weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
                   onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
                   onEditRecord={can('major.edit') ? openExamRecordEditor : undefined}
+                  onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
                 />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel

@@ -46,6 +46,8 @@ type Props = {
   onOpenWeeklyEditor?: () => void;
   /** 详情抽屉里的「编辑考试」：由上层定位到这场考试再进编辑器，面板自己不猜落点。 */
   onEditRecord?: (record: ExamRecordListEntry) => void;
+  /** 删除草稿：返回 true 表示确实删了（面板据此立刻重拉草稿列表）。 */
+  onDeleteDraft?: (record: ExamRecordListEntry) => Promise<boolean>;
 };
 
 const PRESET_COPY: Record<Props['preset'], { title: string; description: string; empty: string }> = {
@@ -108,6 +110,7 @@ export default function ExamRecordsPanel({
   weeklyPlanIdByClassId,
   onOpenWeeklyEditor,
   onEditRecord,
+  onDeleteDraft,
 }: Props) {
   // 切板块或去编辑器会卸载本面板：筛选条件从内存快照读回，见 utils/examListFilterMemory。
   const [rememberedFilters] = useState(() => readExamListFilters(preset));
@@ -282,6 +285,13 @@ export default function ExamRecordsPanel({
     setCollapsedGroups((current) =>
       current.includes(groupKey) ? current.filter((key) => key !== groupKey) : [...current, groupKey],
     );
+
+  /** 删除草稿：确认并真的删掉之后，立刻重拉一次（草稿区与主列表都会跟着更新）。 */
+  const requestDeleteDraft = async (record: ExamRecordListEntry) => {
+    if (!onDeleteDraft) return;
+    const deleted = await onDeleteDraft(record);
+    if (deleted) setRefreshKey((value) => value + 1);
+  };
 
   // 分组表头与记录行拍平成一条渲染流；折叠的分组只留表头。
   const rowItems = useMemo(() => {
@@ -702,6 +712,16 @@ export default function ExamRecordsPanel({
                         编辑
                       </button>
                     )}
+                    {onDeleteDraft && (
+                      <button
+                        className="admin-btn admin-btn--danger"
+                        type="button"
+                        onClick={() => void requestDeleteDraft(record)}
+                        title="删除这场草稿"
+                      >
+                        删除
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -761,6 +781,15 @@ export default function ExamRecordsPanel({
           onClose={() => setDetailId('')}
           onChanged={() => setRefreshKey((value) => value + 1)}
           onEdit={onEditRecord ? () => onEditRecord(detailRecord) : undefined}
+          onDiscard={
+            onDeleteDraft
+              ? () => {
+                  const target = detailRecord;
+                  setDetailId('');
+                  void requestDeleteDraft(target);
+                }
+              : undefined
+          }
         />
       )}
     </main>

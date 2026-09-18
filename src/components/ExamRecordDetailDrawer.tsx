@@ -44,6 +44,8 @@ type Props = {
    * 没有传时退回旧的 `?tab=major` 深链（只用于兼容旧调用方）。
    */
   onEdit?: () => void;
+  /** 草稿才有：删除这场草稿（由上层二次确认后按 id 从快照里移除）。 */
+  onDiscard?: () => void;
 };
 
 type PendingAction = { action: ExamRecordActionName; minutes?: number; reason?: string; idempotencyKey?: string };
@@ -126,7 +128,16 @@ function buildTimeline(record: ExamRecordListEntry, operations: ExamRecordOperat
   ];
 }
 
-export default function ExamRecordDetailDrawer({ record, grades, classes, can, onClose, onChanged, onEdit }: Props) {
+export default function ExamRecordDetailDrawer({
+  record,
+  grades,
+  classes,
+  can,
+  onClose,
+  onChanged,
+  onEdit,
+  onDiscard,
+}: Props) {
   const navigate = useNavigate();
   const [operations, setOperations] = useState<ExamRecordOperationEntry[]>([]);
   const [operationsError, setOperationsError] = useState('');
@@ -302,6 +313,11 @@ export default function ExamRecordDetailDrawer({ record, grades, classes, can, o
             <code className="exam-record-detail__id">{record.id}</code>
           </div>
           <div className="exam-record-detail__head-actions">
+            {onDiscard && record.displayStatus === 'draft' && (
+              <button className="admin-btn admin-btn--danger" type="button" onClick={onDiscard}>
+                删除草稿
+              </button>
+            )}
             {can('major.edit') && (
               <button
                 className="admin-btn admin-btn--ghost"
