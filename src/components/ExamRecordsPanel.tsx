@@ -9,6 +9,7 @@ import { buildWeeklyOccurrenceRows } from '../utils/weeklyOccurrenceRows';
 import { groupHistoryEntries, groupScheduleEntries } from '../utils/examListGrouping';
 import type { WeeklyPlan } from '../types/exam';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
+import InlineSelect from './InlineSelect';
 import '../styles/exam-records.css';
 
 type RecordSource = 'regular' | 'quick';
@@ -312,22 +313,34 @@ export default function ExamRecordsPanel({
         </label>
         <label>
           <span>年级</span>
-          <select value={gradeId} onChange={filterHandler(setGradeId)}>
-            <option value="">全部年级</option>
-            {grades.map((grade) => (
-              <option key={grade.id} value={grade.id}>
-                {grade.name}
-              </option>
-            ))}
-          </select>
+          <InlineSelect
+            className="set-input"
+            value={gradeId}
+            onChange={(value) => {
+              setGradeId(value);
+              setPage(1);
+            }}
+            options={[
+              { value: '', label: '全部年级' },
+              ...grades.map((grade) => ({ value: grade.id, label: grade.name })),
+            ]}
+          />
         </label>
         <label>
           <span>来源</span>
-          <select value={source} onChange={filterHandler(setSource)}>
-            <option value="">全部来源</option>
-            <option value="regular">正式考试</option>
-            <option value="quick">快速考试</option>
-          </select>
+          <InlineSelect
+            className="set-input"
+            value={source}
+            onChange={(value) => {
+              setSource(value as '' | RecordSource);
+              setPage(1);
+            }}
+            options={[
+              { value: '', label: '全部来源' },
+              { value: 'regular', label: '正式考试' },
+              { value: 'quick', label: '快速考试' },
+            ]}
+          />
         </label>
         <label>
           <span>创建人</span>
