@@ -100,7 +100,9 @@
 }
 .major-wizard-items li {
   display: grid;
-  grid-template-columns: minmax(80px, 1.2fr) minmax(140px, 1.6fr) auto auto;
+  /* 一行里有 5 个子元素（科目名 / 时间 / 启用 / 改时间 / 删除），列数必须跟着是 5：
+     只写 4 列时最后一个按钮会掉到第二行、压在科目名下面，看起来就是控件重叠。 */
+  grid-template-columns: minmax(80px, 1.2fr) minmax(120px, 1.4fr) auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
@@ -108,6 +110,15 @@
   border-radius: 8px;
   color: var(--adm-text-2, #a9bdd0);
   font-size: 12px;
+}
+@media (max-width: 820px) {
+  .major-wizard-items li {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+  }
+  .major-wizard-items li > span {
+    grid-column: 1 / -1;
+    order: 5;
+  }
 }
 .major-wizard-items strong {
   overflow: hidden;
@@ -289,7 +300,15 @@
   padding: 0;
   list-style: none;
 }
-.exam-records-drafts__list button {
+/* 每条草稿是「整行可点开详情」+ 一个独立的「编辑」按钮（:not(.admin-btn) 把两种按钮分开：
+   整行那张卡片样式只给行按钮，编辑按钮继续用 admin-btn 的通用外观）。 */
+.exam-records-drafts__list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.exam-records-drafts__list > li > button:not(.admin-btn) {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -363,6 +382,17 @@
   gap: 8px;
   padding: 0 10px;
 }
+/* 搜索标签本人也是 .exam-records-filters > label，默认会被通用 label 规则改成单列 grid，
+ * 图标、标签文字、输入框就各占一行（表现为搜索框又高又错位）。这里用更高的选择器锁回一行。 */
+.exam-records-filters > label.exam-records-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+.exam-records-search svg {
+  flex: none;
+}
 .exam-records-search:focus-within,
 .exam-records-filters select:focus-visible,
 .exam-records-filters label > input:focus-visible {
@@ -370,6 +400,7 @@
   outline-offset: 2px;
 }
 .exam-records-search input {
+  flex: 1 1 auto;
   width: 100%;
   min-width: 0;
   border: 0;

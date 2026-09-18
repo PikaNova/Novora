@@ -356,7 +356,6 @@ export default function AdminPage() {
     openMajorStartTimeFlow,
     cancelMajorTimeFlow,
     commitEdit,
-    saveItem,
     setExamEnabled,
     remove,
     removeItems,
@@ -1012,18 +1011,6 @@ export default function AdminPage() {
           onRemoveItem={remove}
           onOpenBatchAdd={() => setMajorBatchAddOpen(true)}
           onOpenEditor={openMajorEditor}
-          onSaveItem={(draft) =>
-            saveItem(
-              {
-                id: draft.id,
-                name: draft.name,
-                startTime: draft.startTime,
-                endTime: draft.endTime,
-                enabled: draft.enabled,
-              },
-              { longDurationConfirmed: draft.longConfirmed },
-            )
-          }
           onCreateAndContinue={createDraftAndContinue}
           publishBusy={publishBusy}
           onFinish={(publish) => void finishMajorWizard(publish)}

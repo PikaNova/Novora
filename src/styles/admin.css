@@ -5117,34 +5117,24 @@
   font-size: 0.72rem;
 }
 /*
- * 统一控件：输入框 / 选择器 / 日期时间字段共用同一套尺寸与配色。
- * 「两套输入框」（admin-input 与 admin-date-time-field 里的 tdp-field）此前各写一套尺寸，
- * 这里收在一组变量上；选择器（InlineSelect）本来就是这个尺寸，一并引用同一组变量。
+ * 统一控件：输入框 / 选择器 / 日期时间字段共用同一套尺寸与配色（令牌定义在 controls.css 的 :root，
+ * 因为弹窗是用 portal 渲染到 body 的，挂在 .admin-page 上弹窗里取不到值）。
  */
-.admin-page {
-  --adm-ctl-h: 36px;
-  --adm-ctl-radius: 6px;
-  --adm-ctl-line: rgba(255, 255, 255, 0.14);
-  --adm-ctl-line-focus: rgba(89, 184, 241, 0.72);
-  --adm-ctl-bg: rgba(255, 255, 255, 0.05);
-  --adm-ctl-bg-focus: rgba(255, 255, 255, 0.08);
-  --adm-ctl-text: #edf3f7;
-}
 .admin-input,
 .admin-date-time-field .tdp-field {
-  min-height: var(--adm-ctl-h);
-  border: 1px solid var(--adm-ctl-line);
-  border-radius: var(--adm-ctl-radius);
-  background: var(--adm-ctl-bg);
-  color: var(--adm-ctl-text);
+  min-height: var(--adm-ctl-h, 36px);
+  border: 1px solid var(--adm-ctl-line, rgba(255, 255, 255, 0.14));
+  border-radius: var(--adm-ctl-radius, 6px);
+  background: var(--adm-ctl-bg, rgba(255, 255, 255, 0.05));
+  color: var(--adm-ctl-text, #edf3f7);
   font: inherit;
   font-size: 0.85rem;
 }
 .admin-input:focus,
 .admin-date-time-field .tdp-field:focus,
 .admin-date-time-field.is-open .tdp-field {
-  border-color: var(--adm-ctl-line-focus);
-  background: var(--adm-ctl-bg-focus);
+  border-color: var(--adm-ctl-line-focus, rgba(89, 184, 241, 0.72));
+  background: var(--adm-ctl-bg-focus, rgba(255, 255, 255, 0.08));
 }
 .inline-select__trigger {
   min-height: var(--adm-ctl-h, 36px);

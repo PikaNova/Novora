@@ -185,7 +185,11 @@ export default function ExamRecordsPanel({
     };
 
   // 详情始终取列表里的最新一行：动作完成后列表刷新，抽屉里的状态与时间会跟着更新。
-  const detailRecord = detailId ? (records.find((item) => item.id === detailId) ?? null) : null;
+  // 草稿区是另一次 preset=draft 请求的结果，不在 records 里，所以这里必须一起找——
+  // 只查 records 的话点草稿什么都不会发生（抽屉打不开），也就是「草稿无法再次编辑」。
+  const detailRecord = detailId
+    ? (records.find((item) => item.id === detailId) ?? drafts.find((item) => item.id === detailId) ?? null)
+    : null;
   const copy = PRESET_COPY[preset];
   // 周测只读实例：未来 7 天，按开始时间排序；编辑仍走周测计划编辑器。
   const weeklyRows = useMemo(() => {
@@ -475,6 +479,18 @@ export default function ExamRecordsPanel({
                       <span>{record.startAt ? formatTime(record.startAt) : '时间待定'}</span>
                       <em>草稿</em>
                     </button>
+                    {/* 草稿最常见的下一步就是接着填科目/时间，直接给一个到编辑器的入口，
+                        不必先开详情抽屉再点「编辑考试」。 */}
+                    {onEditRecord && (
+                      <button
+                        className="admin-btn admin-btn--ghost"
+                        type="button"
+                        onClick={() => onEditRecord(record)}
+                        title="在编辑器里继续填这场草稿"
+                      >
+                        编辑
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

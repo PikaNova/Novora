@@ -1,11 +1,9 @@
 // 大型考试新建/重命名向导弹窗（含 AI 导入引导）。状态与提交逻辑由 AdminPage 持有。
 import type { HTMLAttributes } from 'react';
-import { useState } from 'react';
 import AdminModalPortal from '../AdminModalPortal';
 import AdminWizardSteps, { AdminWorkflowClose } from '../AdminWizardSteps';
 import HelpTip from '../HelpTip';
 import InlineSelect from '../InlineSelect';
-import { DateTimeField } from '../touch-datetime-picker/DateTimeField';
 import { fmtLocal } from '../../hooks/admin/adminPageUtils';
 import { formatDateTimeInZone } from '../../utils/zonedTime';
 import type { ExamItem } from '../../types';
@@ -37,8 +35,6 @@ export type MajorModalWizardProps = {
   onRemoveItem: (item: ExamItem) => void;
   onOpenBatchAdd: () => void;
   onOpenEditor: () => void;
-  /** 向导内联保存科目（新增或改时间），与编辑器共用同一套校验。 */
-  onSaveItem: (draft: WizardItemDraft) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 第 1 步「创建并继续」：先把草稿写下来，再进入科目编辑。 */
   onCreateAndContinue: () => void;
   publishBusy: boolean;
@@ -49,16 +45,6 @@ export type MajorModalWizardProps = {
    * 所以这里不直接 setMajorModal(null)；没传时退回直接关闭。
    */
   onClose?: () => void;
-};
-
-export type WizardItemDraft = {
-  id?: string;
-  name: string;
-  startTime: string;
-  endTime: string;
-  enabled: boolean;
-  /** 超过 6 小时的跨天/特殊安排需显式确认，与编辑器表单同一套规则。 */
-  longConfirmed?: boolean;
 };
 
 export function MajorModalWizard({
@@ -81,28 +67,12 @@ export function MajorModalWizard({
   onRemoveItem,
   onOpenBatchAdd,
   onOpenEditor,
-  onSaveItem,
   onCreateAndContinue,
   publishBusy,
   onFinish,
   onClose,
 }: MajorModalWizardProps) {
   const closeModal = onClose ?? (() => setMajorModal(null));
-  const [draftItem, setDraftItem] = useState<WizardItemDraft | null>(null);
-  const [itemError, setItemError] = useState('');
-  const [longConfirmed, setLongConfirmed] = useState(false);
-
-  const saveDraftItem = async () => {
-    if (!draftItem) return;
-    setItemError('');
-    const result = await onSaveItem({ ...draftItem, longConfirmed });
-    if (!result.ok) {
-      if (result.error) setItemError(result.error);
-      return;
-    }
-    setDraftItem(null);
-    setLongConfirmed(false);
-  };
 
   const isAddFlow = majorModal.mode === 'add' && majorModal.next !== 'import';
   const enabledItems = items.filter((item) => item.enabled);
@@ -215,17 +185,8 @@ export function MajorModalWizard({
             {majorModalStep === 2 && (
               <div className="admin-workflow-pane">
                 <div className="major-wizard-actions">
-                  <button
-                    className="admin-btn"
-                    type="button"
-                    disabled={!canManageItems}
-                    onClick={() => {
-                      setItemError('');
-                      setLongConfirmed(false);
-                      setDraftItem({ name: '', startTime: '', endTime: '', enabled: true });
-                    }}
-                  >
-                    + 添加科目
+                  <button className="admin-btn" type="button" disabled={!canManageItems} onClick={onOpenEditor}>
+                    + 添加科目（打开编辑器）
                   </button>
                   <button className="admin-btn" type="button" onClick={onOpenBatchAdd} disabled={!canManageItems}>
                     批量添加分考试
@@ -242,85 +203,6 @@ export function MajorModalWizard({
                     去编辑器逐项调整
                   </button>
                 </div>
-                {draftItem && (
-                  <div className="major-wizard-item-form">
-                    <label className="admin-label">
-                      科目名称
-                      <input
-                        className="admin-input"
-                        autoFocus
-                        maxLength={40}
-                        value={draftItem.name}
-                        onChange={(event) => setDraftItem((prev) => prev && { ...prev, name: event.target.value })}
-                        placeholder="如：语文"
-                      />
-                    </label>
-                    <label className="admin-label">
-                      开始时间
-                      <DateTimeField
-                        className="admin-date-time-field"
-                        mode="datetime"
-                        title="选择开始时间"
-                        showFieldPreview={false}
-                        value={draftItem.startTime}
-                        onChange={(value) => setDraftItem((prev) => prev && { ...prev, startTime: value })}
-                      />
-                    </label>
-                    <label className="admin-label">
-                      结束时间
-                      <DateTimeField
-                        className="admin-date-time-field"
-                        mode="datetime"
-                        title="选择结束时间"
-                        showFieldPreview={false}
-                        value={draftItem.endTime}
-                        onChange={(value) => setDraftItem((prev) => prev && { ...prev, endTime: value })}
-                      />
-                    </label>
-                    <label className="admin-toggle-label">
-                      <input
-                        type="checkbox"
-                        checked={draftItem.enabled}
-                        onChange={(event) => setDraftItem((prev) => prev && { ...prev, enabled: event.target.checked })}
-                      />
-                      启用此科目
-                    </label>
-                    {draftItem.startTime &&
-                      draftItem.endTime &&
-                      new Date(draftItem.endTime).getTime() - new Date(draftItem.startTime).getTime() >
-                        6 * 60 * 60 * 1000 && (
-                        <label className="admin-toggle-label">
-                          <input
-                            type="checkbox"
-                            checked={longConfirmed}
-                            onChange={(event) => setLongConfirmed(event.target.checked)}
-                          />
-                          我确认这是超过 6 小时的跨天或特殊安排
-                        </label>
-                      )}
-                    {itemError && <div className="admin-error">{itemError}</div>}
-                    <div className="admin-form-actions">
-                      <button
-                        className="admin-btn admin-btn--primary"
-                        type="button"
-                        onClick={() => void saveDraftItem()}
-                      >
-                        {draftItem.id ? '保存修改' : '添加'}
-                      </button>
-                      <button
-                        className="admin-btn admin-btn--ghost"
-                        type="button"
-                        onClick={() => {
-                          setDraftItem(null);
-                          setItemError('');
-                          setLongConfirmed(false);
-                        }}
-                      >
-                        取消
-                      </button>
-                    </div>
-                  </div>
-                )}
                 {items.length === 0 ? (
                   <p className="admin-modal__body">
                     还没有科目。可以「批量添加分考试」，或到编辑器里用 AI 识图 / JSON 导入一次灌入整张表。
@@ -345,20 +227,10 @@ export function MajorModalWizard({
                           启用
                         </label>
                         <button
-                          className="admin-btn"
+                          className="admin-btn admin-btn--ghost"
                           type="button"
-                          disabled={!canManageItems}
-                          onClick={() => {
-                            setItemError('');
-                            setLongConfirmed(false);
-                            setDraftItem({
-                              id: item.id,
-                              name: item.name,
-                              startTime: item.startTime,
-                              endTime: item.endTime,
-                              enabled: item.enabled,
-                            });
-                          }}
+                          onClick={onOpenEditor}
+                          title="在编辑器里改这场科目的时间"
                         >
                           改时间
                         </button>
