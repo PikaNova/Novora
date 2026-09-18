@@ -834,6 +834,25 @@ test('考试中心板块：四个口径互不重叠，「当前考试」按进�
   assert.equal(invalid.body.code, 'INVALID_PRESET');
 });
 
+test('草稿板块：删掉考试后残留的孤儿记录不再展示', async () => {
+  const now = Date.now();
+  await seedMajors([{ id: 'live-draft', name: '真草稿' }]);
+  // 模拟历史数据：考试已从快照里删掉，但 exam_records 还留着行（投影只增不删）。
+  await database()`
+    INSERT INTO exam_records (
+      id, runtime_major_id, name, description, status, items, target_grade_ids, target_class_ids,
+      source, temporary, priority_over_schedule, config, created_by, created_at, updated_at, version, sort_order
+    )
+    VALUES (
+      'orphan-draft', 'orphan-draft', '已删除的考试', '', 'draft', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+      'regular', FALSE, FALSE, '{}'::jsonb, NULL, ${now}, ${now}, 1, 99
+    )
+  `;
+  const ids = listedIds(await listRecords(admin.token, { preset: 'draft', pageSize: '50' }));
+  assert.ok(ids.includes('live-draft'), '快照里仍然存在的草稿要展示');
+  assert.equal(ids.includes('orphan-draft'), false, '快照里已不存在的孤儿草稿不再展示');
+});
+
 test('快速考试：走本地优先保存管道也会补齐生命周期操作日志', async () => {
   const now = Date.now();
   const quickMajor = {

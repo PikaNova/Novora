@@ -334,6 +334,15 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
             ELSE TRUE
           END
         ))
+        AND (${presetFilter}::text <> 'draft' OR EXISTS (
+          -- 删掉考试后记录行会留在 exam_records 里（投影只增不删），
+          -- 草稿板块只展示快照里仍然存在的考试，避免列表越用越脏。
+          SELECT 1 FROM exam_data AS snapshot
+          CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(snapshot.majors) = 'array' THEN snapshot.majors ELSE '[]'::jsonb END
+          ) AS major(value)
+          WHERE snapshot.id = 1 AND major.value->>'id' = exam_records.id
+        ))
     ),
     paged AS (
       SELECT * FROM filtered
