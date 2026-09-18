@@ -20,6 +20,8 @@ export type ExamListFilters = {
 };
 
 const memory = new Map<string, ExamListFilters>();
+/** 分组折叠状态：与筛选条件同一套「切板块回来还在」的语义，单独存以免污染筛选项。 */
+const collapsedMemory = new Map<string, string[]>();
 
 export function readExamListFilters(key: string): ExamListFilters | null {
   return memory.get(key) ?? null;
@@ -32,4 +34,14 @@ export function writeExamListFilters(key: string, value: ExamListFilters): void 
 /** 测试与退出登录时清空；普通使用不需要调用。 */
 export function resetExamListFilterMemory(): void {
   memory.clear();
+  collapsedMemory.clear();
+}
+
+/** 返回 null 表示「这个板块还没被用户调过」，调用方可以据此套用默认展开策略。 */
+export function readExamListCollapsed(key: string): string[] | null {
+  return collapsedMemory.get(key) ?? null;
+}
+
+export function writeExamListCollapsed(key: string, value: string[]): void {
+  collapsedMemory.set(key, value);
 }

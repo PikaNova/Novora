@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, RefreshCw, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
@@ -7,7 +16,13 @@ import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../utils/weeklySchedule';
 import { buildWeeklyOccurrenceRows } from '../utils/weeklyOccurrenceRows';
 import { groupHistoryEntries, groupScheduleEntries } from '../utils/examListGrouping';
-import { readExamListFilters, writeExamListFilters } from '../utils/examListFilterMemory';
+import {
+  readExamListCollapsed,
+  readExamListFilters,
+  writeExamListCollapsed,
+  writeExamListFilters,
+} from '../utils/examListFilterMemory';
+import { examTimeRange } from '../utils/examRecordTimeLabel';
 import type { WeeklyPlan } from '../types/exam';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import InlineSelect from './InlineSelect';
@@ -64,9 +79,14 @@ function formatTime(value: number | null): string {
 function scopeLabel(record: ExamRecordListEntry, grades: SchoolGrade[], classes: SchoolClass[]): string {
   if (!record.targetGradeIds.length && !record.targetClassIds.length) return '全校';
   const gradeNames = record.targetGradeIds.map((id) => grades.find((grade) => grade.id === id)?.name ?? id).slice(0, 2);
-  const classNames = record.targetClassIds.map((id) => classes.find((item) => item.id === id)?.name ?? id).slice(0, 2);
+  // 班级一多就不再逐个列名字：列里出现「高二 · 12 个班」比一长串班名好扫，点详情看全量。
+  if (record.targetClassIds.length > 2) {
+    return [...gradeNames, `${record.targetClassIds.length} 个班`].join('、');
+  }
+  const classNames = record.targetClassIds.map((id) => classes.find((item) => item.id === id)?.name ?? id);
   const labels = [...gradeNames, ...classNames];
-  return `${labels.join('、')}${record.targetGradeIds.length + record.targetClassIds.length > labels.length ? ' 等' : ''}`;
+  const total = record.targetGradeIds.length + record.targetClassIds.length;
+  return `${labels.join('、')}${total > labels.length ? ' 等' : ''}`;
 }
 
 /** 今天 / 明天 / M-D，用于周测行的日期前缀。 */
@@ -204,27 +224,53 @@ export default function ExamRecordsPanel({
     });
   }, [preset, weeklyPlans, weeklyPlanIdByClassId, classes, grades]);
 
-  // 分组表头与记录行拍平成一条渲染流：安排页是 今天/明天/本周内/更晚，历史页是自然月。
+  // 分组：安排页是 今天/明天/本周内/更晚，历史页是自然月（当前考试不分段）。
+  const groupedRows = useMemo(() => {
+    if (preset === 'schedule') return groupScheduleEntries(records, Date.now());
+    if (preset === 'history') return groupHistoryEntries(records);
+    return null;
+  }, [preset, records]);
+
+  // 分组默认只展开最近两组（安排页=今天/明天，历史页=最近一个月），其余折叠；
+  // 用户折叠过就按用户记的来（和筛选条件一样存在内存里，切板块回来还在）。
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>(() => readExamListCollapsed(preset) ?? []);
+  const collapsedInitRef = useRef(false);
+  useEffect(() => {
+    if (collapsedInitRef.current || !groupedRows?.length) return;
+    collapsedInitRef.current = true;
+    if (readExamListCollapsed(preset) !== null) return;
+    setCollapsedGroups(groupedRows.slice(preset === 'schedule' ? 2 : 1).map((group) => group.key));
+  }, [groupedRows, preset]);
+  useEffect(() => {
+    if (!collapsedInitRef.current) return;
+    writeExamListCollapsed(preset, collapsedGroups);
+  }, [preset, collapsedGroups]);
+  const toggleGroup = (groupKey: string) =>
+    setCollapsedGroups((current) =>
+      current.includes(groupKey) ? current.filter((key) => key !== groupKey) : [...current, groupKey],
+    );
+
+  // 分组表头与记录行拍平成一条渲染流；折叠的分组只留表头。
   const rowItems = useMemo(() => {
     type Row =
-      { kind: 'group'; key: string; label: string } | { kind: 'record'; key: string; record: ExamRecordListEntry };
+      | { kind: 'group'; key: string; groupKey: string; label: string; count: number; collapsed: boolean }
+      | { kind: 'record'; key: string; record: ExamRecordListEntry };
+    if (!groupedRows) return records.map((record) => ({ kind: 'record' as const, key: record.id, record }));
     const rows: Row[] = [];
-    if (preset === 'schedule') {
-      for (const group of groupScheduleEntries(records, Date.now())) {
-        rows.push({ kind: 'group', key: `g-${group.key}`, label: group.label });
-        for (const record of group.items) rows.push({ kind: 'record', key: record.id, record });
-      }
-      return rows;
+    for (const group of groupedRows) {
+      const collapsed = collapsedGroups.includes(group.key);
+      rows.push({
+        kind: 'group',
+        key: `g-${group.key}`,
+        groupKey: group.key,
+        label: group.label,
+        count: group.items.length,
+        collapsed,
+      });
+      if (!collapsed) for (const record of group.items) rows.push({ kind: 'record', key: record.id, record });
     }
-    if (preset === 'history') {
-      for (const group of groupHistoryEntries(records)) {
-        rows.push({ kind: 'group', key: `g-${group.key}`, label: group.label });
-        for (const record of group.items) rows.push({ kind: 'record', key: record.id, record });
-      }
-      return rows;
-    }
-    return records.map((record) => ({ kind: 'record' as const, key: record.id, record }));
-  }, [preset, records]);
+    return rows;
+  }, [collapsedGroups, groupedRows, records]);
 
   const renderRecordRow = (record: ExamRecordListEntry) => (
     <div className="exam-records-table__row" role="row" key={record.id}>
@@ -240,13 +286,10 @@ export default function ExamRecordsPanel({
       </span>
       <span className="exam-records-time" role="cell">
         <CalendarClock size={14} aria-hidden="true" />
-        {record.startAt ? `${formatTime(record.startAt)} - ${formatTime(record.endAt)}` : '时间待定'}
+        {examTimeRange(record.startAt, record.endAt)}
       </span>
       <span className="exam-records-count" role="cell">
         {record.itemCount} 科 · {record.source === 'quick' ? '快速' : '正式'}
-      </span>
-      <span className="exam-records-creator" role="cell">
-        {record.createdBy == null ? '系统' : `#${record.createdBy}`}
       </span>
       <span className="exam-records-row-actions" role="cell">
         <button
@@ -405,13 +448,21 @@ export default function ExamRecordsPanel({
               <span role="columnheader">适用范围</span>
               <span role="columnheader">时间</span>
               <span role="columnheader">科目</span>
-              <span role="columnheader">创建人</span>
               <span role="columnheader">操作</span>
             </div>
             {rowItems.map((row) =>
               row.kind === 'group' ? (
                 <div className="exam-records-table__group" role="row" key={row.key}>
-                  {row.label}
+                  <button
+                    className="exam-records-group-toggle"
+                    type="button"
+                    aria-expanded={!row.collapsed}
+                    onClick={() => toggleGroup(row.groupKey)}
+                  >
+                    <ChevronRight size={14} aria-hidden="true" className={row.collapsed ? undefined : 'is-open'} />
+                    {row.label}
+                    <em>{row.count}</em>
+                  </button>
                 </div>
               ) : (
                 renderRecordRow(row.record)

@@ -460,7 +460,9 @@
 }
 .exam-records-table__row {
   display: grid;
-  grid-template-columns: minmax(210px, 1.5fr) 100px minmax(130px, 1fr) minmax(190px, 1.2fr) 100px 80px 72px;
+  /* 六列：考试 / 状态 / 适用范围 / 时间 / 科目 / 操作。
+     「创建人」列已移进详情抽屉（列表里几乎都是同一个管理员），列数 7 → 6。 */
+  grid-template-columns: minmax(210px, 1.5fr) 96px minmax(140px, 1fr) minmax(180px, 1.1fr) 96px 72px;
   align-items: center;
   gap: 14px;
   min-height: 64px;
@@ -485,6 +487,38 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+/* 分组头现在可点：折叠后只留标题 + 数量。 */
+.exam-records-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.exam-records-group-toggle:hover {
+  background: rgba(148, 180, 208, 0.08);
+}
+.exam-records-group-toggle svg {
+  transition: transform 0.15s;
+}
+.exam-records-group-toggle svg.is-open {
+  transform: rotate(90deg);
+}
+.exam-records-group-toggle em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.12);
+  color: var(--adm-text-2, #a9bdd0);
+  font-style: normal;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .exam-records-name {
   display: grid;
@@ -583,11 +617,12 @@
   }
 }
 .exam-records-count {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.exam-records-creator {
-  color: var(--adm-text-3, #879caf);
+  /* 科目数 + 来源合成一个小徽标，代替原来占一整列的裸文本。 */
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-2, #a9bdd0);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
