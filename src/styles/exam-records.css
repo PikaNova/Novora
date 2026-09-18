@@ -199,6 +199,40 @@
     white-space: nowrap;
   }
 }
+
+/*
+ * 桌面端把考试中心的板块导航放进左侧 rail（与「系统设置」的分组栏一致），
+ * 移动端保持上面的横向分段条。只作用于挂了 --exam-rail 修饰类的 .admin-content。
+ */
+@media (min-width: 701px) {
+  .admin-content--exam-rail {
+    display: grid;
+    grid-template-columns: 208px minmax(0, 1fr);
+    align-items: start;
+    gap: 0 16px;
+    padding: 12px;
+  }
+  .admin-content--exam-rail > .exam-center-nav {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    position: sticky;
+    top: 12px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    padding: 8px;
+    border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+    border-radius: 10px;
+    background: var(--adm-card, #0c1219);
+  }
+  .admin-content--exam-rail > .exam-center-nav__item {
+    text-align: left;
+  }
+  .admin-content--exam-rail > .admin-context-bar,
+  .admin-content--exam-rail > .admin-body {
+    grid-column: 2;
+  }
+}
 .exam-records-toggle {
   display: inline-flex;
   align-items: center;

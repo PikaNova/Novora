@@ -744,7 +744,7 @@ export default function AdminPage() {
       />
       <div className="admin-workspace">
         <AdminTabBar adminTab={adminTab} can={can} selectAdminTab={selectAdminTab} />
-        <div className="admin-content">
+        <div className={`admin-content${adminTab === 'exam' ? ' admin-content--exam-rail' : ''}`}>
           {adminTab === 'exam' && <ExamCenterNav view={examViewActive} can={can} onSelect={selectExamView} />}
           {adminTab === 'exam' && (examViewActive === 'weekly' || examViewActive === 'editor') && (
             <AdminContextBar
