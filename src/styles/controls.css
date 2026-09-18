@@ -67,6 +67,122 @@
   flex: 0 0 auto;
   cursor: pointer;
 }
+
+/*
+ * 统一控件：按钮。
+ *
+ * 后台有三族按钮——`.admin-btn`（中号，页面动作）、`.set-btn`（大号，系统设置）、
+ * `.admin-item-btn`（小号，列表行内动作），各自写了一套边框/圆角/字号/过渡/禁用态；
+ * 配色本来就是同一组（#3498db / #e74c3c / #27ae60 / #e6a23c），所以这里收成一份规格：
+ * 基础外观 + 三个尺寸 + 语义变体，各页面只负责摆放。
+ * 这里刻意不使用 var()（弹窗走 portal 渲染到 body，取不到页面级变量会让整条声明作废）。
+ */
+.admin-btn,
+.set-btn,
+.admin-item-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    opacity 0.15s;
+}
+.admin-btn:hover,
+.set-btn:hover,
+.admin-item-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.admin-btn:disabled,
+.set-btn:disabled,
+.admin-item-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* 尺寸：小（列表行内）/ 中（页面动作）/ 大（系统设置） */
+.admin-item-btn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+.admin-btn {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+}
+.set-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+}
+/* 语义变体 */
+.admin-btn--primary,
+.set-btn--primary {
+  border-color: #3498db;
+  background: #3498db;
+  color: #fff;
+}
+.admin-btn--primary:hover,
+.set-btn--primary:hover:not(:disabled) {
+  border-color: #2980b9;
+  background: #2980b9;
+}
+.admin-btn--ghost,
+.set-btn--ghost {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: transparent;
+}
+.set-btn--ghost {
+  color: #bdc7d2;
+}
+.admin-btn--danger,
+.set-btn--danger {
+  border-color: rgba(231, 76, 60, 0.32);
+  background: rgba(231, 76, 60, 0.08);
+  color: #ff8a7d;
+}
+.admin-btn--danger:hover,
+.set-btn--danger:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.18);
+}
+.admin-item-btn--delete {
+  border-color: rgba(231, 76, 60, 0.28);
+  background: transparent;
+  color: #ff8a7d;
+}
+.admin-item-btn--delete:hover {
+  background: rgba(231, 76, 60, 0.14);
+}
+.admin-item-btn--toggle.admin-item-btn--enable {
+  border-color: rgba(76, 190, 140, 0.38);
+  background: rgba(76, 190, 140, 0.08);
+  color: #4cbe8c;
+}
+.admin-item-btn--toggle.admin-item-btn--enable:hover {
+  background: rgba(76, 190, 140, 0.18);
+}
+.admin-item-btn--toggle.admin-item-btn--disable {
+  border-color: rgba(230, 162, 60, 0.4);
+  background: rgba(230, 162, 60, 0.08);
+  color: #e6a23c;
+}
+.admin-item-btn--toggle.admin-item-btn--disable:hover {
+  background: rgba(230, 162, 60, 0.18);
+}
+.admin-item-btn--edit.active {
+  border-color: rgba(52, 152, 219, 0.42);
+  background: rgba(52, 152, 219, 0.1);
+  color: #59b8f1;
+}
 /*
  * 表单控件的尺寸/配色令牌。必须挂在 :root 上：弹窗走 AdminModalPortal 渲染到 body，
  * 已经不在 .admin-page 里了，只挂在页面根上会让 var() 解析失败——

@@ -117,41 +117,7 @@
     transform: translateY(0);
   }
 }
-.admin-btn {
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background 0.2s;
-  white-space: nowrap;
-}
-.admin-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.admin-btn--primary {
-  background: #3498db;
-  border-color: #3498db;
-  color: #fff;
-  font-weight: 600;
-}
-.admin-btn--primary:hover {
-  background: #2980b9;
-}
-.admin-btn--ghost {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.2);
-}
-.admin-btn--danger {
-  color: #e74c3c;
-  border-color: rgba(231, 76, 60, 0.3);
-  background: rgba(231, 76, 60, 0.06);
-}
-.admin-btn--danger:hover {
-  background: rgba(231, 76, 60, 0.15);
-}
+/* 按钮：统一实现在 styles/controls.css（见文件开头的 @import）。 */
 .admin-body {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -1005,48 +971,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.admin-item-btn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-.admin-item-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.admin-item-btn--toggle.admin-item-btn--enable {
-  color: #27ae60;
-  border-color: rgba(39, 174, 96, 0.38);
-  background: rgba(39, 174, 96, 0.07);
-}
-.admin-item-btn--toggle.admin-item-btn--enable:hover {
-  background: rgba(39, 174, 96, 0.16);
-}
-.admin-item-btn--toggle.admin-item-btn--disable {
-  color: #e6a23c;
-  border-color: rgba(230, 162, 60, 0.4);
-  background: rgba(230, 162, 60, 0.07);
-}
-.admin-item-btn--toggle.admin-item-btn--disable:hover {
-  background: rgba(230, 162, 60, 0.16);
-}
-.admin-item-btn--edit.active {
-  color: #3498db;
-  border-color: rgba(52, 152, 219, 0.4);
-  background: rgba(52, 152, 219, 0.08);
-}
-.admin-item-btn--delete {
-  color: #e74c3c;
-  border-color: rgba(231, 76, 60, 0.25);
-}
-.admin-item-btn--delete:hover {
-  background: rgba(231, 76, 60, 0.12);
-}
+/* 行内小按钮（启用/停用/编辑/删除）：统一实现在 styles/controls.css。 */
 .admin-modal-overlay {
   position: fixed;
   inset: 0;
@@ -3296,10 +3221,7 @@
   background: rgba(255, 255, 255, 0.025);
   font-size: 0.8rem;
 }
-.admin-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* 按钮禁用态同上：统一在 styles/controls.css。 */
 @media (max-width: 700px) {
   .admin-tabbar__tabs {
     width: 100%;

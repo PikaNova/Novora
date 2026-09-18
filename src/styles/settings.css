@@ -362,42 +362,7 @@ select.set-input {
   font-weight: 500;
 }
 
-.set-btn {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e9edf2;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  padding: 8px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-.set-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.set-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.set-btn--primary {
-  background: #3498db;
-  border-color: #3498db;
-  color: #fff;
-}
-.set-btn--primary:hover:not(:disabled) {
-  background: #2f8bcc;
-}
-.set-btn--danger {
-  background: rgba(231, 76, 60, 0.12);
-  border-color: rgba(231, 76, 60, 0.4);
-  color: #ff8a7d;
-}
-.set-btn--danger:hover {
-  background: rgba(231, 76, 60, 0.2);
-}
+/* 设置页按钮：外观统一在 styles/controls.css（本文件顶部 @import），这里只留图标尺寸与排布。 */
 
 .set-about {
   display: flex;
@@ -688,11 +653,7 @@ select.set-input {
     min-height: 44px;
   }
 }
-.set-btn--ghost {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #bdc7d2;
-}
+/* .set-btn--ghost 同上：统一在 styles/controls.css。 */
 .set-font-preview {
   display: block;
   overflow: hidden;
