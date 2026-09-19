@@ -13,7 +13,9 @@ import { splitDiagnosticParts } from '../shared/diagnosticLogContracts';
 export type { DiagnosticCaptureConfig, LocalDiagnosticBundle };
 
 const TOKEN_KEY = 'admin_auth_token';
-const LAST_UPLOAD_KEY = 'novora_diagnostic_last_upload_v1';
+const MINUTE_MS = 60000;
+/** 「按时间发送」的默认区间：最近 24 小时；管理员可自行收窄或放宽。 */
+const DEFAULT_RANGE_MS = 24 * 60 * 60 * 1000;
 
 function authorizationHeader(): Record<string, string> {
   try {
@@ -47,35 +49,59 @@ export async function saveDiagnosticSettings(config: DiagnosticCaptureConfig): P
   return setDiagnosticCaptureConfig(raw);
 }
 
-function readLastUpload(): Record<string, number> {
-  try {
-    const value = JSON.parse(localStorage.getItem(LAST_UPLOAD_KEY) || '{}');
-    return value && typeof value === 'object' ? (value as Record<string, number>) : {};
-  } catch {
-    return {};
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** DateTimeField 的线格式（本地时间、不带时区）：YYYY-MM-DDTHH:mm。 */
+export function timestampToField(at: number): string {
+  const date = new Date(at);
+  return (
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}` +
+    `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+  );
+}
+
+/**
+ * 把 DateTimeField 的值解析成本地时间戳。
+ * 只接受完整的 `YYYY-MM-DDTHH:mm`；格式不符或日期本身不存在（例如 2026-02-30）返回 null，
+ * 避免把 Date 的自动进位当成合法输入。
+ */
+export function timestampFromField(value: string): number | null {
+  const matched = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(value ?? '').trim());
+  if (!matched) return null;
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const day = Number(matched[3]);
+  const hour = Number(matched[4]);
+  const minute = Number(matched[5]);
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute
+  ) {
+    return null;
   }
+  return date.getTime();
 }
 
-/** 上次成功上传（按发送模式分别记录）的时间戳；没有记录时返回 0，即「从有日志起全部」。 */
-export function getLastUploadAt(mode: 'date' | 'error'): number {
-  const value = readLastUpload()[mode];
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+/** 「按时间发送」的默认区间：最近 24 小时，截到分钟。 */
+export function defaultDiagnosticRange(now = Date.now()): { from: string; to: string } {
+  const to = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+  return { from: timestampToField(to - DEFAULT_RANGE_MS), to: timestampToField(to) };
 }
 
-function markUploaded(mode: 'date' | 'error', at: number): void {
-  try {
-    const store = readLastUpload();
-    store[mode] = Math.max(getLastUploadAt(mode), Math.round(at));
-    localStorage.setItem(LAST_UPLOAD_KEY, JSON.stringify(store));
-  } catch {
-    /* best effort */
-  }
+/** 指定时间区间内的本地日志（闭区间）。 */
+export function entriesInRange(fromTs: number, toTs: number) {
+  return getLocalLogEntries(fromTs, toTs);
 }
 
-/** 「上次上传以来」的全部本地日志：没有上传记录时就是当前保留窗口内的全部日志。 */
-export function entriesSinceLastUpload(mode: 'date' | 'error', now = Date.now()) {
-  const from = getLastUploadAt(mode);
-  return getLocalLogEntries(from > 0 ? from + 1 : 0, now);
+/** 本机保留期内的全部日志：一键「发送错误日志」打的诊断包用。 */
+export function allRetainedEntries(now = Date.now()) {
+  return getLocalLogEntries(0, now);
 }
 
 export async function sendDiagnosticLogs(input: {
@@ -99,8 +125,7 @@ export async function sendDiagnosticLogs(input: {
     // 单分片沿用原 bundleId（幂等重试仍然命中同一条记录），多分片才加后缀。
     const partBundleId = parts.length > 1 ? `${baseId}-p${partNo}` : baseId;
     const partEntries = parts[index];
-    // 首次上传（还没有「上次上传」记录）时不能把 fromTs 传成 0：服务端按无效范围拒绝。
-    // 这种情况下区间从第一条日志算起，语义仍是「全部日志」。
+    // 服务端拒收 fromTs<=0；调用方没给区间时落到本片第一条日志，语义仍是「这些日志的全量」。
     const firstAt = partEntries[0].at;
     const partFromTs = input.fromTs > 0 ? Math.min(input.fromTs, firstAt) : firstAt;
     const data = await request('/api/diagnostic-logs', {
@@ -124,14 +149,9 @@ export async function sendDiagnosticLogs(input: {
     if (status !== 'sent') break;
   }
   const toTs = Math.max(...input.entries.map((entry) => entry.at), input.toTs);
-  if (status === 'sent') markUploaded(input.mode, toTs);
   return { bundleId, status, parts: parts.length, truncatedCount, toTs };
 }
 
 export function localDiagnosticSnapshot(): { config: DiagnosticCaptureConfig; bundles: LocalDiagnosticBundle[] } {
   return { config: getDiagnosticCaptureConfig(), bundles: getDiagnosticBundles() };
-}
-
-export function entriesForDate(fromTs: number, toTs: number) {
-  return getLocalLogEntries(fromTs, toTs);
 }
