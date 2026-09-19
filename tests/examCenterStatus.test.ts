@@ -303,6 +303,11 @@ test('倒计时与日期文案格式', () => {
   assert.equal(formatCountdown(42 * 60_000 + 18_000), '00:42:18');
   assert.equal(formatCountdown(2 * 3600_000 + 5 * 60_000), '02:05:00');
   assert.equal(formatCountdown(0), '00:00:00');
+  // 跨天的等待不能截断成 99:59:59：按天给出，秒位不再显示。
+  assert.equal(formatCountdown(23 * 3600_000 + 59 * 60_000 + 59_000), '23:59:59');
+  assert.equal(formatCountdown(24 * 3600_000), '1 天 00:00');
+  assert.equal(formatCountdown(4 * 86_400_000 + 21 * 3600_000 + 43 * 60_000), '4 天 21:43');
+  assert.equal(formatCountdown(120 * 3600_000), '5 天 00:00');
   assert.equal(formatShortCountdown(2 * 3600_000 + 55 * 60_000), '2 小时 55 分');
   assert.equal(formatShortCountdown(25 * 3600_000), '1 天 1 小时');
   assert.equal(formatRelativeDay(at('10:00'), DAY), '今天');
