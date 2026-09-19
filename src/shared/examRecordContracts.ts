@@ -3,8 +3,12 @@ import type { ExamItem } from '../types/index.js';
 
 export type ExamRecordStatus = 'draft' | 'published' | 'ended' | 'archived';
 
-/** Status shown by management views; ongoing is derived from the time window. */
-export type ExamRecordDisplayStatus = ExamRecordStatus | 'ongoing';
+/**
+ * Status shown by management views. `ongoing` 与 `stopping` 都是派生的：
+ * 前者表示已经开考（系统按计划时间自动写 actualStartAt），
+ * 后者表示管理员已申请停止、等系统判定是否真正结束。
+ */
+export type ExamRecordDisplayStatus = ExamRecordStatus | 'ongoing' | 'stopping';
 export type ExamRecordAction = 'publish' | 'end' | 'archive' | 'unarchive' | 'copy';
 
 /** 只改时间字段的生命周期操作，与上面的状态机动作互补。 */
@@ -48,6 +52,12 @@ export interface ExamRecord {
   actualEndAt: number | null;
   /** 暂停起始时刻；null 表示当前不在暂停中。 */
   pausedAt?: number | null;
+  /**
+   * 管理员申请停止的时刻；null 表示没有待判定的停止申请。
+   * 有了它，手动「结束」就变成「申请停止」——真正落 ended 由系统判定（到点优先，
+   * 其次全员回执，最后无在线设备的宽限兜底）。
+   */
+  stopRequestedAt?: number | null;
   /** 累计已暂停时长（毫秒）；倒计时按 endAt + pausedMs 计算。 */
   pausedMs?: number;
   publishedAt: number | null;
@@ -63,6 +73,7 @@ export const EXAM_RECORD_STATUS_LABELS: Record<ExamRecordDisplayStatus, string> 
   draft: '草稿',
   published: '待开始',
   ongoing: '进行中',
+  stopping: '停止中',
   ended: '已结束',
   archived: '历史归档',
 };
@@ -105,6 +116,8 @@ export function availableExamRecordActions(context: ExamRecordActionContext): Ex
   if (context.status === 'draft') return ['publish', 'copy'];
   if (context.status === 'ended') return ['archive', 'copy'];
   if (context.status === 'archived') return ['unarchive', 'copy'];
+  // 已申请停止：等系统判定，管理员只能强制结束（逃生门）或复制。
+  if (context.status === 'stopping') return ['end', 'copy'];
   const live: ExamRecordActionName[] =
     context.actualStartAt == null
       ? ['start', 'extend', 'end', 'copy']
@@ -112,4 +125,21 @@ export function availableExamRecordActions(context: ExamRecordActionContext): Ex
         ? ['resume', 'end', 'copy']
         : ['pause', 'extend', 'end', 'copy'];
   return live;
+}
+
+/**
+ * 展示状态派生：管理界面「进行中 / 停止中」都由实际时间字段推出来，不落库。
+ *
+ * 与旧实现的区别：以前用「计划时间窗是否覆盖 now」判断进行中，于是会出现
+ * 「界面显示进行中、但实际开考时间是空」的不一致。现在改为看 actualStartAt——
+ * 系统按计划时间自动开考会写它，没到点就是「待开始」；申请停止后优先显示「停止中」。
+ */
+export function examRecordDisplayStatus(
+  record: Pick<ExamRecord, 'status' | 'actualStartAt' | 'stopRequestedAt'>,
+  _now: number,
+): ExamRecordDisplayStatus {
+  if (record.status !== 'published') return record.status;
+  if (record.stopRequestedAt != null) return 'stopping';
+  if (record.actualStartAt != null) return 'ongoing';
+  return 'published';
 }

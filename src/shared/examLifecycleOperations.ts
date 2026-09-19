@@ -14,6 +14,7 @@ export type ExamOperationPatch = {
   endAt?: number;
   pausedAt?: number | null;
   pausedMs?: number;
+  stopRequestedAt?: number | null;
 };
 
 export type ExamOperationPlan =
@@ -21,7 +22,10 @@ export type ExamOperationPlan =
 
 export const MAX_EXTEND_MINUTES = 600;
 
-type PlanInput = Pick<ExamRecord, 'status' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs'>;
+type PlanInput = Pick<
+  ExamRecord,
+  'status' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt'
+>;
 
 export function planExamOperation(
   record: PlanInput,
@@ -77,4 +81,90 @@ export function effectiveEndAt(record: { endAt: number | null; pausedMs?: number
 
 function illegal(error: string): ExamOperationPlan {
   return { ok: false, code: 'ILLEGAL_STATE', error };
+}
+
+/* ────────────────────────── 系统自动推进 ──────────────────────────
+ * 生命周期约定（2026-09-19 定稿）：
+ *   创建即发布 → 到点由系统自动开考 → 管理员只能「申请停止」→ 系统判定后才真正结束。
+ * 下面三个规划器是纯函数，由读接口与设备心跳**惰性**调用（不依赖 Cron）：
+ *   - 幂等：重复调用得到同样的跳过结果，不会重复写库、不会重复记审计；
+ *   - 只算该写什么字段，权限/落库/审计仍在路由层。
+ */
+
+/** 自动推进被跳过的原因（都是正常情况，不是错误）。 */
+export type ExamAutoSkipReason =
+  | 'not-live'
+  | 'missing-time'
+  | 'not-due'
+  | 'already-started'
+  | 'already-requested'
+  | 'no-stop-request'
+  | 'not-finished';
+
+/** 系统真正结束一场考试的原因，落进操作日志便于事后解释。 */
+export type ExamAutoEndReason = 'timeup' | 'receipts' | 'no-device-timeout';
+
+export type ExamAutoPlan =
+  { ok: true; patch: ExamOperationPatch; reason?: ExamAutoEndReason } | { ok: false; reason: ExamAutoSkipReason };
+
+/**
+ * 自动开考：到计划开始时间，由系统补上实际开考时间。
+ * 写入的是**计划时间**而不是 now——后台晚几分钟才有人打开页面时，开考时间仍然准确。
+ */
+export function planAutoStart(
+  record: Pick<ExamRecord, 'status' | 'actualStartAt' | 'startAt'>,
+  at: number,
+): ExamAutoPlan {
+  if (record.status !== 'published') return { ok: false, reason: 'not-live' };
+  if (record.actualStartAt != null) return { ok: false, reason: 'already-started' };
+  if (record.startAt == null) return { ok: false, reason: 'missing-time' };
+  if (at < record.startAt) return { ok: false, reason: 'not-due' };
+  return { ok: true, patch: { actualStartAt: record.startAt } };
+}
+
+/**
+ * 申请停止：手动「结束」不再直接落 ended，只留一个待判定的申请。
+ * 仍然要求考试是 published（draft/ended/archived 不能申请）。
+ */
+export function planStopRequest(record: Pick<ExamRecord, 'status' | 'stopRequestedAt'>, at: number): ExamAutoPlan {
+  if (record.status !== 'published') return { ok: false, reason: 'not-live' };
+  if (record.stopRequestedAt != null) return { ok: false, reason: 'already-requested' };
+  return { ok: true, patch: { stopRequestedAt: at } };
+}
+
+export type ExamFinishSignals = {
+  /** 本场范围内的绑定设备是否都已回执「本场结束」。 */
+  allDevicesReported: boolean;
+  /** 没有在线设备、且已经超过宽限期（无人监考兜底）。 */
+  noDeviceGraceExpired: boolean;
+};
+
+/**
+ * 系统判定结束：只在管理员申请停止之后才判定，优先级为
+ *   ① 到点：now ≥ effectiveEndAt（end_at + paused_ms，暂停时间长出来的时间要补回来）
+ *   ② 全员回执   ③ 无在线设备、宽限到期
+ * 到点优先：即便还有设备没回执，时间到就结束。
+ */
+export function planAutoEnd(
+  record: Pick<ExamRecord, 'status' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt' | 'actualEndAt'>,
+  at: number,
+  signals: ExamFinishSignals,
+): ExamAutoPlan {
+  if (record.status !== 'published') return { ok: false, reason: 'not-live' };
+  if (record.stopRequestedAt == null) return { ok: false, reason: 'no-stop-request' };
+  const pausedAt = record.pausedAt ?? null;
+  const pausedMs = record.pausedMs ?? 0;
+  // 结束同时结算暂停时长，避免把暂停算进实际用时（与手动 end 同一套口径）。
+  const settle = (endedAt: number): ExamOperationPatch => ({
+    status: 'ended',
+    actualEndAt: endedAt,
+    pausedAt: null,
+    pausedMs: pausedAt == null ? pausedMs : pausedMs + Math.max(0, endedAt - pausedAt),
+    stopRequestedAt: null,
+  });
+  const dueAt = effectiveEndAt(record);
+  if (dueAt != null && at >= dueAt) return { ok: true, patch: settle(dueAt), reason: 'timeup' };
+  if (signals.allDevicesReported) return { ok: true, patch: settle(at), reason: 'receipts' };
+  if (signals.noDeviceGraceExpired) return { ok: true, patch: settle(at), reason: 'no-device-timeout' };
+  return { ok: false, reason: 'not-finished' };
 }
