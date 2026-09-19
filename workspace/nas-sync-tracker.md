@@ -1069,6 +1069,23 @@ dev 遗留数据：草稿 3 条（`77`、`Codex巡检-可删`、`122`），其�
 
 验证：`npm test` 591/591、`npm run build` 通过。待部署后到 dev 复验（顺带用这个入口把 dev 上那三条测试草稿清掉）。
 
+## 2026-09-19 考试生命周期改造：创建即发布 / 系统开考 / 申请停止
+
+用户定的约定：**创建即发布 → 到点由系统自动开考 → 管理员只能「申请停止」→ 系统判定后才真正结束**；
+停止判定「到点优先」，救援入口保留「强制结束」；新建流程不再产生草稿。
+
+| 提交 | 内容 |
+|---|---|
+| `b3db058` | 契约层：`ExamRecord.stopRequestedAt`；展示状态新增派生的 `stopping`（停止中）；`examRecordDisplayStatus` 改为按 `actualStartAt` 判断进行中（修掉「显示进行中但实际开考时间为空」的不一致）；新增纯规划器 `planAutoStart` / `planStopRequest` / `planAutoEnd` + 8 条单测 |
+| `1536e21` | 自动开考落地：`exam_records.stop_requested_at` 列；新增 `api/_exams/examAutoLifecycle.ts`；惰性触发于「列表 / 详情 / 设备心跳」（无需 Cron，写入的是计划时间）；`displayStatus` 与列表 SQL 都切到同一口径 |
+| 本批 | 停止链：动作契约去掉人工 `start`，新增 `request_stop`（major.edit）与 `force_end`（major.delete）；`planAutoEnd` 判定顺序「到点 → 全员回执 → 无设备宽限（10 分钟）」，另外「还没开考就申请停止 = 取消，立即结束」；`autoEndRequestedRecords` 落在心跳与读接口；「全员回执」用设备心跳里已有的 `current_exam`（在线设备都不再报本场）；客户端去掉「开考」、结束改「申请停止」、停止中给「强制结束」；向导去掉「存为草稿」（创建即发布，科目时间没补齐时按钮禁用）；投影 `initialStatus` 改为「科目时间完整的大型考试直接发布」，仍留 draft 给还没填时间的，避免造出「已发布但没时间」的考试 |
+
+### 验证
+
+- `npm test` 613/613、`npm run build`、`npm run typecheck:api` 通过；`tsc` 仍只有 5 条既有报错。
+- **未验证**：新增列迁移与自动开考/自动结束那两段 SQL 还没在真实库上跑过（需要一次性数据库：`INTEGRATION_DATABASE_URL` + `INTEGRATION_TEST_CONFIRM=novora-disposable`，runner 会 truncate 目标库，不能指向 dev/生产）。
+- 验收路径（部署后到 dev）：造一场开始时间已过的考试 → 自动变成进行中且写入实际开考时间 → 点「申请停止」变「停止中」→ 到结束时间（或教室端全部结束 / 10 分钟无在线设备）自动变「已结束」并留下 `auto_end` 操作日志。
+
 ## 2026-09-18 学校端：v2.8.0 上报中继、更新清单与静态资源（`93a809e`）
 
 把 v2.8.0 的三条服务器侧线索一次性收口（47 个文件，+2411/−197）。当时 worktree 里已经完成的考试中心工作（`exam_records` 层、生命周期、筛选、版本号）刻意裹进同一个提交，因为它们要一起发。

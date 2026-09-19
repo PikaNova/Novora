@@ -352,16 +352,10 @@ export function MajorModalWizard({
             </button>
           ) : (
             <>
+              {/* 新约定：创建即发布，所以这里没有「存为草稿」。
+                  科目时间没补齐时按钮禁用（canPublish），补齐后一次确认直接发布。 */}
               <button
-                className="admin-btn admin-workflow-actions-spacer"
-                type="button"
-                disabled={publishBusy}
-                onClick={() => onFinish(false)}
-              >
-                存为草稿
-              </button>
-              <button
-                className="admin-btn admin-btn--primary"
+                className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
                 type="button"
                 disabled={!canPublish || publishBusy}
                 title={canPublish ? undefined : '补齐科目与时间后才能发布'}

@@ -9,7 +9,7 @@ import {
   writeAudit,
 } from '../../_auth.js';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
-import { autoStartDueRecords } from '../examAutoLifecycle.js';
+import { autoEndRequestedRecords, autoStartDueRecords } from '../examAutoLifecycle.js';
 import { buildExamRecordProjection, projectCurrentExamRecords } from '../examRecordProjection.js';
 import { operationLogKey } from '../operationLog.js';
 import { asRecord } from '../../../src/shared/typeGuards.js';
@@ -27,6 +27,7 @@ import { addDaysToDateKey, getShanghaiDateKey } from '../../../src/utils/weeklyS
 import { parseZonedTime } from '../../../src/utils/zonedTime.js';
 import {
   planExamOperation,
+  planStopRequest,
   type ExamOperationAction,
   type ExamOperationPatch,
 } from '../../../src/shared/examLifecycleOperations.js';
@@ -64,11 +65,11 @@ type RecordRow = {
 
 type SnapshotRow = { majors?: unknown; active_major_id?: unknown; updated_at?: unknown };
 
-/** 路由层动作 = 状态机动作 + 只改时间字段的生命周期操作。 */
-type RecordOperationAction = Extract<ExamOperationAction, 'start' | 'pause' | 'resume' | 'extend'>;
-type RecordRouteAction = ExamRecordAction | RecordOperationAction;
+/** 路由层动作 = 状态机动作 + 只改时间字段的生命周期操作 + 停止申请/强制结束。 */
+type RecordOperationAction = Extract<ExamOperationAction, 'pause' | 'resume' | 'extend'>;
+type RecordRouteAction = ExamRecordAction | RecordOperationAction | 'request_stop' | 'force_end';
 
-const OPERATION_ACTIONS: readonly string[] = ['start', 'pause', 'resume', 'extend'];
+const OPERATION_ACTIONS: readonly string[] = ['pause', 'resume', 'extend'];
 
 function isOperationAction(value: string): value is RecordOperationAction {
   return OPERATION_ACTIONS.includes(value);
@@ -80,10 +81,11 @@ const ACTION_BY_NAME: Record<string, RecordRouteAction> = {
   'record-archive': 'archive',
   'record-unarchive': 'unarchive',
   'record-copy': 'copy',
-  'record-start': 'start',
   'record-pause': 'pause',
   'record-resume': 'resume',
   'record-extend': 'extend',
+  'record-request-stop': 'request_stop',
+  'record-force-end': 'force_end',
 };
 
 function text(value: unknown): string {
@@ -266,8 +268,9 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
     return;
   }
   const now = Date.now();
-  // 读列表前先让到点的考试自动开考：新约定里开考由系统判断，不靠人点按钮。
+  // 读列表前先推进系统自动流程：到点的自动开考、申请停止的判定是否该结束。
   await autoStartDueRecords(now);
+  await autoEndRequestedRecords(now);
   // "今天之内"按上海自然日算：客户端只看得到板块名，边界由服务端算。
   const todayEnd = parseZonedTime(`${addDaysToDateKey(getShanghaiDateKey(now), 1)}T00:00:00`);
   const hasAllScope = hasPermission(actor, '*') || actor.scopes.some((scope) => scope.type === 'all');
@@ -302,9 +305,10 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
           ))
         AND (${statusFilter}::text = '' OR (
           CASE
-            WHEN status = 'published' AND start_at IS NOT NULL AND end_at IS NOT NULL
-              AND start_at <= ${now}::bigint AND ${now}::bigint < end_at
-            THEN 'ongoing'
+            -- 与 examRecordDisplayStatus 保持同一口径：申请停止优先显示「停止中」，
+            -- 进行中看的是实际开考时间（系统自动开考会写它），不再按计划时间窗推断。
+            WHEN status = 'published' AND stop_requested_at IS NOT NULL THEN 'stopping'
+            WHEN status = 'published' AND actual_start_at IS NOT NULL THEN 'ongoing'
             ELSE status
           END = ${statusFilter}))
         AND (${search}::text = '' OR name ILIKE ${searchPattern}::text OR id ILIKE ${searchPattern}::text)
@@ -332,9 +336,10 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
           CASE ${presetFilter}::text
             WHEN 'current' THEN (
               status = 'published' AND (
-                paused_at IS NOT NULL
-                OR (start_at IS NOT NULL AND end_at IS NOT NULL
-                    AND start_at <= ${now}::bigint AND ${now}::bigint < end_at)
+                -- 停止中（等系统判定）与已经开考（含暂停中）都算「当前」；
+                -- 开考看的是实际开考时间——系统按计划时间自动写，不再按计划窗口推断。
+                stop_requested_at IS NOT NULL
+                OR actual_start_at IS NOT NULL
                 OR (start_at IS NOT NULL AND start_at >= ${now}::bigint AND start_at < ${todayEnd}::bigint)
                 OR (end_at IS NOT NULL AND end_at <= ${now}::bigint)
               )
@@ -445,8 +450,10 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
   await ensureTableOnce();
   await ensureAuthTables();
   const sql = database();
-  // 打开详情页时同样推进一次自动开考，保证「实际开考时间」在详情里立刻可见。
-  await autoStartDueRecords(Date.now());
+  // 打开详情页时同样推进一次：保证「实际开考时间」「是否已结束」在详情里立刻可见。
+  const detailNow = Date.now();
+  await autoStartDueRecords(detailNow);
+  await autoEndRequestedRecords(detailNow);
   const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
   if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
     error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
@@ -531,6 +538,10 @@ function applyOperationPatchToMajor(major: Record<string, unknown>, patch: ExamO
     else major.pausedAt = patch.pausedAt;
   }
   if (patch.pausedMs !== undefined) major.pausedMs = patch.pausedMs;
+  if (Object.prototype.hasOwnProperty.call(patch, 'stopRequestedAt')) {
+    if (patch.stopRequestedAt == null) delete major.stopRequestedAt;
+    else major.stopRequestedAt = patch.stopRequestedAt;
+  }
 }
 
 async function handleRecordAction(req: VercelRequest, res: VercelResponse, action: RecordRouteAction): Promise<void> {
@@ -662,8 +673,35 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
           // start / pause / resume / extend 不改变持久状态，只改时间字段。
           nextStatus = currentStatus;
           patch = plan.patch;
+        } else if (action === 'request_stop') {
+          // 手动结束只留申请：真正落 ended 由系统判定（到点优先 → 全员回执 → 无设备宽限）。
+          const plan = planStopRequest(planInput(record), now);
+          if (!plan.ok) {
+            const message =
+              plan.reason === 'already-requested' ? '这场考试已经申请停止了，等系统判定即可' : '当前状态不能申请停止';
+            error(res, 409, 'ILLEGAL_STATE', message);
+            return;
+          }
+          nextStatus = currentStatus;
+          patch = plan.patch;
+        } else if (action === 'force_end') {
+          // 逃生门：停止申请迟迟没有被系统判定时，管理员可以强行结束。
+          if (currentStatus !== 'published') throw new Error('INVALID_STATUS_TRANSITION');
+          const pausedAtValue = nullableNumber(record.paused_at);
+          const pausedMsValue = number(record.paused_ms);
+          nextStatus = 'ended';
+          patch = {
+            status: 'ended',
+            actualEndAt: now,
+            pausedAt: null,
+            pausedMs: pausedAtValue == null ? pausedMsValue : pausedMsValue + Math.max(0, now - pausedAtValue),
+            stopRequestedAt: null,
+          };
         } else {
-          const transitioned = transitionExamRecordStatus(currentStatus, action);
+          // publish 幂等：新约定下考试创建即已发布，向导确认时再点一次「保存并发布」
+          // 不应该因为「已经发布」而报错。
+          const alreadyPublished = action === 'publish' && currentStatus === 'published';
+          const transitioned = alreadyPublished ? currentStatus : transitionExamRecordStatus(currentStatus, action);
           if (!transitioned) throw new Error('INVALID_STATUS_TRANSITION');
           nextStatus = transitioned;
           if (action === 'end') {
@@ -671,6 +709,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
             const plan = planExamOperation(planInput(record), { action: 'end', at: now });
             if (!plan.ok) throw new Error('INVALID_STATUS_TRANSITION');
             patch = plan.patch;
+          } else if (alreadyPublished) {
+            patch = {};
           } else {
             patch = { status: nextStatus };
           }
@@ -692,6 +732,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
         applyOperationPatchToMajor(major, patch);
         const hasPausedAt = Object.prototype.hasOwnProperty.call(patch, 'pausedAt');
         const pausedAtValue = patch.pausedAt ?? null;
+        const hasStopRequestedAt = Object.prototype.hasOwnProperty.call(patch, 'stopRequestedAt');
+        const stopRequestedAtValue = patch.stopRequestedAt ?? null;
         const operationKey = idempotencyKey || operationLogKey(recordId, action, now);
         const transitionResults = await sql.transaction((transaction) => [
           transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
@@ -720,6 +762,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
               end_at=COALESCE(${patch.endAt ?? null}::BIGINT, end_at),
               paused_at=CASE WHEN ${hasPausedAt} THEN ${pausedAtValue}::BIGINT ELSE paused_at END,
               paused_ms=COALESCE(${patch.pausedMs ?? null}::BIGINT, paused_ms),
+              stop_requested_at=CASE WHEN ${hasStopRequestedAt} THEN ${stopRequestedAtValue}::BIGINT ELSE stop_requested_at END,
               updated_at=${now}, version=version+1
             WHERE id=${recordId} AND EXISTS (SELECT 1 FROM logged)
             RETURNING *

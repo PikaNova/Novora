@@ -4,11 +4,12 @@ import { apiErrorFromResponse, networkApiError } from './apiError';
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
   publish: 'record-publish',
-  start: 'record-start',
   pause: 'record-pause',
   resume: 'record-resume',
   extend: 'record-extend',
   end: 'record-end',
+  request_stop: 'record-request-stop',
+  force_end: 'record-force-end',
   archive: 'record-archive',
   unarchive: 'record-unarchive',
   copy: 'record-copy',
@@ -16,11 +17,12 @@ export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
 
 export const EXAM_RECORD_ACTION_LABELS: Record<ExamRecordActionName, string> = {
   publish: '发布',
-  start: '开考',
   pause: '暂停',
   resume: '继续',
   extend: '延长',
   end: '结束',
+  request_stop: '申请停止',
+  force_end: '强制结束',
   archive: '归档',
   unarchive: '取消归档',
   copy: '复制',

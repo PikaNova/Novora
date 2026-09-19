@@ -12,11 +12,8 @@ const base = {
   pausedMs: 0,
 };
 
-test('start：仅已发布且未开考时可开考', () => {
-  assert.deepEqual(planExamOperation(base, { action: 'start', at: AT }), { ok: true, patch: { actualStartAt: AT } });
-  assert.equal(planExamOperation({ ...base, actualStartAt: AT - 1 }, { action: 'start', at: AT }).ok, false);
-  assert.equal(planExamOperation({ ...base, status: 'draft' as const }, { action: 'start', at: AT }).ok, false);
-});
+// 「开考」不再由人工发起：到点由系统自动开考（见 tests/examLifecycleAuto.test.ts 的 planAutoStart），
+// 所以这里不再有 start 的用例。
 
 test('pause：未开考 / 已在暂停 / 非发布态均拒绝', () => {
   const started = { ...base, actualStartAt: AT - 60_000 };

@@ -11,20 +11,28 @@ export type ExamRecordStatus = 'draft' | 'published' | 'ended' | 'archived';
 export type ExamRecordDisplayStatus = ExamRecordStatus | 'ongoing' | 'stopping';
 export type ExamRecordAction = 'publish' | 'end' | 'archive' | 'unarchive' | 'copy';
 
-/** 只改时间字段的生命周期操作，与上面的状态机动作互补。 */
-export type ExamRecordOperationActionName = 'start' | 'pause' | 'resume' | 'extend';
+/**
+ * 只改时间字段的生命周期操作，与上面的状态机动作互补。
+ * 开考已经由系统按计划时间自动完成（见 planAutoStart），所以这里没有 start。
+ */
+export type ExamRecordOperationActionName = 'pause' | 'resume' | 'extend';
 
-/** 管理界面可以对一场考试发起的全部动作。 */
-export type ExamRecordActionName = ExamRecordAction | ExamRecordOperationActionName;
+/**
+ * 管理界面可以对一场考试发起的全部动作。
+ * `request_stop` = 手动结束（只留申请，等系统判定）；`force_end` = 停止判定不出来时的逃生门。
+ */
+export type ExamRecordActionName = ExamRecordAction | ExamRecordOperationActionName | 'request_stop' | 'force_end';
 
 /** 每个动作需要的权限：服务端裁决与前端按钮可见性共用同一份映射，避免两边漂移。 */
 export const EXAM_RECORD_ACTION_PERMISSIONS = {
   publish: 'major.edit',
-  start: 'major.edit',
   pause: 'major.edit',
   resume: 'major.edit',
   extend: 'major.edit',
   end: 'major.edit',
+  request_stop: 'major.edit',
+  // 强制结束是逃生门：只有能删考试的人才给。
+  force_end: 'major.delete',
   unarchive: 'major.edit',
   archive: 'major.delete',
   copy: 'major.create',
@@ -117,13 +125,14 @@ export function availableExamRecordActions(context: ExamRecordActionContext): Ex
   if (context.status === 'ended') return ['archive', 'copy'];
   if (context.status === 'archived') return ['unarchive', 'copy'];
   // 已申请停止：等系统判定，管理员只能强制结束（逃生门）或复制。
-  if (context.status === 'stopping') return ['end', 'copy'];
+  if (context.status === 'stopping') return ['force_end', 'copy'];
+  // 开考已经由系统按计划时间完成，所以这里不再有「开考」；手动结束一律变成「申请停止」。
   const live: ExamRecordActionName[] =
     context.actualStartAt == null
-      ? ['start', 'extend', 'end', 'copy']
+      ? ['request_stop', 'extend', 'copy']
       : context.pausedAt != null
-        ? ['resume', 'end', 'copy']
-        : ['pause', 'extend', 'end', 'copy'];
+        ? ['resume', 'request_stop', 'copy']
+        : ['pause', 'extend', 'request_stop', 'copy'];
   return live;
 }
 

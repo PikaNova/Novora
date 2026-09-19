@@ -60,13 +60,25 @@ const ACTION_CONFIRM: Record<
     tone: 'info',
     label: '发布',
   },
-  start: { title: '开始考试', message: '开考会记录实际开始时间，教室里会进入考试界面。', tone: 'info', label: '开考' },
+  request_stop: {
+    title: '申请停止考试',
+    message: '停止会由系统判定后生效：到结束时间、教室端全部结束，或长时间没有任何在线设备。判定期间教室里照常显示。',
+    tone: 'warning',
+    label: '申请停止',
+  },
+  force_end: {
+    title: '强制结束考试',
+    message: '系统还没判定出结果时才会用到它：会立刻结束本场考试，之后只能归档或复制。',
+    tone: 'danger',
+    label: '强制结束',
+  },
   pause: { title: '暂停考试', message: '暂停期间倒计时停止，教室大屏会显示暂停状态。', tone: 'warning', label: '暂停' },
   resume: { title: '继续考试', message: '恢复后剩余时间按累计暂停时长顺延。', tone: 'info', label: '继续' },
   extend: { title: '延长考试', message: '延长会同时顺延结束时间与倒计时。', tone: 'info', label: '延长' },
   end: {
+    // 兼容旧数据路径：新流程里手动结束已经变成「申请停止」，这里只在极端情况兜底。
     title: '结束考试',
-    message: '结束会立即停止所有教室的考试界面，之后只能归档或复制。',
+    message: '立即结束本场考试，之后只能归档或复制。',
     tone: 'danger',
     label: '结束考试',
   },

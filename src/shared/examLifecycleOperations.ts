@@ -5,7 +5,11 @@
  */
 import type { ExamRecord } from './examRecordContracts.js';
 
-export type ExamOperationAction = 'start' | 'pause' | 'resume' | 'extend' | 'end';
+/**
+ * 管理员可发起的时间字段操作：暂停 / 继续 / 延长 / 结束。
+ * 「开考」不在这里——它由系统按计划时间自动完成（见 planAutoStart）。
+ */
+export type ExamOperationAction = 'pause' | 'resume' | 'extend' | 'end';
 
 export type ExamOperationPatch = {
   status?: ExamRecord['status'];
@@ -37,10 +41,6 @@ export function planExamOperation(
   const at = input.at;
 
   switch (input.action) {
-    case 'start':
-      if (!live) return illegal('只有已发布的考试可以开考');
-      if (record.actualStartAt != null) return illegal('本场考试已经开考');
-      return { ok: true, patch: { actualStartAt: at } };
     case 'pause':
       if (!live) return illegal('只有进行中的考试可以暂停');
       if (record.actualStartAt == null) return illegal('考试还未开考');
@@ -102,7 +102,7 @@ export type ExamAutoSkipReason =
   | 'not-finished';
 
 /** 系统真正结束一场考试的原因，落进操作日志便于事后解释。 */
-export type ExamAutoEndReason = 'timeup' | 'receipts' | 'no-device-timeout';
+export type ExamAutoEndReason = 'timeup' | 'receipts' | 'no-device-timeout' | 'cancelled';
 
 export type ExamAutoPlan =
   { ok: true; patch: ExamOperationPatch; reason?: ExamAutoEndReason } | { ok: false; reason: ExamAutoSkipReason };
@@ -146,7 +146,10 @@ export type ExamFinishSignals = {
  * 到点优先：即便还有设备没回执，时间到就结束。
  */
 export function planAutoEnd(
-  record: Pick<ExamRecord, 'status' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt' | 'actualEndAt'>,
+  record: Pick<
+    ExamRecord,
+    'status' | 'actualStartAt' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt' | 'actualEndAt'
+  >,
   at: number,
   signals: ExamFinishSignals,
 ): ExamAutoPlan {
@@ -163,6 +166,8 @@ export function planAutoEnd(
     stopRequestedAt: null,
   });
   const dueAt = effectiveEndAt(record);
+  // 还没开考就申请停止 = 取消这场考试：没有任何在途的考试需要等，直接结束。
+  if (record.actualStartAt == null) return { ok: true, patch: settle(at), reason: 'cancelled' };
   if (dueAt != null && at >= dueAt) return { ok: true, patch: settle(dueAt), reason: 'timeup' };
   if (signals.allDevicesReported) return { ok: true, patch: settle(at), reason: 'receipts' };
   if (signals.noDeviceGraceExpired) return { ok: true, patch: settle(at), reason: 'no-device-timeout' };

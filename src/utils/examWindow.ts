@@ -1,4 +1,6 @@
-import type { ExamItem } from '../types';
+// 用带扩展名的写法：这个文件现在也被 API 侧（node16 解析）引用，
+// 与 src/shared/* 的写法保持一致。
+import type { ExamItem } from '../types/index.js';
 
 /**
  * 由启用科目的时间汇总考试窗口：最早的开始、最晚的结束。

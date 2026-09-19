@@ -1,6 +1,7 @@
 import type { MajorExam } from '../../src/types/index.js';
 import type { SqlTx } from '../_dbAdapter.js';
 import type { ExamRecordStatus } from '../../src/shared/examRecordContracts.js';
+import { examWindowFromItems } from '../../src/utils/examWindow.js';
 
 export type ExamRecordProjection = {
   id: string;
@@ -64,7 +65,13 @@ function config(value: unknown): Record<string, unknown> {
 
 function initialStatus(major: MajorExtras): ExamRecordStatus {
   if (major.endedAt != null || finiteNumber(major.actualEndAt) != null) return 'ended';
-  return major.source === 'quick' || major.temporary === true ? 'published' : 'draft';
+  // 快速考试一直是直发。
+  if (major.source === 'quick' || major.temporary === true) return 'published';
+  // 创建即发布：科目时间完整的整场大型考试直接进入「已发布」，不再需要人点发布按钮。
+  // 还没填时间的（例如刚建完、向导里还没来得及填科目）仍留 draft，
+  // 免得造出「已发布但没有时间」、永远停在「待开始」的考试。
+  const window = examWindowFromItems(Array.isArray(major.items) ? major.items : []);
+  return window.start != null && window.end != null ? 'published' : 'draft';
 }
 
 export function buildExamRecordProjection(

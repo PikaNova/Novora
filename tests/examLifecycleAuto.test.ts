@@ -54,8 +54,16 @@ test('planAutoEnd: 没申请停止就不判定', () => {
   assert.deepEqual(plan, { ok: false, reason: 'no-stop-request' });
 });
 
+test('planAutoEnd: 还没开考就申请停止 = 取消，立即结束', () => {
+  const requested = { ...base, stopRequestedAt: START - 5 * M };
+  const plan = planAutoEnd(requested, START - 4 * M, { allDevicesReported: false, noDeviceGraceExpired: false });
+  assert.equal(plan.ok && plan.reason, 'cancelled');
+  assert.equal(plan.ok && plan.patch.status, 'ended');
+  assert.equal(plan.ok && plan.patch.actualEndAt, START - 4 * M);
+});
+
 test('planAutoEnd: 到点优先——设备没回执也结束，且按到点时刻结算', () => {
-  const requested = { ...base, stopRequestedAt: START + 20 * M };
+  const requested = { ...base, actualStartAt: START, stopRequestedAt: START + 20 * M };
   const plan = planAutoEnd(requested, END + 5 * M, { allDevicesReported: false, noDeviceGraceExpired: false });
   assert.equal(plan.ok, true);
   assert.equal(plan.ok && plan.reason, 'timeup');
@@ -69,7 +77,7 @@ test('planAutoEnd: 到点优先——设备没回执也结束，且按到点时�
 });
 
 test('planAutoEnd: 到点前先看全员回执，再看无人宽限', () => {
-  const requested = { ...base, stopRequestedAt: START + 20 * M };
+  const requested = { ...base, actualStartAt: START, stopRequestedAt: START + 20 * M };
   const early = END - 10 * M;
   const byReceipts = planAutoEnd(requested, early, { allDevicesReported: true, noDeviceGraceExpired: false });
   assert.equal(byReceipts.ok && byReceipts.reason, 'receipts');
@@ -82,7 +90,13 @@ test('planAutoEnd: 到点前先看全员回执，再看无人宽限', () => {
 
 test('planAutoEnd: 暂停过的考试按 endAt + pausedMs 判定，并结转暂停时长', () => {
   const pausedMs = 12 * M;
-  const requested = { ...base, stopRequestedAt: START + 30 * M, pausedMs, pausedAt: END - 3 * M };
+  const requested = {
+    ...base,
+    actualStartAt: START,
+    stopRequestedAt: START + 30 * M,
+    pausedMs,
+    pausedAt: END - 3 * M,
+  };
   const plan = planAutoEnd(requested, END + pausedMs + M, { allDevicesReported: false, noDeviceGraceExpired: false });
   assert.equal(plan.ok && plan.reason, 'timeup');
   assert.equal(plan.ok && plan.patch.actualEndAt, END + pausedMs);
