@@ -35,7 +35,14 @@ import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
 import '../styles/admin-track-additions.css';
-import { fmtAnnTime, phase, shouldShowWizardDraftHint, syncMajorStateRef } from '../hooks/admin/adminPageUtils';
+import {
+  fmtAnnTime,
+  phase,
+  readPendingWizardDraft,
+  shouldShowWizardDraftHint,
+  syncMajorStateRef,
+  writePendingWizardDraft,
+} from '../hooks/admin/adminPageUtils';
 import { findMajorConflicts, findMajorConflictItemKeys } from '../utils/examConflicts';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
@@ -542,22 +549,46 @@ export default function AdminPage() {
   };
 
   /**
-   * 向导第 3 步建的草稿：先记住它的 id，用户之后在编辑器里切换考试时提示条也不会指错；
-   * 一旦这条草稿被删掉（用户在考试安排里删了它），立刻结束向导流程——否则提示条上的
-   * 「下一步」会把当时正在编辑的另一场考试当成它来发布。
+   * 刷新后恢复「向导还没走完」的状态。向导的快照与标记只在内存里，Service Worker 更新
+   * 或手动刷新都会丢；丢了以后提示条不再出现、`resumeMajorWizard` 也因快照为空静默返回，
+   * 用户编辑完科目就回不到确认步骤（新流程下草稿已无发布入口）。
    */
   useEffect(() => {
-    if (!wizardDraftCreated) {
-      wizardDraftIdRef.current = '';
-      return;
-    }
+    const pending = readPendingWizardDraft();
+    if (!pending) return;
+    wizardDraftIdRef.current = pending.id;
+    wizardSnapshotRef.current = { mode: 'add', name: pending.name, targetGradeIds: pending.targetGradeIds };
+    setWizardDraftCreated(true);
+  }, []);
+
+  /**
+   * 向导第 3 步建的草稿：先记住它的 id（并落到 localStorage，供刷新后恢复），用户之后在
+   * 编辑器里切换考试时提示条也不会指错；一旦这条草稿被删掉（用户在考试安排里删了它），
+   * 立刻结束向导流程——否则提示条上的「下一步」会把当时正在编辑的另一场考试当成它来发布。
+   */
+  useEffect(() => {
+    // 标记为 false 时不在这里清 ref/storage：挂起状态要活到向导真正结束（发布、取消、草稿被删），
+    // 而这些路径都会显式清理；在这里清会误伤「刷新后刚恢复」的那一帧。
+    if (!wizardDraftCreated) return;
     if (!wizardDraftIdRef.current) {
+      if (!editingMajorId) return;
       wizardDraftIdRef.current = editingMajorId;
+      const snapshot = wizardSnapshotRef.current;
+      if (snapshot) {
+        writePendingWizardDraft({
+          id: editingMajorId,
+          name: snapshot.name,
+          targetGradeIds: snapshot.targetGradeIds,
+        });
+      }
       return;
     }
+    // 快照还没载入时 majors 会是空的，先不动，否则会把挂起状态误清掉。
+    if (!majors.length) return;
     if (majors.some((item) => item.id === wizardDraftIdRef.current)) return;
     wizardDraftIdRef.current = '';
     wizardSnapshotRef.current = null;
+    writePendingWizardDraft(null);
     setWizardDraftCreated(false);
   }, [editingMajorId, majors, wizardDraftCreated]);
 
@@ -643,6 +674,9 @@ export default function AdminPage() {
     }
     const snapshot = { ...majorModal };
     wizardSnapshotRef.current = snapshot;
+    // 新一轮向导：先清掉上一次可能留下的 id/挂起记录，等这条草稿落库后再记下它的 id。
+    wizardDraftIdRef.current = '';
+    writePendingWizardDraft(null);
     commitMajorModal(() => {});
     setWizardDraftCreated(true);
     // 第 3 步（科目与时间）不在弹窗里编辑：草稿已经落库，直接把弹窗收起来进编辑器填科目，
@@ -651,12 +685,24 @@ export default function AdminPage() {
     setMajorModalStep(3);
     selectExamView('editor');
   };
-  /** 提示条里的「下一步」：把向导按原来的填写内容恢复到确认步骤。 */
+  /**
+   * 提示条里的「下一步」：把向导恢复到确认步骤。
+   * 快照通常还在内存里；真丢了（例如恢复流程只找回了草稿 id）就用那条草稿本身的
+   * 名称与适用范围重建一份——确认步骤只需要这两项加科目清单，其余来自实时数据。
+   */
   const resumeMajorWizard = () => {
-    if (!wizardSnapshotRef.current) return;
+    const snapshot =
+      wizardSnapshotRef.current ??
+      (() => {
+        const draft = majors.find((item) => item.id === wizardDraftIdRef.current);
+        if (!draft) return null;
+        return { mode: 'add' as const, name: draft.name, targetGradeIds: draft.targetGradeIds ?? [] };
+      })();
+    if (!snapshot) return;
+    wizardSnapshotRef.current = snapshot;
     setMajorError('');
     setMajorModalStep(3);
-    setMajorModal(wizardSnapshotRef.current);
+    setMajorModal(snapshot);
   };
   /**
    * 删除一条草稿。入口在考试安排的草稿行与草稿详情抽屉里——以前只有「关向导时空草稿丢弃」
@@ -683,6 +729,9 @@ export default function AdminPage() {
   const openMajorEditor = () => {
     setMajorModal(null);
     setWizardDraftCreated(false);
+    wizardDraftIdRef.current = '';
+    wizardSnapshotRef.current = null;
+    writePendingWizardDraft(null);
     setMajorError('');
     selectExamView('editor');
   };
@@ -698,6 +747,9 @@ export default function AdminPage() {
     const reset = () => {
       setMajorModal(null);
       setWizardDraftCreated(false);
+      wizardDraftIdRef.current = '';
+      wizardSnapshotRef.current = null;
+      writePendingWizardDraft(null);
       setMajorModalStep(0);
       setMajorError('');
     };
@@ -746,6 +798,9 @@ export default function AdminPage() {
     if (!publish) {
       setMajorModal(null);
       setWizardDraftCreated(false);
+      wizardDraftIdRef.current = '';
+      wizardSnapshotRef.current = null;
+      writePendingWizardDraft(null);
       setMajorModalStep(0);
       selectExamView('schedule');
       return;
@@ -771,6 +826,9 @@ export default function AdminPage() {
       const todayEnd = new Date(`${getShanghaiDateKey(Date.now())}T23:59:59+08:00`).getTime();
       setMajorModal(null);
       setWizardDraftCreated(false);
+      wizardDraftIdRef.current = '';
+      wizardSnapshotRef.current = null;
+      writePendingWizardDraft(null);
       setMajorModalStep(0);
       selectExamView(majorWindow.start < todayEnd ? 'current' : 'schedule');
     } catch (error) {

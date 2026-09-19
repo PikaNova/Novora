@@ -6,10 +6,12 @@ import {
   fmtLocal,
   makeId,
   phase,
+  readPendingWizardDraft,
   shouldShowWizardDraftHint,
   syncMajorStateRef,
   toISO,
   toLocalInput,
+  writePendingWizardDraft,
 } from '../src/hooks/admin/adminPageUtils.js';
 import type { ExamItem, MajorExam } from '../src/types/index.js';
 
@@ -181,4 +183,50 @@ test('shouldShowWizardDraftHint: 没在向导流程或不在考试中心不显�
 
 test('shouldShowWizardDraftHint: 草稿被删掉后撤下，避免下一步发布错考试', () => {
   assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftExists: false }), false);
+});
+
+/** 用最小内存实现替换 localStorage，覆盖读写与异常分支。 */
+function withFakeStorage(run: (store: Map<string, string>) => void) {
+  const store = new Map<string, string>();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    },
+  });
+  try {
+    run(store);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+}
+
+test('挂起的向导草稿：写入后能原样读回', () => {
+  withFakeStorage(() => {
+    assert.equal(readPendingWizardDraft(), null);
+    writePendingWizardDraft({ id: 'major-9', name: '初二期中考试', targetGradeIds: ['g1'] });
+    assert.deepEqual(readPendingWizardDraft(), { id: 'major-9', name: '初二期中考试', targetGradeIds: ['g1'] });
+    writePendingWizardDraft(null);
+    assert.equal(readPendingWizardDraft(), null, '向导结束后必须清掉挂起记录');
+  });
+});
+
+test('挂起的向导草稿：坏数据一律当作没有挂起，不抛错', () => {
+  withFakeStorage((store) => {
+    store.set('novora_wizard_draft_v1', '{ 这不是 JSON');
+    assert.equal(readPendingWizardDraft(), null);
+    store.set('novora_wizard_draft_v1', JSON.stringify({ name: '缺 id' }));
+    assert.equal(readPendingWizardDraft(), null);
+    store.set('novora_wizard_draft_v1', JSON.stringify({ id: ' major-1 ', name: 42, targetGradeIds: ['g1', 7, ''] }));
+    assert.deepEqual(readPendingWizardDraft(), { id: 'major-1', name: '', targetGradeIds: ['g1'] });
+  });
+});
+
+test('挂起的向导草稿：没有 localStorage 时静默降级', () => {
+  assert.equal(readPendingWizardDraft(), null);
+  assert.doesNotThrow(() => writePendingWizardDraft({ id: 'major-1', name: 'x', targetGradeIds: [] }));
 });
