@@ -6,6 +6,7 @@ import {
   fmtLocal,
   makeId,
   phase,
+  shouldShowWizardDraftHint,
   syncMajorStateRef,
   toISO,
   toLocalInput,
@@ -153,4 +154,31 @@ test('fmtAnnTime: returns a 24-hour locale date-time string', () => {
   const formatted = fmtAnnTime(Date.UTC(2024, 10, 14, 22, 13, 20));
   assert.match(formatted, /^\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}:\d{2}$/);
   assert.doesNotMatch(formatted, /AM|PM/);
+});
+
+const draftHintContext = {
+  draftCreated: true,
+  draftId: 'major-1',
+  draftExists: true,
+  modalOpen: false,
+  tabIsExam: true,
+};
+
+test('shouldShowWizardDraftHint: 向导草稿还开着时提示常驻', () => {
+  assert.equal(shouldShowWizardDraftHint(draftHintContext), true);
+  // 换到考试中心其它板块（用户顺手去查别的考试）也要留着，那是回「下一步」的唯一入口。
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftId: '', draftExists: false }), true);
+});
+
+test('shouldShowWizardDraftHint: 向导弹窗自己打开时让位', () => {
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, modalOpen: true }), false);
+});
+
+test('shouldShowWizardDraftHint: 没在向导流程或不在考试中心不显示', () => {
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftCreated: false }), false);
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, tabIsExam: false }), false);
+});
+
+test('shouldShowWizardDraftHint: 草稿被删掉后撤下，避免下一步发布错考试', () => {
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftExists: false }), false);
 });

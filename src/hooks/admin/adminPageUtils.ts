@@ -47,3 +47,23 @@ export function phase(item: ExamItem): 'waiting' | 'ongoing' | 'ended' {
   if (now <= new Date(item.endTime).getTime()) return 'ongoing';
   return 'ended';
 }
+
+/**
+ * 新建向导第 3 步那条右下角提示是否显示。
+ *
+ * 它是回到向导「确认」步骤的唯一入口：提示一旦被关掉，用户就只能去考试安排里重新找这场
+ * 草稿，所以它必须常驻，只在向导弹窗自己打开时让位。草稿被删掉时（用户在考试安排里删了
+ * 它）一并撤下——否则提示条上的「下一步」会把当时正在编辑的另一场考试当成它来发布。
+ */
+export function shouldShowWizardDraftHint(input: {
+  draftCreated: boolean;
+  /** 第 1 步建出来的草稿 id；还没记下来时传空串。 */
+  draftId: string;
+  draftExists: boolean;
+  modalOpen: boolean;
+  tabIsExam: boolean;
+}): boolean {
+  if (!input.draftCreated || input.modalOpen || !input.tabIsExam) return false;
+  // 刚建完草稿的那一帧还没记下 id，先显示；记下之后草稿不在了就撤下。
+  return !input.draftId || input.draftExists;
+}

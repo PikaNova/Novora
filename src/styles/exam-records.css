@@ -584,16 +584,19 @@
   white-space: nowrap;
 }
 /* 刷新时列表保持原样：状态只体现在刷新按钮上（见 components/admin/RefreshButton）。 */
-/* 新建向导第 3 步直接进编辑器时，左下角常驻提示：编辑完成后点「下一步」回确认步骤。 */
+/*
+ * 新建向导第 3 步直接进编辑器时的常驻提示（回向导确认步骤的唯一入口）。
+ * 固定在右下角：左下角是后台的导航 rail / 移动端导航条，放那里会挡住用户接下来的操作。
+ */
 .admin-draft-hint {
   position: fixed;
-  left: 16px;
+  right: 16px;
   bottom: 16px;
   z-index: 60;
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: min(560px, calc(100vw - 32px));
+  max-width: min(460px, calc(100vw - 32px));
   padding: 12px 14px;
   border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
   border-radius: 10px;

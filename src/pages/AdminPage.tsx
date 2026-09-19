@@ -35,7 +35,7 @@ import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
 import '../styles/admin-track-additions.css';
-import { fmtAnnTime, phase, syncMajorStateRef } from '../hooks/admin/adminPageUtils';
+import { fmtAnnTime, phase, shouldShowWizardDraftHint, syncMajorStateRef } from '../hooks/admin/adminPageUtils';
 import { findMajorConflicts, findMajorConflictItemKeys } from '../utils/examConflicts';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
@@ -114,10 +114,11 @@ export default function AdminPage() {
   const [examView, setExamView] = useState<ExamCenterView>('current');
   const [publishBusy, setPublishBusy] = useState(false);
   // 向导第 1 步会把草稿写进库、收起弹窗并直接进编辑器；用这个标记避免重复建草稿，
-  // 同时记住这次的填写内容（wizardSnapshotRef），好在左下角提示里点「下一步」回到确认步骤。
+  // 同时记住这次的填写内容（wizardSnapshotRef），好在右下角提示里点「下一步」回到确认步骤。
   const [wizardDraftCreated, setWizardDraftCreated] = useState(false);
+  /** 第 1 步建出来的那条草稿 id；用户之后在编辑器里切换考试时，提示条仍指向它。 */
+  const wizardDraftIdRef = useRef('');
   const wizardSnapshotRef = useRef<NonNullable<MajorModal> | null>(null);
-  const [draftHintHidden, setDraftHintHidden] = useState(false);
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
@@ -540,6 +541,26 @@ export default function AdminPage() {
     return { ok: true, recoveryKey: takeGeneratedRecoveryKey() || undefined };
   };
 
+  /**
+   * 向导第 3 步建的草稿：先记住它的 id，用户之后在编辑器里切换考试时提示条也不会指错；
+   * 一旦这条草稿被删掉（用户在考试安排里删了它），立刻结束向导流程——否则提示条上的
+   * 「下一步」会把当时正在编辑的另一场考试当成它来发布。
+   */
+  useEffect(() => {
+    if (!wizardDraftCreated) {
+      wizardDraftIdRef.current = '';
+      return;
+    }
+    if (!wizardDraftIdRef.current) {
+      wizardDraftIdRef.current = editingMajorId;
+      return;
+    }
+    if (majors.some((item) => item.id === wizardDraftIdRef.current)) return;
+    wizardDraftIdRef.current = '';
+    wizardSnapshotRef.current = null;
+    setWizardDraftCreated(false);
+  }, [editingMajorId, majors, wizardDraftCreated]);
+
   if (!ready || !adminUser)
     return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;
   if (deniedModule)
@@ -624,9 +645,8 @@ export default function AdminPage() {
     wizardSnapshotRef.current = snapshot;
     commitMajorModal(() => {});
     setWizardDraftCreated(true);
-    setDraftHintHidden(false);
     // 第 3 步（科目与时间）不在弹窗里编辑：草稿已经落库，直接把弹窗收起来进编辑器填科目，
-    // 左下角留一条提示；填完点提示里的「下一步」回到向导的「确认」步骤，再保存或发布。
+    // 右下角留一条常驻提示；填完点提示里的「下一步」回到向导的「确认」步骤，再保存或发布。
     setMajorModal(null);
     setMajorModalStep(3);
     selectExamView('editor');
@@ -779,6 +799,17 @@ export default function AdminPage() {
       !major.endedAt &&
       major.items.some((item) => item.enabled && new Date(item.endTime).getTime() >= adminNow),
   );
+  // 提示条上的考试名取向导建出来的那条草稿；草稿被删掉后提示条一并撤下。
+  const wizardDraftId = wizardDraftIdRef.current;
+  const wizardDraft = wizardDraftId ? majors.find((item) => item.id === wizardDraftId) : undefined;
+  const wizardDraftName = wizardDraft?.name || wizardSnapshotRef.current?.name || activeMajor?.name || '新考试';
+  const showWizardDraftHint = shouldShowWizardDraftHint({
+    draftCreated: wizardDraftCreated,
+    draftId: wizardDraftId,
+    draftExists: Boolean(wizardDraft),
+    modalOpen: Boolean(majorModal),
+    tabIsExam: adminTab === 'exam',
+  });
 
   return (
     <div className="admin-page">
@@ -1040,19 +1071,25 @@ export default function AdminPage() {
         </div>
       </div>
       <AdminMobileNav adminTab={adminTab} can={can} onSelectAdminTab={selectAdminTab} onOpenMyAccount={openMyAccount} />
-      {/* 新建向导第 3 步 → 编辑器：左下角提示，编完科目点「下一步」回到确认步骤。 */}
-      {wizardDraftCreated && !draftHintHidden && adminTab === 'exam' && examViewActive === 'editor' && (
+      {/*
+        新建向导第 3 步：科目与时间在编辑器里填，弹窗先收起。这条右下角提示是回到向导
+        「确认」步骤的唯一入口，所以它必须常驻——以前带「知道了」可以关掉，关掉之后
+        用户就再也回不到下一步，只能去考试安排里重新找这场草稿。
+        编辑器之外的考试中心板块也保留，用户顺手去查别的考试时不会丢掉回程路。
+      */}
+      {showWizardDraftHint && (
         <div className="admin-draft-hint" role="status" aria-live="polite">
           <div className="admin-draft-hint__body">
-            <strong>正在编辑「{activeMajor?.name || '新考试'}」的科目</strong>
-            <span>在编辑器里添加或修改科目与时间，编辑完成后点击「下一步」继续确认并发布。</span>
+            <strong>「{wizardDraftName}」的科目还没填完</strong>
+            <span>
+              {examViewActive === 'editor'
+                ? '在编辑器里添加或修改科目与时间，编辑完成后点「下一步」继续确认并发布。'
+                : '回到「编辑考试」继续填科目与时间，或直接点「下一步」回到向导的确认步骤。'}
+            </span>
           </div>
           <div className="admin-draft-hint__actions">
             <button className="admin-btn admin-btn--primary" type="button" onClick={resumeMajorWizard}>
               下一步
-            </button>
-            <button className="admin-btn admin-btn--ghost" type="button" onClick={() => setDraftHintHidden(true)}>
-              知道了
             </button>
           </div>
         </div>
