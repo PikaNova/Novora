@@ -657,10 +657,20 @@ export function buildExamCenterView(
   };
 }
 
-/** 倒计时：HH:MM:SS，超过 99 小时截断，避免极端数据把排版撑坏。 */
+/**
+ * 大号倒计时：一天以内是 HH:MM:SS（开考/结束倒计时需要秒），超过一天改成「N 天 HH:MM」。
+ * 这里不能截断——早先按 99 小时封顶，导致 5 天后的考试显示成假的「99:59:59」，
+ * 看起来像倒计时坏了。
+ */
 export function formatCountdown(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '00:00:00';
-  const totalSeconds = Math.min(Math.floor(ms / 1000), 99 * 3600 + 3599);
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  if (days > 0) {
+    const hours = Math.floor((totalSeconds % 86_400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    return `${days} 天 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
