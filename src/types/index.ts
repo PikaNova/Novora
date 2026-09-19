@@ -44,8 +44,16 @@ export interface MajorExam {
    */
   startAt?: number | null;
   endAt?: number | null;
+  /** 实际开考时刻；服务端生命周期操作写入，用于「已进行时长」口径。 */
+  actualStartAt?: number | null;
   /** 实际结束时刻；快速考试提前结束时写入，与服务端 record-end 的 actual_end_at 对齐。 */
   actualEndAt?: number | null;
+  /** 暂停起始时刻；非空表示当前处于暂停中，倒计时冻结并顺延结束时间。 */
+  pausedAt?: number | null;
+  /** 累计暂停时长（毫秒）；倒计时按 `endAt + pausedMs` 计算。 */
+  pausedMs?: number;
+  /** 发布时刻；非空表示这场考试已经下发到教室大屏。 */
+  publishedAt?: number | null;
   endedAt?: number | null;
   /** 归档时刻；非空表示这场考试已进入只读历史，需先取消归档才能再编辑。 */
   archivedAt?: number | null;

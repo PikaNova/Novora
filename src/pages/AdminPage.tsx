@@ -57,6 +57,7 @@ import { MajorModalWizard } from '../components/admin/MajorModalWizard';
 import { AlertsSettingsModal } from '../components/admin/AlertsSettingsModal';
 import { AdminTabBar } from '../components/admin/AdminTabBar';
 import ExamCenterNav, { EXAM_CENTER_VIEWS, examCenterViews } from '../components/exam-center/ExamCenterNav';
+import CurrentExamPanel from '../components/exam-center/CurrentExamPanel';
 import { AdminContextBar } from '../components/admin/AdminContextBar';
 import { AdminAnnounceDialog } from '../components/admin/AdminAnnounceDialog';
 import { AdminIncompletePrompt } from '../components/admin/AdminIncompletePrompt';
@@ -320,6 +321,7 @@ export default function AdminPage() {
     extendQuickMajor,
     endQuickMajor,
     promoteQuickMajor,
+    discardDraftMajor,
   } = major;
   const majorConflictLabels = findMajorConflicts(scopedMajors);
   const majorConflictItemKeys = findMajorConflictItemKeys(scopedMajors);
@@ -698,17 +700,17 @@ export default function AdminPage() {
   // 详情抽屉的「编辑考试」：先定位到那一场（必要时把年级切过去），再进编辑器。
   // 编辑器展示的是「当前年级范围内按 editingMajorId 命中的那一场」，少了定位这一步，
   // 用户点开的就是当前范围的第一场——也就是巡检里反馈过的「这根本不是我点的那场考试」。
-  const openExamRecordEditor = (record: ExamRecordListEntry) => {
+  const openExamRecordEditor = (recordId: string, recordName = '') => {
     const target = resolveExamEditTarget({
       majors,
-      recordId: record.id,
+      recordId,
       currentGradeId: selectedGradeId,
       classes: visibleClasses,
     });
     if (!target) {
       notify(
         'warning',
-        `「${record.name || record.id}」已不在本地考试数据里（可能刚被删除），刷新列表后再试。`,
+        `「${recordName || recordId}」已不在本地考试数据里（可能刚被删除），刷新列表后再试。`,
         '找不到这场考试',
       );
       return;
@@ -717,6 +719,8 @@ export default function AdminPage() {
     setEditingMajorId(target.majorId);
     selectExamView('editor');
   };
+  // 「当前考试」态势页只带得过来考试 id 与名称，复用同一套定位逻辑，避免两处各写一份。
+  const editExamFromCurrent = (majorId: string, examName: string) => openExamRecordEditor(majorId, examName);
   const finishMajorWizard = async (publish: boolean) => {
     if (!activeMajor?.id) return;
     setMajorError('');
@@ -908,6 +912,25 @@ export default function AdminPage() {
                     allowBatchApply={can('weekly.copy') && visibleClasses.length > 1}
                   />
                 </fieldset>
+              ) : adminTab === 'exam' && examViewActive === 'current' ? (
+                // 「当前考试」是实时态势页：只读现在，不承担创建与列表管理。
+                <CurrentExamPanel
+                  majors={visibleMajors}
+                  weeklyPlans={visibleWeeklyPlans}
+                  grades={visibleGrades}
+                  classes={visibleClasses}
+                  scheduleMode={scheduleMode}
+                  weeklyConflictPolicy={weeklyConflictPolicy}
+                  activeWeeklyPlanId={activeWeeklyPlanId}
+                  activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+                  subjectTrackModeEnabled={subjectTrackModeEnabled}
+                  syncLabel={SYNC_META[sync].label}
+                  syncTone={sync === 'saved' ? 'ok' : sync === 'loading' || sync === 'saving' ? 'busy' : 'warn'}
+                  online={online}
+                  can={can}
+                  onEditExam={editExamFromCurrent}
+                  onGoSchedule={() => selectExamView('schedule')}
+                />
               ) : adminTab === 'exam' && examViewActive !== 'editor' ? (
                 <ExamRecordsPanel
                   grades={visibleGrades}
@@ -918,7 +941,9 @@ export default function AdminPage() {
                   weeklyPlans={visibleWeeklyPlans}
                   weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
                   onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
-                  onEditRecord={can('major.edit') ? openExamRecordEditor : undefined}
+                  onEditRecord={
+                    can('major.edit') ? (record) => openExamRecordEditor(record.id, record.name) : undefined
+                  }
                   onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
                 />
               ) : adminTab === 'classes' ? (
