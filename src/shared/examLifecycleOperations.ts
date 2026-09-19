@@ -154,7 +154,6 @@ export function planAutoEnd(
   signals: ExamFinishSignals,
 ): ExamAutoPlan {
   if (record.status !== 'published') return { ok: false, reason: 'not-live' };
-  if (record.stopRequestedAt == null) return { ok: false, reason: 'no-stop-request' };
   const pausedAt = record.pausedAt ?? null;
   const pausedMs = record.pausedMs ?? 0;
   // 结束同时结算暂停时长，避免把暂停算进实际用时（与手动 end 同一套口径）。
@@ -166,6 +165,13 @@ export function planAutoEnd(
     stopRequestedAt: null,
   });
   const dueAt = effectiveEndAt(record);
+  // 没有停止申请时：只有「已经开考且到点」才自动结束——下课的钟不需要人来敲。
+  if (record.stopRequestedAt == null) {
+    if (record.actualStartAt != null && dueAt != null && at >= dueAt) {
+      return { ok: true, patch: settle(dueAt), reason: 'timeup' };
+    }
+    return { ok: false, reason: 'no-stop-request' };
+  }
   // 还没开考就申请停止 = 取消这场考试：没有任何在途的考试需要等，直接结束。
   if (record.actualStartAt == null) return { ok: true, patch: settle(at), reason: 'cancelled' };
   if (dueAt != null && at >= dueAt) return { ok: true, patch: settle(dueAt), reason: 'timeup' };

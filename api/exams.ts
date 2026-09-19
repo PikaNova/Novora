@@ -68,10 +68,13 @@ const RECORD_ACTIONS = new Set([
   'record-archive',
   'record-unarchive',
   'record-copy',
-  'record-start',
   'record-pause',
   'record-resume',
   'record-extend',
+  // 开考由系统按计划时间完成，所以没有 record-start；
+  // 手动结束是「申请停止」，另有逃生门 record-force-end。
+  'record-request-stop',
+  'record-force-end',
 ]);
 
 const GENERAL_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_WINDOW_MS, 10_000);

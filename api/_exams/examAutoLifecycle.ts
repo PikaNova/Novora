@@ -96,7 +96,12 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
     SELECT id, name, actual_start_at, end_at, paused_at, paused_ms, stop_requested_at,
       target_grade_ids, target_class_ids
     FROM exam_records
-    WHERE status = 'published' AND stop_requested_at IS NOT NULL
+    WHERE status = 'published'
+      AND (
+        stop_requested_at IS NOT NULL
+        -- 没有申请停止、但已经开考且到点：下课的钟不需要人来敲，系统直接收场。
+        OR (actual_start_at IS NOT NULL AND end_at IS NOT NULL AND end_at + paused_ms <= ${now})
+      )
     LIMIT 200
   `) as unknown as PendingStopRow[];
   if (!pending.length) return 0;
@@ -147,7 +152,12 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
           ended_at = ${now},
           updated_at = ${now},
           version = version + 1
-      WHERE id = ${recordId} AND status = 'published' AND stop_requested_at IS NOT NULL
+      WHERE id = ${recordId}
+        AND status = 'published'
+        AND (
+          stop_requested_at IS NOT NULL
+          OR (actual_start_at IS NOT NULL AND end_at IS NOT NULL AND end_at + paused_ms <= ${now})
+        )
       RETURNING id
     `) as unknown as Array<{ id?: unknown }>;
     if (!ended.length) continue;

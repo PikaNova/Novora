@@ -286,7 +286,7 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(items) = 'array' THEN items ELSE '[]'::jsonb END), 0) AS item_count,
         target_grade_ids, target_class_ids, source, temporary, priority_over_schedule,
         config, created_by, created_at, updated_at, start_at, end_at,
-        actual_start_at, actual_end_at, paused_at, paused_ms, published_at, ended_at, archived_at,
+        actual_start_at, actual_end_at, paused_at, paused_ms, stop_requested_at, published_at, ended_at, archived_at,
         version, sort_order
       FROM exam_records
       WHERE

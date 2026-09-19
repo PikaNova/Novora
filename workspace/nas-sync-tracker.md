@@ -1083,7 +1083,11 @@ dev 遗留数据：草稿 3 条（`77`、`Codex巡检-可删`、`122`），其�
 ### 验证
 
 - `npm test` 613/613、`npm run build`、`npm run typecheck:api` 通过；`tsc` 仍只有 5 条既有报错。
-- **未验证**：新增列迁移与自动开考/自动结束那两段 SQL 还没在真实库上跑过（需要一次性数据库：`INTEGRATION_DATABASE_URL` + `INTEGRATION_TEST_CONFIRM=novora-disposable`，runner 会 truncate 目标库，不能指向 dev/生产）。
+- **已在真实库上验证**（2026-09-19）：本机 PostgreSQL 建一次性库 `novora_integration_side` 跑 `npm run test:integration` → **46/46 通过**（含新增的两条生命周期用例、迁移同构用例），跑完已 drop 该库。过程中这条验证抓到并修掉了三个真实缺陷：
+  1. **快照投影会把运行时字段冲掉**：`projectCurrentExamRecords`（SQL 投影）的 ON CONFLICT 里 `actual_start_at = EXCLUDED.actual_start_at`，而快照里没有自动开考写下的时间 → 任何一次普通保存都会把「已开考 / 停止中」抹掉（表现为同一条记录出现两次 auto_start）。现改为 `COALESCE(EXCLUDED.x, exam_records.x)`，只向上补、不覆盖。
+  2. **到点自然结束改不动**：候选筛选放开了「未申请停止但已到点」，但 UPDATE 的 WHERE 仍要求 `stop_requested_at IS NOT NULL`，所以那批候选永远结束不了。已把 WHERE 与候选条件对齐。
+  3. **列表 SQL 没带新列**：列表 CTE 的列清单里没有 `stop_requested_at`，导致列表永远显示不出「停止中」（详情能显示、列表不能）。已补进列清单；`api/exams.ts` 的入口动作白名单也同步加了 `record-request-stop` / `record-force-end`、去掉 `record-start`；`migrations/0004` 补上 `stop_requested_at`（否则手动初始化的库会缺列，迁移同构用例就是抓这个的）。
+- 另外把 `examRecordLifecycle.integration.test.ts` 里按旧生命周期（人工开考、draft 上动作全非法、过往考试停在「待结束」）写的断言改到新约定：开考改用 `systemStart()` 辅助函数（把计划开始时间调到过去再触发惰性推进），并接受「到点未结束的考试会被系统收场」这一新行为。
 - 验收路径（部署后到 dev）：造一场开始时间已过的考试 → 自动变成进行中且写入实际开考时间 → 点「申请停止」变「停止中」→ 到结束时间（或教室端全部结束 / 10 分钟无在线设备）自动变「已结束」并留下 `auto_end` 操作日志。
 
 ## 2026-09-18 学校端：v2.8.0 上报中继、更新清单与静态资源（`93a809e`）

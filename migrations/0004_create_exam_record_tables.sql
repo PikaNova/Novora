@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS exam_records (
   actual_end_at BIGINT,
   paused_at BIGINT,
   paused_ms BIGINT NOT NULL DEFAULT 0,
+  -- 手动结束现在只写「申请停止」，真正落 ended 由系统判定（到点优先 → 全员回执 → 无设备宽限）。
+  stop_requested_at BIGINT,
   published_at BIGINT,
   ended_at BIGINT,
   archived_at BIGINT,
@@ -39,6 +41,7 @@ CREATE TABLE IF NOT EXISTS exam_records (
 -- 早期版本只建了表、没有这两个暂停列，这里补上，保证旧库与运行时迁移结果一致。
 ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_at BIGINT;
 ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_ms BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS stop_requested_at BIGINT;
 
 CREATE INDEX IF NOT EXISTS idx_exam_records_status ON exam_records (status);
 CREATE INDEX IF NOT EXISTS idx_exam_records_updated ON exam_records (updated_at DESC);

@@ -9,6 +9,7 @@ import { after, beforeEach, test } from 'node:test';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { BUILTIN_ROLES, authenticateUser, authSql, ensureAuthTables, makePasswordHash } from '../../api/_auth.js';
 import { database, ensureTableOnce } from '../../api/_exams/db.js';
+import { autoStartDueRecords } from '../../api/_exams/examAutoLifecycle.js';
 import { projectCurrentExamRecords } from '../../api/_exams/examRecordProjection.js';
 import { handleExamRecordRoute } from '../../api/_exams/routes/examRecordRoutes.js';
 import { handleExamDataPost } from '../../api/_exams/routes/examDataRoutes.js';
@@ -99,6 +100,18 @@ async function actThroughEntry(
 
 async function openWriteSlot() {
   await database()`UPDATE write_throttle SET next_allowed_at = ${-Date.now()} WHERE id = 1`;
+}
+
+/**
+ * 新约定下开考由系统按计划时间完成，测试里没法「点按钮开考」：
+ * 把计划开始时间调到过去，再触发一次惰性推进（与读列表/心跳同一条路径）。
+ */
+async function systemStart(id: string): Promise<{ actualStartAt: number }> {
+  const at = Date.now() - 60_000;
+  await database()`UPDATE exam_records SET start_at = ${at} WHERE id = ${id}`;
+  await autoStartDueRecords(Date.now());
+  const row = await readRecord(id);
+  return { actualStartAt: Number(row.actual_start_at) };
 }
 
 function sleep(ms: number) {
@@ -294,10 +307,8 @@ test('考试生命周期：publish → start → pause → resume → extend →
   assert.equal(published.statusCode, 200);
   assert.equal(data(published).status, 'published');
 
-  const started = await act(admin.token, 'record-start', { id: 'lifecycle' });
-  assert.equal(started.statusCode, 200);
-  const actualStartAt = Number(data(started).actualStartAt);
-  assert.ok(actualStartAt > 0, '开考必须写入 actualStartAt');
+  const started = await systemStart('lifecycle');
+  assert.ok(started.actualStartAt > 0, '系统到点后必须写入 actualStartAt');
 
   const paused = await act(admin.token, 'record-pause', { id: 'lifecycle', reason: '设备异常' });
   assert.equal(paused.statusCode, 200);
@@ -351,7 +362,7 @@ test('考试生命周期：暂停期间结束会结算暂停时长，倒计时�
   const endAt = Date.now() + 3_600_000;
   await seedMajors([{ id: 'paused-end', startAt: Date.now() - 1_000, endAt }]);
   await act(admin.token, 'record-publish', { id: 'paused-end' });
-  await act(admin.token, 'record-start', { id: 'paused-end' });
+  await systemStart('paused-end');
   await act(admin.token, 'record-pause', { id: 'paused-end' });
   await sleep(150);
 
@@ -369,7 +380,9 @@ test('考试生命周期：暂停期间结束会结算暂停时长，倒计时�
 
 test('考试生命周期：非法转移与非法参数一律拒绝，且不写状态也不写操作日志', async () => {
   const endAt = Date.now() + 3_600_000;
-  await seedMajors([{ id: 'boundary', startAt: Date.now() - 1_000, endAt }]);
+  // 只给结束时间、不给开始时间：新约定下「时间窗完整 = 创建即发布」，
+  // 这条用例要的是「草稿上动作一律拒绝」，所以必须让它保持草稿。
+  await seedMajors([{ id: 'boundary', endAt }]);
 
   const pauseDraft = await act(admin.token, 'record-pause', { id: 'boundary' });
   assert.equal(pauseDraft.statusCode, 409);
@@ -395,10 +408,11 @@ test('考试生命周期：非法转移与非法参数一律拒绝，且不写�
   const published = await act(admin.token, 'record-publish', { id: 'boundary' });
   assert.equal(published.statusCode, 200);
 
-  assert.equal((await act(admin.token, 'record-start', { id: 'boundary' })).statusCode, 200);
-  const startTwice = await act(admin.token, 'record-start', { id: 'boundary' });
-  assert.equal(startTwice.statusCode, 409);
-  assert.equal(startTwice.body.code, 'ILLEGAL_STATE');
+  await systemStart('boundary');
+  assert.equal((await act(admin.token, 'record-request-stop', { id: 'boundary' })).statusCode, 200);
+  const stopTwice = await act(admin.token, 'record-request-stop', { id: 'boundary' });
+  assert.equal(stopTwice.statusCode, 409);
+  assert.equal(stopTwice.body.code, 'ILLEGAL_STATE');
 
   const resumeIdle = await act(admin.token, 'record-resume', { id: 'boundary' });
   assert.equal(resumeIdle.statusCode, 409);
@@ -431,7 +445,7 @@ test('考试生命周期：非法转移与非法参数一律拒绝，且不写�
   assert.equal(missingKey.statusCode, 400);
   assert.equal(missingKey.body.code, 'IDEMPOTENCY_KEY_REQUIRED');
 
-  const missingRecord = await act(admin.token, 'record-start', { id: 'not-a-record' });
+  const missingRecord = await act(admin.token, 'record-request-stop', { id: 'not-a-record' });
   assert.equal(missingRecord.statusCode, 404);
   assert.equal(missingRecord.body.code, 'RECORD_NOT_FOUND');
 
@@ -443,7 +457,8 @@ test('考试生命周期：非法转移与非法参数一律拒绝，且不写�
   const operations = await readOperations('boundary');
   assert.deepEqual(
     operations.map((operation) => operation.action).sort(),
-    ['pause', 'publish', 'start'],
+    // 开考由系统完成（auto_start），手动结束变成 request_stop。
+    ['auto_start', 'pause', 'publish', 'request_stop'],
     '只有成功的动作才写操作日志',
   );
 });
@@ -452,14 +467,16 @@ test('考试生命周期：结束时间写回客户端快照，暂停状态不�
   const endAt = Date.now() + 3_600_000;
   await seedMajors([{ id: 'snapshot', startAt: Date.now() - 1_000, endAt }]);
   await act(admin.token, 'record-publish', { id: 'snapshot' });
-  await act(admin.token, 'record-start', { id: 'snapshot' });
+  await systemStart('snapshot');
   await act(admin.token, 'record-extend', { id: 'snapshot', minutes: 20 }, { 'idempotency-key': 'extend-snapshot' });
   await act(admin.token, 'record-pause', { id: 'snapshot' });
 
   const extendedEndAt = endAt + 20 * 60_000;
   let majors = await readSnapshotMajors();
   assert.equal(Number(majors[0]?.endAt), extendedEndAt);
-  assert.ok(Number(majors[0]?.actualStartAt) > 0);
+  // 实际开考时间现在写在记录层（系统自动开考只动 exam_records）；
+  // 快照里的 actualStartAt 不再由人工开考写入，所以这里改断言记录。
+  assert.ok(Number((await readRecord('snapshot')).actual_start_at) > 0);
   assert.ok(Number(majors[0]?.pausedAt) > 0);
 
   // 任何一次普通保存都会重跑投影；延长与暂停不能被快照旧值覆盖。
@@ -503,7 +520,7 @@ test('考试生命周期：幂等键不能跨记录或跨动作复用', async ()
 
   const otherAction = await act(
     admin.token,
-    'record-start',
+    'record-pause',
     { id: 'idem-a' },
     { 'idempotency-key': 'shared-extend-key' },
   );
@@ -523,11 +540,11 @@ test('考试生命周期：权限与作用域都按既有规则收紧', async ()
   const viewer = await createUser('lifecycle-viewer', 'viewer', [{ type: 'all' }]);
   const gradeAdmin = await createUser('lifecycle-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
 
-  const denied = await act(viewer.token, 'record-start', { id: 'scoped-g1' });
+  const denied = await act(viewer.token, 'record-request-stop', { id: 'scoped-g1' });
   assert.equal(denied.statusCode, 403);
   assert.equal(denied.body.code, 'PERMISSION_DENIED');
 
-  const outOfScopeStart = await act(gradeAdmin.token, 'record-start', { id: 'scoped-g2' });
+  const outOfScopeStart = await act(gradeAdmin.token, 'record-request-stop', { id: 'scoped-g2' });
   assert.equal(outOfScopeStart.statusCode, 404);
   assert.equal(outOfScopeStart.body.code, 'RECORD_NOT_FOUND');
 
@@ -536,9 +553,9 @@ test('考试生命周期：权限与作用域都按既有规则收紧', async ()
   const outOfScopePublish = await act(gradeAdmin.token, 'record-pause', { id: 'scoped-g2' });
   assert.equal(outOfScopePublish.statusCode, 404);
 
-  const inScope = await act(gradeAdmin.token, 'record-start', { id: 'scoped-g1' });
+  const inScope = await act(gradeAdmin.token, 'record-request-stop', { id: 'scoped-g1' });
   assert.equal(inScope.statusCode, 200);
-  assert.ok(Number(data(inScope).actualStartAt) > 0);
+  assert.ok(Number(data(inScope).stopRequestedAt) > 0, '范围内的管理员可以申请停止');
 
   const inScopeExtend = await act(
     gradeAdmin.token,
@@ -549,16 +566,22 @@ test('考试生命周期：权限与作用域都按既有规则收紧', async ()
   assert.equal(inScopeExtend.statusCode, 200);
 
   const operations = await readOperations('scoped-g1');
-  const start = operations.find((operation) => operation.action === 'start');
-  assert.equal(Number(start?.actor_id), gradeAdmin.id, '操作日志要记录真实操作者');
+  const requested = operations.find((operation) => operation.action === 'request_stop');
+  assert.equal(Number(requested?.actor_id), gradeAdmin.id, '操作日志要记录真实操作者');
+  const autoStart = operations.find((operation) => operation.action === 'auto_start');
+  if (autoStart) assert.equal(autoStart.actor_id ?? null, null, '系统自动开考的日志没有操作者');
 });
 
 test('考试生命周期：每个动作都写操作日志与审计记录，包含操作者、前后状态与原因', async () => {
   const endAt = Date.now() + 3_600_000;
-  await seedMajors([{ id: 'audit-record', startAt: Date.now() - 1_000, endAt }]);
+  // 只给时间窗会给成「创建即发布」，那样 publish 就成了幂等空操作、不再有 draft→published 的迁移；
+  // 这条用例要的正是每一步的真实迁移，所以先种成草稿（不给时间窗），发布后再由系统开考。
+  // 只给结束时间、不给开始时间：保持草稿（时间窗不完整），但 end_at 会被投影带过来，
+  // 后面才做得出真实的 draft→published 迁移，也才有多余的结束时间可以延长。
+  await seedMajors([{ id: 'audit-record', endAt }]);
 
   await act(admin.token, 'record-publish', { id: 'audit-record' });
-  await act(admin.token, 'record-start', { id: 'audit-record' });
+  await systemStart('audit-record');
   await act(admin.token, 'record-pause', { id: 'audit-record', reason: '临时调休' });
   await act(admin.token, 'record-resume', { id: 'audit-record', reason: '恢复' });
   await act(
@@ -571,15 +594,16 @@ test('考试生命周期：每个动作都写操作日志与审计记录，包�
 
   const operations = await readOperations('audit-record');
   assert.deepEqual(operations.map((operation) => operation.action).sort(), [
+    'auto_start',
     'end',
     'extend',
     'pause',
     'publish',
     'resume',
-    'start',
   ]);
   for (const operation of operations) {
-    assert.equal(Number(operation.actor_id), admin.id);
+    // 系统自动开考/自动结束的日志没有操作者；人工动作必须记得住是谁做的。
+    if (operation.actor_id != null) assert.equal(Number(operation.actor_id), admin.id);
     assert.equal(String(operation.source_record_id), 'audit-record');
     assert.equal(String(operation.result_record_id), 'audit-record');
     assert.ok(String(operation.from_status).length > 0, '每条操作日志都要有 from_status');
@@ -606,7 +630,6 @@ test('考试生命周期：每个动作都写操作日志与审计记录，包�
     'exam.record.pause',
     'exam.record.publish',
     'exam.record.resume',
-    'exam.record.start',
   ]);
 });
 
@@ -617,9 +640,9 @@ test('考试生命周期：顶层 /api/exams 入口放行新动作', async () =>
   const published = await actThroughEntry(admin.token, 'record-publish', { id: 'route-record' });
   assert.equal(published.statusCode, 200);
 
-  const started = await actThroughEntry(admin.token, 'record-start', { id: 'route-record' });
+  const started = await actThroughEntry(admin.token, 'record-request-stop', { id: 'route-record' });
   assert.equal(started.statusCode, 200);
-  assert.ok(Number(data(started).actualStartAt) > 0);
+  assert.ok(Number(data(started).stopRequestedAt) > 0);
 
   const extended = await actThroughEntry(
     admin.token,
@@ -669,10 +692,14 @@ test('考试列表：筛选与分页下推到 SQL，越界页仍然返回准确�
   assert.equal(seen.size, 5, '三页必须恰好覆盖五条记录，不重不漏');
 
   // ongoing 是按时间窗派生的展示状态，不能和 published 混在一起
+  // 「过往考试」指的是开始时间已过；新约定下它会自动开考、并且到点自然结束，
+  // 所以这里只剩真正在进行中的那一场。
   assert.deepEqual(listedIds(await listRecords(admin.token, { status: 'ongoing' })), ['list-ongoing']);
   const published = listedIds(await listRecords(admin.token, { status: 'published' }));
   assert.equal(published.includes('list-ongoing'), false);
-  assert.equal(published.includes('list-past'), true);
+  // 开始时间已过 + 结束时间已过：新约定下它会自动开考、并且到点自然结束，
+  // 所以既不在进行中，也不再是「已发布」。
+  assert.equal(published.includes('list-past'), false);
   assert.equal(published.includes('list-future'), true);
   assert.deepEqual(listedIds(await listRecords(admin.token, { status: 'draft' })), ['list-draft']);
 
@@ -736,7 +763,7 @@ test('考试操作记录：详情页能读到操作者、前后状态与备注�
   const gradeAdmin = await createUser('ops-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
 
   await act(admin.token, 'record-publish', { id: 'ops-g1', reason: '开学考' });
-  await act(admin.token, 'record-start', { id: 'ops-g1' });
+  await systemStart('ops-g1');
   await act(admin.token, 'record-pause', { id: 'ops-g1', reason: '设备故障' });
 
   const response = await listOperations(admin.token, 'ops-g1');
@@ -744,7 +771,8 @@ test('考试操作记录：详情页能读到操作者、前后状态与备注�
   const entries = response.body.data as Array<Record<string, unknown>>;
   assert.deepEqual(
     entries.map((entry) => entry.action),
-    ['pause', 'start', 'publish'],
+    // 开考现在由系统完成，操作日志里是 auto_start（actor 为空）而不是人工 start。
+    ['pause', 'auto_start', 'publish'],
     '操作记录按时间倒序返回',
   );
   const pause = entries[0] ?? {};
@@ -798,15 +826,26 @@ test('考试中心板块：四个口径互不重叠，「当前考试」按进�
   const scheduleIds = listedIds(await listRecords(admin.token, { preset: 'schedule', pageSize: '50' }));
   const draftIds = listedIds(await listRecords(admin.token, { preset: 'draft', pageSize: '50' }));
 
-  const expectedCurrent =
-    todayLaterStart == null ? ['cur-running', 'cur-overrun'] : ['cur-running', 'cur-overrun', 'cur-today'];
-  assert.deepEqual(currentIds, expectedCurrent, '当前考试：进行中 → 待结束 → 今天即将开始');
+  const expectedCurrent = todayLaterStart == null ? ['cur-running'] : ['cur-running', 'cur-today'];
+  // 「待结束」（开始与结束时间都过了）在新约定下会被系统收场并落到历史：
+  // 这次读取里收掉还是下一次读取收掉都正常，所以允许它出现在当前考试里。
+  assert.ok(
+    currentIds.every((id) => expectedCurrent.includes(id) || id === 'cur-overrun'),
+    `当前考试：进行中 → 待结束 → 今天即将开始（实际 ${currentIds.join(',')}）`,
+  );
+  assert.ok(currentIds.includes('cur-running'), '进行中的考试必须在当前考试里');
   assert.deepEqual(scheduleIds, ['next-tomorrow', 'next-unscheduled'], '考试安排按开始时间升序，未定时间的排在最后');
   assert.deepEqual(draftIds, ['draft-only']);
 
   // 已发布的考试必须恰好落在一个板块里
   const placed = [...currentIds, ...scheduleIds].sort();
-  assert.deepEqual(placed, [...published].sort(), '已发布的考试不能漏出三个板块之外');
+  // 「待结束」到点后被系统自动收场，落到历史里，所以不在「当前+安排」这一组里。
+  assert.deepEqual(placed, published.filter((id) => id !== 'cur-overrun').sort(), '已发布的考试不能漏出三个板块之外');
+  assert.equal(
+    listedIds(await listRecords(admin.token, { preset: 'history', pageSize: '50' })).includes('cur-overrun'),
+    true,
+    '到点未结束的考试由系统收场后进历史',
+  );
   assert.equal(
     currentIds.some((id) => scheduleIds.includes(id)),
     false,
@@ -814,18 +853,22 @@ test('考试中心板块：四个口径互不重叠，「当前考试」按进�
   );
 
   // 历史：默认不含归档，开关打开后并入
-  await act(admin.token, 'record-start', { id: 'cur-running' });
+  await systemStart('cur-running');
   await act(admin.token, 'record-end', { id: 'cur-running' });
-  assert.deepEqual(listedIds(await listRecords(admin.token, { preset: 'history', pageSize: '50' })), ['cur-running']);
+  // cur-overrun 已经由系统按到点收场，所以历史里是它 + 刚结束的 cur-running。
+  assert.deepEqual(listedIds(await listRecords(admin.token, { preset: 'history', pageSize: '50' })).sort(), [
+    'cur-overrun',
+    'cur-running',
+  ]);
   await act(admin.token, 'record-archive', { id: 'cur-running' });
   assert.deepEqual(
     listedIds(await listRecords(admin.token, { preset: 'history', pageSize: '50' })),
-    [],
+    ['cur-overrun'],
     '归档后默认从历史考试里隐藏',
   );
   assert.deepEqual(
-    listedIds(await listRecords(admin.token, { preset: 'history', includeArchived: '1', pageSize: '50' })),
-    ['cur-running'],
+    listedIds(await listRecords(admin.token, { preset: 'history', includeArchived: '1', pageSize: '50' })).sort(),
+    ['cur-overrun', 'cur-running'],
     '打开归档开关后能翻出来',
   );
 
@@ -954,4 +997,74 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   assert.equal(afterEdit.body.ignoredArchivedMajors, undefined, '取消归档后不应再被冻结');
   snapshot = await readSnapshotMajors();
   assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '取消归档后改名');
+});
+
+test('系统自动开考 + 申请停止 + 到点判定结束（新生命周期的端到端）', async () => {
+  const startedAt = Date.now() - 10 * 60_000;
+  const endedAt = startedAt + 60 * 60_000; // 先给一段还在进行中的窗口，稍后再把它推到过去
+  await seedMajors([{ id: 'auto-life', startAt: startedAt, endAt: endedAt }]);
+
+  // 1) 创建即发布：科目/时间完整的大型考试投影出来就是 published（不再落 draft）
+  const created = await readRecord('auto-life');
+  assert.equal(created.status, 'published', '有完整时间窗的考试创建即发布');
+  assert.equal(created.actual_start_at, null);
+
+  // 2) 读列表时惰性自动开考：写入的是计划时间，并留下系统操作日志
+  const listed = await listRecords(admin.token, { preset: 'current' });
+  const row = (listed.body.data as Array<Record<string, unknown>>).find((item) => item.id === 'auto-life');
+  assert.ok(row, '到点开考的考试应出现在当前考试板块');
+  assert.equal(row.displayStatus, 'ongoing');
+  const started = await readRecord('auto-life');
+  assert.equal(Number(started.actual_start_at), startedAt, '实际开考时间写的是计划时间');
+  const startOps = await readOperations('auto-life');
+  assert.ok(
+    startOps.some((op) => op.action === 'auto_start' && op.actor_id == null),
+    '系统自动开考要留下 auto_start 操作日志（actor 为空）',
+  );
+
+  // 3) 手动结束 → 只是申请：状态仍是 published，但展示为「停止中」
+  const requested = await act(admin.token, 'record-request-stop', { id: 'auto-life' });
+  assert.equal(requested.statusCode, 200);
+  const pending = await readRecord('auto-life');
+  assert.equal(pending.status, 'published', '申请停止不直接改状态');
+  assert.ok(Number(pending.stop_requested_at) > 0);
+  const pendingList = await listRecords(admin.token, { preset: 'current' });
+  const pendingRow = (pendingList.body.data as Array<Record<string, unknown>>).find((item) => item.id === 'auto-life');
+  assert.equal(pendingRow?.displayStatus, 'stopping');
+
+  // 4) 重复申请被拒（等系统判定即可）
+  assert.equal((await act(admin.token, 'record-request-stop', { id: 'auto-life' })).statusCode, 409);
+
+  // 5) 系统判定结束：到点优先，即便没有任何设备回执
+  await database()`UPDATE exam_records SET end_at = ${Date.now() - 60_000} WHERE id = 'auto-life'`;
+  await listRecords(admin.token, { preset: 'history' });
+  const finished = await readRecord('auto-life');
+  assert.equal(finished.status, 'ended');
+  const expectedEndAt = Number(finished.end_at);
+  assert.equal(Number(finished.actual_end_at), expectedEndAt, '到点判定按结束时间结算');
+  assert.equal(finished.stop_requested_at, null);
+  const endOps = await readOperations('auto-life');
+  assert.ok(
+    endOps.some((op) => op.action === 'auto_end' && String(op.reason ?? '').includes('到结束时间')),
+    '系统判定结束要留下 auto_end 操作日志并写明原因',
+  );
+});
+
+test('还没开考就申请停止 = 取消：立即结束，不用等到结束时间', async () => {
+  const startAt = Date.now() + 6 * 60 * 60_000;
+  await seedMajors([{ id: 'cancel-me', startAt, endAt: startAt + 60 * 60_000 }]);
+  assert.equal((await readRecord('cancel-me')).status, 'published');
+
+  const cancelled = await act(admin.token, 'record-request-stop', { id: 'cancel-me' });
+  assert.equal(cancelled.statusCode, 200);
+  await listRecords(admin.token, { preset: 'history' });
+
+  const row = await readRecord('cancel-me');
+  assert.equal(row.status, 'ended', '未开考就申请停止应当直接取消');
+  assert.equal(row.actual_start_at, null, '没有真的开考过');
+  const ops = await readOperations('cancel-me');
+  assert.ok(
+    ops.some((op) => op.action === 'auto_end' && String(op.reason ?? '').includes('取消')),
+    '取消也要留下系统操作日志',
+  );
 });
