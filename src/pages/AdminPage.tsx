@@ -320,6 +320,7 @@ export default function AdminPage() {
     extendQuickMajor,
     endQuickMajor,
     promoteQuickMajor,
+    discardDraftMajor,
   } = major;
   const majorConflictLabels = findMajorConflicts(scopedMajors);
   const majorConflictItemKeys = findMajorConflictItemKeys(scopedMajors);
@@ -364,7 +365,6 @@ export default function AdminPage() {
     remove,
     removeItems,
     restoreExam,
-    discardDraftMajor,
   } = examItem;
   editingRef.current = editing;
   setEditingRef.current = setEditing as (value: unknown) => void;
