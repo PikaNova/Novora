@@ -321,7 +321,6 @@ export default function AdminPage() {
     extendQuickMajor,
     endQuickMajor,
     promoteQuickMajor,
-    discardDraftMajor,
   } = major;
   const majorConflictLabels = findMajorConflicts(scopedMajors);
   const majorConflictItemKeys = findMajorConflictItemKeys(scopedMajors);
