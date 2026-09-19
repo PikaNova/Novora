@@ -9,12 +9,14 @@ import {
   writeAudit,
 } from '../../_auth.js';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
+import { autoStartDueRecords } from '../examAutoLifecycle.js';
 import { buildExamRecordProjection, projectCurrentExamRecords } from '../examRecordProjection.js';
 import { operationLogKey } from '../operationLog.js';
 import { asRecord } from '../../../src/shared/typeGuards.js';
 import type { MajorExam } from '../../../src/types/index.js';
 import {
   EXAM_RECORD_ACTION_PERMISSIONS,
+  examRecordDisplayStatus,
   isExamRecordStatus,
   transitionExamRecordStatus,
   type ExamRecordAction,
@@ -52,6 +54,7 @@ type RecordRow = {
   actual_end_at?: unknown;
   paused_at?: unknown;
   paused_ms?: unknown;
+  stop_requested_at?: unknown;
   published_at?: unknown;
   ended_at?: unknown;
   archived_at?: unknown;
@@ -116,11 +119,17 @@ function recordStatus(row: RecordRow): ExamRecordStatus | null {
 }
 
 function displayStatus(row: RecordRow, now: number): ExamRecordDisplayStatus {
-  const status = recordStatus(row) ?? 'draft';
-  if (status !== 'published') return status;
-  const startAt = nullableNumber(row.start_at);
-  const endAt = nullableNumber(row.end_at);
-  return startAt != null && endAt != null && startAt <= now && now < endAt ? 'ongoing' : status;
+  // 派生规则收在 shared：按 actualStartAt 判断进行中（系统自动开考会写它），
+  // 申请停止后优先显示「停止中」。以前按计划时间窗判断，会出现
+  // 「界面显示进行中、但实际开考时间是空」的不一致。
+  return examRecordDisplayStatus(
+    {
+      status: recordStatus(row) ?? 'draft',
+      actualStartAt: nullableNumber(row.actual_start_at),
+      stopRequestedAt: nullableNumber(row.stop_requested_at),
+    },
+    now,
+  );
 }
 
 function recordJson(row: RecordRow, now: number): Record<string, unknown> {
@@ -152,6 +161,7 @@ function recordJson(row: RecordRow, now: number): Record<string, unknown> {
     actualEndAt: nullableNumber(row.actual_end_at),
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: nullableNumber(row.paused_ms) ?? 0,
+    stopRequestedAt: nullableNumber(row.stop_requested_at),
     publishedAt: nullableNumber(row.published_at),
     endedAt: nullableNumber(row.ended_at),
     archivedAt: nullableNumber(row.archived_at),
@@ -182,6 +192,7 @@ function planInput(row: RecordRow) {
     endAt: nullableNumber(row.end_at),
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: number(row.paused_ms),
+    stopRequestedAt: nullableNumber(row.stop_requested_at),
   };
 }
 
@@ -255,6 +266,8 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
     return;
   }
   const now = Date.now();
+  // 读列表前先让到点的考试自动开考：新约定里开考由系统判断，不靠人点按钮。
+  await autoStartDueRecords(now);
   // "今天之内"按上海自然日算：客户端只看得到板块名，边界由服务端算。
   const todayEnd = parseZonedTime(`${addDaysToDateKey(getShanghaiDateKey(now), 1)}T00:00:00`);
   const hasAllScope = hasPermission(actor, '*') || actor.scopes.some((scope) => scope.type === 'all');
@@ -432,6 +445,8 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
   await ensureTableOnce();
   await ensureAuthTables();
   const sql = database();
+  // 打开详情页时同样推进一次自动开考，保证「实际开考时间」在详情里立刻可见。
+  await autoStartDueRecords(Date.now());
   const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
   if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
     error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');

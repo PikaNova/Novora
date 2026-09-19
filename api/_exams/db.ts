@@ -115,6 +115,9 @@ export function ensureTableOnce(): Promise<void> {
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_records_updated ON exam_records(updated_at DESC)`,
           transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_at BIGINT`,
           transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_ms BIGINT NOT NULL DEFAULT 0`,
+          // 手动「结束」现在只是申请：真正落 ended 由系统判定（到点优先 → 全员回执 → 无设备宽限）。
+          // 加字段而不是加状态，是为了不动上面那条 status 的 CHECK 约束。
+          transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS stop_requested_at BIGINT`,
           transaction`CREATE TABLE IF NOT EXISTS exam_record_operations (
           idempotency_key TEXT PRIMARY KEY,
           action TEXT NOT NULL,
