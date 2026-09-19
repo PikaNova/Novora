@@ -704,7 +704,7 @@ export default function ExamRecordsPanel({
                         不必先开详情抽屉再点「编辑考试」。 */}
                     {onEditRecord && (
                       <button
-                        className="admin-btn admin-btn--ghost"
+                        className="admin-btn admin-btn--ghost admin-btn--sm"
                         type="button"
                         onClick={() => onEditRecord(record)}
                         title="在编辑器里继续填这场草稿"
@@ -714,7 +714,7 @@ export default function ExamRecordsPanel({
                     )}
                     {onDeleteDraft && (
                       <button
-                        className="admin-btn admin-btn--danger"
+                        className="admin-btn admin-btn--danger admin-btn--sm"
                         type="button"
                         onClick={() => void requestDeleteDraft(record)}
                         title="删除这场草稿"

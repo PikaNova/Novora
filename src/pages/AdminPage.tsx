@@ -315,6 +315,7 @@ export default function AdminPage() {
     commitMajorModal,
     removeMajor,
     removeQuickMajor,
+    discardDraftMajor,
     publishQuickMajor,
     extendQuickMajor,
     endQuickMajor,
@@ -363,7 +364,6 @@ export default function AdminPage() {
     remove,
     removeItems,
     restoreExam,
-    discardDraftMajor,
   } = examItem;
   editingRef.current = editing;
   setEditingRef.current = setEditing as (value: unknown) => void;

@@ -124,6 +124,12 @@
   border-radius: 8px;
   font-size: 0.8125rem;
 }
+/* 更小一档：贴在列表行里的小按钮（草稿行的 编辑/删除 等）。 */
+.admin-btn--sm,
+.set-btn--sm {
+  padding: 3px 9px;
+  font-size: 0.72rem;
+}
 /* 语义变体 */
 .admin-btn--primary,
 .set-btn--primary {
