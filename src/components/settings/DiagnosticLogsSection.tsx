@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Send, ShieldCheck } from 'lucide-react';
+import { Clock, Send, ShieldCheck } from 'lucide-react';
+import { DateTimeField } from '../touch-datetime-picker';
 import InlineSelect from '../InlineSelect';
 import { Switch } from './Switch';
 import {
-  entriesSinceLastUpload,
-  getLastUploadAt,
+  allRetainedEntries,
+  defaultDiagnosticRange,
+  entriesInRange,
   localDiagnosticSnapshot,
   saveDiagnosticSettings,
   sendDiagnosticLogs,
   loadDiagnosticSettings,
+  timestampFromField,
   type DiagnosticCaptureConfig,
-  type LocalDiagnosticBundle,
 } from '../../services/diagnosticLogs';
 
 export default function DiagnosticLogsSection({
@@ -23,24 +25,22 @@ export default function DiagnosticLogsSection({
   canEdit: boolean;
 }) {
   const [config, setConfig] = useState<DiagnosticCaptureConfig>(() => localDiagnosticSnapshot().config);
-  const [bundles, setBundles] = useState<LocalDiagnosticBundle[]>(() => localDiagnosticSnapshot().bundles);
+  const [range, setRange] = useState(() => defaultDiagnosticRange());
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<'success' | 'error' | ''>('');
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(() => entriesSinceLastUpload('date').length);
-  const [lastUploadAt, setLastUploadAt] = useState(() => getLastUploadAt('date'));
 
   useEffect(() => {
     if (!canRead) return;
-    // Local bundles are captured while the app runs, so re-read them whenever the section mounts
-    // instead of rendering the snapshot taken at first render.
-    setBundles(localDiagnosticSnapshot().bundles);
-    setPending(entriesSinceLastUpload('date').length);
-    setLastUploadAt(getLastUploadAt('date'));
     void loadDiagnosticSettings()
       .then(setConfig)
       .catch(() => undefined);
   }, [canRead]);
-  const lastUploadLabel = lastUploadAt > 0 ? new Date(lastUploadAt).toLocaleString() : '尚未上传过';
+  // 本地日志在应用运行期间会持续写入，所以条数在每次渲染时现算，不做缓存。
+  const rangeStart = timestampFromField(range.from);
+  const rangeEnd = timestampFromField(range.to);
+  const rangeEntries =
+    rangeStart != null && rangeEnd != null && rangeEnd >= rangeStart ? entriesInRange(rangeStart, rangeEnd) : null;
   // 保留天数与后端 1-30 天限制一致；当前值不在预设里时补进去，避免选择器显示空白。
   const retentionOptions = useMemo(() => {
     const presets = [1, 3, 7, 14, 30];
@@ -55,54 +55,77 @@ export default function DiagnosticLogsSection({
     setMessage('');
     try {
       setConfig(await saveDiagnosticSettings(config));
-      setBundles(localDiagnosticSnapshot().bundles);
+      setMessageTone('success');
       setMessage('诊断日志保留策略已保存');
     } catch (error) {
+      setMessageTone('error');
       setMessage(error instanceof Error ? error.message : '保存失败');
     } finally {
       setBusy(false);
     }
   }
-  async function sendDate() {
+  function fail(text: string) {
+    setMessageTone('error');
+    setMessage(text);
+  }
+  function report(label: string, result: Awaited<ReturnType<typeof sendDiagnosticLogs>>) {
+    const extra = [
+      result.parts > 1 ? `共 ${result.parts} 个分片` : '',
+      result.truncatedCount > 0 ? `超出分片上限，被截断 ${result.truncatedCount} 条` : '',
+    ]
+      .filter(Boolean)
+      .join('，');
+    setMessageTone(result.status === 'sent' ? 'success' : 'error');
+    setMessage(
+      `${label}已${result.status === 'sent' ? '发送' : '加入失败记录'}，诊断包 ID：${result.bundleId}${extra ? `（${extra}）` : ''}`,
+    );
+  }
+  async function sendRange() {
+    const start = timestampFromField(range.from);
+    const end = timestampFromField(range.to);
+    if (start == null || end == null) {
+      fail('请先选择开始时间与结束时间');
+      return;
+    }
+    if (end < start) {
+      fail('结束时间必须晚于开始时间');
+      return;
+    }
+    const entries = entriesInRange(start, end);
+    if (!entries.length) {
+      fail('所选时间段没有可发送的本地日志');
+      return;
+    }
     setBusy(true);
     setMessage('');
     try {
-      // 手动上传=全量：默认区间是「上次上传以来的全部日志」，没有日志就如实报错，
-      // 不回退成当前快照，否则「全量」名不副实。
-      const from = getLastUploadAt('date');
-      const entries = entriesSinceLastUpload('date');
-      if (!entries.length) throw new Error('自上次上传以来没有新的本地日志');
-      const result = await sendDiagnosticLogs({
-        mode: 'date',
-        fromTs: from > 0 ? from + 1 : 0,
-        toTs: Date.now(),
-        entries,
-      });
-      setPending(entriesSinceLastUpload('date').length);
-      setLastUploadAt(getLastUploadAt('date'));
-      const extra = [
-        result.parts > 1 ? `分 ${result.parts} 片` : '',
-        result.truncatedCount > 0 ? `超出分片上限，被截断 ${result.truncatedCount} 条` : '',
-      ]
-        .filter(Boolean)
-        .join('，');
-      setMessage(
-        `全量日志已${result.status === 'sent' ? '发送' : '加入失败记录'}：${result.bundleId}${extra ? `（${extra}）` : ''}`,
-      );
+      const result = await sendDiagnosticLogs({ mode: 'date', fromTs: start, toTs: end, entries });
+      report('所选时间段的日志', result);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '发送失败');
+      fail(error instanceof Error ? error.message : '发送失败');
     } finally {
       setBusy(false);
     }
   }
-  async function sendBundle(bundle: LocalDiagnosticBundle) {
+  async function sendErrorBundle() {
+    // 出错时管理员不该先想区间：一次点击把本机当前保留的全部日志打成诊断包。
+    const entries = allRetainedEntries();
+    if (!entries.length) {
+      fail('本机当前没有可发送的日志');
+      return;
+    }
     setBusy(true);
     setMessage('');
     try {
-      const result = await sendDiagnosticLogs({ mode: 'error', ...bundle });
-      setMessage(`错误日志已${result.status === 'sent' ? '发送' : '加入失败记录'}：${result.bundleId}`);
+      const result = await sendDiagnosticLogs({
+        mode: 'error',
+        fromTs: entries[0].at,
+        toTs: Date.now(),
+        entries,
+      });
+      report('全部日志诊断包', result);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '发送失败');
+      fail(error instanceof Error ? error.message : '发送失败');
     } finally {
       setBusy(false);
     }
@@ -117,7 +140,7 @@ export default function DiagnosticLogsSection({
         </h2>
       </div>
       <p className="set-card__lead">
-        静默错误摘要仍会独立上报。这里的日志只在本机保留，需管理员主动选择后才发送给作者端。
+        静默错误摘要仍会独立上报。这里的完整日志只在本机保留，只有在管理员主动发送时才会交给作者端。
       </p>
       <div className={`set-fieldset${canEdit ? '' : ' is-dim'}`}>
         <div className="set-row">
@@ -174,43 +197,62 @@ export default function DiagnosticLogsSection({
         <>
           <hr />
           <h3 className="set-card__subtitle">
-            <Download size={16} />
-            发送全部日志
+            <Clock size={16} />
+            按时间发送日志
           </h3>
+          <div className="set-row">
+            <label className="set-label">开始时间</label>
+            <DateTimeField
+              className="set-date-time-field"
+              mode="datetime"
+              value={range.from}
+              onChange={(value) => setRange((current) => ({ ...current, from: value }))}
+              title="选择开始时间"
+              showFieldPreview={false}
+            />
+          </div>
+          <div className="set-row">
+            <label className="set-label">结束时间</label>
+            <DateTimeField
+              className="set-date-time-field"
+              mode="datetime"
+              value={range.to}
+              onChange={(value) => setRange((current) => ({ ...current, to: value }))}
+              title="选择结束时间"
+              showFieldPreview={false}
+            />
+          </div>
           <p className="set-note">
-            区间：上次上传（{lastUploadLabel}）至今，共 {pending} 条待发送。超过 5000 条或 8 MB 时自动分片上传。
+            {rangeEntries
+              ? `所选时间共 ${rangeEntries.length} 条本地日志，超过 5000 条或 8 MB 时自动分片上传。`
+              : '请选择有效的开始与结束时间。'}
           </p>
           <div className="set-row">
-            <label className="set-label">发送上次上传以来的全部日志</label>
+            <label className="set-label">发送所选时间段的日志</label>
             <div className="set-inline-actions">
-              <button className="set-btn" disabled={busy} onClick={() => void sendDate()}>
+              <button className="set-btn" disabled={busy} onClick={() => void sendRange()}>
                 <Send size={15} />
-                发送全量日志
+                发送所选时间日志
               </button>
             </div>
           </div>
-          <h3 className="set-card__subtitle">按错误发送日志</h3>
-          {bundles.length ? (
-            bundles.map((bundle) => (
-              <div className="set-row" key={bundle.bundleId}>
-                <span className="set-label">
-                  {bundle.errorCode || '错误日志'} · {new Date(bundle.createdAt).toLocaleString()} ·{' '}
-                  {bundle.entries.length} 条
-                </span>
-                <div className="set-inline-actions">
-                  <button className="set-btn" disabled={busy} onClick={() => void sendBundle(bundle)}>
-                    <Send size={15} />
-                    发送
-                  </button>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="set-note">当前没有自动保留的错误日志包。</p>
-          )}
+          <h3 className="set-card__subtitle">
+            <Send size={16} />
+            错误日志
+          </h3>
+          <p className="set-note">出问题时点一下即可，会把本机当前保留的全部日志打成诊断包发给作者端。</p>
+          <div className="set-row">
+            <label className="set-label">发送全部日志诊断包</label>
+            <div className="set-inline-actions">
+              <button className="set-btn" disabled={busy} onClick={() => void sendErrorBundle()}>
+                <Send size={15} />
+                发送错误日志
+              </button>
+            </div>
+          </div>
         </>
       ) : null}
-      {message ? <p className="set-note">{message}</p> : null}
+      {message ? <p className={`set-note${messageTone ? ` set-note--${messageTone}` : ''}`}>{message}</p> : null}
     </section>
   );
 }
