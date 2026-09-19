@@ -4,6 +4,8 @@
 
 基线：Novora v2.7.3（`novora-remote-audit`，`main`，`0850b00`）。老仓库只读，不在本仓库范围内。
 
+最后更新：2026-09-19（本周 09-14 ~ 09-19 全量汇总见文末）。当前远端：学校端 `future/main` = `future/upload/main` = `0b5f38d`（`ba235a9` 与 `1536e21` 合流后的合并提交）；作者端 `exam-board-telemetry/main` = `3b8812c`。
+
 ## 会话记录
 
 ### 会话 1：架构审查与代码质量评估（2026-08-30 上午）
@@ -1066,3 +1068,165 @@ dev 遗留数据：草稿 3 条（`77`、`Codex巡检-可删`、`122`），其�
 - 已发布/进行中的考试不会出现这个入口，仍走原来的归档/删除流程。
 
 验证：`npm test` 591/591、`npm run build` 通过。待部署后到 dev 复验（顺带用这个入口把 dev 上那三条测试草稿清掉）。
+
+## 2026-09-18 学校端：v2.8.0 上报中继、更新清单与静态资源（`93a809e`）
+
+把 v2.8.0 的三条服务器侧线索一次性收口（47 个文件，+2411/−197）。当时 worktree 里已经完成的考试中心工作（`exam_records` 层、生命周期、筛选、版本号）刻意裹进同一个提交，因为它们要一起发。
+
+| 域 | 内容 |
+|---|---|
+| 错误上报中继 | 转发上报 v2 快照，以及中继层原先丢掉的字段（`errorSource`/`severity`/`operatorMessage`/`suggestedAction`/`retryable`/`requestId`/`traceId`/`migrationVersion`）；错误上报永不采样，`errorSampleRate` 整条删除 |
+| 遥测 | 每次实例上报带部署形态（`vercel`/`docker`/`nas`/`pm2`/`unknown`），`NOVORA_DEPLOY_TYPE` 兜底 |
+| 更新检查 | 先读作者端 release manifest，返回 `image`/`digest`/`minSchema`/`schemaReady`；GitHub 降级为兜底；两边都拿不到时返回 502，不再谎报「已是最新」 |
+| 诊断包 | 手动包上限提到 5000 条 / 8MB 并显式回报分片号；本地保留 5000 条 / 单条 2000 字符 / 7 天，超预算先丢 info |
+| 静态资源 | 缺失文件 404 + `no-store`；SPA 回退只服务无扩展名路由；Service Worker 拒绝缓存内容类型不匹配的响应 |
+
+新增（节选）：`src/shared/abortError.ts`、`src/shared/chunkLoadError.ts`、`src/shared/staticAssetPolicy.ts`、`src/utils/chunkLoadRecovery.ts`、`src/utils/diagnostics.ts`；测试 `tests/errorReportRelay.test.ts`、`tests/staticAssetPolicy.test.ts`、`tests/updateCheckManifest.test.ts`、`tests/chunkLoadRecovery.test.ts`、`tests/telemetryDeployType.test.ts` 等。
+
+## 2026-09-18 当前考试实时状态板（`f3cce7c`）
+
+「当前考试」从「筛选后的记录列表」改成回答「学校此刻在发生什么」（7 个文件，+2153/−5）。
+
+- 从本地课表快照按科目级收集并发场次（范围感知、周测按时间结构分组），再与 `exam_records` 的生命周期状态配对。
+- 看板内容：大倒计时、进度、上一场 / 当前 / 下一场时间线、下一场卡片、空态与超时态，以及一条轻量的同步 / 设备状态条。
+- 页面保持只读：只能开详情抽屉、编辑考试、回课表；没有新建入口，也不做列表管理。
+- 性能：不走按班解析（共享 resolver 每次冲突比较都重解析时间，300 班 + 40 场约 2.7s），换成新的收集路径加 timing-key 缓存后，同场景约 0.1s。
+- 新增 `src/utils/examCenterStatus.ts`、`src/components/exam-center/CurrentExamPanel.tsx`、`src/styles/exam-center-current.css`、`tests/examCenterStatus.test.ts`（9 条：并发场次、暂停冻结、超时 vs 已结束、跨天前后、周测冲突抑制、缺生命周期接口、空态、周测分组、格式化）。`npm test` 542 通过。
+
+## 2026-09-18 作者端：错误上报 v2 与上报完整度（14 个提交）
+
+`exam-board-telemetry-author/main` 09-18 全天 14 个提交（36 个文件，+1807/−87，6 feat / 5 fix / 2 chore / 1 docs），终点 `3b8812c` 已与 `origin/main` 同步。
+
+| 提交 | 内容 |
+|---|---|
+| `788b796` | 错误中心展示客户端诊断快照：把上报 v2 字段（网络 / 同步状态、面包屑、commit sha、错误码、事件 id）渲染成完整度卡片、键值事实与相对时间时间线；错误列表新增「快照」列与 `snapshot=yes|no` 筛选（`has_snapshot` / `snapshot_sections`，null 安全绑定）；展示键上限提到 20 与入库对齐，并用契约测试锁住客户端 / 控制台键名 |
+| `ae49337` | 客户端取消类与资源版本不一致不再算「程序缺陷」：新增 `client`（客户端行为）归因类别；取消类入库强制 `client`/`warning`（不采信客户端给的 `program`）；分组 SQL 不再用 `COALESCE(NULLIF(error_source,''),'program')` 兜底短路推导，并返回 `error_name` / `message` |
+| `28eb215` | 新增幂等历史归因回填工具，容器内一条命令可重复执行 |
+| `8873602` | 回填工具除补空值外，再把被客户端标成 `program` 的取消类 / 资源加载失败纠正为 `client`（取消类同时降为 warning），支持 `--dry` 预演，真实程序缺陷不动 |
+| `18d37cd` | 上报完整度不再空白：错误名形如编码（`NETWORK_TIMEOUT`/`DATABASE_READ_FAILED`…）时按错误名还原错误码并补中文标签；缺 `commit_sha` 时用版本号兜底并显示取值 |
+| `ad67051` | 错误上报永不采样：作者端配置出口的 `errorSampleRate` 读写两条路径都强制为 1，采样只留给性能 / 心跳；手动诊断包放宽到 5000 条 / 8MB / 100 包每天 / 保留 30 天 / 单条 2000 字符 / 上下文 20 键，超限明确写出收到值与上限 |
+| `e340e7b` | 完整度卡片每一项补「为什么缺（旧版客户端不采集 / 未带提交号 / 未带错误码）+ 下一步」，鼠标悬停可见，不再只显示一排「—」 |
+| `a304197` | compose 与 `.env.example` 的默认值同步放大——compose 的默认值会覆盖代码默认值，不同步改则部署后仍按 20 包/天、1MB、7 天生效 |
+| `0666b66` | 旧客户端上报缺事件序列与网络状态：用「同实例、时间窗重叠的诊断包」补事件序列摘要（按级别计数 + 前 5 条），用「同实例最近性能样本（6 小时内）」补当时网络表现，两者在完整度卡片上标注来源；性能接口新增按实例过滤 |
+| `eb7d43b` | 错误事件表 10 列横向溢出、详情按钮被 5px 滚动条压住：操作列在桌面宽度贴右固定（sticky），滚动条加高到 10px 并加可见轨道，容器底部留 6px |
+| `968e3f0` | 不再把原始错误文本当成操作员提示：无错误码时存目录文案或 null；`resolveOperatorMessage()` 保留校方自定义备注、忽略回声值与旧占位 |
+| `8a7440d` | 文档：把错误上报 v2 中继与资源 404 的工作交接给学校端（中继层为什么静默丢字段、要转发什么、用哪个消毒器、keep-last-release 与 SW 缓存守卫、以及属于本批的学校端文件清单） |
+| `e00eae3` | 用 headless Chrome + CDP 重新量 10 个页面（320/360px）：版本管理页公开清单长 URL 溢出 39px 被裁、设备页长主机名被截、一批 34–35px 按钮低于触控下限；现在长 URL / 主机名允许断行、手机端所有按钮 `min-height:44px`，审计脚本留成 `tools/mobile-audit.mjs` |
+| `3b8812c` | `telemetry_instances` 增加 `deploy_type`（按约定枚举解析，未知值收敛为 `unknown`、缺省保持 null；last-write-wins，不清空已知值），总览实例列表、按部署形态分版本统计、实例诊断报告都带上；`diagnostic_log_bundles` 增加 `part_no` / `part_total` / `truncated_count`，分片顺序与截断条数在入库、列表与详情接口都保留 |
+
+## 2026-09-19 诊断日志按时间发送 + 一键全量错误包（`ffdf196` / `219c4c2`）
+
+同一改动在两条并行线上各提交一次（合并后都在历史里），6 个文件，+312/−102。
+
+设置页原来只有一个「发送全部日志」按钮，范围由「上次上传以来」静默决定，另外还列着错误包清单（错误码、时间戳、逐条发送）——没有任何办法只发某一段，也把校方管理员看不懂的错误细节暴露在列表上。
+
+- 按时间发送：起止 `DateTimeField`（默认最近 24 小时）+ 实时条目计数 + 结果行给出诊断包 id。
+- 取消静默全量上传：删掉「上次上传游标」与 `markUploaded` 记账，发什么完全由管理员选定的区间决定。
+- 错误日志：错误包清单换成「一键打包全部保留条目」（`mode=error` → 作者端 `manual-error`）并回报包 id。
+- 服务层：`timestampToField` / `timestampFromField`（严格，拒绝 `2026-02-30` 这类自动进位日期）、`defaultDiagnosticRange`、`entriesInRange`、`allRetainedEntries`。
+- 验证：`npm test` 595 通过（新增 4 条：字段解析、默认区间、区间 / 全量选择、一键包不留隐藏上传标记）。
+
+## 2026-09-19 草稿删除真正生效与小号行内按钮（`c27ec28` / `bb7fab2` / `a6f5257`）
+
+用户反馈「点删除草稿没有任何反应、也没发出请求」。
+
+| 提交 | 内容 |
+|---|---|
+| `c27ec28` | 并行线同因修复（1 行）：`AdminPage` 从 `useExamItemActions` 解构了 `discardDraftMajor`，而该函数实际在 `useMajorScheduleActions` 上，删草稿时抛 `discardDraftMajor is not a function` |
+| `bb7fab2` | 完整修复：把 `discardDraftMajor` 挪回 `useMajorScheduleActions` 的解构块——同一个 bug 也让「关闭创建向导时空草稿丢弃」失效。CDP 抓到 `TypeError: yt is not a function`，再对着产物分片定位；本地重打包后核对分片，`discardDraftMajor` 与 `removeQuickMajor` 同属一组（major hook），两个调用点都指向该绑定。顺带新增 `.admin-btn--sm`（`3px 9px / 0.72rem`），把草稿行「编辑 / 删除」调小一档少占一行高度 |
+| `a6f5257` | 两条并行线合并后同一个解构块里出现两行同名解构（`tsc` TS2451、vite 构建失败），删掉重复的一行，保留与远端一致的那行；合并同时带入对方的「当前考试实时状态板」与「诊断日志按时间发送」两批 |
+
+- 教训：这块解构目标类型偏宽松，往解构里写一个不存在的键 `tsc` 不会报错（实测加 `bogusKey` 也能过编译），这类「接错 hook」只能靠运行时 / 线上抓异常兜住。
+- 验证：`npm test` 595 → 604 全过、`npm run build` 通过；`tsc` 仍只有 5 条既有报错。
+
+## 2026-09-19 考试生命周期新约定：契约层（`b3db058`）
+
+新约定：**创建即发布 → 到点由系统自动开考 → 管理员只能「申请停止」→ 系统判定后才真正 `ended`**；`draft` 只留作历史遗留。这是第 1 步，纯契约、全部新增、不改现有行为（3 个文件，+227/−3）。
+
+- `examRecordContracts`：`ExamRecord` 增加可选 `stopRequestedAt`（手动结束变成「申请停止」的落点）；展示状态新增派生的 `stopping`（文案「停止中」）；`availableExamRecordActions` 为 `stopping` 补分支（只留强制结束与复制）；新增纯函数 `examRecordDisplayStatus`，改为按 `actualStartAt` 判断进行中——旧实现按计划时间窗判断，会出现「界面显示进行中、实际开考时间是空的」不一致。
+- `examLifecycleOperations`：新增三个纯规划器 `planAutoStart` / `planStopRequest` / `planAutoEnd`。自动开考写入的是**计划时间**（后台晚几分钟才打开页面时开考时间仍准确）；申请停止幂等（重复申请跳过）；判定结束按「到点优先 → 全员回执 → 无在线设备宽限到期」，到点用 `effectiveEndAt`（`endAt + pausedMs`）并顺带结转暂停时长，结束原因回传 `timeup`/`receipts`/`no-device-timeout` 供操作日志记录。
+- 新增 `tests/examLifecycleAuto.test.ts`：8 条用例覆盖到点 / 未到点 / 已开考幂等 / 非 published / 无时间、申请停止幂等、判定优先级、暂停结转、六种展示状态。
+- 刻意留到后续（避免中间态把「开考」按钮摘掉而自动开考还没上线）：② 迁移 + 投影 + 路由（`stop_requested_at` 列、`displayStatus` 切换、读接口与设备心跳惰性推进、动作路由接 `request_stop` 与强制结束）；③ 客户端（抽屉按钮与文案、向导与快速考试改为创建即发布并删掉草稿路径）；④ 文档与 dev 实测。
+- 验证：`npm test` 612/612、`npm run build` 通过；`tsc` 仍只有 5 条既有报错。
+
+## 2026-09-19 系统惰性推进自动开考（`1536e21`，`upload/main`）
+
+生命周期新约定的 ② 前半：自动开考 + 展示状态切换（5 个文件，+84/−5）。停止申请与结束判定（②b）留到下一批，规划逻辑上一批已写好并测过。
+
+- `api/_exams/db.ts`：新增 `exam_records.stop_requested_at` 列（`ADD COLUMN IF NOT EXISTS`，与现有迁移同一写法）——加字段而不是加状态，避免动 `status` 那条 CHECK 约束。
+- 新增 `api/_exams/examAutoLifecycle.ts`（54 行）：`autoStartDueRecords(now)` 用条件更新 `UPDATE ... WHERE status='published' AND actual_start_at IS NULL AND start_at IS NOT NULL AND start_at <= now RETURNING id, start_at`——并发下只有一次会写成功，也只有写成功的那次补一条 `exam_record_operations`（`action=auto_start`、`actor_id=NULL` 表示系统、reason「系统按计划时间自动开考」）。写入计划时间而不是 `now`，后台晚几分钟才有人打开页面时开考时间仍准确。
+- 触发点（惰性，**不依赖 Cron**）：考试记录列表、详情操作记录接口，以及设备心跳（教室端空着、没拉任何考试时顺手推进；已在考的教室不重复做）。
+- `examRecordRoutes`：`displayStatus` 改为调用 shared 的 `examRecordDisplayStatus`，`recordJson` / `planInput` / `RecordRow` 带上 `stop_requested_at`；「显示进行中但实际开考时间为空」的不一致会随自动开考消失。客户端 `examRecords` 的 `ExamRecordListEntry` 增加 `stopRequestedAt` 解析，供后半批的「停止中」态使用。
+- 验证：`npm test` 612/612、`npm run build`、`npm run typecheck:api` 通过；`tsc` 仍只有 5 条既有报错。**未验证**：自动开考那段 SQL 与迁移还没在真实库上跑过（不擅自动本机 Postgres），可用 disposable 库跑 `npm run test:integration`，或部署后到 dev 造一场已到点的考试看是否自动开考。
+
+## 2026-09-19 大倒计时超过 99 小时的显示修复（`ba235a9`）
+
+`formatCountdown` 把超过 99 小时的值一律截成 `99:59:59`，于是 5 天后的考试会显示一个假的「99:59:59」并静止数天；同一处上限还把跨天考试的「已进行」「已超时」读数弄错。
+
+- 超过一天显示「N 天 HH:MM」，一天内仍是 `HH:MM:SS`。
+- 新增 `23:59:59` / `1 天 00:00` / `4 天 21:43` / `5 天 00:00` 用例。2 个文件，+17/−2。
+
+## 2026-09-19 本周（09-14 ~ 09-19）全量汇总
+
+### 一句话
+
+09-14（周一）~ 09-17（周四）三个仓库**都没有任何提交**（`git log --since/--until` 为空），本周全部改动集中在 09-18（周五）与 09-19（周六）两天：09-18 是「考试中心全流程 + 统一控件 + dev 实测修复」，09-19 是「生命周期新约定（契约 → 自动开考）+ 诊断日志按时间发送 + 草稿删除修复 + 倒计时修复」。
+
+数据截至 09-19 17:25（`main` = `ba235a9`，`upload/main` 由 `0b5f38d` 合并 `future/main` 后前进）；之后同一工作区仍在继续提交，本条之后如有新提交需再追加。
+
+### 提交规模（本周）
+
+| 仓库 / 分支 | 区间 | 提交 | 文件 | 增减 | 远端状态 |
+|---|---|---|---|---|---|
+| 学校端 `Novora-future`（`main` / `upload/main` 现已同指 `0b5f38d`） | `0d7deb1^..0b5f38d`（09-18 19:41 → 09-19 17:23，含 2 个合并提交） | 43（18 feat / 10 docs / 6 fix / 5 refactor / 3 merge / 1 test） | 96 | +7690 / −912 | `0b5f38d` 已推送 `future/main` 与 `future/upload/main` |
+| ↳ 先分叉后合流 | `b3db058` 之后：`main` 走 `ba235a9`（倒计时修复）、`upload/main` 走 `1536e21`（惰性自动开考）；`ee15fe1`（09-19 17:10）与 `0b5f38d`（09-19 17:23）两次合并 | — | — | — | 两条线内容现已一致，`upload/main` 一侧多一条 `1536e21` |
+| 作者端 `exam-board-telemetry` `main` | `788b796^..3b8812c`（09-18 19:45 → 21:12） | 14（6 feat / 5 fix / 2 chore / 1 docs） | 36 | +1807 / −87 | `3b8812c` 已与 `origin/main` 同步 |
+| 工作区 `workspace/` 文档 | 同上 | 10 个 `docs:` 提交 | — | — | 随学校端一起进历史 |
+
+### 逐日改动清单
+
+**09-18 · 学校端 · 考试中心与后台（19:41 ~ 21:29，33 个提交，含 `93a809e` 那条 v2.8.0 合并批）**
+
+- 板块收敛与列表分组：`0d7deb1`（周测展开成只读实例行）、`095f038`（周测并入考试安排，四块收成三块）、`84a7c2c`（分组纯函数 + 5 单测）、`5520201`（列表按今天/明天/本周内/更晚、历史按自然月分组）、`77e1ab6`（内容区顶部横条 → 左侧 rail）、`0c6b0c5`（孤儿草稿不再展示）
+- 控件与导航统一第一批：`f870fd5`（筛选换 `InlineSelect`）、`dde0491`（详情「编辑考试」按 id 定位 + 返回保留筛选）、`269401e`（三个板块进左栏子项）、`6264d06`（复选框 / 输入框 / 字体分区）、`1f8f7eb`（docs）
+- 第二批：`6e0f09a`（开关收敛成一份 + 顶栏「管理后台」）、`1289b9c`（关向导时空草稿追问保留 / 丢弃；初始化不再生成默认考试）、`6769cc8`（初始化回归测试）、`3b9b86e`（docs）
+- dev 四项修复与按钮统一：`c10921b`（弹窗输入框边框 / 搜索框 `.sr-only` / 向导科目行 5 列 / 草稿可再次编辑）、`dd3e6ba`（docs）、`b5dfa1d`（三族按钮收成一份规格）、`b9706b5`（docs）
+- 刷新约定与向导第 3 步：`6ff2922`（刷新时列表不再被清空）、`9d43171`（docs）、`ad38ac7`（向导第 3 步直接进编辑器 + 编辑器工具栏精简 + 筛选栏重叠）、`31831f4`（docs）
+- 信息密度方案 1+2 / 3+4：`0383713`、`1c98313`、`0ca45ad`、`942fb6a`
+- v2.8.0 上报 / 更新 / 静态资源：`93a809e`（见上文专节）
+- 收尾：`6d82da9`（刷新状态只在按钮上，新增 `RefreshButton`）、`f32871f`、`f7eab89`（草稿删除入口）、`c2b0883`、`f3cce7c`（当前考试实时状态板）
+
+**09-18 · 作者端 · 14 个提交**：`788b796` → `3b8812c`（见上文专节表），主线是错误中心展示客户端诊断快照、客户端行为归因、上报完整度补全与永不采样、手动诊断包放宽、`deploy_type` / 分片字段入库。
+
+**09-19 · 学校端 · 8 个提交 + `upload/main` 2 个**：`c27ec28`（草稿删除同因修复）、`ffdf196` + `219c4c2`（诊断日志按时间发送，两条并行线各一份）、`bb7fab2`（草稿删除真正生效 + 小号行内按钮）、`ee15fe1`（`future/main` 并入 `upload/main`）、`a6f5257`（清掉合并后的重复解构）、`b3db058`（生命周期契约层）、`ba235a9`（大倒计时 99 小时截断修复）、`1536e21`（惰性自动开考，先在 `upload/main`）、`0b5f38d`（再合一次 `future/main`，远端 `main` 也随之前进到合并提交）。
+
+### 工作区文件、归档与工具（本周）
+
+- **本周计划文档**：`novora-week-plan-2026-09-18.md`（09-18 18:57）——对照 `share_6aad159a` 得出的 09-18 ~ 09-20 排期；核心事实是「用户拿不到 `Novora-future` 的发布」：用户仓库 `PikaNova/Novora` 最新 Release 仍是 2.7.3，而开发仓库已到 2.7.6；出口条件为「future 冻结打 `v2.8.0` tag → 生成老仓库发布树 → 合并老仓库 `main` → 打 2.8.0 Release → 作者端登记 2.8.0 → 文档站口径一致」，冻结线 09-19 24:00。
+- **对话归档**：新增 `share_6aad159a.*`（对照 Future 开发计划）、`share_6aad162c.*` 与 `share_6aad37a6.*`（完善考试中心流程，两次导出）；`conversation-index.md` 更新到 09-18（索引里已补 `share_6aad159a` 一行）。
+- **新增解析工具**：`decode-share-generic.cjs`、`extract-share-messages.cjs`（配合上述导出做结构化解析）。
+- **追踪文档**：`workspace/` 下 `task_plan.md`、`findings.md`、`progress.md`、`nas-sync-tracker.md` 由本周 10 个 `docs:` 提交持续更新（每个功能批次先落文档再进下一批）。
+- **运维脚本 / 工作产物**：`nas-upload-worktree/.tmp-dev-*.cjs`（`baseline`/`focus`/`probe`/`repro`/`sweep`/`verify` 六个 CDP 探针，未提交）、作者端 `tools/mobile-audit.mjs`（已提交）。
+- **上个周期顺带产物（09-13，已在上文 09-12 ~ 09-13 章节记录）**：`novora-2.8.0-release-notes.md`（2.7.3 → 2.8.0 差异对照）、`novora-docs-update-plan.md`、`novora-docs-deploy-restructure-plan.md`、`work/Novora-release`（`public/v2.8.0` 发布树，停在 `5feb102`，未推送）。
+
+### 验证汇总（本周）
+
+| 环节 | 结果 |
+|---|---|
+| 学校端单测 | 542（`f3cce7c`）→ 572 → 574 → 591 → 595 → 604 → **612/612** 全过 |
+| 学校端构建 | `npm run build` 每批均通过；`npm run typecheck:api` 通过 |
+| 学校端类型检查 | 全量 `npx tsc -p tsconfig.json` 仍有 5 条既有报错（`useMajorScheduleActions` 3、`useWeeklyScheduleSync` 1、`AdminPage(100)` 1），逐条与 `HEAD` 对比确认改动前既有，本周未新增 |
+| 样式 / 几何核验 | 用 `dist` 真实 CSS 搭静态页 + 无头 Chrome 量几何：按钮三档尺寸、输入框 36px/6px、筛选栏 4 列 398/249/249/249px、紧凑模式 5 列、班级视图 5 列等 |
+| dev 实测 | 09-18 部署后（dev = `b9706b5`）逐项复验左栏子项、产物断言、弹窗输入框、搜索框、草稿与归档复选框、字体分区；并复现到「关向导后列表闪空白」（`6ff2922` 修复） |
+| 真实库集成 | 本周新增的自动开考 SQL 与 `stop_requested_at` 迁移**尚未在真实库验证** |
+| 作者端 | 手机端 CDP 复核（10 个页面 / 320·360px）后修 `e00eae3`；`3b8812c` 与 `origin/main` 同步 |
+
+### 未完成 / 下一步（截至 09-19）
+
+1. **发布出口未走完**：`PikaNova/Novora` 老仓库尚无 2.8.0 Release；发布树裁剪（上次是手工删 `workspace/`、`AGENTS.md`、`PROJECT_MIGRATION.md` 并重写 README）还没脚本化；作者端 2.8.0 登记与 `/api/release-manifest` 未做；文档站 changelog 与功能文档未改（方案见 09-13 的两份 docs 计划）。
+2. **生命周期 ②b / ③ 未做**：停止申请与结束判定的路由、投影与客户端按钮文案（「申请停止」「停止中」）还没接线；向导与快速考试尚未改为「创建即发布」、草稿路径仍未删除。
+3. **自动开考未在真实库验证**（见上表），需要 disposable 库或 dev 造一场已到点的考试。
+4. **dev 遗留待清**：三条测试草稿（`77`、`Codex巡检-可删`、`122`）可用新入口清掉；09-18 多项「待部署后到 dev 复验」清单（折叠默认态、分组计数、行内时间文案、更多筛选计数、视图 / 密度切换、分页条数、周测「还有 N 条」）仍待确认。
+5. **红线保持**：旧客户端（outbox / ETag / 三方合并 / ClassIsland / 设备心跳）零回归、周测数据模型不动、不碰收费代码——本周改动未触碰这几处。
+
+> 同步口径：本节内容写入 `workspace/nas-sync-tracker.md`（本仓库两条工作树各一份、内容一致）。工作区根目录还留着更早一代的同名快照，未随本次更新改动。
