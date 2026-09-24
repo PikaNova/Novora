@@ -59,7 +59,6 @@ function AppContent() {
           </Routes>
         </div>
       </Suspense>
-      <PwaUpdateNotice />
     </>
   );
   return pathname === '/plugin/connect' ? content : <ConsentGate>{content}</ConsentGate>;
@@ -70,6 +69,7 @@ export default function App() {
       <BodyScrollLock />
       <DeviceHeartbeat />
       <NoticeHost />
+      <PwaUpdateNotice />
       <SyncQueueIndicator />
       <AppDialogHost />
       <AppContent />

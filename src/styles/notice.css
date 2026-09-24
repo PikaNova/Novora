@@ -1,6 +1,7 @@
 .notice-host {
   position: fixed;
-  z-index: 10000;
+  /* 提醒层永远最高（见 admin-design.css 的 --z-reminder）。 */
+  z-index: var(--z-reminder, 20000);
   right: max(18px, env(safe-area-inset-right));
   bottom: max(18px, env(safe-area-inset-bottom));
   display: grid;

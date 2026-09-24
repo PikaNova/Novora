@@ -4762,7 +4762,8 @@
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 1550;
+  /* 同属提醒层：这条提示可能正开着弹窗（例如向导里提示缺项），不能被盖住。 */
+  z-index: var(--z-reminder, 20000);
   width: min(390px, calc(100vw - 28px));
   padding: 16px;
   border: 1px solid rgba(232, 178, 65, 0.55);

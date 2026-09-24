@@ -642,7 +642,8 @@
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 60;
+  /* 草稿提示条也是提醒：带着「下一步」这个必须能点的入口，不能被弹窗盖住。 */
+  z-index: var(--z-reminder, 20000);
   display: flex;
   align-items: center;
   gap: 14px;

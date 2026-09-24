@@ -20,6 +20,7 @@ import LoadingState from '../components/LoadingState';
 import QuickMajorPublishModal from '../components/QuickMajorPublishModal';
 import MajorBatchAddModal from '../components/MajorBatchAddModal';
 import MajorEditorModal from '../components/major/MajorEditorModal';
+import NoticePortal from '../components/NoticePortal';
 import TimeRangePickerModal from '../components/TimeRangePickerModal';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
@@ -746,6 +747,14 @@ export default function AdminPage() {
     setMajorModal(snapshot);
   };
   /**
+   * 编辑器弹窗底部那枚「去确认并发布」：先关掉弹窗再恢复向导，
+   * 否则向导会开在弹窗之上、看起来像两层套娃。
+   */
+  const goToWizardConfirmFromEditor = () => {
+    setEditorModalOpen(false);
+    resumeMajorWizard();
+  };
+  /**
    * 删除一条草稿。入口在考试安排的草稿行与草稿详情抽屉里——以前只有「关向导时空草稿丢弃」
    * 这一条删除路径，草稿一旦留下就只能发布或一直躺着（dev 上积的那几条就是这么来的）。
    * 删除只动快照里的这场考试并推送，教室端不受影响（草稿还没发布）。
@@ -1279,22 +1288,28 @@ export default function AdminPage() {
         用户就再也回不到下一步，只能去考试安排里重新找这场草稿。
         编辑器之外的考试中心板块也保留，用户顺手去查别的考试时不会丢掉回程路。
       */}
+      {/*
+        提醒层：永远在弹窗之上（--z-reminder），并且必须走 NoticePortal 挂到 body——
+        挂在页面树里会被页面自己的层叠上下文压在弹窗下面，z-index 再高也点不到。
+      */}
       {showWizardDraftHint && (
-        <div className="admin-draft-hint" role="status" aria-live="polite">
-          <div className="admin-draft-hint__body">
-            <strong>「{wizardDraftName}」的科目还没填完</strong>
-            <span>
-              {examViewActive === 'editor'
-                ? '在编辑器里添加或修改科目与时间，编辑完成后点「下一步」继续确认并发布。'
-                : '回到「编辑考试」继续填科目与时间，或直接点「下一步」回到向导的确认步骤。'}
-            </span>
+        <NoticePortal>
+          <div className="admin-draft-hint" role="status" aria-live="polite">
+            <div className="admin-draft-hint__body">
+              <strong>「{wizardDraftName}」的科目还没填完</strong>
+              <span>
+                {examViewActive === 'editor'
+                  ? '在编辑器里添加或修改科目与时间，编辑完成后点「下一步」继续确认并发布。'
+                  : '回到「编辑考试」继续填科目与时间，或直接点「下一步」回到向导的确认步骤。'}
+              </span>
+            </div>
+            <div className="admin-draft-hint__actions">
+              <button className="admin-btn admin-btn--primary" type="button" onClick={goToWizardConfirmFromEditor}>
+                下一步
+              </button>
+            </div>
           </div>
-          <div className="admin-draft-hint__actions">
-            <button className="admin-btn admin-btn--primary" type="button" onClick={resumeMajorWizard}>
-              下一步
-            </button>
-          </div>
-        </div>
+        </NoticePortal>
       )}
       {gradeAdminSetupPromptOpen && (
         <GradeAdminSetupPromptModal
@@ -1511,14 +1526,16 @@ export default function AdminPage() {
           grades.length === 0 ||
           classes.length === 0 ||
           recoveryConfigured === false) && (
-          <AdminIncompletePrompt
-            initialization={initialization}
-            grades={grades}
-            classes={classes}
-            recoveryConfigured={recoveryConfigured}
-            onContinue={() => setWizardOpen(true)}
-            onOpenClasses={() => setAdminTab('classes')}
-          />
+          <NoticePortal>
+            <AdminIncompletePrompt
+              initialization={initialization}
+              grades={grades}
+              classes={classes}
+              recoveryConfigured={recoveryConfigured}
+              onContinue={() => setWizardOpen(true)}
+              onOpenClasses={() => setAdminTab('classes')}
+            />
+          </NoticePortal>
         )}
     </div>
   );

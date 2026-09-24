@@ -1,6 +1,7 @@
 .pwa-update-notice {
   position: fixed;
-  z-index: 10050;
+  /* 更新提示也是提醒层：永远压在弹窗之上（见 admin-design.css 的 --z-reminder）。 */
+  z-index: var(--z-reminder, 20000);
   left: 50%;
   bottom: max(18px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
