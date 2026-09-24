@@ -1,0 +1,293 @@
+/* 「考试安排」日程轴：一条时间轴承载 大型考试 / 快速发布 / 周测 / 草稿。 */
+.exam-schedule {
+  display: grid;
+  gap: 10px;
+}
+.exam-schedule__banner,
+.exam-schedule__empty {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 22px 16px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius, 10px);
+  color: var(--adm-text-3, #879caf);
+  font-size: 13px;
+}
+.exam-schedule__banner {
+  justify-items: start;
+}
+.exam-schedule__banner.is-error {
+  border-color: rgba(224, 96, 96, 0.4);
+  background: var(--adm-danger-soft, rgba(224, 96, 96, 0.1));
+  color: #f0a5a5;
+}
+.exam-schedule__empty strong {
+  color: var(--adm-text, #eaf2f8);
+  font-size: 15px;
+}
+
+.exam-schedule__conflict-banner {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(224, 96, 96, 0.4);
+  border-radius: var(--adm-radius-sm, 8px);
+  background: var(--adm-danger-soft, rgba(224, 96, 96, 0.1));
+  color: #f0a5a5;
+  font-size: 13px;
+}
+.exam-schedule__conflict-banner ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+  display: grid;
+  gap: 2px;
+}
+
+.exam-schedule__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.exam-schedule__stats span {
+  padding: 3px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 999px;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.exam-schedule__stats span.is-warn {
+  border-color: rgba(224, 96, 96, 0.4);
+  color: #f0a5a5;
+}
+
+.exam-schedule__days {
+  display: grid;
+  gap: 12px;
+}
+.exam-schedule__day {
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius, 10px);
+  background: var(--adm-bg1, #0c1219);
+  overflow: hidden;
+}
+.exam-schedule__day-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: var(--adm-bg2, #10171f);
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-schedule__day-head:hover {
+  background: var(--adm-bg3, #16202b);
+}
+.exam-schedule__day-head strong {
+  font-size: 14px;
+}
+.exam-schedule__day-date {
+  color: var(--adm-text-3, #879caf);
+  font-variant-numeric: tabular-nums;
+}
+.exam-schedule__day-head em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.exam-schedule__day-conflict {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(224, 96, 96, 0.4);
+  color: #f0a5a5;
+  font-size: 12px;
+}
+.exam-schedule__chevron {
+  transition: transform 140ms ease;
+}
+.exam-schedule__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.exam-schedule__list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-schedule__item + .exam-schedule__item {
+  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+}
+.exam-schedule__row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) minmax(96px, auto) auto 18px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--adm-text, #eaf2f8);
+  text-align: left;
+  cursor: pointer;
+}
+.exam-schedule.is-compact .exam-schedule__row {
+  padding: 6px 12px;
+}
+.exam-schedule__row:hover {
+  background: rgba(148, 180, 208, 0.05);
+}
+.exam-schedule__time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.exam-schedule__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.exam-schedule__main strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-schedule__subject {
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.exam-schedule__kind {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 999px;
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+}
+.exam-schedule__conflict-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  color: #f0a5a5;
+  font-size: 11px;
+}
+.exam-schedule__suppressed-flag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px dashed rgba(223, 167, 47, 0.5);
+  color: #f0d08a;
+  font-size: 11px;
+}
+.exam-schedule__scope {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-schedule__status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.exam-schedule__status.is-imminent {
+  border-color: rgba(76, 190, 140, 0.5);
+  color: #9adcbc;
+}
+.exam-schedule__status.is-ongoing {
+  border-color: rgba(59, 143, 208, 0.5);
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+  color: #9fd0f2;
+}
+.exam-schedule__status.is-stopping {
+  border-color: rgba(223, 167, 47, 0.5);
+  color: #f0d08a;
+}
+.exam-schedule__status.is-suppressed,
+.exam-schedule__status.is-ended {
+  color: var(--adm-text-3, #879caf);
+}
+.exam-schedule__status.is-suppressed {
+  border-style: dashed;
+}
+
+.exam-schedule__detail {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px 154px;
+}
+.exam-schedule__detail-empty {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-schedule__subjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-schedule__subjects li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 999px;
+  font-size: 12px;
+}
+.exam-schedule__subjects em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.exam-schedule__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .exam-schedule__row {
+    grid-template-columns: 104px minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+  .exam-schedule__scope {
+    grid-column: 2 / -1;
+  }
+  .exam-schedule__detail {
+    padding-left: 12px;
+  }
+}
+
+@media (max-width: 620px) {
+  .exam-schedule__row {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+  .exam-schedule__status {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

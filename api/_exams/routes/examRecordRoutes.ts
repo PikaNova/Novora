@@ -248,6 +248,24 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
   const statusFilter = requestedStatus && requestedStatus !== 'all' ? requestedStatus : '';
   const presetFilter = text(req.query?.preset).trim();
   const includeArchived = text(req.query?.includeArchived).trim() === '1';
+  // 时间窗：考试安排页一次取整窗（本周/未来两周），窗口内不再分页，避免同一分组被切成两页。
+  const fromRaw = text(req.query?.from).trim();
+  const toRaw = text(req.query?.to).trim();
+  const fromValue = Number(fromRaw);
+  const toValue = Number(toRaw);
+  const hasWindow =
+    fromRaw !== '' &&
+    toRaw !== '' &&
+    Number.isFinite(fromValue) &&
+    Number.isFinite(toValue) &&
+    fromValue > 0 &&
+    toValue > fromValue;
+  // 未定时间的考试（start_at 为空）不属于任何一天，按需单独带出来放进「待排期」。
+  const includeUnscheduled = text(req.query?.includeUnscheduled).trim() === '1';
+  if ((fromRaw !== '' || toRaw !== '') && !hasWindow) {
+    error(res, 400, 'INVALID_WINDOW', '无效的时间窗');
+    return;
+  }
   if (presetFilter && !isRecordListPreset(presetFilter)) {
     error(res, 400, 'INVALID_PRESET', '无效的考试板块');
     return;
@@ -334,6 +352,9 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         AND (${timeFilter}::text = ''
           OR (${timeFilter} = 'upcoming' AND start_at IS NOT NULL AND start_at >= ${now}::bigint)
           OR (${timeFilter} = 'past' AND end_at IS NOT NULL AND end_at < ${now}::bigint))
+        AND (${hasWindow}::boolean = FALSE
+          OR (start_at IS NOT NULL AND start_at >= ${fromValue}::bigint AND start_at < ${toValue}::bigint)
+          OR (${includeUnscheduled}::boolean AND start_at IS NULL))
         AND (${presetFilter}::text = '' OR (
           CASE ${presetFilter}::text
             WHEN 'current' THEN (

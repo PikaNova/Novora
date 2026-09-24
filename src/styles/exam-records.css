@@ -595,6 +595,33 @@
   white-space: nowrap;
 }
 /* 刷新时列表保持原样：状态只体现在刷新按钮上（见 components/admin/RefreshButton）。 */
+/* 「考试安排」的时间窗切换条：今天 / 明天 / 本周 / 未来两周 / 全部。 */
+.exam-records-window {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 3px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 999px;
+  background: var(--adm-bg1, #0c1219);
+}
+.exam-records-window__item {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.exam-records-window__item:hover {
+  color: var(--adm-text, #eaf2f8);
+}
+.exam-records-window__item.is-active {
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+  color: #9fd0f2;
+}
 /*
  * 新建向导第 3 步直接进编辑器时的常驻提示（回向导确认步骤的唯一入口）。
  * 固定在右下角：左下角是后台的导航 rail / 移动端导航条，放那里会挡住用户接下来的操作。
