@@ -69,6 +69,8 @@ export interface ExamRecord {
   priorityOverSchedule: boolean;
   config: Record<string, unknown>;
   createdBy: number | null;
+  /** 创建人显示名（服务端顺带带出）；读不到用户时为空串，调用方回退到 #id。 */
+  createdByName?: string;
   createdAt: number;
   updatedAt: number;
   startAt: number | null;
