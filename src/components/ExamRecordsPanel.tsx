@@ -13,7 +13,7 @@ import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { MajorExam } from '../types';
 import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
 import { formatApiError } from '../services/apiError';
-import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
+import { EXAM_RECORD_STATUS_LABELS, EXAM_RECORD_TIME_CHANGE_ACTIONS } from '../shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../utils/weeklySchedule';
 import { buildWeeklyOccurrenceRows } from '../utils/weeklyOccurrenceRows';
 import { groupHistoryEntries, groupScheduleEntries } from '../utils/examListGrouping';
@@ -477,6 +477,16 @@ export default function ExamRecordsPanel({
       <span className="exam-records-time" role="cell">
         <CalendarClock size={14} aria-hidden="true" />
         {examTimeRange(record.startAt, record.endAt)}
+        {/* P1-⑤：最近一次生命周期操作动过时间就提示一下，鼠标悬停看「旧 → 新」原文。 */}
+        {record.lastOperation &&
+          EXAM_RECORD_TIME_CHANGE_ACTIONS.includes(
+            record.lastOperation.action as (typeof EXAM_RECORD_TIME_CHANGE_ACTIONS)[number],
+          ) &&
+          Date.now() - record.lastOperation.at < 24 * 60 * 60 * 1000 && (
+            <em className="exam-records-time-note" title={record.lastOperation.reason || '时间已调整'}>
+              时间已调整
+            </em>
+          )}
       </span>
       <span className="exam-records-count" role="cell">
         {record.itemCount} 科 · {record.source === 'quick' ? '快速' : '正式'}

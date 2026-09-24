@@ -18,6 +18,7 @@ import {
 import {
   availableExamRecordActions,
   EXAM_RECORD_ACTION_PERMISSIONS,
+  EXAM_RECORD_TIME_CHANGE_ACTIONS,
   EXAM_RECORD_STATUS_LABELS,
   type ExamRecordActionName,
 } from '../shared/examRecordContracts.js';
@@ -219,6 +220,16 @@ export default function ExamRecordDetailDrawer({
   );
 
   const timeline = useMemo(() => buildTimeline(record, operations), [operations, record]);
+  // P1-⑤：最近一次改动时间的操作（延长/暂停/继续/结束/系统判定…），文案里带「旧 → 新」。
+  const latestTimeChange = useMemo(
+    () =>
+      [...operations]
+        .filter((entry) =>
+          EXAM_RECORD_TIME_CHANGE_ACTIONS.includes(entry.action as (typeof EXAM_RECORD_TIME_CHANGE_ACTIONS)[number]),
+        )
+        .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null,
+    [operations],
+  );
   const effectiveEndAt = record.endAt == null ? null : record.endAt + record.pausedMs;
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
@@ -403,6 +414,8 @@ export default function ExamRecordDetailDrawer({
                 <dt>计划时间</dt>
                 <dd>
                   {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
+                  {/* P1-⑤：最近一次动时间的操作原文（含旧 → 新），避免时间悄悄变了没提示。 */}
+                  {latestTimeChange && <em className="exam-record-detail__time-note">{latestTimeChange.reason}</em>}
                 </dd>
               </div>
               <div>

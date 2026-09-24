@@ -80,6 +80,8 @@ export type ExamRecordListEntry = {
   publishedAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;
+  /** 最近一次操作：列表据此显示「时间已调整」，文案里带新旧时间。 */
+  lastOperation: { action: string; reason: string; at: number } | null;
 };
 
 export type ExamRecordListQuery = {
@@ -159,6 +161,7 @@ function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
     publishedAt: numberOrNull(row.publishedAt),
     endedAt: numberOrNull(row.endedAt),
     archivedAt: numberOrNull(row.archivedAt),
+    lastOperation: parseLastOperation(row.lastOperation),
   };
 }
 
@@ -271,6 +274,15 @@ export async function fetchExamRecordPrecheck(recordId: string): Promise<ExamRec
       ? raw.warnings.filter((line): line is string => typeof line === 'string')
       : [],
   };
+}
+
+/** 最近一次操作（服务端列表接口顺带带出）；畸形数据当作没有，不影响列表。 */
+function parseLastOperation(raw: unknown): { action: string; reason: string; at: number } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const action = textValue(row.action);
+  if (!action) return null;
+  return { action, reason: textValue(row.reason), at: numberOrNull(row.at) ?? 0 };
 }
 
 function authToken(): string {

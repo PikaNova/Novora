@@ -588,6 +588,18 @@
 .exam-records-status.is-ended {
   color: var(--adm-text-3, #879caf);
 }
+/* P1-⑤ 时间已调整提示：琥珀色小胶囊，悬停看新旧时间原文。 */
+.exam-records-time-note {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+  font-size: 11px;
+  font-style: normal;
+  cursor: help;
+}
+
 .exam-records-time {
   display: inline-flex;
   align-items: center;
@@ -747,6 +759,15 @@
 }
 
 /* ── 考试详情抽屉 ───────────────────────────────────────────── */
+.exam-record-detail__time-note {
+  display: block;
+  margin-top: 4px;
+  color: #e6a23c;
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
 .exam-record-detail {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;

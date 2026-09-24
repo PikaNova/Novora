@@ -26,6 +26,7 @@ import {
   type ExamOperationPatch,
 } from '../../src/shared/examLifecycleOperations.js';
 import { applyOperationPatchToMajor } from './examSnapshotPatch.js';
+import { formatDateTimeInZone } from '../../src/utils/zonedTime.js';
 
 /** 申请停止后，教室里一台在线设备都没有时，最多再等这么久就按「无人监考」收场。 */
 export const STOP_NO_DEVICE_GRACE_MS = 10 * 60_000;
@@ -153,7 +154,7 @@ export async function autoStartDueRecords(now: number = Date.now()): Promise<num
       now,
       action: 'auto_start',
       toStatus: 'published',
-      reason: '系统按计划时间自动开考',
+      reason: `系统按计划时间自动开考（计划 ${formatDateTimeInZone(startedAt)}）`,
       patch,
       startGuard: true,
     });
@@ -273,7 +274,7 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
       now,
       action: 'auto_end',
       toStatus: 'ended',
-      reason: autoEndReasonText(plan.reason),
+      reason: `${autoEndReasonText(plan.reason)}（实际结束 ${formatDateTimeInZone(patch.actualEndAt ?? now)}）`,
       patch,
       startGuard: false,
     });

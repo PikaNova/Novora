@@ -23,6 +23,23 @@ export type ExamRecordOperationActionName = 'pause' | 'resume' | 'extend';
  */
 export type ExamRecordActionName = ExamRecordAction | ExamRecordOperationActionName | 'request_stop' | 'force_end';
 
+/**
+ * 会改变「时间相关状态」的动作：延长 / 暂停 / 继续 / 结束 / 申请停止，以及系统自动开考与判定结束。
+ * 列表与详情据此显示「时间已调整」提示（文案读操作日志里的新旧时间说明）。
+ * 注意：`auto_start` / `auto_end` 是系统写进操作日志的动作，不在可发起动作的联合类型里，
+ * 所以这里用 string 列表而不是 ExamRecordActionName。
+ */
+export const EXAM_RECORD_TIME_CHANGE_ACTIONS: readonly string[] = [
+  'extend',
+  'pause',
+  'resume',
+  'end',
+  'force_end',
+  'request_stop',
+  'auto_start',
+  'auto_end',
+];
+
 /** 每个动作需要的权限：服务端裁决与前端按钮可见性共用同一份映射，避免两边漂移。 */
 export const EXAM_RECORD_ACTION_PERMISSIONS = {
   publish: 'major.edit',

@@ -21,11 +21,12 @@ import {
   isExamRecordStatus,
   transitionExamRecordStatus,
   type ExamRecordAction,
+  type ExamRecordActionName,
   type ExamRecordDisplayStatus,
   type ExamRecordStatus,
 } from '../../../src/shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../../../src/utils/weeklySchedule.js';
-import { parseZonedTime } from '../../../src/utils/zonedTime.js';
+import { formatDateTimeInZone, parseZonedTime } from '../../../src/utils/zonedTime.js';
 import { DEVICE_ONLINE_WINDOW_MS } from '../../../src/shared/deviceContracts.js';
 import {
   planExamOperation,
@@ -63,6 +64,10 @@ type RecordRow = {
   archived_at?: unknown;
   version?: unknown;
   sort_order?: unknown;
+  /** 列表里带出的最近一次操作（P1-⑤「时间已调整」提示用）。 */
+  last_op_action?: unknown;
+  last_op_reason?: unknown;
+  last_op_at?: unknown;
 };
 
 type SnapshotRow = { majors?: unknown; active_major_id?: unknown; updated_at?: unknown };
@@ -169,6 +174,14 @@ function recordJson(row: RecordRow, now: number): Record<string, unknown> {
     publishedAt: nullableNumber(row.published_at),
     endedAt: nullableNumber(row.ended_at),
     archivedAt: nullableNumber(row.archived_at),
+    // P1-⑤：最近一次操作（列表用来显示「时间已调整」，鼠标悬停看具体新旧时间）。
+    lastOperation: text(row.last_op_action)
+      ? {
+          action: text(row.last_op_action),
+          reason: text(row.last_op_reason),
+          at: number(row.last_op_at),
+        }
+      : null,
     version: number(row.version, 1),
     sortOrder: number(row.sort_order),
   };
@@ -308,7 +321,16 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         config, created_by, created_at, updated_at, start_at, end_at,
         actual_start_at, actual_end_at, paused_at, paused_ms, stop_requested_at, published_at, ended_at, archived_at,
         version, sort_order
+        , last_op.action AS last_op_action, last_op.reason AS last_op_reason, last_op.created_at AS last_op_at
       FROM exam_records
+      -- 列表里的「时间已调整」提示读最近一次操作（extend/pause/resume/auto_* 等）
+      LEFT JOIN LATERAL (
+        SELECT action, reason, created_at
+        FROM exam_record_operations
+        WHERE source_record_id = exam_records.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) AS last_op ON TRUE
       WHERE
         (${hasAllScope}::boolean
           OR EXISTS (
@@ -478,6 +500,32 @@ async function deviceScopeStats(
   const bound = number(rows[0]?.bound, 0);
   const online = number(rows[0]?.online, 0);
   return { bound, online, stale: Math.max(0, bound - online), allScope };
+}
+
+/**
+ * P1-⑤ 时间变更提示：把「这次操作把哪个时间从多少改到了多少」写成一句人话。
+ * 这句话进操作日志（详情页的新旧对比与审计都读它），列表页据此显示「时间已调整」。
+ */
+function describeTimeChange(
+  action: ExamRecordActionName,
+  before: { endAt: number | null },
+  patch: ExamOperationPatch,
+  now: number,
+  extendMinutes: number,
+): string {
+  const fmt = (value: number | null | undefined) => (value == null ? '—' : formatDateTimeInZone(value));
+  if (action === 'extend') {
+    return `延长 ${extendMinutes} 分钟：结束 ${fmt(before.endAt)} → ${fmt(patch.endAt ?? before.endAt)}`;
+  }
+  if (action === 'pause') return '暂停：结束时间按实际暂停时长顺延';
+  if (action === 'resume') {
+    const pausedMs = patch.pausedMs ?? 0;
+    const nextEnd = before.endAt == null ? null : before.endAt + pausedMs;
+    return `继续：累计暂停 ${Math.round(pausedMs / 60_000)} 分钟，结束 ${fmt(before.endAt)} → ${fmt(nextEnd)}`;
+  }
+  if (action === 'end' || action === 'force_end') return `结束：实际结束 ${fmt(patch.actualEndAt ?? now)}`;
+  if (action === 'request_stop') return `申请停止：${formatDateTimeInZone(now)} 提交，等系统判定`;
+  return '';
 }
 
 /**
@@ -666,6 +714,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
   let result: { record: Record<string, unknown>; idempotent?: boolean };
   // 发布记录（T-286-02）：这次发布投给了哪些范围、命中多少设备，随审计一起落库。
   let publishScope: Record<string, unknown> | undefined;
+  // P1-⑤：操作日志里的说明文案 = 时间变更说明（+ 用户备注），详情页据此展示新旧对比。
+  let logReason = reason;
   try {
     const existingOperation = idempotencyKey
       ? (
@@ -831,6 +881,15 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
         else if (action === 'archive') major.archivedAt = now;
         else if (action === 'unarchive') delete major.archivedAt;
         applyOperationPatchToMajor(major, patch);
+        // P1-⑤：把时间变更写成一句人话（旧 → 新）落进操作日志；用户备注附在后面。
+        const timeNote = describeTimeChange(
+          action,
+          { endAt: nullableNumber(record.end_at) },
+          patch,
+          now,
+          Math.floor(Number(req.body?.minutes ?? req.body?.extendMinutes)),
+        );
+        logReason = [timeNote, reason ? `备注：${reason}` : ''].filter(Boolean).join('；').slice(0, 400);
         const hasPausedAt = Object.prototype.hasOwnProperty.call(patch, 'pausedAt');
         const pausedAtValue = patch.pausedAt ?? null;
         const hasStopRequestedAt = Object.prototype.hasOwnProperty.call(patch, 'stopRequestedAt');
@@ -849,7 +908,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
                 actor_id, from_status, to_status, reason, created_at
               )
               SELECT ${operationKey}, ${action}, ${recordId}, ${recordId},
-                ${actor.id}, ${currentStatus}, ${nextStatus}, ${reason}, ${now}
+                ${actor.id}, ${currentStatus}, ${nextStatus}, ${logReason}, ${now}
               FROM updated
               ON CONFLICT (idempotency_key) DO NOTHING
               RETURNING idempotency_key
@@ -915,7 +974,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
   await writeAudit(actor, `exam.record.${action}`, 'exam_record', recordId, {
     status: result.record.status,
     idempotent: result.idempotent === true,
-    ...(reason ? { reason } : {}),
+    ...(logReason ? { reason: logReason } : {}),
     ...(publishScope ? { publishScope } : {}),
   });
   res.status(200).json({ ok: true, data: result.record, idempotent: result.idempotent === true });
