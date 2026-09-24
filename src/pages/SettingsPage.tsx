@@ -25,6 +25,7 @@ import TimeSyncSection from '../components/settings/TimeSyncSection';
 import AlertsAdvancedSection from '../components/settings/AlertsAdvancedSection';
 import DataMaintenanceSection from '../components/settings/DataMaintenanceSection';
 import SettingsRail, { type SettingsRailGroup } from '../components/settings/SettingsRail';
+import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import SettingsCollapsibleCard from '../components/settings/SettingsCollapsibleCard';
 import SystemStatusSection from '../components/settings/SystemStatusSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
@@ -52,7 +53,7 @@ export default function SettingsPage() {
           return;
         }
         if (user.mustChangePassword) {
-          navigate('/admin?tab=users&password=1', { replace: true });
+          navigate(adminSectionUrl({ tab: 'users', extra: { password: '1' } }), { replace: true });
           return;
         }
         if (!adminCan('settings.read', user)) {

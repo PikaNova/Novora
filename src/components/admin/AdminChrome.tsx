@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import type { AdminTab } from '../../types/exam';
 import type { SyncState } from '../../hooks/admin/adminPageUtils';
-import { ADMIN_NAV } from '../../hooks/admin/useAdminModals';
+import { ADMIN_NAV } from '../../hooks/admin/adminRoutes';
 import type { AdminUserContext } from '../../services/examService';
 import { logoutAdmin } from '../../services/examService';
 import type { DeviceBinding } from '../../services/classBinding';

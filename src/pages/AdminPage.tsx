@@ -1,5 +1,5 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Watermark from '../components/Watermark';
 import {
   isOwnQuickTemporaryMajor as isOwnQuickTemporaryMajorCheck,
@@ -48,7 +48,14 @@ import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
 import { useAdminAuthSession } from '../hooks/admin/useAdminAuthSession';
 import { useAnnouncements } from '../hooks/admin/useAnnouncements';
-import { useAdminModals, ADMIN_NAV, LEGACY_TAB_VIEWS } from '../hooks/admin/useAdminModals';
+import { useAdminModals } from '../hooks/admin/useAdminModals';
+import {
+  ADMIN_TAB_LABELS,
+  ADMIN_TAB_PERMISSIONS,
+  adminSectionUrl,
+  firstPermittedAdminTab,
+  resolveAdminRoute,
+} from '../hooks/admin/adminRoutes';
 import { useInitializationWizard } from '../hooks/admin/useInitializationWizard';
 import { useAlertsSettings } from '../hooks/admin/useAlertsSettings';
 import { useWeeklyScheduleSync } from '../hooks/admin/useWeeklyScheduleSync';
@@ -63,7 +70,7 @@ import { AdminHeader, AdminMobileNav, SYNC_META } from '../components/admin/Admi
 import { MajorModalWizard } from '../components/admin/MajorModalWizard';
 import { AlertsSettingsModal } from '../components/admin/AlertsSettingsModal';
 import { AdminTabBar } from '../components/admin/AdminTabBar';
-import ExamCenterNav, { EXAM_CENTER_VIEWS, examCenterViews } from '../components/exam-center/ExamCenterNav';
+import ExamCenterNav, { examCenterViews } from '../components/exam-center/ExamCenterNav';
 import CurrentExamPanel from '../components/exam-center/CurrentExamPanel';
 import { AdminContextBar } from '../components/admin/AdminContextBar';
 import { AdminAnnounceDialog } from '../components/admin/AdminAnnounceDialog';
@@ -91,7 +98,33 @@ export default function AdminPage() {
   const backdropProps = useBackdropDismiss();
   const navigate = useNavigate();
   const location = useLocation();
+  const { section: sectionParam, view: viewParam } = useParams<{ section?: string; view?: string }>();
   const initial = getAppSettings().exam;
+  // 未初始化学校结构时先落到「年级与班级」，其余情况默认仪表盘。
+  const defaultTab: AdminTab = initial.grades.length === 0 || initial.classes.length === 0 ? 'classes' : 'overview';
+  /**
+   * 当前板块与考试中心视图都来自 URL（`/admin/<板块>[/<视图>]`）。
+   *
+   * 这里只解析 URL 请求了什么；未指定板块（`/admin`、旧 `?tab=` 链接）时先用 `defaultTab`
+   * 占位，等权限就绪后再按 `firstPermittedAdminTab` 决定落点（见下面的 adminTab）。
+   * 解析失败/写法不规范时由 URL 规范化 effect 改写成规范路径。
+   */
+  const route = useMemo(
+    () =>
+      resolveAdminRoute({
+        section: sectionParam,
+        view: viewParam,
+        legacyTab: new URLSearchParams(location.search).get('tab') ?? undefined,
+        legacyView: new URLSearchParams(location.search).get('view') ?? undefined,
+        fallbackTab: defaultTab,
+      }),
+    [sectionParam, viewParam, location.search, defaultTab],
+  );
+  // 兼容旧签名：年级管理员引导弹窗与「去配置班级」只要「切到某板块」，实际由路由完成。
+  const setAdminTab = useCallback(
+    (tab: AdminTab) => navigate(adminSectionUrl({ tab, search: location.search })),
+    [navigate, location.search],
+  );
 
   // ---- 跨领域基础设施：indirection refs（打破 Hook 间的初始化顺序环依赖）----
   const stateRef = useRef<{ majors: MajorExam[]; activeMajorId: string }>({
@@ -118,7 +151,6 @@ export default function AdminPage() {
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [adminNow, setAdminNow] = useState(() => Date.now());
-  const [examView, setExamView] = useState<ExamCenterView>('current');
   const [publishBusy, setPublishBusy] = useState(false);
   // 向导第 1 步会把草稿写进库、收起弹窗并直接进编辑器；用这个标记避免重复建草稿，
   // 同时记住这次的填写内容（wizardSnapshotRef），好在右下角提示里点「下一步」回到确认步骤。
@@ -130,17 +162,6 @@ export default function AdminPage() {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
   }, []);
-  // 考试中心深链：/admin?tab=exam&view=schedule|history|weekly|editor（旧 tab=major/weekly 由 useAdminModals 兜底）
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('tab') === 'exam') {
-      const requested = params.get('view') ?? '';
-      if (EXAM_CENTER_VIEWS.includes(requested as ExamCenterView)) setExamView(requested as ExamCenterView);
-      return;
-    }
-    const legacy = LEGACY_TAB_VIEWS[params.get('tab') ?? ''];
-    if (legacy?.view) setExamView(legacy.view);
-  }, [location.search]);
 
   // ---- 领域 Hook 编排（顺序即依赖顺序）----
   const auth = useAdminAuthSession();
@@ -157,16 +178,38 @@ export default function AdminPage() {
   const announcements = useAnnouncements();
   const { announceOpen, setAnnounceOpen, anns, annLoading } = announcements;
 
-  const defaultTab: AdminTab = initial.grades.length === 0 || initial.classes.length === 0 ? 'classes' : 'overview';
+  /**
+   * URL 是否明确指定了板块（含旧 `?tab=` 深链）。没有指定时才做「第一个有权限的板块」
+   * 兜底——明确指定的板块即使没权限也按「无权访问」处理，不静默改到别的页。
+   */
+  const adminTab = useMemo(
+    () =>
+      route.explicit ? route.tab : firstPermittedAdminTab((permission) => adminCan(permission, adminUser), defaultTab),
+    [route.explicit, route.tab, adminUser, defaultTab],
+  );
+  const examView = adminTab === 'exam' ? route.examView : null;
+  /**
+   * URL 规范化：补上默认视图（`/admin/exam` → `/admin/exam/current`）、把旧 `?tab=` 深链
+   * 改写成路径、纠正无效板块，并把强制改密改到「用户与权限」。
+   *
+   * 用 replace 不占历史记录，且只在当前地址与规范形态不一致时跳一次，不会来回抖。
+   * 必须等权限就绪后再猜落点，否则会把没权限的用户送到默认板块的无权页。
+   */
+  useEffect(() => {
+    if (!ready || !adminUser) return;
+    const target =
+      adminUser.mustChangePassword && adminTab !== 'users'
+        ? adminSectionUrl({ tab: 'users', search: location.search, extra: { password: '1' } })
+        : adminSectionUrl({ tab: adminTab, view: examView, search: location.search });
+    if (`${location.pathname}${location.search}` !== target) navigate(target, { replace: true });
+  }, [ready, adminUser, adminTab, examView, location.pathname, location.search, navigate]);
+
   const modals = useAdminModals({
     adminUser,
-    defaultTab,
     navigate,
     locationSearch: location.search,
   });
   const {
-    adminTab,
-    setAdminTab,
     deniedModule,
     setDeniedModule,
     moreOpen,
@@ -174,11 +217,12 @@ export default function AdminPage() {
     moreMenuStyle,
     moreTriggerRef,
     placeMoreMenu,
+    selectAdminTab,
+    openMyAccount,
   } = modals;
 
   const wizard = useInitializationWizard({
     initialValue: initial.initialization,
-    setAdminTab,
     navigate,
   });
   const { initialization, setInitialization, initializationRef, wizardOpen, setWizardOpen, finalizeInitialization } =
@@ -443,10 +487,7 @@ export default function AdminPage() {
     initializationCompletedAt: initialization.completedAt,
     gradesLength: grades.length,
     classesLength: classes.length,
-    adminTab,
-    setAdminTab,
     setAlertsOpen,
-    setDeniedModule,
     setAnnounceOpen,
     setWizardOpen,
     setAlerts,
@@ -594,18 +635,23 @@ export default function AdminPage() {
 
   if (!ready || !adminUser)
     return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;
-  if (deniedModule)
-    return (
-      <AccessDenied
-        moduleName={deniedModule}
-        onBack={() => {
-          setDeniedModule('');
-          navigate('/admin', { replace: true });
-        }}
-      />
-    );
 
   const can = (permission: string) => adminCan(permission, adminUser);
+  const backToAdmin = () => {
+    setDeniedModule('');
+    navigate('/admin', { replace: true });
+  };
+  /**
+   * 深链到没有权限的板块（`/admin/devices` 或旧 `?tab=devices`）时保留「无权访问」提示，
+   * 不静默改到别的页。强制改密例外：那条路径由 URL 规范化改成「用户与权限」。
+   */
+  const deniedTab =
+    route.explicit && !adminUser.mustChangePassword && adminTab !== 'users' && !can(ADMIN_TAB_PERMISSIONS[adminTab])
+      ? adminTab
+      : null;
+  const deniedLabel = deniedModule || (deniedTab ? ADMIN_TAB_LABELS[deniedTab] : '');
+  if (deniedLabel) return <AccessDenied moduleName={deniedLabel} onBack={backToAdmin} />;
+
   const isOwnQuickTemporaryMajor = (major: MajorExam) => isOwnQuickTemporaryMajorCheck(major, adminUser?.id);
   const canEndQuickTemporaryMajorInScope = (major: MajorExam) =>
     isQuickTemporaryMajorFullyInScope(
@@ -620,32 +666,13 @@ export default function AdminPage() {
   const canDeleteActiveMajor =
     can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
   const canQuickPublish = can('major.create') || can('major.quick_create');
-  const openMyAccount = () => {
-    setDeniedModule('');
-    navigate('/admin?tab=users&account=1');
-    setAdminTab('users');
-    setMoreOpen(false);
-  };
-  const selectAdminTab = (item: (typeof ADMIN_NAV)[number]) => {
-    if (item.id === 'users' && !can(item.permission)) {
-      openMyAccount();
-      return;
-    }
-    if (!can(item.permission)) {
-      setDeniedModule(item.label);
-      return;
-    }
-    setDeniedModule('');
-    setAdminTab(item.id);
-  };
   // 考试中心的内部板块：前三个是同一份列表的三个口径，weekly/editor 复用现有面板。
   const availableExamViews = examCenterViews(can);
   const selectExamView = (view: ExamCenterView) => {
     setDeniedModule('');
-    setAdminTab('exam');
-    setExamView(view);
+    navigate(adminSectionUrl({ tab: 'exam', view, search: location.search }));
   };
-  const examViewActive = adminTab === 'exam' ? examView : availableExamViews[0];
+  const examViewActive = adminTab === 'exam' ? (examView ?? availableExamViews[0]) : availableExamViews[0];
   const examListView: 'current' | 'schedule' | 'history' =
     examViewActive === 'schedule' || examViewActive === 'history' ? examViewActive : 'current';
   // 「创建考试」按类型分流到已有的创建流程：大型考试进编辑器并直接开新建向导。
@@ -914,8 +941,7 @@ export default function AdminPage() {
         onSelectAdminTab={selectAdminTab}
         onOpenMyAccount={openMyAccount}
         onOpenBatchAdd={() => {
-          navigate('/admin?tab=users&batch=1');
-          setAdminTab('users');
+          navigate(adminSectionUrl({ tab: 'users', search: location.search, extra: { batch: '1' } }));
         }}
         onQuickMajorOpen={() => setQuickMajorOpen(true)}
         onAlertsOpen={() => setAlertsOpen(true)}
