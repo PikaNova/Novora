@@ -155,7 +155,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       const resource = String(req.query?.resource ?? '');
-      if (resource === 'records' || resource === 'record-operations' || resource === 'record-precheck') {
+      if (
+        resource === 'records' ||
+        resource === 'record-operations' ||
+        resource === 'record-precheck' ||
+        resource === 'record-consistency'
+      ) {
         await handleExamRecordRoute(req, res);
         return;
       }

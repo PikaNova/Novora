@@ -9,7 +9,7 @@ import {
   writeAudit,
 } from '../../_auth.js';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
-import { autoEndRequestedRecords, autoStartDueRecords } from '../examAutoLifecycle.js';
+import { advanceExamLifecycle } from '../examAutoLifecycle.js';
 import { applyOperationPatchToMajor } from '../examSnapshotPatch.js';
 import { buildExamRecordProjection, projectCurrentExamRecords } from '../examRecordProjection.js';
 import { operationLogKey } from '../operationLog.js';
@@ -302,8 +302,7 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
   }
   const now = Date.now();
   // 读列表前先推进系统自动流程：到点的自动开考、申请停止的判定是否该结束。
-  await autoStartDueRecords(now);
-  await autoEndRequestedRecords(now);
+  await advanceExamLifecycle(now);
   // "今天之内"按上海自然日算：客户端只看得到板块名，边界由服务端算。
   const todayEnd = parseZonedTime(`${addDaysToDateKey(getShanghaiDateKey(now), 1)}T00:00:00`);
   const hasAllScope = hasPermission(actor, '*') || actor.scopes.some((scope) => scope.type === 'all');
@@ -503,6 +502,87 @@ async function deviceScopeStats(
 }
 
 /**
+ * 投影一致性自检（设计 §3.2 遗留项）。
+ * `exam_data.majors` 是权威，`exam_records` 是单向投影；这里用**同一个投影函数**重算一遍
+ * 应得的结果，和库里实际的行逐字段比对，回答三个问题：
+ *   ① 快照里有、投影里没有的（漏投影）  ② 投影里有、快照里已经没有的（孤儿行）
+ *   ③ 两边都有但关键字段对不上的（漂移）
+ * 只读接口，不改数据；返回最多 20 条示例，避免大库把响应撑爆。
+ */
+async function handleRecordConsistency(req: VercelRequest, res: VercelResponse): Promise<void> {
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  await ensureTableOnce();
+  const sql = database();
+  const now = Date.now();
+  const snapshotRows = (await sql`SELECT majors, updated_at FROM exam_data WHERE id=1`) as unknown as SnapshotRow[];
+  const snapshot = snapshotRows[0] ?? {};
+  const snapshotUpdatedAt = number(snapshot.updated_at, now);
+  const majors = Array.isArray(snapshot.majors) ? snapshot.majors.map((raw) => ({ ...asRecord(raw) })) : [];
+  const recordRows = (await sql`SELECT * FROM exam_records`) as unknown as RecordRow[];
+
+  const recordById = new Map<string, RecordRow>();
+  for (const row of recordRows) recordById.set(text(row.id), row);
+
+  const missingProjection: string[] = [];
+  const drifted: Array<{ id: string; fields: string[] }> = [];
+  const snapshotIds = new Set<string>();
+  const compareKeys: Array<[string, keyof ReturnType<typeof buildExamRecordProjection>]> = [
+    ['name', 'name'],
+    ['status', 'status'],
+    ['startAt', 'startAt'],
+    ['endAt', 'endAt'],
+    ['archivedAt', 'archivedAt'],
+  ];
+  majors.forEach((major, index) => {
+    const id = text(major.id);
+    if (!id) return;
+    snapshotIds.add(id);
+    const row = recordById.get(id);
+    if (!row) {
+      missingProjection.push(id);
+      return;
+    }
+    const expected = buildExamRecordProjection(major as unknown as MajorExam, index, now, snapshotUpdatedAt);
+    const fields: string[] = [];
+    for (const [label, key] of compareKeys) {
+      const actual =
+        key === 'name'
+          ? text(row.name)
+          : key === 'status'
+            ? text(row.status)
+            : key === 'startAt'
+              ? nullableNumber(row.start_at)
+              : key === 'endAt'
+                ? nullableNumber(row.end_at)
+                : nullableNumber(row.archived_at);
+      const wanted = expected[key] as string | number | null;
+      // 运行时会推进的状态/时间不参与比对：系统开考、判定结束、归档都是合法的“投影领先快照”。
+      if (key === 'status' && wanted === 'ended' && actual === 'archived') continue;
+      if (key === 'archivedAt' && actual != null && wanted == null) continue;
+      if (actual !== wanted) fields.push(label);
+    }
+    if (fields.length) drifted.push({ id, fields });
+  });
+  const orphaned = recordRows.map((row) => text(row.id)).filter((id) => id && !snapshotIds.has(id));
+
+  res.status(200).json({
+    ok: true,
+    data: {
+      checkedAt: now,
+      majorsCount: majors.length,
+      recordsCount: recordRows.length,
+      missingProjectionCount: missingProjection.length,
+      orphanedCount: orphaned.length,
+      driftedCount: drifted.length,
+      missingProjection: missingProjection.slice(0, 20),
+      orphaned: orphaned.slice(0, 20),
+      drifted: drifted.slice(0, 20),
+    },
+  });
+}
+
+/**
  * P1-⑤ 时间变更提示：把「这次操作把哪个时间从多少改到了多少」写成一句人话。
  * 这句话进操作日志（详情页的新旧对比与审计都读它），列表页据此显示「时间已调整」。
  */
@@ -603,8 +683,7 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
   const sql = database();
   // 打开详情页时同样推进一次：保证「实际开考时间」「是否已结束」在详情里立刻可见。
   const detailNow = Date.now();
-  await autoStartDueRecords(detailNow);
-  await autoEndRequestedRecords(detailNow);
+  await advanceExamLifecycle(detailNow);
   const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
   if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
     error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
@@ -991,6 +1070,10 @@ export async function handleExamRecordRoute(req: VercelRequest, res: VercelRespo
   }
   if (req.method === 'GET' && text(req.query?.resource) === 'record-precheck') {
     await handleRecordPrecheck(req, res);
+    return;
+  }
+  if (req.method === 'GET' && text(req.query?.resource) === 'record-consistency') {
+    await handleRecordConsistency(req, res);
     return;
   }
   const action = ACTION_BY_NAME[actionName || text(req.body?.action)];

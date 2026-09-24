@@ -2,7 +2,7 @@
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
-import { autoEndRequestedRecords, autoStartDueRecords } from '../examAutoLifecycle.js';
+import { archiveFinishedQuickRecords, autoEndRequestedRecords, autoStartDueRecords } from '../examAutoLifecycle.js';
 import {
   DEVICE_HEARTBEAT_REFRESH_MS,
   DEVICE_ONLINE_WINDOW_MS,
@@ -143,8 +143,11 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
   const run = async () => {
     // 设备这一侧是天然的「每分钟一次」触发器：教室端空着（还没拉任何一场考试）时，
     // 顺手推进「到点自动开考」与「申请停止后的结束判定」；已经在考的教室不必重复做前一件事。
+    // 设备心跳也顺手推进生命周期：上报"本机没有考试"时才补开考（保持原有语义），
+    // 判定结束与快速考试归档每次都跑。
     if (!value('currentExam')) await autoStartDueRecords(now);
     await autoEndRequestedRecords(now);
+    await archiveFinishedQuickRecords(now);
     const acknowledgedCommandId = value('acknowledgedCommandId', 128);
     const failedCommandId = value('failedCommandId', 128);
     const commandFailureReason = value('commandFailureReason', 500);
