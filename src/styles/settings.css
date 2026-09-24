@@ -274,10 +274,11 @@
   width: clamp(220px, 48%, 360px);
 }
 .set-date-time-field .tdp-field {
-  min-height: 38px;
-  padding: 0 11px;
-  border-radius: 6px;
-  font-size: 13px;
+  /* 与后台同一套控件令牌（controls.css 的 :root），只保留按上下文的宽度差异 */
+  min-height: var(--adm-ctl-h, 36px);
+  padding: 0 9px;
+  border-radius: var(--adm-ctl-radius, 6px);
+  font-size: 0.85rem;
 }
 @media (max-width: 620px) {
   .set-date-time-field {

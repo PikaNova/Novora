@@ -304,6 +304,7 @@ export default function TimeRangePickerModal({
           <label className="time-range-date">
             <span>开始日期</span>
             <DateTimeField
+              className="admin-date-time-field"
               value={splitValue(draftStart, mode).date}
               onChange={updateDate}
               mode="date"
@@ -317,6 +318,7 @@ export default function TimeRangePickerModal({
           <label className="time-range-date">
             <span>结束日期</span>
             <DateTimeField
+              className="admin-date-time-field"
               value={splitValue(draftEnd, mode, startDate).date}
               onChange={updateDate}
               mode="date"
