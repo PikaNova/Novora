@@ -85,7 +85,9 @@ function ScheduleRowView({
   onRequestReschedule: (row: ScheduleRow) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const canExpand = row.kind === 'major' || row.kind === 'quick' || row.kind === 'draft';
+  // 所有行都可展开：周测行的「取消本次 / 改时间 / 仍然进行 / 去周测计划」就在展开区里，
+  // 早先只允许大型/快速/草稿展开，等于周测行完全没有入口。
+  const canExpand = true;
   // 大型考试按天合并成一行：展开区只列「这一天的」科目，跨天考试的另一天各自展开。
   const daySubjects = useMemo(() => {
     if (row.startAt == null) return subjects;
@@ -128,7 +130,11 @@ function ScheduleRowView({
         <div className="exam-schedule__detail">
           {daySubjects.length === 0 ? (
             <p className="exam-schedule__detail-empty">
-              {row.kind === 'draft' ? '这场考试还没有科目与时间，进编辑器补全后才能发布。' : '没有启用中的科目。'}
+              {row.kind === 'weekly'
+                ? '周测由周期规则生成：这里的动作只影响这一次，周期本身在「周测计划」里改。'
+                : row.kind === 'draft'
+                  ? '这场考试还没有科目与时间，进编辑器补全后才能发布。'
+                  : '没有启用中的科目。'}
             </p>
           ) : (
             <ul className="exam-schedule__subjects">

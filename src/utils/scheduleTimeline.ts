@@ -440,7 +440,7 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
   const groups: ScheduleGroup[] = [...groupMap.entries()]
     .map(([key, groupRows]) => ({
       key,
-      label: key === UNSCHEDULED_KEY ? '待排期（未定时间）' : scheduleDayLabel(key, now),
+      label: key === UNSCHEDULED_KEY ? '未排期' : scheduleDayLabel(key, now),
       dateKey: key === UNSCHEDULED_KEY ? null : key,
       rows: groupRows.sort(
         (left, right) =>
@@ -453,7 +453,6 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
       group.key === UNSCHEDULED_KEY
         ? {
             ...group,
-            label: '未排期',
             subgroups: [
               { key: 'draft', label: '草稿（未发布）', rows: group.rows.filter((row) => row.kind === 'draft') },
               { key: 'published', label: '已发布·待排期', rows: group.rows.filter((row) => row.kind !== 'draft') },
