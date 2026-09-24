@@ -463,6 +463,18 @@
   gap: 4px;
   min-width: 0;
 }
+
+/*
+ * 右下角还停着临时考试按钮（.temp-exam-fab，right/bottom 18px、高 44px、z-index 68）：
+ * 它和这条提示条原来都钉在同一个角上，同时出现时互相压住。
+ * 按钮在的宽度档（<701px 时它 display:none）把提示条抬到按钮之上，
+ * 按钮不在时保持原来的贴角位置。
+ */
+@media (min-width: 701px) {
+  body:has(.temp-exam-fab) .exam-fs-hint {
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 56px);
+  }
+}
 .exam-fs-hint__title {
   font:
     600 14px/1.4 system-ui,
