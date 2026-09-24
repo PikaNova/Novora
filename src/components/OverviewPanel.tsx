@@ -27,6 +27,7 @@ import {
 } from '../services/examService';
 import { fetchDeviceBindings, type DeviceBindingInfo } from '../services/classBinding';
 import { fetchAuditOverview, type AuditLog } from '../services/adminUsers';
+import { auditActionLabel, auditResourceText } from '../constants/auditActions';
 import type { LoginFailureAlert } from '../shared/authContracts';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
@@ -75,6 +76,17 @@ function formatDetailTime(value: unknown) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+const DETAIL_NUMBER_LABEL: ReadonlyMap<string, string> = new Map([
+  ['count', '数量'],
+  ['added', '新增'],
+  ['removed', '删除'],
+  ['updated', '更新'],
+  ['items', '条目'],
+  ['ruleCount', '规则数'],
+  ['replaced', '覆盖了原有绑定'],
+  ['created', '新建'],
+]);
+
 function auditDetailSummary(detail: unknown, fallback = '云端数据已更新') {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return fallback;
   const source = detail as Record<string, unknown>;
@@ -85,18 +97,31 @@ function auditDetailSummary(detail: unknown, fallback = '云端数据已更新')
     .map((key) => source[key])
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
   if (names.length) parts.push(names.slice(0, 2).join(' · '));
-  const countKeys = ['count', 'added', 'removed', 'updated', 'items'];
-  countKeys.forEach((key) => {
+  // 键名也要中文化：这里以前直接印 `count: 3`、`added: 2`，学校管理员读不懂。
+  DETAIL_NUMBER_LABEL.forEach((label, key) => {
     const value = source[key];
-    if (Number.isFinite(Number(value))) parts.push(`${key}: ${value}`);
+    if (typeof value === 'boolean') {
+      if (value) parts.push(label);
+      return;
+    }
+    if (value == null || value === '' || !Number.isFinite(Number(value))) return;
+    parts.push(`${label} ${value}`);
   });
   return parts.length ? parts.slice(0, 3).join('；') : fallback;
+}
+
+/** 首页那两处日志的第二行：优先显示详情摘要，没摘要时退到「对哪条资源做的」。 */
+function auditSecondaryText(log: AuditLog): string {
+  const detail = auditDetailSummary(log.detail, '');
+  if (detail) return detail;
+  const resource = auditResourceText(log.resourceType, log.resourceId);
+  return resource === '—' ? '操作详情已记录' : resource;
 }
 
 function cloudChangeLabel(log: AuditLog) {
   if (log.action === 'exam-data.update') return '同步了考试、班级或系统设置改动';
   if (log.action === 'database.reset') return '执行了数据重置';
-  return log.action;
+  return auditActionLabel(log.action);
 }
 
 function highRiskLabel(log: AuditLog) {
@@ -108,7 +133,7 @@ function highRiskLabel(log: AuditLog) {
     'user.credentials.change': '修改了账号凭据',
     'role.delete': '删除了用户角色',
   };
-  return labels[log.action] || log.action;
+  return labels[log.action] || auditActionLabel(log.action);
 }
 
 interface Props {
@@ -547,13 +572,11 @@ export default function OverviewPanel({
               <div className="ovd-running">
                 {highRiskLogs.slice(0, 4).map((log) => (
                   <div key={log.id}>
-                    <strong>{highRiskLabel(log)}</strong>
+                    <strong title={log.action}>{highRiskLabel(log)}</strong>
                     <span>
                       {log.username || '系统'} · {formatDetailTime(log.createdAt)}
                     </span>
-                    <small>
-                      {auditDetailSummary(log.detail, log.resourceId || log.resourceType || '操作详情已记录')}
-                    </small>
+                    <small>{auditSecondaryText(log)}</small>
                   </div>
                 ))}
               </div>
@@ -648,11 +671,11 @@ export default function OverviewPanel({
                     ) : cloudChangeLogs.length ? (
                       cloudChangeLogs.map((log) => (
                         <article key={log.id}>
-                          <strong>{cloudChangeLabel(log)}</strong>
+                          <strong title={log.action}>{cloudChangeLabel(log)}</strong>
                           <span>
                             {log.username || '系统'} · {formatDetailTime(log.createdAt)}
                           </span>
-                          <small>{auditDetailSummary(log.detail)}</small>
+                          <small>{auditSecondaryText(log)}</small>
                         </article>
                       ))
                     ) : (

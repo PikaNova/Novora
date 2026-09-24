@@ -122,21 +122,6 @@ export const PERMISSION_META: Record<string, { label: string; description: strin
   'deployment.trigger': { label: '触发重新部署', description: '通过已配置的部署钩子更新应用。' },
 };
 
-export const ACTION_LABEL: Record<string, string> = {
-  'auth.login': '登录后台',
-  'user.create': '创建用户',
-  'user.update': '修改用户',
-  'user.password.reset': '重置密码',
-  'user.password.change': '修改自己的密码',
-  'user.password.recover': '恢复超级管理员密码',
-  'role.create': '创建角色',
-  'role.update': '修改角色',
-  'role.delete': '删除角色',
-  'user.delete': '删除用户',
-  'exam-data.update': '修改考试数据',
-  'device.revoke': '删除设备绑定',
-};
-
 export const permissionMeta = (permission: string) =>
   PERMISSION_META[permission] ?? {
     label: permission,

@@ -27,6 +27,7 @@
     "src/utils/settings/typography.ts",
     "src/utils/settings/buildExamSaveInput.ts",
     "src/shared/permissionRules.ts",
+    "src/constants/auditActions.ts",
     "src/shared/jsonCompare.ts",
     "src/services/examOutbox.ts",
     "api/_auth.ts",
