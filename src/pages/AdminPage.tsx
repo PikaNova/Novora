@@ -140,7 +140,11 @@ export default function AdminPage() {
   const commitRef = useRef<(ms: MajorExam[], activeId: string, immediate?: boolean, syncLabel?: string) => void>(
     () => {},
   );
-  const buildPayloadRef = useRef<(ms: MajorExam[], activeId: string) => ExamSavePayload>(() => ({}));
+  // 占位实现：真实 buildPayload 在下面 `buildPayloadRef.current = buildPayload` 处回填，
+  // 调用方都在挂载后的回调里使用，所以这里只需要一个类型正确的空壳。
+  const buildPayloadRef = useRef<(ms: MajorExam[], activeId: string) => ExamSavePayload>(() =>
+    ({} as ExamSavePayload),
+  );
   const setMajorsRef = useRef<(ms: MajorExam[]) => void>(() => {});
   const setActiveMajorIdRef = useRef<(id: string) => void>(() => {});
   const editingRef = useRef<{ name: string } | null>(null);

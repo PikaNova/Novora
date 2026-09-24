@@ -7,7 +7,13 @@ import { isTrackSubject, normalizeSubjectName } from '../../data/subjects';
 import { classesInMajorScope as sharedClassesInMajorScope, computeAutoTrackClassIds } from '../../utils/trackClassIds';
 import { majorAppliesToGrade as sharedMajorAppliesToGrade } from '../../utils/examRecordEditTarget';
 import type { InitializationState } from '../../utils/settings/school';
-import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId } from '../../utils/appSettings';
+import {
+  getAppSettings,
+  updateExamSettings,
+  updateAlertsSettings,
+  genMajorId,
+  normalizeConflictPolicy,
+} from '../../utils/appSettings';
 import { getCloudSnapshot, saveExamsToServer, type AdminUserContext } from '../../services/examService';
 import type { ExamSavePayload } from '../../shared/examContracts';
 import { threeWayMergeExam } from '../../utils/examMerge';
@@ -277,11 +283,14 @@ export function useMajorScheduleActions(params: {
           const merged = threeWayMergeExam(currentBaseline ?? result.remote, local, result.remote);
           if (merged.conflictCount) void recordSyncConflict(merged.conflictCount, local, result.remote);
           const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
+          // 云端契约里 weeklyConflictPolicy 可以是 null（老快照没有这个字段），
+          // 本地设置要的是已规范化的策略对象：统一在这里过一遍规范化，缺字段就沿用当前值。
           const normalizedMergedExam = {
             ...mergedExam,
-            weeklyConflictPolicy:
+            weeklyConflictPolicy: normalizeConflictPolicy(
               (mergedExam as { weeklyConflictPolicy?: unknown }).weeklyConflictPolicy ??
-              weeklyStateRef.current.weeklyConflictPolicy,
+                weeklyStateRef.current.weeklyConflictPolicy,
+            ),
           };
           if (isStalePush()) return;
           const mergedQueuedAt = Date.now();
@@ -342,9 +351,10 @@ export function useMajorScheduleActions(params: {
         const { alerts: pAlerts, ...examPayload } = currentPayload;
         updateExamSettings({
           ...examPayload,
-          weeklyConflictPolicy:
+          weeklyConflictPolicy: normalizeConflictPolicy(
             (examPayload as { weeklyConflictPolicy?: unknown }).weeklyConflictPolicy ??
-            weeklyStateRef.current.weeklyConflictPolicy,
+              weeklyStateRef.current.weeklyConflictPolicy,
+          ),
           updatedAt: result,
         });
         if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
@@ -373,7 +383,11 @@ export function useMajorScheduleActions(params: {
       setActiveMajorId(activeId);
       const now = Date.now();
       const { alerts: pAlerts, ...examPayload } = buildPayload(ms, activeId);
-      updateExamSettings({ ...examPayload, updatedAt: now });
+      updateExamSettings({
+        ...examPayload,
+        weeklyConflictPolicy: normalizeConflictPolicy(examPayload.weeklyConflictPolicy),
+        updatedAt: now,
+      });
       if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: now });
       queuePendingExamSync({
         payload: { ...examPayload, alerts: pAlerts ?? null },
