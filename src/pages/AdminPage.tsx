@@ -365,7 +365,6 @@ export default function AdminPage() {
     commit,
     commitItems,
     commitBatchMajorItems,
-    switchMajor,
     commitMajorModal,
     removeMajor,
     removeQuickMajor,

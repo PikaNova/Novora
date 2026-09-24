@@ -36,6 +36,11 @@ export interface MajorExam {
   temporary?: boolean;
   /** 仅临时统一考试可用：在同一时间段优先展示本次安排。 */
   priorityOverSchedule?: boolean;
+  /**
+   * 复制出来的考试会带上这个标记，服务端投影据此强制把它留在草稿，
+   * 即使科目时间已经齐全也不自动发布；管理员执行「发布」后标记被清除。
+   */
+  draft?: boolean;
   createdAt?: number;
   createdBy?: number;
   /**

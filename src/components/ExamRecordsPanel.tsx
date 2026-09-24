@@ -8,7 +8,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, RefreshCw, Search } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { MajorExam } from '../types';
 import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';

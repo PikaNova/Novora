@@ -896,6 +896,48 @@ test('草稿板块：删掉考试后残留的孤儿记录不再展示', async ()
   assert.equal(ids.includes('orphan-draft'), false, '快照里已不存在的孤儿草稿不再展示');
 });
 
+test('复制考试：结果强制进草稿，重新投影不会被自动发布，发布后才转正式', async () => {
+  const now = Date.now();
+  // 源考试科目时间齐全，按「创建即发布」本该是 published。
+  await seedMajors([{ id: 'copy-src', name: '秋季第一次月考', startAt: now - 60_000, endAt: now + 3_600_000 }]);
+  const sourceRows = await readRecord('copy-src');
+  assert.equal(sourceRows.status, 'published');
+
+  const copyCalls = await act(
+    admin.token,
+    'record-copy',
+    { id: 'copy-src', name: '秋季第二次月考' },
+    { 'idempotency-key': `copy-draft-${now}` },
+  );
+  const copied = data(copyCalls);
+  const copiedId = String(copied.id);
+  assert.notEqual(copiedId, 'copy-src');
+  assert.equal(copied.status, 'draft', '复制结果必须是草稿');
+
+  // 快照里带上 draft 标记：任何一次普通投影都不该把它推成已发布。
+  const snapshotAfterCopy = await readSnapshotMajors();
+  const copiedMajor = snapshotAfterCopy.find((major) => String(major.id) === copiedId);
+  assert.equal(copiedMajor?.draft, true, '复制出来的考试要在快照上带 draft 标记');
+  await database().transaction((transaction) => [projectCurrentExamRecords(transaction)]);
+  assert.equal((await readRecord(copiedId)).status, 'draft', '重新投影后仍是草稿');
+
+  // 通过保存管道再存一次同一份快照（模拟管理员在草稿上继续编辑）。
+  await saveExamData(admin.token, snapshotAfterCopy, copiedId);
+  assert.equal((await readRecord(copiedId)).status, 'draft', '再次保存后仍是草稿');
+
+  // 真正发布之后才离开草稿，并且标记被清掉。
+  const publishCalls = await act(admin.token, 'record-publish', { id: copiedId });
+  assert.equal(data(publishCalls).status, 'published');
+  const publishedSnapshot = await readSnapshotMajors();
+  const publishedMajor = publishedSnapshot.find((major) => String(major.id) === copiedId);
+  assert.equal(publishedMajor?.draft, undefined, '发布后 draft 标记要被清掉');
+  assert.equal(typeof publishedMajor?.publishedAt, 'number');
+
+  // 发布后再走一次投影，不能被 draft 标记拽回草稿。
+  await database().transaction((transaction) => [projectCurrentExamRecords(transaction)]);
+  assert.equal((await readRecord(copiedId)).status, 'published');
+});
+
 test('快速考试：走本地优先保存管道也会补齐生命周期操作日志', async () => {
   const now = Date.now();
   const quickMajor = {

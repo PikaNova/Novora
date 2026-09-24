@@ -46,9 +46,7 @@ export function groupScheduleEntries<T extends { startAt: number | null }>(
     if (list) list.push(entry);
     else map.set(key, [entry]);
   }
-  return order
-    .filter((key) => map.has(key))
-    .map((key) => ({ key, label: BUCKETS[key], items: map.get(key) as T[] }));
+  return order.filter((key) => map.has(key)).map((key) => ({ key, label: BUCKETS[key], items: map.get(key) as T[] }));
 }
 
 /** '2026年9月'；时间缺失时返回空串（由调用方决定兜底文案）。 */

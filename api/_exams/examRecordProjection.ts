@@ -33,6 +33,11 @@ export type ExamRecordProjection = {
 };
 
 type MajorExtras = MajorExam & {
+  /**
+   * 复制出来的考试在快照上带 `draft: true`，投影据此强制留在草稿，
+   * 直到管理员真的执行「发布」——发布动作会删掉这个标记。
+   */
+  draft?: unknown;
   description?: unknown;
   config?: unknown;
   startAt?: unknown;
@@ -65,6 +70,8 @@ function config(value: unknown): Record<string, unknown> {
 
 function initialStatus(major: MajorExtras): ExamRecordStatus {
   if (major.endedAt != null || finiteNumber(major.actualEndAt) != null) return 'ended';
+  // 复制考试强制进草稿：即使科目时间齐全也不自动发布。
+  if (major.draft === true) return 'draft';
   // 快速考试一直是直发。
   if (major.source === 'quick' || major.temporary === true) return 'published';
   // 创建即发布：科目时间完整的整场大型考试直接进入「已发布」，不再需要人点发布按钮。
@@ -196,6 +203,8 @@ export function projectCurrentExamRecords(transaction: SqlTx): Promise<Array<Rec
       major->>'id', major->>'id', COALESCE(major->>'name', ''), COALESCE(major->>'description', ''),
       CASE
         WHEN COALESCE(major->>'endedAt', '') <> '' OR COALESCE(major->>'actualEndAt', '') <> '' THEN 'ended'
+        -- 复制考试强制进草稿（快照上的 draft 标记由发布动作清除）。
+        WHEN COALESCE(major->>'draft', 'false') = 'true' THEN 'draft'
         WHEN major->>'source' = 'quick' OR major->>'temporary' = 'true' THEN 'published'
         -- 创建即发布：科目时间完整（显式窗口或科目推算）的整场大型考试直接已发布；
         -- 还没填时间的仍留草稿，避免造出「已发布但没时间」的考试。

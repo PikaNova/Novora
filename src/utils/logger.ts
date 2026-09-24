@@ -46,8 +46,9 @@ function readJson<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-const entries: LocalLogEntry[] = readJson<LocalLogEntry[]>(LOG_KEY, [])
-  .filter((entry) => entry && Number.isFinite(entry.at));
+const entries: LocalLogEntry[] = readJson<LocalLogEntry[]>(LOG_KEY, []).filter(
+  (entry) => entry && Number.isFinite(entry.at),
+);
 
 /**
  * 就地裁剪本地日志：先丢 7 天窗口外的条目，再在超限时优先丢 info/debug，
@@ -60,7 +61,7 @@ function pruneEntries(now = Date.now()): void {
   }
   if (entries.length <= MAX_ENTRIES) return;
   let overflow = entries.length - MAX_ENTRIES;
-  for (let index = 0; index < entries.length && overflow > 0; ) {
+  for (let index = 0; index < entries.length && overflow > 0;) {
     const level = entries[index].level;
     if (level === 'info' || level === 'debug') {
       entries.splice(index, 1);

@@ -87,15 +87,14 @@ export default function DeploymentSection({ adminUser }: { adminUser: AdminUserC
               <li>
                 <span>最低 schema</span>
                 <b>
-                  {upd.info.minSchema
-                    ? `${upd.info.minSchema}（本机 ${upd.info.schemaVersion ?? '—'}）`
-                    : '未声明'}
+                  {upd.info.minSchema ? `${upd.info.minSchema}（本机 ${upd.info.schemaVersion ?? '—'}）` : '未声明'}
                 </b>
               </li>
             </ul>
             {upd.info.schemaReady === false ? (
               <p className="set-note set-note--warn">
-                目标版本要求更高的数据库 schema，升级前请先完成备份，升级失败按既有回滚流程处理（版本可回滚、数据不回滚）。
+                目标版本要求更高的数据库
+                schema，升级前请先完成备份，升级失败按既有回滚流程处理（版本可回滚、数据不回滚）。
               </p>
             ) : null}
             {(upd.info.warnings || []).map((warning) => (

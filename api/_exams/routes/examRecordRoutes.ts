@@ -753,6 +753,8 @@ function copiedMajor(
     source: 'regular',
     temporary: false,
     priorityOverSchedule: false,
+    // 复制结果一律先落草稿：投影认这个标记，管理员改完再点「发布」才生效。
+    draft: true,
     createdBy: actorId,
     createdAt: now,
   };
@@ -877,7 +879,9 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
               ${JSON.stringify(copyProjection.targetClassIds)}::jsonb, ${copyProjection.source}, ${copyProjection.temporary},
               ${copyProjection.priorityOverSchedule}, ${JSON.stringify(copyProjection.config)}::jsonb, ${copyProjection.createdBy},
               ${copyProjection.createdAt}, ${copyProjection.updatedAt}, ${copyProjection.startAt}, ${copyProjection.endAt},
-              ${copyProjection.actualStartAt}, ${copyProjection.actualEndAt}, ${copyProjection.publishedAt}, ${copyProjection.endedAt},
+              -- 复制出来的是全新草稿：暂停状态不继承，否则复制体一出生就带着暂停时长。
+              ${copyProjection.actualStartAt}, ${copyProjection.actualEndAt}, NULL, 0,
+              ${copyProjection.publishedAt}, ${copyProjection.endedAt},
               ${copyProjection.archivedAt}, 1, ${copyProjection.sortOrder}
             FROM claimed
             RETURNING *
@@ -956,6 +960,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
         if (action === 'publish') {
           major.publishedAt = now;
           delete major.archivedAt;
+          // 复制考试带 draft 标记，发布时必须清掉，否则投影会把它按回草稿。
+          delete major.draft;
         } else if (action === 'end') major.endedAt = now;
         else if (action === 'archive') major.archivedAt = now;
         else if (action === 'unarchive') delete major.archivedAt;

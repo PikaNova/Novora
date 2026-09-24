@@ -214,7 +214,11 @@ test('school server never samples error reports out', async () => {
   try {
     const res = createResponse();
     await handler(
-      { method: 'POST', headers: {}, body: { instanceId: 'instance-1', message: '失败', appVersion: '2.8.0' } } as never,
+      {
+        method: 'POST',
+        headers: {},
+        body: { instanceId: 'instance-1', message: '失败', appVersion: '2.8.0' },
+      } as never,
       res as never,
     );
     assert.equal(res.statusCode, 200);
