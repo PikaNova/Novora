@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildScheduleBoard,
+  buildClassGrid,
   findScheduleConflicts,
+  makeScheduleRowFilter,
   resolveScheduleWindow,
   scheduleDayLabel,
+  scheduleWindowDays,
   scopeLabelOf,
   type ScheduleRecordLike,
   type ScheduleRow,
@@ -404,4 +407,115 @@ test('时间窗：今天/明天/本周/未来两周/全部 的边界与 from/to'
   assert.equal(all.from, null);
   assert.equal(all.to, null);
   assert.ok(all.daysForward >= 30);
+});
+
+test('行级筛选：搜索命中考试名或周测科目，年级按适用范围判断', () => {
+  const board = buildScheduleBoard({
+    sessions: [
+      session({ key: 'major|m1|i1', subject: '语文', startAt: at('10:00'), endAt: at('11:00') }),
+      session({
+        key: 'weekly|sig|0',
+        kind: 'weekly',
+        examName: '初三数学周测',
+        subject: '数学',
+        recordId: null,
+        startAt: at('14:00'),
+        endAt: at('15:00'),
+        scope: { kind: 'grade', label: '初三', gradeIds: ['g2'], classIds: ['c3'], classCount: 1 },
+      }),
+    ],
+    grades,
+    classes,
+    now: at('07:00'),
+  });
+  const classGradeIds = new Map([
+    ['c1', 'g1'],
+    ['c2', 'g1'],
+    ['c3', 'g2'],
+  ]);
+
+  const byQuery = makeScheduleRowFilter({ query: '数学', classGradeIds });
+  assert.deepEqual(
+    board.rows.filter(byQuery).map((row) => row.title),
+    ['初三数学周测'],
+  );
+
+  const byGrade = makeScheduleRowFilter({ gradeId: 'g2', classGradeIds });
+  assert.deepEqual(
+    board.rows.filter(byGrade).map((row) => row.title),
+    ['初三数学周测'],
+  );
+
+  // 全校范围的考试对任何年级筛选都成立。
+  const schoolWide = buildScheduleBoard({
+    sessions: [
+      session({
+        key: 'major|m2|i1',
+        examName: '全校统考',
+        startAt: at('10:00'),
+        endAt: at('11:00'),
+        scope: { kind: 'school', label: '全校', gradeIds: [], classIds: [], classCount: 3 },
+      }),
+    ],
+    grades,
+    classes,
+    now: at('07:00'),
+  });
+  assert.equal(schoolWide.rows.filter(makeScheduleRowFilter({ gradeId: 'g2' })).length, 1);
+});
+
+test('班级网格：全校/年级/班级三种范围分别落到正确的班', () => {
+  const days = ['2026-09-24', '2026-09-25'];
+  const board = buildScheduleBoard({
+    sessions: [
+      session({
+        key: 'major|m1|i1',
+        examName: '全校统考',
+        startAt: at('08:00'),
+        endAt: at('09:00'),
+        scope: { kind: 'school', label: '全校', gradeIds: [], classIds: [], classCount: 3 },
+      }),
+      session({
+        key: 'major|m2|i1',
+        examName: '初二月考',
+        startAt: at('10:00'),
+        endAt: at('11:00'),
+        recordId: 'm2',
+        scope: { kind: 'grade', label: '初二', gradeIds: ['g1'], classIds: ['c1', 'c2'], classCount: 2 },
+      }),
+      session({
+        key: 'major|m3|i1',
+        examName: '3 班专项',
+        startAt: at('10:00', '2026-09-25'),
+        endAt: at('11:00', '2026-09-25'),
+        recordId: 'm3',
+        scope: { kind: 'class', label: '3 班', gradeIds: ['g2'], classIds: ['c3'], classCount: 1 },
+      }),
+    ],
+    grades,
+    classes,
+    now: at('07:00'),
+  });
+  const grid = buildClassGrid({ rows: board.rows, classes, grades, days });
+  assert.deepEqual(
+    grid.map((row) => [row.className, row.total]),
+    [
+      ['1 班', 2],
+      ['2 班', 2],
+      ['3 班', 2],
+    ],
+  );
+  const class3 = grid.find((row) => row.className === '3 班');
+  assert.deepEqual(
+    class3?.cells.map((cell) => cell.rows.map((item) => item.title)),
+    [['全校统考'], ['3 班专项']],
+  );
+  const class1 = grid.find((row) => row.className === '1 班');
+  assert.deepEqual(
+    class1?.cells.map((cell) => cell.rows.map((item) => item.title)),
+    [['全校统考', '初二月考'], []],
+  );
+  // 网格列：时间窗最多 7 天。
+  assert.equal(scheduleWindowDays(resolveScheduleWindow('fortnight', at('07:00')), 7).length, 7);
+  assert.equal(scheduleWindowDays(resolveScheduleWindow('today', at('07:00')), 7).length, 1);
 });

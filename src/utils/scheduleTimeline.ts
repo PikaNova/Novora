@@ -101,6 +101,11 @@ export type BuildScheduleBoardInput = {
   grades?: SchoolGrade[];
   classes?: SchoolClass[];
   now: number;
+  /**
+   * 行级筛选（搜索 / 年级）。在算冲突与统计之前应用，保证「筛选后看到的这堆安排」
+   * 自己是一致的：冲突提示与统计都只针对当前结果集。
+   */
+  rowFilter?: (row: ScheduleRow) => boolean;
 };
 
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -164,6 +169,12 @@ export function resolveScheduleWindow(key: ScheduleWindowKey, now: number): Reso
     from: bounded ? dayStart(baseKey) : null,
     to: bounded ? dayStart(addDaysToDateKey(baseKey, days)) : null,
   };
+}
+
+/** 时间窗内的日期列表（用于班级周网格），最多 maxDays 天，避免 14 列撑爆窄屏。 */
+export function scheduleWindowDays(window: ResolvedScheduleWindow, maxDays = 7): string[] {
+  const days = Math.max(1, Math.min(Math.trunc(window.daysForward), Math.max(1, maxDays)));
+  return Array.from({ length: days }, (_, index) => addDaysToDateKey(window.dayKey, index));
 }
 
 /** 与列表页一致的口径：全校 / 年级 / 班级，班级多时只报数量。 */
@@ -396,12 +407,13 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
       conflictKeys: [],
     }));
 
-  const rows: ScheduleRow[] = [
+  const allRows: ScheduleRow[] = [
     ...mergedRows,
     ...suppressedWeekly.map((session) => sessionToRow(session, recordsById, now, true)),
     ...drafts.map((record) => draftToRow(record, grades, classes)),
     ...unscheduledPublished,
   ];
+  const rows = input.rowFilter ? allRows.filter(input.rowFilter) : allRows;
 
   const conflicts = findScheduleConflicts(rows);
   const conflictedKeys = new Set<string>();
@@ -468,4 +480,81 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
       ).length,
     },
   };
+}
+
+/**
+ * 行级筛选：搜索命中考试名或周测科目；年级按「适用范围是否落到这个年级」判断
+ * （全校考试对任何年级都算命中，与列表页服务端口径一致）。
+ */
+export function makeScheduleRowFilter(input: {
+  query?: string;
+  gradeId?: string;
+  /** 班级 id → 年级 id，用来判断"班级限定"的行是否落到某个年级。 */
+  classGradeIds?: Map<string, string> | Record<string, string>;
+}): (row: ScheduleRow) => boolean {
+  const query = (input.query ?? '').trim().toLowerCase();
+  const gradeId = (input.gradeId ?? '').trim();
+  const classGrade =
+    input.classGradeIds instanceof Map ? input.classGradeIds : new Map(Object.entries(input.classGradeIds ?? {}));
+  return (row) => {
+    if (query) {
+      const haystack = `${row.title} ${row.subject}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (!gradeId) return true;
+    // 全校范围（年级与班级都为空）对所有年级都成立。
+    if (!row.gradeIds.length && !row.classIds.length) return true;
+    if (row.gradeIds.includes(gradeId)) return true;
+    return row.classIds.some((classId) => classGrade.get(classId) === gradeId);
+  };
+}
+
+/** 班级 × 日期网格：为「按班级」视图准备单元格。 */
+export type ScheduleClassGridRow = {
+  classId: string;
+  className: string;
+  gradeId: string;
+  gradeName: string;
+  total: number;
+  cells: Array<{ dateKey: string; rows: ScheduleRow[] }>;
+};
+
+/** 一行是否落到某个班级（全校 → 所有班；年级 → 该年级的班；班级 → 点名）。 */
+export function rowCoversClass(row: ScheduleRow, schoolClass: Pick<SchoolClass, 'id' | 'gradeId'>): boolean {
+  if (!row.gradeIds.length && !row.classIds.length) return true;
+  if (row.classIds.includes(schoolClass.id)) return true;
+  return row.gradeIds.includes(schoolClass.gradeId);
+}
+
+export function buildClassGrid(input: {
+  rows: readonly ScheduleRow[];
+  classes: readonly SchoolClass[];
+  grades?: readonly SchoolGrade[];
+  /** 'YYYY-MM-DD'，按顺序排列。 */
+  days: readonly string[];
+}): ScheduleClassGridRow[] {
+  const { rows, classes, grades = [], days } = input;
+  return classes
+    .map((schoolClass) => {
+      const cells = days.map((dateKey) => ({
+        dateKey,
+        rows: rows
+          .filter((row) => row.startAt != null && getShanghaiDateKey(row.startAt) === dateKey)
+          .filter((row) => rowCoversClass(row, schoolClass))
+          .sort((left, right) => (left.startAt ?? 0) - (right.startAt ?? 0)),
+      }));
+      return {
+        classId: schoolClass.id,
+        className: schoolClass.name,
+        gradeId: schoolClass.gradeId,
+        gradeName: grades.find((grade) => grade.id === schoolClass.gradeId)?.name ?? '',
+        total: cells.reduce((sum, cell) => sum + cell.rows.length, 0),
+        cells,
+      };
+    })
+    .filter((row) => row.total > 0)
+    .sort(
+      (left, right) =>
+        left.gradeId.localeCompare(right.gradeId) || left.className.localeCompare(right.className, 'zh-Hans-CN'),
+    );
 }
