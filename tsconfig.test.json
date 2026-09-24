@@ -4,6 +4,7 @@
     "lib": ["ES2022", "DOM"],
     "module": "ES2022",
     "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
     "rootDir": ".",
     "outDir": ".test-check",
     "incremental": true,
@@ -87,6 +88,7 @@
     "src/utils/deviceCommandReceipt.ts",
     "src/utils/fullscreenGuide.ts",
     "src/shared/examRecordContracts.ts",
+    "src/shared/examAnnouncementContracts.ts",
     "src/shared/examLifecycleOperations.ts",
     "src/shared/staticAssetPolicy.ts",
     "src/shared/chunkLoadError.ts",
@@ -94,6 +96,7 @@
     "src/shared/abortError.ts",
     "src/utils/diagnostics.ts",
     "src/utils/examCenterStatus.ts",
-    "src/utils/scheduleTimeline.ts"
+    "src/utils/scheduleTimeline.ts",
+    "src/utils/examDeviceDisplay.ts"
   ]
 }

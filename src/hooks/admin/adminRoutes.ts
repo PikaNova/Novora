@@ -16,6 +16,8 @@ export const ADMIN_NAV: Array<{
   { id: 'overview', label: '仪表盘', mobileLabel: '仪表盘', permission: 'overview.read' },
   { id: 'dashboard', label: '数据大屏', mobileLabel: '大屏', permission: 'overview.read' },
   { id: 'exam', label: '考试中心', mobileLabel: '考试', permission: 'major.read' },
+  // 公告是学校自己发的公告（下发到教室大屏）；作者端统一公告仍在「更多 → 查看公告」里。
+  { id: 'announcements', label: '公告', mobileLabel: '公告', permission: 'major.read' },
   { id: 'classes', label: '年级与班级', mobileLabel: '班级', permission: 'school.read' },
   { id: 'devices', label: '设备管理', mobileLabel: '设备', permission: 'device.read' },
   { id: 'users', label: '用户与权限', mobileLabel: '用户', permission: 'user.read' },

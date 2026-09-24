@@ -1,5 +1,5 @@
 import type { ExamRecordActionName, ExamRecordDisplayStatus, ExamRecordStatus } from '../shared/examRecordContracts.js';
-import { apiErrorFromResponse, networkApiError } from './apiError';
+import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
@@ -216,6 +216,39 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
     total: typeof payload.total === 'number' ? payload.total : 0,
     totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 0,
   };
+}
+
+/**
+ * 按 id 读单场考试记录（考试详情抽屉的数据来源）。
+ *
+ * 详情抽屉不能依赖「调用方列表里恰好有这一行」：日程轴/班级网格的行来自本地快照，
+ * 可能属于别的板块（进行中的考试属「当前考试」、已结束的属「历史考试」），
+ * 列表页取不到就出现「点详情毫无反应」。改成按 id 现取，任何入口都打得开。
+ */
+export async function fetchExamRecord(recordId: string): Promise<ExamRecordListEntry> {
+  const params = new URLSearchParams({ resource: 'record', recordId });
+  let response: Response;
+  try {
+    response = await fetch(`/api/exams?${params.toString()}`, {
+      headers: authHeaders(),
+      cache: 'no-store',
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '考试详情读取失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
+  if (!payload?.ok) throw await apiErrorFromResponse(response, '考试详情读取失败');
+  const entry = parseRecordEntry(payload.data);
+  if (!entry) {
+    throw new ApiError({
+      status: 502,
+      code: 'INVALID_RECORD_PAYLOAD',
+      message: '考试详情数据不完整，请返回列表刷新后重试。',
+      retryable: true,
+    });
+  }
+  return entry;
 }
 
 /**

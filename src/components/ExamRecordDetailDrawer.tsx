@@ -8,6 +8,7 @@ import { formatApiError } from '../services/apiError';
 import { fetchDeviceBindings, type DeviceBindingInfo } from '../services/classBinding';
 import {
   EXAM_RECORD_ACTION_LABELS,
+  fetchExamRecord,
   fetchExamRecordOperations,
   newIdempotencyKey,
   requiresIdempotencyKey,
@@ -23,7 +24,7 @@ import {
   EXAM_RECORD_STATUS_LABELS,
   type ExamRecordActionName,
 } from '../shared/examRecordContracts.js';
-import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts.js';
+import { buildExamDeviceSummary, filterExamDevices, isDeviceOnline } from '../utils/examDeviceDisplay';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 
@@ -36,7 +37,13 @@ const EXTRA_OPERATION_LABELS: Record<string, string> = {
 };
 
 type Props = {
-  record: ExamRecordListEntry;
+  /**
+   * 要展示的那场考试。抽屉自己按 id 取数：日程轴/班级网格里的行来自本地快照，
+   * 可能属于别的板块，调用方的列表里不一定有这一行。
+   */
+  recordId: string;
+  /** 调用方手里已有的那一行：有就先渲染，省掉一次空白等待；随后仍会按 id 校准一次。 */
+  record?: ExamRecordListEntry | null;
   grades: SchoolGrade[];
   classes: SchoolClass[];
   can: (permission: string) => boolean;
@@ -47,9 +54,9 @@ type Props = {
    * 「编辑考试」的落点，由上层给：它知道要编辑哪一场、需不需要先切年级。
    * 没有传时直接跳「编辑考试」板块（只用于兼容旧调用方）。
    */
-  onEdit?: () => void;
+  onEdit?: (record: ExamRecordListEntry) => void;
   /** 草稿才有：删除这场草稿（由上层二次确认后按 id 从快照里移除）。 */
-  onDiscard?: () => void;
+  onDiscard?: (record: ExamRecordListEntry) => void;
 };
 
 type PendingAction = { action: ExamRecordActionName; minutes?: number; reason?: string; idempotencyKey?: string };
@@ -144,7 +151,13 @@ function buildTimeline(record: ExamRecordListEntry, operations: ExamRecordOperat
   ];
 }
 
-export default function ExamRecordDetailDrawer({
+type BodyProps = Omit<Props, 'recordId' | 'record'> & {
+  record: ExamRecordListEntry;
+  /** 动作执行后按 id 重新取一次这条记录，抽屉自己也能跟上最新状态。 */
+  onRefreshRecord: () => Promise<void>;
+};
+
+function ExamRecordDetailBody({
   record,
   grades,
   classes,
@@ -153,7 +166,8 @@ export default function ExamRecordDetailDrawer({
   onChanged,
   onEdit,
   onDiscard,
-}: Props) {
+  onRefreshRecord,
+}: BodyProps) {
   const navigate = useNavigate();
   const [operations, setOperations] = useState<ExamRecordOperationEntry[]>([]);
   const [announceOpen, setAnnounceOpen] = useState(false);
@@ -168,6 +182,10 @@ export default function ExamRecordDetailDrawer({
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [devicesError, setDevicesError] = useState('');
+  const [devicesTruncated, setDevicesTruncated] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [devicesExpanded, setDevicesExpanded] = useState(false);
+  const [unboundOpen, setUnboundOpen] = useState(false);
 
   const canReadDevices = can('device.read');
 
@@ -197,11 +215,14 @@ export default function ExamRecordDetailDrawer({
     setDevicesError('');
     void fetchDeviceBindings()
       .then((result) => {
-        if (active) setDevices(result.bindings);
+        if (!active) return;
+        setDevices(result.bindings);
+        setDevicesTruncated(result.truncated);
       })
       .catch((caught) => {
         if (!active) return;
         setDevices([]);
+        setDevicesTruncated(false);
         setDevicesError(formatApiError(caught, '读取设备状态失败'));
       })
       .finally(() => {
@@ -236,26 +257,28 @@ export default function ExamRecordDetailDrawer({
   const effectiveEndAt = record.endAt == null ? null : record.endAt + record.pausedMs;
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
-  const deviceSummary = useMemo(() => {
-    const schoolWide = record.targetGradeIds.length === 0 && record.targetClassIds.length === 0;
-    const inScope = devices.filter(
-      (item) =>
-        !item.revoked &&
-        (schoolWide || record.targetGradeIds.includes(item.gradeId) || record.targetClassIds.includes(item.classId)),
-    );
-    const now = Date.now();
-    const online = inScope.filter((item) => now - item.lastSeenAt <= DEVICE_ONLINE_WINDOW_MS).length;
-    const coveredClassIds = new Set(inScope.map((item) => item.classId).filter(Boolean));
-    const scopedClasses = classes.filter(
-      (item) => schoolWide || record.targetClassIds.includes(item.id) || record.targetGradeIds.includes(item.gradeId),
-    );
-    return {
-      devices: inScope,
-      online,
-      offline: inScope.length - online,
-      unboundClasses: scopedClasses.filter((item) => !coveredClassIds.has(item.id)).length,
-    };
-  }, [classes, devices, record.targetClassIds, record.targetGradeIds]);
+  // 筛选/排序/汇总的规则在 utils/examDeviceDisplay.ts，那边有回归测试。
+  const deviceSummary = useMemo(
+    () =>
+      buildExamDeviceSummary({
+        devices,
+        classes,
+        targetGradeIds: record.targetGradeIds,
+        targetClassIds: record.targetClassIds,
+        examName: record.name,
+        now: Date.now(),
+      }),
+    [classes, devices, record.name, record.targetClassIds, record.targetGradeIds],
+  );
+
+  // 「设备多了怎么展示」：默认 6 张，展开后面板自己滚动，不把抽屉撑长。
+  const filteredDevices = useMemo(
+    () => filterExamDevices(deviceSummary.devices, deviceFilter, Date.now()),
+    [deviceFilter, deviceSummary.devices],
+  );
+  const visibleDevices = devicesExpanded ? filteredDevices : filteredDevices.slice(0, 6);
+  const deviceChipClass = (tone: 'online' | 'warn' | null, active: boolean) =>
+    [tone ? `is-${tone}` : '', active ? 'is-active' : ''].filter(Boolean).join(' ') || undefined;
 
   const classLabel = (gradeId: string, classId: string) => {
     const gradeName = grades.find((grade) => grade.id === gradeId)?.name ?? gradeId ?? '未知年级';
@@ -292,6 +315,9 @@ export default function ExamRecordDetailDrawer({
       );
       onChanged();
       await loadOperations();
+      // 抽屉自己那份记录也要重新取：日程轴里的行可能根本不在调用方列表里，
+      // 只靠父组件刷新的话，抽屉里的状态会一直停在动作前。
+      await onRefreshRecord();
     } catch (caught) {
       setActionError(formatApiError(caught, `${EXAM_RECORD_ACTION_LABELS[pending.action]}失败`));
       // 保留幂等键，用户点「重试」时复用同一次意图，避免重复执行。
@@ -351,8 +377,14 @@ export default function ExamRecordDetailDrawer({
     <AdminModalPortal className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label="考试详情">
       <div className="admin-modal admin-modal--wide exam-record-detail" onClick={(event) => event.stopPropagation()}>
         <header className="exam-record-detail__head">
-          <div>
-            <h2 className="admin-modal__title">{record.name || '未命名考试'}</h2>
+          <div className="exam-record-detail__head-main">
+            <div className="exam-record-detail__title-row">
+              <h2 className="admin-modal__title">{record.name || '未命名考试'}</h2>
+              {/* 状态徽标从「基本信息」里挪上来：宽屏两栏之后，它属于标题而不是某个字段。 */}
+              <span className={`exam-records-status is-${record.displayStatus}`}>
+                {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
+              </span>
+            </div>
             <code className="exam-record-detail__id">{record.id}</code>
           </div>
           <div className="exam-record-detail__head-actions">
@@ -362,8 +394,21 @@ export default function ExamRecordDetailDrawer({
                 发送公告
               </button>
             )}
+            {/* 公告管理页是发布/撤回的统一入口，详情页只做快捷跳转。 */}
+            {can('major.read') && (
+              <button
+                className="admin-btn admin-btn--ghost"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  navigate(adminSectionUrl({ tab: 'announcements' }));
+                }}
+              >
+                公告管理
+              </button>
+            )}
             {onDiscard && record.displayStatus === 'draft' && (
-              <button className="admin-btn admin-btn--danger" type="button" onClick={onDiscard}>
+              <button className="admin-btn admin-btn--danger" type="button" onClick={() => onDiscard(record)}>
                 删除草稿
               </button>
             )}
@@ -374,7 +419,7 @@ export default function ExamRecordDetailDrawer({
                 onClick={() => {
                   onClose();
                   if (onEdit) {
-                    onEdit();
+                    onEdit(record);
                     return;
                   }
                   navigate(adminSectionUrl({ tab: 'exam', view: 'editor' }));
@@ -391,9 +436,7 @@ export default function ExamRecordDetailDrawer({
 
         <div className="exam-record-detail__body">
           <section className="exam-record-detail__facts" aria-label="基本信息">
-            <span className={`exam-records-status is-${record.displayStatus}`}>
-              {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
-            </span>
+            <h3>基本信息</h3>
             <dl>
               <div>
                 <dt>适用范围</dt>
@@ -447,16 +490,61 @@ export default function ExamRecordDetailDrawer({
               <p className="exam-record-detail__hint">正在读取设备状态…</p>
             ) : (
               <>
-                <p className="exam-record-detail__hint">
-                  {deviceSummary.devices.length === 0
-                    ? '这场考试范围内还没有绑定设备。'
-                    : `覆盖 ${deviceSummary.devices.length} 台设备 · 在线 ${deviceSummary.online} · 离线 ${deviceSummary.offline}`}
-                  {deviceSummary.unboundClasses > 0 && ` · ${deviceSummary.unboundClasses} 个班级未绑定设备`}
-                </p>
-                {deviceSummary.devices.length > 0 && (
-                  <ul>
-                    {deviceSummary.devices.slice(0, 6).map((item) => {
-                      const online = Date.now() - item.lastSeenAt <= DEVICE_ONLINE_WINDOW_MS;
+                {deviceSummary.devices.length === 0 ? (
+                  <p className="exam-record-detail__hint">这场考试范围内还没有绑定设备。</p>
+                ) : (
+                  <>
+                    {/* chip 兼筛选器：点「离线 8」就只看离线那批，排查时最常用。 */}
+                    <p className="exam-record-detail__device-summary">
+                      <button
+                        type="button"
+                        className={deviceChipClass(null, deviceFilter === 'all')}
+                        aria-pressed={deviceFilter === 'all'}
+                        onClick={() => setDeviceFilter('all')}
+                      >
+                        覆盖 {deviceSummary.devices.length} 台设备
+                      </button>
+                      <button
+                        type="button"
+                        className={deviceChipClass(
+                          deviceSummary.online > 0 ? 'online' : null,
+                          deviceFilter === 'online',
+                        )}
+                        aria-pressed={deviceFilter === 'online'}
+                        onClick={() => setDeviceFilter((value) => (value === 'online' ? 'all' : 'online'))}
+                      >
+                        在线 {deviceSummary.online}
+                      </button>
+                      <button
+                        type="button"
+                        className={deviceChipClass(null, deviceFilter === 'offline')}
+                        aria-pressed={deviceFilter === 'offline'}
+                        onClick={() => setDeviceFilter((value) => (value === 'offline' ? 'all' : 'offline'))}
+                      >
+                        离线 {deviceSummary.offline}
+                      </button>
+                      {deviceSummary.unboundClasses > 0 && (
+                        <button
+                          type="button"
+                          className={deviceChipClass('warn', unboundOpen)}
+                          aria-expanded={unboundOpen}
+                          onClick={() => setUnboundOpen((value) => !value)}
+                        >
+                          {deviceSummary.unboundClasses} 个班级未绑定设备
+                        </button>
+                      )}
+                    </p>
+                    {unboundOpen && deviceSummary.unboundClassNames.length > 0 && (
+                      <p className="exam-record-detail__hint">
+                        未绑定设备：{deviceSummary.unboundClassNames.join('、')}
+                      </p>
+                    )}
+                  </>
+                )}
+                {filteredDevices.length > 0 && (
+                  <ul className={devicesExpanded && filteredDevices.length > 6 ? 'is-scroll' : undefined}>
+                    {visibleDevices.map((item) => {
+                      const online = isDeviceOnline(item, Date.now());
                       return (
                         <li key={item.instanceId}>
                           <strong>{classLabel(item.gradeId, item.classId)}</strong>
@@ -471,10 +559,20 @@ export default function ExamRecordDetailDrawer({
                     })}
                   </ul>
                 )}
-                {deviceSummary.devices.length > 6 && (
-                  <p className="exam-record-detail__hint">
-                    还有 {deviceSummary.devices.length - 6} 台设备未列出，可在设备管理中查看。
-                  </p>
+                {deviceSummary.devices.length > 0 && filteredDevices.length === 0 && (
+                  <p className="exam-record-detail__hint">当前筛选下没有设备。</p>
+                )}
+                {filteredDevices.length > 6 && (
+                  <button
+                    className="admin-btn admin-btn--ghost admin-btn--sm exam-record-detail__devices-more"
+                    type="button"
+                    onClick={() => setDevicesExpanded((value) => !value)}
+                  >
+                    {devicesExpanded ? '收起' : `展开全部 ${filteredDevices.length} 台`}
+                  </button>
+                )}
+                {devicesTruncated && (
+                  <p className="exam-record-detail__hint">设备总数超过一次读取上限，这里只统计了前 500 台。</p>
                 )}
               </>
             )}
@@ -595,6 +693,94 @@ export default function ExamRecordDetailDrawer({
         }}
         gradeName={grades.find((grade) => grade.id === record.targetGradeIds[0])?.name}
       />
+    </AdminModalPortal>
+  );
+}
+
+/**
+ * 考试详情抽屉。
+ *
+ * 数据由抽屉自己按 id 取（`resource=record`），不再要求调用方的列表里先有这一行：
+ * 日程轴、班级网格里的行来自本地快照，可能属于「当前考试 / 历史考试」等别的板块，
+ * 以前这些行点「详情」会因为查不到记录而静默不开抽屉。
+ */
+export default function ExamRecordDetailDrawer({
+  recordId,
+  record: seed,
+  grades,
+  classes,
+  can,
+  onClose,
+  onChanged,
+  onEdit,
+  onDiscard,
+}: Props) {
+  const [record, setRecord] = useState<ExamRecordListEntry | null>(seed ?? null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadRecord = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setRecord(await fetchExamRecord(recordId));
+    } catch (caught) {
+      setError(formatApiError(caught, '考试详情读取失败'));
+    } finally {
+      setLoading(false);
+    }
+  }, [recordId]);
+
+  // 调用方手里那行先顶上（列表刷新后会换新的），随后一律按 id 取服务端权威数据。
+  useEffect(() => {
+    setRecord(seed ?? null);
+    void loadRecord();
+  }, [loadRecord, seed]);
+
+  if (record) {
+    return (
+      <ExamRecordDetailBody
+        record={record}
+        grades={grades}
+        classes={classes}
+        can={can}
+        onClose={onClose}
+        onChanged={onChanged}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+        onRefreshRecord={loadRecord}
+      />
+    );
+  }
+
+  // 取不到记录时也要给一个能关掉的壳：以前这里直接不渲染，用户看到的是「点详情没反应」。
+  return (
+    <AdminModalPortal className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label="考试详情">
+      <div className="admin-modal admin-modal--wide exam-record-detail" onClick={(event) => event.stopPropagation()}>
+        <header className="exam-record-detail__head">
+          <div>
+            <h2 className="admin-modal__title">考试详情</h2>
+            <code className="exam-record-detail__id">{recordId}</code>
+          </div>
+          <div className="exam-record-detail__head-actions">
+            <button className="admin-btn admin-btn--ghost" type="button" onClick={onClose} aria-label="关闭详情">
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <div className="exam-record-detail__body">
+          {loading ? (
+            <p className="exam-record-detail__hint">正在读取考试详情…</p>
+          ) : (
+            <div className="exam-record-detail__feedback is-error">
+              <span>{error || '考试详情读取失败，请稍后重试。'}</span>
+              <button className="admin-btn admin-btn--ghost" type="button" onClick={() => void loadRecord()}>
+                重试
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </AdminModalPortal>
   );
 }

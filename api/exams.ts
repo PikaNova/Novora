@@ -142,7 +142,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res, action);
         return;
       }
-      if (action === 'announce-send') {
+      // 公告写操作：发送 / 撤回，都在同一个路由文件里按 action 分发。
+      if (action === 'announce-send' || action === 'announce-revoke') {
         await handleExamAnnouncementRoute(req, res, action);
         return;
       }

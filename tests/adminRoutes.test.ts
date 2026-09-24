@@ -15,6 +15,7 @@ import {
 test('adminSectionPath gives every section its own path', () => {
   assert.equal(adminSectionPath('overview'), '/admin/overview');
   assert.equal(adminSectionPath('dashboard'), '/admin/dashboard');
+  assert.equal(adminSectionPath('announcements'), '/admin/announcements');
   assert.equal(adminSectionPath('classes'), '/admin/classes');
   assert.equal(adminSectionPath('devices'), '/admin/devices');
   assert.equal(adminSectionPath('users'), '/admin/users');
@@ -39,7 +40,7 @@ test('nav metadata covers every section exactly once', () => {
 });
 
 test('resolveAdminRoute keeps a canonical section URL as-is', () => {
-  for (const id of ['overview', 'dashboard', 'classes', 'devices', 'users'] as const) {
+  for (const id of ['overview', 'dashboard', 'announcements', 'classes', 'devices', 'users'] as const) {
     assert.deepEqual(resolveAdminRoute({ section: id, fallbackTab: 'overview' }), {
       tab: id,
       examView: null,
