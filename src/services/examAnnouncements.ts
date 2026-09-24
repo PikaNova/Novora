@@ -1,4 +1,10 @@
 import { apiErrorFromResponse, networkApiError } from './apiError';
+import {
+  resolveAnnouncementStatus,
+  type AnnouncementLevel,
+  type AnnouncementScopeType,
+  type AnnouncementStatus,
+} from '../shared/examAnnouncementContracts.js';
 
 /**
  * 学校侧考试公告（T-286-03 一期）。
@@ -9,9 +15,11 @@ export type SchoolExamAnnouncement = {
   id: string;
   title: string;
   body: string;
-  level: 'normal' | 'urgent';
+  level: AnnouncementLevel;
+  /** 展示状态：生效中 / 已过期 / 已撤回（数据库里的 'sent' 不会出现在这里）。 */
+  status: AnnouncementStatus;
   examId: string | null;
-  scopeType: 'all' | 'grade' | 'class';
+  scopeType: AnnouncementScopeType;
   scopeIds: string[];
   createdBy: number | null;
   createdAt: number;
@@ -21,12 +29,27 @@ export type SchoolExamAnnouncement = {
 export type SendExamAnnouncementInput = {
   title: string;
   body: string;
-  level: 'normal' | 'urgent';
-  scopeType: 'all' | 'grade' | 'class';
+  level: AnnouncementLevel;
+  scopeType: AnnouncementScopeType;
   scopeIds?: string[];
   examId?: string;
   /** 有效期（分钟）；<=0 表示不过期。 */
   expiresInMinutes?: number;
+};
+
+/** 后台公告管理页的列表筛选与分页。 */
+export type SchoolAnnouncementQuery = {
+  status?: AnnouncementStatus | 'all';
+  level?: AnnouncementLevel | 'all';
+  scope?: AnnouncementScopeType | 'any';
+  limit?: number;
+  offset?: number;
+};
+
+export type SchoolAnnouncementPage = {
+  items: SchoolExamAnnouncement[];
+  /** 还有没有下一页（服务端用 limit+1 探测，不返回总数）。 */
+  hasMore: boolean;
 };
 
 function authToken(): string {
@@ -46,11 +69,17 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
   const id = typeof row.id === 'string' ? row.id : '';
   if (!id) return null;
   const scopeType = row.scopeType === 'grade' || row.scopeType === 'class' ? row.scopeType : 'all';
+  const expiresAt = typeof row.expiresAt === 'number' ? row.expiresAt : null;
   return {
     id,
     title: typeof row.title === 'string' ? row.title : '',
     body: typeof row.body === 'string' ? row.body : '',
     level: row.level === 'urgent' ? 'urgent' : 'normal',
+    // 服务端已经算好展示状态；旧实例没这一列时按 expiresAt 兜底，避免状态一直显示"生效中"。
+    status:
+      row.status === 'active' || row.status === 'expired' || row.status === 'revoked'
+        ? row.status
+        : resolveAnnouncementStatus({ status: 'sent', expiresAt }, Date.now()),
     examId: typeof row.examId === 'string' && row.examId ? row.examId : null,
     scopeType,
     scopeIds: Array.isArray(row.scopeIds)
@@ -58,7 +87,7 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
       : [],
     createdBy: typeof row.createdBy === 'number' ? row.createdBy : null,
     createdAt: typeof row.createdAt === 'number' ? row.createdAt : 0,
-    expiresAt: typeof row.expiresAt === 'number' ? row.expiresAt : null,
+    expiresAt,
   };
 }
 
@@ -78,19 +107,34 @@ export async function fetchDeviceExamAnnouncements(instanceId: string): Promise<
   return payload.data.map(parseAnnouncement).filter((item): item is SchoolExamAnnouncement => item !== null);
 }
 
-/** 管理端：最近发过的公告（审计/回看）。 */
-export async function fetchExamAnnouncementHistory(limit = 20): Promise<SchoolExamAnnouncement[]> {
-  const params = new URLSearchParams({ resource: 'announcements', limit: String(limit) });
+/**
+ * 管理端：公告列表（公告管理页的唯一数据源）。
+ * 默认只取生效中的公告；状态/级别/范围三个筛选为空时表示"不限"。
+ */
+export async function fetchSchoolAnnouncements(query: SchoolAnnouncementQuery = {}): Promise<SchoolAnnouncementPage> {
+  const params = new URLSearchParams({ resource: 'announcements' });
+  if (query.status && query.status !== 'all') params.set('status', query.status);
+  if (query.level && query.level !== 'all') params.set('level', query.level);
+  if (query.scope && query.scope !== 'any') params.set('scope', query.scope);
+  if (query.limit) params.set('limit', String(query.limit));
+  if (query.offset) params.set('offset', String(query.offset));
   let response: Response;
   try {
     response = await fetch(`/api/exams?${params.toString()}`, { headers: authHeaders(), cache: 'no-store' });
   } catch {
     throw networkApiError();
   }
-  if (!response.ok) throw await apiErrorFromResponse(response, '公告记录读取失败');
-  const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
-  if (!payload?.ok || !Array.isArray(payload.data)) throw await apiErrorFromResponse(response, '公告记录读取失败');
-  return payload.data.map(parseAnnouncement).filter((item): item is SchoolExamAnnouncement => item !== null);
+  if (!response.ok) throw await apiErrorFromResponse(response, '公告列表读取失败');
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    data?: unknown;
+    hasMore?: unknown;
+  } | null;
+  if (!payload?.ok || !Array.isArray(payload.data)) throw await apiErrorFromResponse(response, '公告列表读取失败');
+  return {
+    items: payload.data.map(parseAnnouncement).filter((item): item is SchoolExamAnnouncement => item !== null),
+    hasMore: payload.hasMore === true,
+  };
 }
 
 /** 发送考试公告（权限：major.edit；范围与考试范围同一套口径）。 */
@@ -109,5 +153,24 @@ export async function sendExamAnnouncement(input: SendExamAnnouncementInput): Pr
   const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
   const parsed = parseAnnouncement(payload?.data);
   if (!payload?.ok || !parsed) throw await apiErrorFromResponse(response, '公告发送失败');
+  return parsed;
+}
+
+/** 撤回公告（权限：major.edit）；撤回后大屏下一次轮询即不再展示，记录仍保留在列表里。 */
+export async function revokeSchoolAnnouncement(id: string): Promise<SchoolExamAnnouncement> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'announce-revoke', id }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '公告撤回失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
+  const parsed = parseAnnouncement(payload?.data);
+  if (!payload?.ok || !parsed) throw await apiErrorFromResponse(response, '公告撤回失败');
   return parsed;
 }

@@ -9,6 +9,7 @@ import {
 } from '../api/_exams/routes/pluginRoutes.js';
 import { handleDeviceBindings, handleDeviceBindingOptions } from '../api/_exams/routes/deviceAdminRoutes.js';
 import { handleDeviceBinding, handleDeviceHeartbeat } from '../api/_exams/routes/deviceSelfRoutes.js';
+import { handleExamAnnouncementRoute } from '../api/_exams/routes/examAnnouncementRoutes.js';
 
 // 这些测试只覆盖各路由处理函数中"命中数据库之前"就会返回的纯校验分支
 // （方法校验、必填字段/格式校验），因为测试沙箱没有真实数据库可用。
@@ -145,4 +146,16 @@ test('handleDeviceHeartbeat: missing instanceId is rejected with 400', async () 
   const { res, calls } = makeRes();
   await handleDeviceHeartbeat(makeReq({ method: 'POST', body: {} }), res);
   assert.equal(calls.statusCode, 400);
+});
+
+// 公告写操作（发送 / 撤回）由同一个路由按 action 分发，这里只锁定"未知 action 不被吞掉"。
+test('handleExamAnnouncementRoute: unknown action is rejected without touching the database', async () => {
+  const { res, calls } = makeRes();
+  await handleExamAnnouncementRoute(
+    makeReq({ method: 'POST', body: { action: 'announce-nope' } }),
+    res,
+    'announce-nope',
+  );
+  assert.equal(calls.statusCode, 400);
+  assert.equal(calls.body.code, 'UNKNOWN_ANNOUNCEMENT_ACTION');
 });

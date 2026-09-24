@@ -87,6 +87,7 @@
     "src/utils/deviceCommandReceipt.ts",
     "src/utils/fullscreenGuide.ts",
     "src/shared/examRecordContracts.ts",
+    "src/shared/examAnnouncementContracts.ts",
     "src/shared/examLifecycleOperations.ts",
     "src/shared/staticAssetPolicy.ts",
     "src/shared/chunkLoadError.ts",

@@ -368,6 +368,19 @@ export default function ExamRecordDetailDrawer({
                 发送公告
               </button>
             )}
+            {/* 公告管理页是发布/撤回的统一入口，详情页只做快捷跳转。 */}
+            {can('major.read') && (
+              <button
+                className="admin-btn admin-btn--ghost"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  navigate(adminSectionUrl({ tab: 'announcements' }));
+                }}
+              >
+                公告管理
+              </button>
+            )}
             {onDiscard && record.displayStatus === 'draft' && (
               <button className="admin-btn admin-btn--danger" type="button" onClick={onDiscard}>
                 删除草稿

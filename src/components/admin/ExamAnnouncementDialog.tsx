@@ -4,6 +4,7 @@ import InlineSelect from '../InlineSelect';
 import { sendExamAnnouncement } from '../../services/examAnnouncements';
 import { formatApiError } from '../../services/apiError';
 import { notify } from '../../services/notify';
+import { ANNOUNCEMENT_EXPIRY_OPTIONS } from '../../shared/examAnnouncementContracts.js';
 
 type Props = {
   open: boolean;
@@ -14,17 +15,13 @@ type Props = {
   className?: string;
 };
 
-const EXPIRY_OPTIONS = [
-  { value: '30', label: '30 分钟' },
-  { value: '120', label: '2 小时' },
-  { value: '480', label: '当天' },
-  { value: '0', label: '不过期' },
-];
-
 /**
  * 学校侧考试公告发送（T-286-03 一期）。
  * 一期口径：范围只做 全校 / 年级 / 班级（不做楼栋），不需要回执；
  * `urgent` 在大屏置顶且不可关闭，并优先于作者端公告。
+ *
+ * 这里是从某场考试出发的快捷发送（范围默认取该场考试）；日常发布/撤回在
+ * 后台「公告」板块（`components/SchoolAnnouncementsPanel.tsx`）。
  */
 export default function ExamAnnouncementDialog({ open, onClose, record, gradeName, className }: Props) {
   const [title, setTitle] = useState('');
@@ -144,7 +141,7 @@ export default function ExamAnnouncementDialog({ open, onClose, record, gradeNam
           </label>
           <label className="admin-label">
             有效期
-            <InlineSelect value={expiry} onChange={setExpiry} options={EXPIRY_OPTIONS} />
+            <InlineSelect value={expiry} onChange={setExpiry} options={ANNOUNCEMENT_EXPIRY_OPTIONS} />
           </label>
         </div>
         {error && <div className="admin-error">{error}</div>}

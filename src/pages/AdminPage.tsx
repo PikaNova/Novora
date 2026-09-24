@@ -92,6 +92,7 @@ const WeeklyPanel = lazy(() => import('../components/WeeklyPanel'));
 const ClassManagementPanel = lazy(() => import('../components/ClassManagementPanel'));
 const DeviceStatusPanel = lazy(() => import('../components/DeviceStatusPanel'));
 const UserManagementPanel = lazy(() => import('../components/UserManagementPanel'));
+const SchoolAnnouncementsPanel = lazy(() => import('../components/SchoolAnnouncementsPanel'));
 
 const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 
@@ -1030,7 +1031,9 @@ export default function AdminPage() {
           <div
             key={`${adminTab}:${examViewActive}`}
             className={`admin-body admin-tab-transition${
-              (['overview', 'dashboard', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ||
+              (['overview', 'dashboard', 'announcements', 'classes', 'devices', 'users'] as AdminTab[]).includes(
+                adminTab,
+              ) ||
               (adminTab === 'exam' && ['current', 'schedule', 'history'].includes(examViewActive))
                 ? ' admin-body--wide'
                 : ''
@@ -1143,6 +1146,8 @@ export default function AdminPage() {
                   canBind={can('device.bind')}
                   canEditDesign={hasAllScope && can('settings.edit')}
                 />
+              ) : adminTab === 'announcements' ? (
+                <SchoolAnnouncementsPanel can={can} />
               ) : adminTab === 'users' ? (
                 <UserManagementPanel
                   grades={visibleGrades}
