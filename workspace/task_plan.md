@@ -684,9 +684,9 @@ Decision: use git commit --allow-empty so Vercel receives a new dev revision whi
 | P1-④ | 发布记录带上投放范围与设备规模（审计里可查） | ✅ `98f50ec` |
 | P1-⑤ | 时间变更提示（延长/暂停恢复/系统判定结束后显示旧 → 新） | ✅ `fbd4bef` |
 | P1-⑥ | 考试公告定向（全校/年级/班级）+ 控制面板「发送公告」 | ✅ 一期 `0b3b9d9`（不做楼栋、不要回执、紧急优先） |
-| P2-⑦ | 快速考试结束后的归档策略（T-283-03） | ⬜ 待做 |
-| P2-⑧ | 投影一致性自检接口（设计 §3.2 遗留） | ⬜ 待做 |
-| P2-⑨ | 详情里的创建/更新时间与操作者统一从 DB 读（T-282-03 补齐） | ⬜ 待做 |
+| P2-⑦ | 快速考试结束后的归档策略（T-283-03） | ✅ `7819f0b`（默认 24h 宽限后自动归档，`QUICK_EXAM_ARCHIVE_GRACE_HOURS` 可调） |
+| P2-⑧ | 投影一致性自检接口（设计 §3.2 遗留） | ✅ `7819f0b`（`resource=record-consistency`，只读） |
+| P2-⑨ | 详情里的创建/更新时间与操作者统一从 DB 读（T-282-03 补齐） | ✅ 核查结论：已满足，无需改代码（见下） |
 | P2-⑩ | 完整闭环验收（创建→发布→大屏→控制→结束→归档→复制，含设备与插件） | ⬜ 待做 |
 | P3-⑪ | `novora-v2.8-design.md` 按新约定重写（创建即发布/系统自动开考/申请停止/系统判定；`start` 已取消；补 `request_stop`/`force_end`/`stopping`/`auto_*`） | ⬜ 待做 |
 | P3-⑫ | 「惰性推进」写成正式验收口径（无 Cron：下次读/心跳补记；无人访问不推进） | ⬜ 待做 |
@@ -786,3 +786,26 @@ Decision: use git commit --allow-empty so Vercel receives a new dev revision whi
 - [x] 方案 2 行内信息收敛（去掉创建人列、班级多时「N 个班」、时间列不重复日期、科目徽标）—— `0383713`
 - [x] 方案 4 筛选与分页（来源/创建人收进更多筛选、筛选栏改 flex、分页 12/25/50、周测前 5 条 + 还有 N 条）—— `0ca45ad`
 - [x] 方案 3 视图/密度切换（按考试 / 按班级；舒适 / 紧凑，紧凑隐藏「科目」列）—— `0ca45ad`
+
+## P2 落地记录（2026-09-24）
+
+### ⑦ 快速考试结束归档（`7819f0b`）
+
+- 快速考试是"立刻统一下发"的临时考试，结束后一直留在历史里会越攒越多。现在**宽限期后自动归档**：默认 24 小时（`QUICK_EXAM_ARCHIVE_GRACE_HOURS` 可调，`0` = 结束后立刻归档），做法是投影 `status=archived` + 快照写 `archivedAt` + 记一条 `auto_archive` 操作日志；归档后仍能在「显示已归档」里翻到。
+- 留宽限期是为了刚考完还能看到、也来得及「转正式」；`exam_records.status='archived'` 在投影重建里是粘性的（`WHEN exam_records.status='archived' THEN 'archived'`），快照里没有 `archivedAt` 也不会被冲回去。
+- 顺手把三个惰性推进收成一个入口 `advanceExamLifecycle`（开考 → 判定结束 → 归档），列表/详情改用它；设备心跳保留原语义（只在"本机没有考试"时补开考），判定结束与归档每次都跑。
+
+### ⑧ 投影一致性自检（`7819f0b`）
+
+- `GET /api/exams?resource=record-consistency`（`major.read`，只读）。用**同一个投影函数**重算应有结果再与库中逐字段比对，返回三类差异（各最多 20 条示例）：漏投影、孤儿行、字段漂移（name/status/startAt/endAt/archivedAt）。
+- 运行时合法领先（系统开考、判定结束、自动归档）已排除，不会误报为漂移。
+- 顺带把 `record-consistency` 加进 `api/exams.ts` 的 GET 派发（与上次修的 `record-precheck` 同一处坑）。
+
+### ⑨ 创建/更新时间与操作者（核查结论：已满足，无需改代码）
+
+- 抽屉里的「创建人 / 创建时间 / 更新时间」直接读 `exam_records` 的 `created_by / created_at / updated_at`（列表与详情接口都从数据库取，前端不做推断）；投影里这两个字段是**粘性**的（`created_at = LEAST(...)`、`created_by = COALESCE(exam_records.created_by, EXCLUDED.created_by)`），老快照缺字段也不会漂移。
+- 唯一遗留是展示口径：创建人显示为 `#id`（操作记录里显示的是操作者姓名）。要显示姓名需要联查用户表，属体验优化，不在 T-282-03 验收范围内。
+
+### ⑩ 完整闭环验收（等部署）
+
+创建 → 编辑 → 发布 → 大屏显示 → 暂停/延长/申请停止 → 系统判定结束 → 快速考试归档 → 复制，含教室端与 ClassIsland 插件；用户部署后我用 CDP + 接口核对跑一遍。
