@@ -320,14 +320,17 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         config, created_by, created_at, updated_at, start_at, end_at,
         actual_start_at, actual_end_at, paused_at, paused_ms, stop_requested_at, published_at, ended_at, archived_at,
         version, sort_order
-        , last_op.action AS last_op_action, last_op.reason AS last_op_reason, last_op.created_at AS last_op_at
+        , last_op.action AS last_op_action, last_op.reason AS last_op_reason, last_op.op_created_at AS last_op_at
       FROM exam_records
       -- 列表里的「时间已调整」提示读最近一次操作（extend/pause/resume/auto_* 等）
       LEFT JOIN LATERAL (
-        SELECT action, reason, created_at
+        -- 输出列不能叫 created_at：外层 exam_records 也有同名列，
+        -- 一旦重名，SELECT 列表里的裸 created_at 就会 42702 歧义报错。
+        SELECT action, reason, created_at AS op_created_at
         FROM exam_record_operations
         WHERE source_record_id = exam_records.id
-        ORDER BY created_at DESC
+        -- 必须限定到本子查询的表：外层 exam_records 也有 created_at，裸写会 42702 歧义报错。
+        ORDER BY exam_record_operations.created_at DESC
         LIMIT 1
       ) AS last_op ON TRUE
       WHERE

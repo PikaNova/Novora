@@ -207,9 +207,6 @@ export default function ExamRecordsPanel({
     }
     return map;
   }, [classes]);
-  const classIdsByGradeRef = useRef(classIdsByGrade);
-  classIdsByGradeRef.current = classIdsByGrade;
-  const classSignature = useMemo(() => classes.map((item) => `${item.id}:${item.gradeId}`).join(','), [classes]);
 
   // 「考试安排」的时间窗：今天 / 明天 / 本周 / 未来两周 / 全部。
   const window = useMemo(
@@ -233,7 +230,7 @@ export default function ExamRecordsPanel({
         includeArchived: preset === 'history' && showArchived,
         q: query.trim() || undefined,
         gradeId: gradeId || undefined,
-        classIds: gradeId ? classIdsByGradeRef.current.get(gradeId) : undefined,
+        classIds: gradeId ? classIdsByGrade.get(gradeId) : undefined,
         source: source || undefined,
         createdBy: createdBy.trim() || undefined,
         ...(boardActive && window.from && window.to
@@ -249,7 +246,20 @@ export default function ExamRecordsPanel({
     } finally {
       setLoading(false);
     }
-  }, [boardActive, createdBy, gradeId, page, pageSize, preset, query, showArchived, source, window.from, window.to]);
+  }, [
+    boardActive,
+    classIdsByGrade,
+    createdBy,
+    gradeId,
+    page,
+    pageSize,
+    preset,
+    query,
+    showArchived,
+    source,
+    window.from,
+    window.to,
+  ]);
 
   useEffect(() => {
     void loadRecords();
@@ -299,7 +309,7 @@ export default function ExamRecordsPanel({
       preset: 'draft',
       q: query.trim() || undefined,
       gradeId: gradeId || undefined,
-      classIds: gradeId ? classIdsByGradeRef.current.get(gradeId) : undefined,
+      classIds: gradeId ? classIdsByGrade.get(gradeId) : undefined,
       source: source || undefined,
       createdBy: createdBy.trim() || undefined,
     })
@@ -315,7 +325,7 @@ export default function ExamRecordsPanel({
     return () => {
       active = false;
     };
-  }, [boardActive, classSignature, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
+  }, [boardActive, classIdsByGrade, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
 
   /** 筛选项变化一律回到第一页；DOM 事件的值会被放宽成 string，这里集中收窄一次。 */
   const filterHandler =

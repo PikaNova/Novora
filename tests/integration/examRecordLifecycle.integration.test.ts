@@ -616,7 +616,10 @@ test('考试生命周期：每个动作都写操作日志与审计记录，包�
   const pause = operations.find((operation) => operation.action === 'pause');
   assert.equal(String(pause?.from_status), 'published');
   assert.equal(String(pause?.to_status), 'published');
-  assert.equal(String(pause?.reason), '临时调休');
+  // 时间类动作的 reason 现在是「时间说明；备注：<操作者填的原因>」，
+  // 既要留住操作者填的内容，也要保留时间变更说明（fbd4bef 的可见化改动）。
+  assert.ok(String(pause?.reason).includes('临时调休'), '操作日志要保留操作者填写的原因');
+  assert.ok(String(pause?.reason).includes('暂停：'), '暂停日志要说明结束时间如何顺延');
   const end = operations.find((operation) => operation.action === 'end');
   assert.equal(String(end?.to_status), 'ended');
 
@@ -780,7 +783,7 @@ test('考试操作记录：详情页能读到操作者、前后状态与备注�
   assert.ok(String(pause.actorName).length > 0, '操作记录要带上操作者名字');
   assert.equal(String(pause.fromStatus), 'published');
   assert.equal(String(pause.toStatus), 'published');
-  assert.equal(String(pause.reason), '设备故障');
+  assert.ok(String(pause.reason).includes('设备故障'), '操作记录要保留操作者填写的原因');
 
   const denied = await listOperations(gradeAdmin.token, 'ops-g2');
   assert.equal(denied.statusCode, 404);
