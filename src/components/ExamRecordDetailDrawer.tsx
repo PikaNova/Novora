@@ -11,6 +11,7 @@ import {
   newIdempotencyKey,
   requiresIdempotencyKey,
   runExamRecordAction,
+  fetchExamRecordPrecheck,
   type ExamRecordListEntry,
   type ExamRecordOperationEntry,
 } from '../services/examRecords';
@@ -300,10 +301,26 @@ export default function ExamRecordDetailDrawer({
       }
     }
     const confirm = ACTION_CONFIRM[action];
+    // 发布前检查（T-286-01）：设备在线情况只做提示，不阻断发布。
+    let publishWarning = '';
+    if (action === 'publish') {
+      try {
+        const precheck = await fetchExamRecordPrecheck(record.id);
+        if (precheck.warnings.length) {
+          publishWarning = `\n\n发布前检查：${precheck.warnings.join('；')}。（可以直接发布，设备上线后会收到。）`;
+        } else if (precheck.devices.bound) {
+          publishWarning = `\n\n发布前检查：目标范围 ${precheck.devices.bound} 台设备，其中 ${precheck.devices.online} 台最近在线。`;
+        }
+      } catch {
+        // 检查失败不挡发布：拿不到设备状态时按原提示继续。
+      }
+    }
     const confirmed = await confirmDialog({
       title: confirm.title,
       message:
-        action === 'extend' ? `${confirm.message}本次延长 ${extendMinutes} 分钟，可随时再次延长。` : confirm.message,
+        action === 'extend'
+          ? `${confirm.message}本次延长 ${extendMinutes} 分钟，可随时再次延长。`
+          : `${confirm.message}${publishWarning}`,
       tone: confirm.tone,
       confirmLabel: confirm.label,
     });

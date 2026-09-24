@@ -1,5 +1,6 @@
 // 大型考试新建/重命名向导弹窗（含 AI 导入引导）。状态与提交逻辑由 AdminPage 持有。
 import type { HTMLAttributes } from 'react';
+import { useEffect, useState } from 'react';
 import AdminModalPortal from '../AdminModalPortal';
 import AdminWizardSteps, { AdminWorkflowClose } from '../AdminWizardSteps';
 import HelpTip from '../HelpTip';
@@ -9,6 +10,7 @@ import { formatDateTimeInZone } from '../../utils/zonedTime';
 import type { ExamItem } from '../../types';
 import type { SchoolGrade } from '../../types/school';
 import type { MajorModal } from '../../hooks/admin/useMajorScheduleActions';
+import { fetchExamRecordPrecheck } from '../../services/examRecords';
 
 export type BackdropProps = (
   onDismiss: () => void,
@@ -45,6 +47,8 @@ export type MajorModalWizardProps = {
    * 所以这里不直接 setMajorModal(null)；没传时退回直接关闭。
    */
   onClose?: () => void;
+  /** 当前草稿的记录 id：第 3 步用它做发布前检查（设备在线情况，仅提示）。 */
+  recordId?: string;
 };
 
 export function MajorModalWizard({
@@ -71,8 +75,28 @@ export function MajorModalWizard({
   publishBusy,
   onFinish,
   onClose,
+  recordId,
 }: MajorModalWizardProps) {
   const closeModal = onClose ?? (() => setMajorModal(null));
+  // 发布前检查（T-286-01）：只提示设备在线情况，不阻断发布。
+  const [precheckWarnings, setPrecheckWarnings] = useState<string[]>([]);
+  useEffect(() => {
+    if (majorModalStep !== 3 || !recordId) {
+      setPrecheckWarnings([]);
+      return;
+    }
+    let active = true;
+    void fetchExamRecordPrecheck(recordId)
+      .then((result) => {
+        if (active) setPrecheckWarnings(result.warnings);
+      })
+      .catch(() => {
+        if (active) setPrecheckWarnings([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [majorModalStep, recordId]);
 
   const isAddFlow = majorModal.mode === 'add' && majorModal.next !== 'import';
   const enabledItems = items.filter((item) => item.enabled);
@@ -293,6 +317,11 @@ export function MajorModalWizard({
                       ? `${formatDateTimeInZone(windowStart)} → ${formatDateTimeInZone(windowEnd)}`
                       : '无法计算（缺科目时间）'}
                   </li>
+                  {precheckWarnings.map((warning) => (
+                    <li key={warning} className="is-warn">
+                      设备在线：{warning}（可以直接发布，设备上线后会收到）
+                    </li>
+                  ))}
                 </ul>
                 <p className="admin-modal__body">
                   保存为草稿会留在「考试安排」的草稿区；保存并发布会立刻下发到对应范围的教室大屏。

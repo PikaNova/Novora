@@ -26,6 +26,7 @@ import {
 } from '../../../src/shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../../../src/utils/weeklySchedule.js';
 import { parseZonedTime } from '../../../src/utils/zonedTime.js';
+import { DEVICE_ONLINE_WINDOW_MS } from '../../../src/shared/deviceContracts.js';
 import {
   planExamOperation,
   planStopRequest,
@@ -434,6 +435,86 @@ function operationJson(row: OperationRow): Record<string, unknown> {
  * 考试详情页要用的操作记录：只返回调用方有权访问的那场考试的操作日志。
  * 同时回放审计与操作日志两条链路，页面按「谁在什么时候把状态从哪改到哪」展示。
  */
+/**
+ * 按考试范围统计绑定设备与最近在线设备。
+ * 发布前检查（T-286-01）与发布记录（T-286-02）共用这一份口径，避免两处各算一套。
+ */
+async function deviceScopeStats(
+  sql: ReturnType<typeof database>,
+  gradeIds: string[],
+  classIds: string[],
+  now: number,
+): Promise<{ bound: number; online: number; stale: number; allScope: boolean }> {
+  const allScope = gradeIds.length === 0 && classIds.length === 0;
+  const rows = (await sql`
+    SELECT
+      count(*)::int AS bound,
+      count(*) FILTER (WHERE last_seen_at >= ${now - DEVICE_ONLINE_WINDOW_MS})::int AS online
+    FROM device_instances
+    WHERE revoked = FALSE
+      AND (${allScope}::boolean OR grade_id = ANY(${gradeIds}::text[]) OR class_id = ANY(${classIds}::text[]))
+  `) as unknown as Array<{ bound?: unknown; online?: unknown }>;
+  const bound = number(rows[0]?.bound, 0);
+  const online = number(rows[0]?.online, 0);
+  return { bound, online, stale: Math.max(0, bound - online), allScope };
+}
+
+/**
+ * 发布前检查（T-286-01）。用户口径：**只做提示，不阻断发布**——
+ * 返回科目时间完整性与目标范围设备在线情况，前端把 warnings 显示出来即可。
+ */
+async function handleRecordPrecheck(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'GET') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  const recordId = text(req.query?.recordId ?? req.query?.id)
+    .trim()
+    .slice(0, 128);
+  if (!recordId) {
+    error(res, 400, 'INVALID_RECORD_ID', '缺少考试记录 ID');
+    return;
+  }
+  await ensureTableOnce();
+  await ensureAuthTables();
+  const sql = database();
+  const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
+  if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
+    error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
+    return;
+  }
+  const record = rows[0];
+  const gradeIds = stringList(record.target_grade_ids);
+  const classIds = stringList(record.target_class_ids);
+  const now = Date.now();
+  const devices = await deviceScopeStats(sql, gradeIds, classIds, now);
+  const items = Array.isArray(record.items) ? (record.items as unknown[]).map((raw) => asRecord(raw)) : [];
+  const enabled = items.filter((item) => item.enabled !== false);
+  const missingTime = enabled.filter((item) => !text(item.startTime) || !text(item.endTime)).length;
+
+  const warnings: string[] = [];
+  if (!enabled.length) warnings.push('没有启用的科目');
+  if (missingTime > 0) warnings.push(`${missingTime} 个启用科目缺少起止时间`);
+  if (!devices.bound) warnings.push('目标范围还没有绑定设备，发布后教室端不会收到');
+  else if (!devices.online) warnings.push(`目标范围 ${devices.bound} 台设备最近都没有心跳，发布后要等设备上线才会收到`);
+  else if (devices.stale > 0)
+    warnings.push(`目标范围 ${devices.bound} 台设备里有 ${devices.stale} 台最近没有心跳，它们上线后才会收到`);
+
+  res.status(200).json({
+    ok: true,
+    data: {
+      recordId,
+      status: recordStatus(record) ?? 'draft',
+      scope: { gradeIds, classIds, allScope: devices.allScope },
+      devices: { bound: devices.bound, online: devices.online, stale: devices.stale },
+      items: { total: items.length, enabled: enabled.length, missingTime },
+      warnings,
+    },
+  });
+}
+
 async function handleRecordOperations(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
@@ -562,6 +643,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
   const reason = text(req.body?.reason).trim().slice(0, 200);
   if (!(await acquireWriteSlotOrReject(req, res))) return;
   let result: { record: Record<string, unknown>; idempotent?: boolean };
+  // 发布记录（T-286-02）：这次发布投给了哪些范围、命中多少设备，随审计一起落库。
+  let publishScope: Record<string, unknown> | undefined;
   try {
     const existingOperation = idempotencyKey
       ? (
@@ -589,6 +672,18 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
       if (!record || !actorCanAccessRecord(actor, record)) throw new Error('RECORD_NOT_FOUND_OR_FORBIDDEN');
       const currentStatus = recordStatus(record);
       if (!currentStatus) throw new Error('INVALID_PERSISTED_STATUS');
+      if (action === 'publish') {
+        const scopeGradeIds = stringList(record.target_grade_ids);
+        const scopeClassIds = stringList(record.target_class_ids);
+        const stats = await deviceScopeStats(sql, scopeGradeIds, scopeClassIds, now);
+        publishScope = {
+          gradeIds: scopeGradeIds,
+          classIds: scopeClassIds,
+          allScope: stats.allScope,
+          devicesBound: stats.bound,
+          devicesOnline: stats.online,
+        };
+      }
       if (action === 'copy') {
         const copyName = text(req.body?.name).trim().slice(0, 200) || `${text(record.name)}（复制）`;
         const nextMajor = copiedMajor(majorForRecord(record), copyName, actor.id, now);
@@ -800,6 +895,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
     status: result.record.status,
     idempotent: result.idempotent === true,
     ...(reason ? { reason } : {}),
+    ...(publishScope ? { publishScope } : {}),
   });
   res.status(200).json({ ok: true, data: result.record, idempotent: result.idempotent === true });
 }
@@ -811,6 +907,10 @@ export async function handleExamRecordRoute(req: VercelRequest, res: VercelRespo
   }
   if (req.method === 'GET' && text(req.query?.resource) === 'record-operations') {
     await handleRecordOperations(req, res);
+    return;
+  }
+  if (req.method === 'GET' && text(req.query?.resource) === 'record-precheck') {
+    await handleRecordPrecheck(req, res);
     return;
   }
   const action = ACTION_BY_NAME[actionName || text(req.body?.action)];

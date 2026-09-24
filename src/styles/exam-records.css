@@ -163,6 +163,17 @@
   color: var(--adm-success, #4cbe8c);
   content: '✓';
 }
+/* 发布前检查的设备提示：只提示不阻断，用琥珀色与阻断项区分开。 */
+.major-wizard-checklist li.is-warn {
+  border-color: rgba(230, 162, 60, 0.4);
+  background: rgba(230, 162, 60, 0.08);
+  color: #e6a23c;
+}
+.major-wizard-checklist li.is-warn::before {
+  margin-right: 6px;
+  content: '!';
+  font-weight: 700;
+}
 .major-wizard-checklist li.is-bad::before {
   margin-right: 6px;
   color: #f3a0a0;

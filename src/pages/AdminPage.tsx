@@ -1184,6 +1184,7 @@ export default function AdminPage() {
           publishBusy={publishBusy}
           onFinish={(publish) => void finishMajorWizard(publish)}
           onClose={closeMajorWizard}
+          recordId={activeMajor?.id}
         />
       )}
       {quickMajorOpen && (

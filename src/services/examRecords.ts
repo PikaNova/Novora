@@ -205,6 +205,64 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
   };
 }
 
+/**
+ * 发布前检查（T-286-01）结果。按产品口径：只用来提示，不阻断发布，
+ * 所以前端只消费 warnings 与 devices 两项。
+ */
+export type ExamRecordPrecheck = {
+  recordId: string;
+  status: ExamRecordStatus;
+  scope: { gradeIds: string[]; classIds: string[]; allScope: boolean };
+  devices: { bound: number; online: number; stale: number };
+  items: { total: number; enabled: number; missingTime: number };
+  warnings: string[];
+};
+
+/** 发布前检查：科目时间完整性 + 目标范围设备在线情况。 */
+export async function fetchExamRecordPrecheck(recordId: string): Promise<ExamRecordPrecheck> {
+  const params = new URLSearchParams({ resource: 'record-precheck', id: recordId });
+  let response: Response;
+  try {
+    response = await fetch(`/api/exams?${params.toString()}`, { headers: authHeaders(), cache: 'no-store' });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '发布前检查失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
+  if (!payload?.ok) throw await apiErrorFromResponse(response, '发布前检查失败');
+  const raw = (payload.data ?? {}) as Record<string, unknown>;
+  const devices = (raw.devices ?? {}) as Record<string, unknown>;
+  const scope = (raw.scope ?? {}) as Record<string, unknown>;
+  const items = (raw.items ?? {}) as Record<string, unknown>;
+  const numberOrZero = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+  return {
+    recordId: textValue(raw.recordId) || recordId,
+    status: (RECORD_STATUSES.includes(raw.status as ExamRecordStatus) ? raw.status : 'draft') as ExamRecordStatus,
+    scope: {
+      gradeIds: Array.isArray(scope.gradeIds)
+        ? scope.gradeIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      classIds: Array.isArray(scope.classIds)
+        ? scope.classIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      allScope: scope.allScope === true,
+    },
+    devices: {
+      bound: numberOrZero(devices.bound),
+      online: numberOrZero(devices.online),
+      stale: numberOrZero(devices.stale),
+    },
+    items: {
+      total: numberOrZero(items.total),
+      enabled: numberOrZero(items.enabled),
+      missingTime: numberOrZero(items.missingTime),
+    },
+    warnings: Array.isArray(raw.warnings)
+      ? raw.warnings.filter((line): line is string => typeof line === 'string')
+      : [],
+  };
+}
+
 function authToken(): string {
   return typeof localStorage === 'undefined' ? '' : localStorage.getItem('admin_auth_token') || '';
 }
