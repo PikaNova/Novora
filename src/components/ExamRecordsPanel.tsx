@@ -793,6 +793,15 @@ export default function ExamRecordsPanel({
           }
           onOpenWeeklyPlan={onOpenWeeklyEditor}
           onCopyRecord={(recordId) => void requestCopyRecord(recordId)}
+          // 「全部」/两周档可能超过一次取数上限（100 条）：说清楚只显示了多少，并给一个收窄入口。
+          truncated={boardActive && total > records.length ? { shown: records.length, total } : null}
+          onNarrowWindow={
+            scheduleWindow === 'all'
+              ? () => setScheduleWindow('fortnight')
+              : scheduleWindow === 'fortnight'
+                ? () => setScheduleWindow('week')
+                : undefined
+          }
           onCancelWeeklyOccurrence={
             onWeeklyOccurrenceAction
               ? (row) =>

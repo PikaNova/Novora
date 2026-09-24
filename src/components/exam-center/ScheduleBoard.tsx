@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, ChevronRight, ClipboardList } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ChevronRight, ClipboardList, Info } from 'lucide-react';
 import AdminModalPortal from '../AdminModalPortal';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 import { formatClockHm } from '../../utils/examCenterStatus';
@@ -33,6 +33,10 @@ export type ScheduleBoardProps = {
   onDeleteDraft?: (recordId: string) => void;
   /** 行内复制：由上层调用考试动作（复制出新草稿），面板不自己发请求。 */
   onCopyRecord?: (recordId: string) => void;
+  /** 取数被截断时的提示（「全部」档只取回前若干场，或两周内超过一页上限）。 */
+  truncated?: { shown: number; total: number } | null;
+  /** 提示里的「缩小时间窗」：由面板切到更小的窗口。 */
+  onNarrowWindow?: () => void;
   /** 周测行内动作：取消本次 / 改时间 / 冲突仍然进行（写进计划的 overrides）。 */
   onCancelWeeklyOccurrence?: (row: ScheduleRow) => void;
   onRescheduleWeeklyOccurrence?: (
@@ -239,6 +243,8 @@ export default function ScheduleBoard({
   onOpenWeeklyPlan,
   onDeleteDraft,
   onCopyRecord,
+  truncated,
+  onNarrowWindow,
   onCancelWeeklyOccurrence,
   onRescheduleWeeklyOccurrence,
   onForceWeeklyOccurrence,
@@ -341,6 +347,20 @@ export default function ScheduleBoard({
               )}
             </ul>
           </div>
+        </div>
+      )}
+
+      {truncated && truncated.total > truncated.shown && (
+        <div className="exam-schedule__notice" role="status">
+          <Info size={14} aria-hidden="true" />
+          <span>
+            共 {truncated.total} 场，当前只取回前 {truncated.shown} 场；缩小时间窗就能看全。
+          </span>
+          {onNarrowWindow && (
+            <button className="admin-btn admin-btn--ghost admin-btn--sm" type="button" onClick={onNarrowWindow}>
+              缩小时间窗
+            </button>
+          )}
         </div>
       )}
 

@@ -51,6 +51,22 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* 取数被截断时的提示条：说清只显示了多少，并给一个收窄时间窗的入口。 */
+.exam-schedule__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(59, 143, 208, 0.35);
+  border-radius: var(--adm-radius-sm, 8px);
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+.exam-schedule__notice span {
+  flex: 1;
+}
 .exam-schedule__stats span {
   padding: 3px 10px;
   border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
