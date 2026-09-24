@@ -1008,11 +1008,14 @@
  * 高度用 min() 自适应：内容少时不高出一片空白，内容多时最多到 92vh。
  */
 .admin-modal--editor {
-  width: min(1180px, 100vw - 48px);
-  max-width: min(1180px, 100vw - 48px);
+  /* 关闭按钮（.admin-workflow-close）是绝对定位：必须挂在窗口自己身上，
+     否则会锚到遮罩、跑到整屏右上角去。 */
+  position: relative;
+  width: min(1440px, 100vw - 32px);
+  max-width: min(1440px, 100vw - 32px);
   height: auto;
-  min-height: min(560px, calc(100dvh - 48px));
-  max-height: min(92vh, 880px);
+  min-height: min(640px, calc(100dvh - 32px));
+  max-height: min(94vh, 980px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1021,9 +1024,10 @@
 .admin-editor-modal__head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  /* 给右上角的关闭按钮留出位置，长标题也不会压到它。 */
+  padding-right: 48px;
 }
 .admin-editor-modal__title {
   display: flex;
