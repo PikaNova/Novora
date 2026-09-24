@@ -10,6 +10,7 @@ import {
 } from '../../_auth.js';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
 import { autoEndRequestedRecords, autoStartDueRecords } from '../examAutoLifecycle.js';
+import { applyOperationPatchToMajor } from '../examSnapshotPatch.js';
 import { buildExamRecordProjection, projectCurrentExamRecords } from '../examRecordProjection.js';
 import { operationLogKey } from '../operationLog.js';
 import { asRecord } from '../../../src/shared/typeGuards.js';
@@ -526,22 +527,6 @@ function copiedMajor(
     createdBy: actorId,
     createdAt: now,
   };
-}
-
-/** 生命周期操作只改时间字段，快照里的同名字段要一起写，否则下一次投影会把改动冲掉。 */
-function applyOperationPatchToMajor(major: Record<string, unknown>, patch: ExamOperationPatch): void {
-  if (patch.actualStartAt !== undefined) major.actualStartAt = patch.actualStartAt;
-  if (patch.actualEndAt !== undefined) major.actualEndAt = patch.actualEndAt;
-  if (patch.endAt !== undefined) major.endAt = patch.endAt;
-  if (Object.prototype.hasOwnProperty.call(patch, 'pausedAt')) {
-    if (patch.pausedAt == null) delete major.pausedAt;
-    else major.pausedAt = patch.pausedAt;
-  }
-  if (patch.pausedMs !== undefined) major.pausedMs = patch.pausedMs;
-  if (Object.prototype.hasOwnProperty.call(patch, 'stopRequestedAt')) {
-    if (patch.stopRequestedAt == null) delete major.stopRequestedAt;
-    else major.stopRequestedAt = patch.stopRequestedAt;
-  }
 }
 
 async function handleRecordAction(req: VercelRequest, res: VercelResponse, action: RecordRouteAction): Promise<void> {

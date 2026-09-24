@@ -262,7 +262,9 @@ export function projectCurrentExamRecords(transaction: SqlTx): Promise<Array<Rec
       actual_end_at = COALESCE(EXCLUDED.actual_end_at, exam_records.actual_end_at),
       published_at = COALESCE(EXCLUDED.published_at, exam_records.published_at),
       ended_at = COALESCE(EXCLUDED.ended_at, exam_records.ended_at),
-      archived_at = EXCLUDED.archived_at,
+      -- 快照里没有 archivedAt（例如旧客户端整行覆盖保存）时保留已有值：
+      -- 否则会出现 status='archived' 但 archived_at 为空的矛盾状态。反归档由动作路由显式置 NULL。
+      archived_at = COALESCE(EXCLUDED.archived_at, exam_records.archived_at),
       sort_order = EXCLUDED.sort_order
   `;
 }
