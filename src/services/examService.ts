@@ -212,6 +212,33 @@ export type SaveExamsResult =
   | { kind: 'error'; error: ApiError }
   | null;
 
+/**
+ * 最近一次保存里被服务端冻结的归档考试（服务端版本）。
+ *
+ * 服务端对已归档考试一律只读：客户端提交的修改/删除会被回退，并把这些条目原样回传。
+ * 不消费它就会出现「本机显示删掉了/改好了，刷新又变回来」。
+ */
+let frozenArchivedMajors: MajorExam[] = [];
+
+/** 取走并清空最近一次保存被冻结的归档考试；调用方负责回灌本地状态并提示用户。 */
+export function takeFrozenArchivedMajors(): MajorExam[] {
+  const value = frozenArchivedMajors;
+  frozenArchivedMajors = [];
+  return value;
+}
+
+/**
+ * 把服务端冻结的归档考试并回一份 local majors：同 id 用服务端版本替换，服务端有的本地没有就补回。
+ * 单独抽出来是为了让「本地已删、服务端仍冻结保留」这条路径可测。
+ */
+export function applyFrozenArchivedMajors(majors: MajorExam[], frozen: MajorExam[]): MajorExam[] {
+  if (!frozen.length) return majors;
+  const frozenById = new Map(frozen.map((major) => [String(major.id), major]));
+  const kept = majors.map((major) => frozenById.get(String(major.id)) ?? major);
+  const restored = frozen.filter((major) => !majors.some((item) => String(item.id) === String(major.id)));
+  return [...kept, ...restored];
+}
+
 async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -263,11 +290,17 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     if (!data?.ok) return null;
     if (input.action === 'initialize' && typeof data.recoveryKey === 'string') generatedRecoveryKey = data.recoveryKey;
     const updatedAt = Number(data.updatedAt ?? Date.now());
+    const frozen = Array.isArray(data.frozenMajors) ? (data.frozenMajors as MajorExam[]) : [];
+    frozenArchivedMajors = frozen;
+    // 归档条目按服务端版本写进基线快照：否则本地基线仍是"已删除/已改名"的旧值，
+    // 下一次三方合并还会把这份错误差异当成"本机修改"再推一遍。
+    const submittedMajors = input.majors ?? [];
+    const majorsForBase = applyFrozenArchivedMajors(submittedMajors, frozen);
     const previousSnapshot = getCloudSnapshot();
     rememberCloudSnapshot({
       items: input.items,
       title: input.title ?? '',
-      majors: input.majors ?? [],
+      majors: majorsForBase,
       activeMajorId: input.activeMajorId ?? '',
       alerts: input.alerts ?? null,
       scheduleMode: input.scheduleMode ?? previousSnapshot?.scheduleMode,
