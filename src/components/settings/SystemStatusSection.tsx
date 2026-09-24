@@ -2,6 +2,7 @@
 import { Activity } from 'lucide-react';
 import { fetchSystemStatus, type SystemStatusPayload } from '../../services/systemStatus';
 import { APP_VERSION } from '../../services/telemetry';
+import { auditActionLabel } from '../../constants/auditActions';
 import SettingsCollapsibleCard from './SettingsCollapsibleCard';
 import RefreshButton from '../admin/RefreshButton';
 
@@ -263,7 +264,8 @@ function SystemStatusBody() {
               {events.map((event, index) => (
                 <li key={index}>
                   <span className="system-status__event-time">{formatClock(event.createdAt)}</span>
-                  <code>{event.action}</code>
+                  {/* 显示中文名，原始码只留在悬停提示里给排查用。 */}
+                  <code title={event.action}>{auditActionLabel(event.action)}</code>
                   <span className="system-status__event-user">{event.username || '系统'}</span>
                 </li>
               ))}
