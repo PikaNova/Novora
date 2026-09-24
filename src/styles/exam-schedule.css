@@ -342,3 +342,156 @@
     justify-self: start;
   }
 }
+
+/* 按班级的周网格：行=班级、列=日期，用来排冲突。 */
+.exam-grid {
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius, 10px);
+  background: var(--adm-line, rgba(148, 180, 208, 0.12));
+  overflow: auto;
+}
+.exam-grid__row {
+  display: grid;
+  grid-template-columns: 168px repeat(var(--exam-grid-days, 7), minmax(112px, 1fr));
+  gap: 1px;
+  align-items: stretch;
+  background: var(--adm-line, rgba(148, 180, 208, 0.12));
+}
+.exam-grid__row.is-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.exam-grid__row.is-head span {
+  padding: 8px 10px;
+  background: var(--adm-bg2, #10171f);
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-grid__row.is-skeleton {
+  grid-template-columns: 168px repeat(var(--exam-grid-days, 7), minmax(112px, 1fr));
+  padding: 10px;
+  gap: 10px;
+}
+.exam-grid__group {
+  background: var(--adm-bg1, #0c1219);
+}
+.exam-grid__class {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  background: var(--adm-bg1, #0c1219);
+  color: var(--adm-text, #eaf2f8);
+  text-align: left;
+  cursor: pointer;
+}
+.exam-grid__class:hover {
+  background: var(--adm-bg2, #10171f);
+}
+.exam-grid__class strong {
+  font-size: 13px;
+}
+.exam-grid__class em {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  font-style: normal;
+}
+.exam-grid__class span {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.exam-grid__cell {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  padding: 6px;
+  background: var(--adm-bg1, #0c1219);
+}
+.exam-grid__chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 6px;
+  background: var(--adm-bg2, #10171f);
+  color: var(--adm-text, #eaf2f8);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.exam-grid__chip:hover {
+  border-color: var(--adm-accent, #3b8fd0);
+}
+.exam-grid__chip.is-ongoing {
+  border-color: rgba(59, 143, 208, 0.5);
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+}
+.exam-grid__chip.is-suppressed {
+  border-style: dashed;
+  color: var(--adm-text-3, #879caf);
+}
+.exam-grid__chip.has-conflict {
+  border-color: rgba(224, 96, 96, 0.5);
+  color: #f0a5a5;
+}
+.exam-grid__chip-time {
+  color: var(--adm-text-3, #879caf);
+  font-variant-numeric: tabular-nums;
+}
+.exam-grid__chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-grid__more {
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-grid__detail {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 10px 10px 178px;
+  background: var(--adm-bg1, #0c1219);
+  list-style: none;
+}
+.exam-grid__detail li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.exam-grid__detail-day,
+.exam-grid__detail-time {
+  color: var(--adm-text-3, #879caf);
+  font-variant-numeric: tabular-nums;
+}
+.exam-grid__detail em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+}
+.exam-grid__detail .is-warn {
+  color: #f0a5a5;
+}
+
+@media (max-width: 900px) {
+  .exam-grid__row,
+  .exam-grid__row.is-skeleton {
+    grid-template-columns: 128px repeat(var(--exam-grid-days, 7), minmax(104px, 1fr));
+  }
+  .exam-grid__detail {
+    padding-left: 12px;
+  }
+}

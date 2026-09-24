@@ -25,7 +25,15 @@ import {
   type ScheduleWindowKey,
 } from '../utils/examListFilterMemory';
 import { collectScheduleSessions } from '../utils/examCenterStatus';
-import { buildScheduleBoard, resolveScheduleWindow, SCHEDULE_WINDOW_KEYS } from '../utils/scheduleTimeline';
+import {
+  buildClassGrid,
+  buildScheduleBoard,
+  makeScheduleRowFilter,
+  resolveScheduleWindow,
+  scheduleDayLabel,
+  scheduleWindowDays,
+  SCHEDULE_WINDOW_KEYS,
+} from '../utils/scheduleTimeline';
 import { examTimeRange } from '../utils/examRecordTimeLabel';
 import {
   DEFAULT_WEEKLY_CONFLICT_POLICY,
@@ -36,6 +44,7 @@ import {
 import { parseZonedTime } from '../utils/zonedTime';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import ScheduleBoard, { type ScheduleSubjectRow } from './exam-center/ScheduleBoard';
+import ScheduleGrid from './exam-center/ScheduleGrid';
 import RefreshButton from './admin/RefreshButton';
 import InlineSelect from './InlineSelect';
 import '../styles/exam-records.css';
@@ -190,6 +199,8 @@ export default function ExamRecordsPanel({
     // 时间窗只跟档位走；重新挂载（切板块回来）也会重算一次「今天」。
     [scheduleWindow],
   );
+  // 日程轴与班级网格共用同一套取数与行模型（时间窗、草稿、冲突），只有呈现方式不同。
+  const boardActive = preset === 'schedule' && viewMode !== 'exam';
   const boardTimeline = preset === 'schedule' && viewMode === 'timeline';
 
   const loadRecords = useCallback(async () => {
@@ -198,8 +209,8 @@ export default function ExamRecordsPanel({
     try {
       const result = await fetchExamRecords({
         // 日程轴按时间窗一次取全：窗口内不再分页，避免同一个日期分组被切到两页。
-        page: boardTimeline ? 1 : page,
-        pageSize: boardTimeline ? 100 : pageSize,
+        page: boardActive ? 1 : page,
+        pageSize: boardActive ? 100 : pageSize,
         preset,
         includeArchived: preset === 'history' && showArchived,
         q: query.trim() || undefined,
@@ -207,7 +218,7 @@ export default function ExamRecordsPanel({
         classIds: gradeId ? classIdsByGradeRef.current.get(gradeId) : undefined,
         source: source || undefined,
         createdBy: createdBy.trim() || undefined,
-        ...(boardTimeline && window.from && window.to
+        ...(boardActive && window.from && window.to
           ? { from: window.from, to: window.to, includeUnscheduled: true }
           : {}),
       });
@@ -220,20 +231,7 @@ export default function ExamRecordsPanel({
     } finally {
       setLoading(false);
     }
-  }, [
-    boardTimeline,
-    classSignature,
-    createdBy,
-    gradeId,
-    page,
-    pageSize,
-    preset,
-    query,
-    showArchived,
-    source,
-    window.from,
-    window.to,
-  ]);
+  }, [boardActive, createdBy, gradeId, page, pageSize, preset, query, showArchived, source, window.from, window.to]);
 
   useEffect(() => {
     void loadRecords();
@@ -274,7 +272,7 @@ export default function ExamRecordsPanel({
 
   // 考试安排的草稿：表格视图里是可折叠的一块，日程轴里是「待排期」分组，两种都要拉一次。
   useEffect(() => {
-    if (preset !== 'schedule' || !(draftsOpen || boardTimeline)) return;
+    if (preset !== 'schedule' || !(draftsOpen || boardActive)) return;
     let active = true;
     setDraftsLoading(true);
     void fetchExamRecords({
@@ -299,7 +297,7 @@ export default function ExamRecordsPanel({
     return () => {
       active = false;
     };
-  }, [boardTimeline, classSignature, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
+  }, [boardActive, classSignature, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
 
   /** 筛选项变化一律回到第一页；DOM 事件的值会被放宽成 string，这里集中收窄一次。 */
   const filterHandler =
@@ -334,7 +332,7 @@ export default function ExamRecordsPanel({
   // 日程轴的数据来源：本地快照展开出「大型考试 / 快速发布 / 周测」场次（周测已按时间结构合并，
   // 被大型考试按冲突策略暂停的实例单独返回），再和记录层的生命周期状态、草稿合流成一条轴。
   const collected = useMemo(() => {
-    if (!boardTimeline || !majors?.length) return { sessions: [], suppressed: [] };
+    if (!boardActive || !majors?.length) return { sessions: [], suppressed: [] };
     return collectScheduleSessions({
       majors,
       weeklyPlans: weeklyPlans ?? [],
@@ -350,7 +348,7 @@ export default function ExamRecordsPanel({
       windowBackMs: 0,
     });
   }, [
-    boardTimeline,
+    boardActive,
     majors,
     weeklyPlans,
     classes,
@@ -364,9 +362,12 @@ export default function ExamRecordsPanel({
     window.daysForward,
   ]);
 
+  // 搜索与年级对整条轴生效：行的来源既有服务端记录（已经过滤过）也有本地周测实例，
+  // 统一在这里再过一遍，冲突与统计才和「眼前这批安排」保持一致。
+  const classGradeIds = useMemo(() => new Map(classes.map((item) => [item.id, item.gradeId])), [classes]);
   const board = useMemo(
     () =>
-      boardTimeline
+      boardActive
         ? buildScheduleBoard({
             sessions: collected.sessions,
             suppressedWeekly: collected.suppressed,
@@ -375,9 +376,18 @@ export default function ExamRecordsPanel({
             grades,
             classes,
             now: Date.now(),
+            rowFilter: makeScheduleRowFilter({ query, gradeId, classGradeIds }),
           })
         : null,
-    [boardTimeline, collected, drafts, records, grades, classes],
+    [boardActive, collected, drafts, records, grades, classes, query, gradeId, classGradeIds],
+  );
+
+  /** 班级网格的日期列（最多 7 天）与列头文案。 */
+  const gridDays = useMemo(() => (boardActive ? scheduleWindowDays(window, 7) : []), [boardActive, window]);
+  const gridDayLabels = useMemo(() => gridDays.map((day) => scheduleDayLabel(day, Date.now())), [gridDays]);
+  const classGrid = useMemo(
+    () => (board && gridDays.length ? buildClassGrid({ rows: board.rows, classes, grades, days: gridDays }) : []),
+    [board, gridDays, classes, grades],
   );
 
   /** 展开某场考试时列出的科目清单（取本地快照里启用且有时间的科目）。 */
@@ -709,7 +719,17 @@ export default function ExamRecordsPanel({
         </label>
       )}
 
-      {boardTimeline && board ? (
+      {preset === 'schedule' && viewMode === 'class' ? (
+        <ScheduleGrid
+          grid={classGrid}
+          days={gridDays}
+          dayLabels={gridDayLabels}
+          loading={loading}
+          error={error}
+          onOpenDetail={(recordId) => setDetailId(recordId)}
+          onOpenWeeklyPlan={onOpenWeeklyEditor}
+        />
+      ) : boardTimeline && board ? (
         <ScheduleBoard
           groups={board.groups}
           conflicts={board.conflicts}
