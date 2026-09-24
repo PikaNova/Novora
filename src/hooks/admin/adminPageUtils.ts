@@ -68,6 +68,23 @@ export function shouldShowWizardDraftHint(input: {
   return !input.draftId || input.draftExists;
 }
 
+/**
+ * 向导「刚打开」时要不要把步骤打回第一步。
+ *
+ * 两种打开方式要分开看：用户新开向导要回到第一步；而草稿提示条「下一步」这条**恢复**路径
+ * 会自己把步骤设成确认步，必须保留——否则它每次都被压回「考试名称」，
+ * 用户填完科目就再也回不到确认与发布。
+ */
+export function shouldResetWizardStepOnOpen(input: {
+  opened: boolean;
+  /** 上一次渲染时向导是不是已经开着。 */
+  wasOpen: boolean;
+  /** 本次打开属于恢复路径（调用方已经设好步骤）。 */
+  keepStep: boolean;
+}): boolean {
+  return input.opened && !input.wasOpen && !input.keepStep;
+}
+
 const WIZARD_DRAFT_STORAGE_KEY = 'novora_wizard_draft_v1';
 
 /** 向导第 3 步的挂起状态：只要这几个字段就够在刷新后恢复流程。 */

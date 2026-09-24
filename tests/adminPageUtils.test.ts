@@ -8,6 +8,7 @@ import {
   phase,
   readPendingWizardDraft,
   shouldShowWizardDraftHint,
+  shouldResetWizardStepOnOpen,
   syncMajorStateRef,
   toISO,
   toLocalInput,
@@ -229,4 +230,15 @@ test('挂起的向导草稿：坏数据一律当作没有挂起，不抛错', ()
 test('挂起的向导草稿：没有 localStorage 时静默降级', () => {
   assert.equal(readPendingWizardDraft(), null);
   assert.doesNotThrow(() => writePendingWizardDraft({ id: 'major-1', name: 'x', targetGradeIds: [] }));
+});
+
+test('向导步骤重置：新开向导回到第一步，恢复路径保留调用方设好的步骤', () => {
+  // 新开：之前关着、这次打开 → 回到第一步。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: true, wasOpen: false, keepStep: false }), true);
+  // 弹窗内改名称 / 改范围：已经开着，不能把步骤打回 0（这条以前踩过）。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: true, wasOpen: true, keepStep: false }), false);
+  // 草稿提示条「下一步」：恢复路径已经设好确认步，必须保留。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: true, wasOpen: false, keepStep: true }), false);
+  // 关掉向导时什么都不用做。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: false, wasOpen: true, keepStep: false }), false);
 });

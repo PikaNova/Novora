@@ -31,7 +31,7 @@ import { normalizeExamItems } from '../../utils/examSchedule';
 import type { QuickMajorPublishInput } from '../../components/QuickMajorPublishModal';
 import type { WeeklyState } from './useWeeklyScheduleSync';
 import type { SyncState } from './adminPageUtils';
-import { makeId, syncMajorStateRef, toLocalInput } from './adminPageUtils';
+import { makeId, shouldResetWizardStepOnOpen, syncMajorStateRef, toLocalInput } from './adminPageUtils';
 
 export type MajorModal = {
   mode: 'add' | 'rename';
@@ -116,9 +116,26 @@ export function useMajorScheduleActions(params: {
   // 只在弹窗「刚打开」时回到第一步：以前的依赖是整个 majorModal 对象，
   // 于是弹窗内任何一次 setMajorModal（改名称、改范围、向导中途写草稿）都会把步骤打回 0。
   const majorModalOpenRef = useRef(false);
+  /**
+   * 恢复路径（草稿提示条「下一步」）自己会把步骤设成确认步，这里给它一个「保留步骤」的开关：
+   * 否则上面那条「刚打开就回到第一步」会把它压回 0，用户点「下一步」永远落在「考试名称」。
+   */
+  const keepStepOnNextOpenRef = useRef(false);
+  const keepWizardStepOnNextOpen = useCallback(() => {
+    keepStepOnNextOpenRef.current = true;
+  }, []);
   useEffect(() => {
     const open = Boolean(majorModal);
-    if (open && !majorModalOpenRef.current) setMajorModalStep(0);
+    if (
+      shouldResetWizardStepOnOpen({
+        opened: open,
+        wasOpen: majorModalOpenRef.current,
+        keepStep: keepStepOnNextOpenRef.current,
+      })
+    ) {
+      setMajorModalStep(0);
+    }
+    keepStepOnNextOpenRef.current = false;
     majorModalOpenRef.current = open;
   }, [majorModal]);
 
@@ -622,6 +639,7 @@ export function useMajorScheduleActions(params: {
     setMajorModal,
     majorModalStep,
     setMajorModalStep,
+    keepWizardStepOnNextOpen,
     majorError,
     setMajorError,
     deleteMajorOpen,

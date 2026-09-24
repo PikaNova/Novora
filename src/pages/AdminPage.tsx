@@ -345,6 +345,7 @@ export default function AdminPage() {
     setMajorModal,
     majorModalStep,
     setMajorModalStep,
+    keepWizardStepOnNextOpen,
     majorError,
     setMajorError,
     deleteMajorOpen,
@@ -740,6 +741,8 @@ export default function AdminPage() {
     wizardSnapshotRef.current = snapshot;
     setMajorError('');
     setMajorModalStep(3);
+    // 告诉 hook：这次打开是「恢复」而不是「新开向导」，别把步骤打回第一步。
+    keepWizardStepOnNextOpen();
     setMajorModal(snapshot);
   };
   /**
@@ -976,7 +979,6 @@ export default function AdminPage() {
     modalOpen: Boolean(majorModal),
     tabIsExam: adminTab === 'exam',
   });
-
   /**
    * 分考试编辑器面板。同一份元素用在两处：整页兜底（深链 /admin/exam/editor）与编辑器弹窗
    * （从考试中心或向导打开）。两者互斥，不会同时挂载。
