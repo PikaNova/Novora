@@ -13,7 +13,7 @@ import type { ScheduleWindowKey } from './examListFilterMemory';
  * - 大型考试 / 快速考试：来自 `exam_records`（快照投影），整场一行，展开看科目；
  * - 周测：来自周期规则展开出的实例，**某天某科一行**，被大型考试按冲突策略暂停的实例
  *   仍然出现在轴上（状态为「已被大型考试暂停」），否则用户会以为当天真的要考；
- * - 草稿：还没排期的考试，归入「待排期」分组，不参与冲突判定。
+ * - 草稿：还没排期的考试，归入「未排期」分组，不参与冲突判定。
  */
 
 export type ScheduleRowKind = 'major' | 'quick' | 'weekly' | 'draft';
@@ -460,7 +460,7 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
           }
         : group,
     )
-    // 有日期的在前（按时间升序），「待排期」永远排在最后。
+    // 有日期的在前（按时间升序），「未排期」永远排在最后。
     .sort((left, right) => {
       if (left.dateKey == null) return 1;
       if (right.dateKey == null) return -1;

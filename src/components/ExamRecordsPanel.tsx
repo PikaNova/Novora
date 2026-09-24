@@ -298,7 +298,7 @@ export default function ExamRecordsPanel({
     scheduleWindow,
   ]);
 
-  // 考试安排的草稿：表格视图里是可折叠的一块，日程轴里是「待排期」分组，两种都要拉一次。
+  // 考试安排的草稿：表格/按班级视图里是可折叠的一块，日程轴里是「未排期」分组，两种都要拉一次。
   useEffect(() => {
     if (preset !== 'schedule' || !(draftsOpen || boardActive)) return;
     let active = true;
@@ -1019,7 +1019,9 @@ export default function ExamRecordsPanel({
         </section>
       )}
 
-      {preset === 'schedule' && (
+      {/* 时间轴视图里草稿已经落在「未排期」分组内（行内就能编辑/删除草稿），
+          这一块只服务表格视图与按班级视图，避免同一批草稿在一页里出现两次。 */}
+      {preset === 'schedule' && !boardTimeline && (
         <section className="exam-records-drafts" aria-label="草稿考试">
           <button
             className="admin-btn admin-btn--ghost exam-records-drafts__toggle"

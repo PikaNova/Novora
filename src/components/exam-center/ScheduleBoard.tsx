@@ -110,7 +110,8 @@ function ScheduleRowView({
         <span className="exam-schedule__main">
           <strong title={row.title}>{row.title}</strong>
           {row.kind === 'weekly' && <span className="exam-schedule__subject">{row.subject}</span>}
-          <span className="exam-schedule__kind">{SCHEDULE_ROW_KIND_LABELS[row.kind]}</span>
+          {/* 草稿行的「类型」和「状态」都是「草稿」，只留右边那个状态徽标，免得同一行并排两个草稿。 */}
+          {row.kind !== 'draft' && <span className="exam-schedule__kind">{SCHEDULE_ROW_KIND_LABELS[row.kind]}</span>}
           {row.daySubjectCount > 1 && <span className="exam-schedule__subjects-count">{row.daySubjectCount} 科</span>}
           {rowHasConflict(row) && (
             <span className="exam-schedule__conflict-flag">
@@ -375,7 +376,7 @@ export default function ScheduleBoard({
         {stats.todayCount > 0 && <span>今天 {stats.todayCount} 场</span>}
         {stats.conflicted > 0 && <span className="is-warn">{stats.conflicted} 场时间重叠</span>}
         {stats.suppressedWeekly > 0 && <span>{stats.suppressedWeekly} 场周测被暂停</span>}
-        {stats.unscheduled > 0 && <span>{stats.unscheduled} 场待排期</span>}
+        {stats.unscheduled > 0 && <span>{stats.unscheduled} 场未排期</span>}
       </div>
 
       <div className="exam-schedule__days">

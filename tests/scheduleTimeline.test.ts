@@ -67,7 +67,7 @@ function record(patch: Partial<ScheduleRecordLike> & { id: string }): ScheduleRe
   };
 }
 
-test('行模型：大型考试整场一行、周测带科目、草稿进待排期', () => {
+test('行模型：大型考试整场一行、周测带科目、草稿进未排期', () => {
   const board = buildScheduleBoard({
     sessions: [
       session({ key: 'major|m1|i1', startAt: at('10:00'), endAt: at('11:00') }),
@@ -112,7 +112,7 @@ test('行模型：大型考试整场一行、周测带科目、草稿进待排�
   assert.equal(weekly?.recordId, null);
   assert.equal(weekly?.scopeLabel, '1 班');
 
-  // 草稿没有开始时间 → 归入「待排期」且排在最后。
+  // 草稿没有开始时间 → 归入「未排期」且排在最后。
   assert.equal(board.groups.at(-1)?.key, 'unscheduled');
   assert.deepEqual(
     board.groups.at(-1)?.rows.map((row) => row.title),
@@ -257,7 +257,7 @@ test('冲突：同一天、范围有交集、时间重叠才算', () => {
   );
 });
 
-test('按日分组：今天/明天/日期，待排期永远最后', () => {
+test('按日分组：今天/明天/日期，未排期永远最后', () => {
   const board = buildScheduleBoard({
     sessions: [
       session({ key: 'k1', startAt: at('08:00'), endAt: at('09:00') }),
@@ -294,7 +294,7 @@ test('适用范围文案：全校 / 年级 / 班级多时报数量', () => {
   assert.equal(scopeLabelOf([], ['c1', 'c2', 'c3'], grades, classes), '3 个班');
 });
 
-test('统计：今日场次、冲突行数、待排期数', () => {
+test('统计：今日场次、冲突行数、未排期数', () => {
   const board = buildScheduleBoard({
     sessions: [
       session({ key: 'k1', startAt: at('10:00'), endAt: at('11:00') }),
