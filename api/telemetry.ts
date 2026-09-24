@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash } from 'node:crypto';
 import { getAuthorConfig, getIngestToken, shouldSample } from './_authorClient.js';
 import { resolveIpSalt, telemetryConfig } from './_telemetryConfig.js';
+import { resolveSubRoute } from './_routeMatch.js';
+import { handleErrorReport } from './_telemetry/errorReport.js';
 
 const COLLECT_URL = telemetryConfig.collectUrl;
 
@@ -48,6 +50,11 @@ function clientIp(req: VercelRequest): string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // /api/error-report 合并进本入口（rewrite 成 ?sys=error-report），契约与原来一致。
+  if (resolveSubRoute(req, 'sys', ['error-report']) === 'error-report') {
+    await handleErrorReport(req, res);
+    return;
+  }
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'method_not_allowed' });

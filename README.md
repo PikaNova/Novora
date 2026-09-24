@@ -81,7 +81,9 @@ pg_restore --dbname="新加坡连接串" --no-owner --no-privileges exam-board.d
 
 ## 免费版约束
 
-`api/` 当前有 9 个公开路由处理器和 3 个下划线开头的内部共享模块，总源码文件数为 12。设备绑定、ClassIsland 配对、心跳、临时考试远程命令、业务数据和数据库重置均复用 `/api/exams`，没有为这些功能继续增加 Vercel Function。
+`api/` 当前有 7 个公开路由处理器：`exams`、`login`、`users`、`system`、`announcements`、`telemetry`、`diagnostic-logs`；其余源码文件都以 `_` 开头，只作内部共享模块，不计入 Vercel Function。
+设备绑定、ClassIsland 配对、心跳、临时考试远程命令、业务数据和数据库重置复用 `/api/exams`；健康检查、系统状态、邮件/诊断队列消费、时间校准、检查更新、一键部署复用 `/api/system`（用 `?sys=` 区分）；公告图片代理复用 `/api/announcements`；错误上报复用 `/api/telemetry`；诊断日志上传接口自身带 `resource` 参数，为避免改写查询串单独保留。
+原因是 Vercel Hobby 在「`api/` 目录直连函数」形态下限制单次部署 12 个 Serverless Functions：2026-09-06 新增 `api/diagnostic-logs.ts` 后正好越线、部署失败，因此把入口合并到 7 个并预留余量。旧地址全部由 `vercel.json` 的 rewrite 保留，客户端与公告正文里的绝对地址都不需要改。`npm test` 里的 `deploymentConfig.test.ts` 会锁住这条上限。
 
 ## 内部兼容标识
 

@@ -1,16 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from './_cors.js';
-import { isPasswordRequired, requireActor, writeAudit } from './_auth.js';
+import { applyCors } from '../_cors.js';
+import { isPasswordRequired, requireActor, writeAudit } from '../_auth.js';
 
 /**
  * 一键重新部署：触发 Vercel Deploy Hook，从 GitHub 拉取最新代码并重新构建。
+ * 对外仍是 GET/POST /api/redeploy，由 api/system.ts 按 ?sys=redeploy 分发。
  * - 需在 Vercel 项目环境变量配置 VERCEL_DEPLOY_HOOK_URL
  *   （Project Settings → Git → Deploy Hooks 生成）。
  * - GET  ：返回是否已配置部署钩子（用于前端显示/隐藏按钮）。
  * - POST ：需管理鉴权（与其他写接口一致），触发部署。
  */
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handleRedeploy(req: VercelRequest, res: VercelResponse): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
   if (!applyCors(req, res, { methods: ['GET', 'POST'] })) return;
 

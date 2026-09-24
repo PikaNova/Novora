@@ -1,4 +1,7 @@
 // 邮箱验证码登录：统一入口 handleEmailAuth，由 /api/login 按 action 分发。
+//
+// 本文件没有 default export，不是 HTTP 入口，只是被 /api/login 与 /api/system 复用的共享模块；
+// 名字带下划线后 Vercel 不再把它算成一个 Serverless Function（Hobby 单次部署上限 12 个）。
 // 复用：authSql/assertRows/rowShape、issueTokenForUser/getActor/writeAudit/validateEmailFormat、
 //       evaluateLoginLockout（审计行驱动锁定）、consumeRateLimit（限频）、sendVerificationCode（Nodemailer）。
 import type { VercelRequest, VercelResponse } from '@vercel/node';

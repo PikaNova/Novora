@@ -30,7 +30,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   return jsonResponse({ ok: true }, 202);
 }) as typeof fetch;
 
-const { default: handler } = await import('../api/error-report.js');
+const { handleErrorReport: handler } = await import('../api/_telemetry/errorReport.js');
 
 function createResponse() {
   const res = {

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthorConfig, getIngestToken } from './_authorClient.js';
-import { telemetryConfig } from './_telemetryConfig.js';
+import { getAuthorConfig, getIngestToken } from '../_authorClient.js';
+import { telemetryConfig } from '../_telemetryConfig.js';
 import {
   buildErrorReportFingerprint,
   normalizeErrorReportLevel,
@@ -14,7 +14,7 @@ import {
   sanitizeErrorReportRecord,
   sanitizeErrorReportStack,
   sanitizeErrorReportText,
-} from '../src/shared/errorReportContracts.js';
+} from '../../src/shared/errorReportContracts.js';
 
 const ERROR_REPORT_URL = telemetryConfig.errorReportUrl;
 
@@ -29,7 +29,8 @@ function num(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+// 对外仍是 POST /api/error-report，由 api/telemetry.ts 按 ?sys=error-report 分发。
+export async function handleErrorReport(req: VercelRequest, res: VercelResponse): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'method_not_allowed' });

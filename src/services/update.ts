@@ -7,8 +7,11 @@
 
 import { recordUserAction } from '../utils/diagnostics';
 
-const CHECK_URL = '/api/update-check';
-const REDEPLOY_URL = '/api/redeploy';
+// 检查更新与一键部署已合并进 /api/system（Vercel Hobby 单次部署最多 12 个函数），
+// 旧地址 /api/update-check、/api/redeploy 仍由 vercel.json rewrite 兜底；
+// 这里直接用规范地址，查询串写在请求本身、不经过 rewrite，参数不会被丢掉。
+const CHECK_URL = '/api/system?sys=update-check';
+const REDEPLOY_URL = '/api/system?sys=redeploy';
 const TOKEN_KEY = 'admin_auth_token';
 
 export interface UpdateInfo {
@@ -41,7 +44,7 @@ export async function checkForUpdate(current: string): Promise<UpdateInfo> {
     const timer = setTimeout(() => controller.abort(), 8000);
     let res: Response;
     try {
-      res = await fetch(`${CHECK_URL}?current=${encodeURIComponent(current)}`, {
+      res = await fetch(`${CHECK_URL}&current=${encodeURIComponent(current)}`, {
         headers: { 'Cache-Control': 'no-store' },
         signal: controller.signal,
       });
