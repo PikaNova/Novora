@@ -688,8 +688,8 @@ Decision: use git commit --allow-empty so Vercel receives a new dev revision whi
 | P2-⑧ | 投影一致性自检接口（设计 §3.2 遗留） | ✅ `7819f0b`（`resource=record-consistency`，只读） |
 | P2-⑨ | 详情里的创建/更新时间与操作者统一从 DB 读（T-282-03 补齐） | ✅ 核查结论：已满足，无需改代码（见下） |
 | P2-⑩ | 完整闭环验收（创建→发布→大屏→控制→结束→归档→复制，含设备与插件） | ⬜ 待做 |
-| P3-⑪ | `novora-v2.8-design.md` 按新约定重写（创建即发布/系统自动开考/申请停止/系统判定；`start` 已取消；补 `request_stop`/`force_end`/`stopping`/`auto_*`） | ⬜ 待做 |
-| P3-⑫ | 「惰性推进」写成正式验收口径（无 Cron：下次读/心跳补记；无人访问不推进） | ⬜ 待做 |
+| P3-⑪ | `novora-v2.8-design.md` 按新约定重写（创建即发布/系统自动开考/申请停止/系统判定；`start` 已取消；补 `request_stop`/`force_end`/`stopping`/`auto_*`） | ✅ 2026-09-24 重写（含公告表与运行口径） |
+| P3-⑫ | 「惰性推进」写成正式验收口径（无 Cron：下次读/心跳补记；无人访问不推进；准点靠客户端本地判时） | ✅ 写入设计文档 §9 |
 
 ### 关键决策（2026-09-24）
 
