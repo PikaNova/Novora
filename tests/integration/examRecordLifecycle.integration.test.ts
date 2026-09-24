@@ -980,6 +980,10 @@ test('记录层是快照的投影：已删除的考试在任何板块都不展�
   const byId = await getRecordById(admin.token, 'orphan-ended');
   assert.equal(byId.statusCode, 404);
   assert.equal(byId.body.code, 'RECORD_NOT_FOUND');
+
+  // 服务端自报耗时：排查"读取慢"时用它区分服务端与链路
+  const live = await getRecordById(admin.token, 'live-after-delete');
+  assert.match(String(live.headers['Server-Timing'] ?? ''), /^app;dur=\d+$/);
 });
 
 test('复制考试：结果强制进草稿，重新投影不会被自动发布，发布后才转正式', async () => {

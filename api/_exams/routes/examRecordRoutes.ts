@@ -250,6 +250,9 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
+  // 服务端自报耗时：HAR 里只有 app;dur 才能区分"服务端慢"还是"链路慢"
+  // （dev 上实测 handler 20-49ms，而端到端 5-29s，就是靠这个字段定位出来的）。
+  const startedAt = Date.now();
   const actor = await requireActor(req, res, 'major.read');
   if (!actor) return;
   await ensureTableOnce();
@@ -451,6 +454,7 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
   const pageRows = Array.isArray(resultRows[0]?.page_rows) ? (resultRows[0].page_rows as RecordRow[]) : [];
   const data = pageRows.map((row) => recordJson(row, now));
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({
     ok: true,
     data,
@@ -706,6 +710,7 @@ async function handleRecordGet(req: VercelRequest, res: VercelResponse): Promise
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
+  const startedAt = Date.now();
   const actor = await requireActor(req, res, 'major.read');
   if (!actor) return;
   const recordId = text(req.query?.recordId ?? req.query?.id)
@@ -740,6 +745,7 @@ async function handleRecordGet(req: VercelRequest, res: VercelResponse): Promise
     return;
   }
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({ ok: true, data: recordJson(rows[0], Date.now()) });
 }
 
@@ -748,6 +754,7 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
+  const startedAt = Date.now();
   const actor = await requireActor(req, res, 'major.read');
   if (!actor) return;
   const recordId = text(req.query?.recordId ?? req.query?.id)
@@ -780,6 +787,7 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
     LIMIT ${limit}
   `) as unknown as OperationRow[];
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({
     ok: true,
     data: operationRows.map((row) => operationJson(row)),
