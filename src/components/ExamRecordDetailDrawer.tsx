@@ -8,6 +8,7 @@ import { formatApiError } from '../services/apiError';
 import { fetchDeviceBindings, type DeviceBindingInfo } from '../services/classBinding';
 import {
   EXAM_RECORD_ACTION_LABELS,
+  fetchExamRecord,
   fetchExamRecordOperations,
   newIdempotencyKey,
   requiresIdempotencyKey,
@@ -36,7 +37,13 @@ const EXTRA_OPERATION_LABELS: Record<string, string> = {
 };
 
 type Props = {
-  record: ExamRecordListEntry;
+  /**
+   * 要展示的那场考试。抽屉自己按 id 取数：日程轴/班级网格里的行来自本地快照，
+   * 可能属于别的板块，调用方的列表里不一定有这一行。
+   */
+  recordId: string;
+  /** 调用方手里已有的那一行：有就先渲染，省掉一次空白等待；随后仍会按 id 校准一次。 */
+  record?: ExamRecordListEntry | null;
   grades: SchoolGrade[];
   classes: SchoolClass[];
   can: (permission: string) => boolean;
@@ -47,9 +54,9 @@ type Props = {
    * 「编辑考试」的落点，由上层给：它知道要编辑哪一场、需不需要先切年级。
    * 没有传时直接跳「编辑考试」板块（只用于兼容旧调用方）。
    */
-  onEdit?: () => void;
+  onEdit?: (record: ExamRecordListEntry) => void;
   /** 草稿才有：删除这场草稿（由上层二次确认后按 id 从快照里移除）。 */
-  onDiscard?: () => void;
+  onDiscard?: (record: ExamRecordListEntry) => void;
 };
 
 type PendingAction = { action: ExamRecordActionName; minutes?: number; reason?: string; idempotencyKey?: string };
@@ -144,7 +151,13 @@ function buildTimeline(record: ExamRecordListEntry, operations: ExamRecordOperat
   ];
 }
 
-export default function ExamRecordDetailDrawer({
+type BodyProps = Omit<Props, 'recordId' | 'record'> & {
+  record: ExamRecordListEntry;
+  /** 动作执行后按 id 重新取一次这条记录，抽屉自己也能跟上最新状态。 */
+  onRefreshRecord: () => Promise<void>;
+};
+
+function ExamRecordDetailBody({
   record,
   grades,
   classes,
@@ -153,7 +166,8 @@ export default function ExamRecordDetailDrawer({
   onChanged,
   onEdit,
   onDiscard,
-}: Props) {
+  onRefreshRecord,
+}: BodyProps) {
   const navigate = useNavigate();
   const [operations, setOperations] = useState<ExamRecordOperationEntry[]>([]);
   const [announceOpen, setAnnounceOpen] = useState(false);
@@ -301,6 +315,9 @@ export default function ExamRecordDetailDrawer({
       );
       onChanged();
       await loadOperations();
+      // 抽屉自己那份记录也要重新取：日程轴里的行可能根本不在调用方列表里，
+      // 只靠父组件刷新的话，抽屉里的状态会一直停在动作前。
+      await onRefreshRecord();
     } catch (caught) {
       setActionError(formatApiError(caught, `${EXAM_RECORD_ACTION_LABELS[pending.action]}失败`));
       // 保留幂等键，用户点「重试」时复用同一次意图，避免重复执行。
@@ -391,7 +408,7 @@ export default function ExamRecordDetailDrawer({
               </button>
             )}
             {onDiscard && record.displayStatus === 'draft' && (
-              <button className="admin-btn admin-btn--danger" type="button" onClick={onDiscard}>
+              <button className="admin-btn admin-btn--danger" type="button" onClick={() => onDiscard(record)}>
                 删除草稿
               </button>
             )}
@@ -402,7 +419,7 @@ export default function ExamRecordDetailDrawer({
                 onClick={() => {
                   onClose();
                   if (onEdit) {
-                    onEdit();
+                    onEdit(record);
                     return;
                   }
                   navigate(adminSectionUrl({ tab: 'exam', view: 'editor' }));
@@ -676,6 +693,94 @@ export default function ExamRecordDetailDrawer({
         }}
         gradeName={grades.find((grade) => grade.id === record.targetGradeIds[0])?.name}
       />
+    </AdminModalPortal>
+  );
+}
+
+/**
+ * 考试详情抽屉。
+ *
+ * 数据由抽屉自己按 id 取（`resource=record`），不再要求调用方的列表里先有这一行：
+ * 日程轴、班级网格里的行来自本地快照，可能属于「当前考试 / 历史考试」等别的板块，
+ * 以前这些行点「详情」会因为查不到记录而静默不开抽屉。
+ */
+export default function ExamRecordDetailDrawer({
+  recordId,
+  record: seed,
+  grades,
+  classes,
+  can,
+  onClose,
+  onChanged,
+  onEdit,
+  onDiscard,
+}: Props) {
+  const [record, setRecord] = useState<ExamRecordListEntry | null>(seed ?? null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadRecord = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setRecord(await fetchExamRecord(recordId));
+    } catch (caught) {
+      setError(formatApiError(caught, '考试详情读取失败'));
+    } finally {
+      setLoading(false);
+    }
+  }, [recordId]);
+
+  // 调用方手里那行先顶上（列表刷新后会换新的），随后一律按 id 取服务端权威数据。
+  useEffect(() => {
+    setRecord(seed ?? null);
+    void loadRecord();
+  }, [loadRecord, seed]);
+
+  if (record) {
+    return (
+      <ExamRecordDetailBody
+        record={record}
+        grades={grades}
+        classes={classes}
+        can={can}
+        onClose={onClose}
+        onChanged={onChanged}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+        onRefreshRecord={loadRecord}
+      />
+    );
+  }
+
+  // 取不到记录时也要给一个能关掉的壳：以前这里直接不渲染，用户看到的是「点详情没反应」。
+  return (
+    <AdminModalPortal className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label="考试详情">
+      <div className="admin-modal admin-modal--wide exam-record-detail" onClick={(event) => event.stopPropagation()}>
+        <header className="exam-record-detail__head">
+          <div>
+            <h2 className="admin-modal__title">考试详情</h2>
+            <code className="exam-record-detail__id">{recordId}</code>
+          </div>
+          <div className="exam-record-detail__head-actions">
+            <button className="admin-btn admin-btn--ghost" type="button" onClick={onClose} aria-label="关闭详情">
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <div className="exam-record-detail__body">
+          {loading ? (
+            <p className="exam-record-detail__hint">正在读取考试详情…</p>
+          ) : (
+            <div className="exam-record-detail__feedback is-error">
+              <span>{error || '考试详情读取失败，请稍后重试。'}</span>
+              <button className="admin-btn admin-btn--ghost" type="button" onClick={() => void loadRecord()}>
+                重试
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </AdminModalPortal>
   );
 }

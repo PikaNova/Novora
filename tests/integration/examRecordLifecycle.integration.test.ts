@@ -193,6 +193,49 @@ function listedIds(calls: { body: Record<string, unknown> }): string[] {
   return Array.isArray(rows) ? rows.map((row) => String((row as { id?: unknown }).id)) : [];
 }
 
+/** 走真实的 GET /api/exams?resource=record 单取一条记录（考试详情抽屉的数据来源）。 */
+async function getRecordById(token: string, recordId: string) {
+  const { res, calls } = makeRes();
+  const req = {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+    query: { resource: 'record', recordId },
+    cookies: {},
+    body: {},
+  } as unknown as VercelRequest;
+  await handleExamRecordRoute(req, res);
+  return calls;
+}
+
+/**
+ * 回归：详情抽屉以前在「当前板块列表页那一页数据」里按 id 找记录，找不到就整个不渲染
+ * （点「详情」毫无反应）。日程轴/班级网格的行来自快照，可能是别的板块的记录，
+ * 所以这里锁定「按 id 单取」这条路必须独立可用。
+ */
+test('考试详情：按 id 单取记录，不要求它出现在当前板块列表里', async () => {
+  const startAt = Date.now() - 10 * 60_000;
+  await seedMajors([{ id: 'ongoing-detail', startAt, endAt: startAt + 60 * 60_000 }]);
+  // 读一次当前考试板块：顺带让系统惰性把它开考，落到「进行中」。
+  await listRecords(admin.token, { preset: 'current' });
+
+  const schedule = await listRecords(admin.token, { preset: 'schedule' });
+  assert.equal(
+    listedIds(schedule).includes('ongoing-detail'),
+    false,
+    '进行中的考试不在「考试安排」板块（这正是以前点详情没反应的那类行）',
+  );
+
+  const byId = await getRecordById(admin.token, 'ongoing-detail');
+  assert.equal(byId.statusCode, 200);
+  assert.equal(data(byId).id, 'ongoing-detail');
+  assert.equal(data(byId).displayStatus, 'ongoing');
+
+  // 取不到时必须是明确的 404，前端据此给提示，而不是静默什么都不发生。
+  const missing = await getRecordById(admin.token, 'missing-detail');
+  assert.equal(missing.statusCode, 404);
+  assert.equal(missing.body.code, 'RECORD_NOT_FOUND');
+});
+
 /** 走真实的 GET /api/exams?resource=record-operations 读操作日志。 */
 async function listOperations(token: string, recordId: string) {
   const { res, calls } = makeRes();

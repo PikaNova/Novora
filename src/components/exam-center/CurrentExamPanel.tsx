@@ -384,13 +384,13 @@ export default function CurrentExamPanel({
   const view = useMemo(() => buildExamCenterView(sessions, records, now, dayKey), [sessions, records, now, dayKey]);
 
   const headline = view.headline;
-  const detailRecord = detailId ? (records?.find((item) => item.id === detailId) ?? null) : null;
+  /** 抽屉自己按 id 取数；这里只是把手里已有的那一行当种子，避免开抽屉时闪一下加载态。 */
+  const detailSeed = detailId ? (records?.find((item) => item.id === detailId) ?? null) : null;
   const canEdit = can('major.edit');
   const lastSyncLabel = lastSyncedAt ? `${Math.max(0, Math.round((now - lastSyncedAt) / 1000))} 秒前` : '—';
 
   const openDetail = (session: ExamSessionView) => {
     if (!session.recordId) return;
-    if (!records?.some((item) => item.id === session.recordId)) return;
     setDetailId(session.recordId);
   };
 
@@ -559,7 +559,7 @@ export default function CurrentExamPanel({
           <button
             type="button"
             className="admin-btn admin-btn--primary"
-            disabled={!headline || !headline.recordId || !records?.some((item) => item.id === headline.recordId)}
+            disabled={!headline || !headline.recordId}
             onClick={() => headline && openDetail(headline)}
           >
             <Info size={16} aria-hidden="true" />
@@ -608,9 +608,10 @@ export default function CurrentExamPanel({
         </span>
       </footer>
 
-      {detailRecord && (
+      {detailId && (
         <ExamRecordDetailDrawer
-          record={detailRecord}
+          recordId={detailId}
+          record={detailSeed}
           grades={grades}
           classes={classes}
           can={can}

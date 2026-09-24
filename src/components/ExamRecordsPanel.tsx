@@ -11,7 +11,12 @@ import {
 import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { MajorExam } from '../types';
-import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
+import {
+  fetchExamRecord,
+  fetchExamRecords,
+  type ExamRecordListEntry,
+  type ExamRecordPreset,
+} from '../services/examRecords';
 import { runExamRecordAction } from '../services/examRecords';
 import { confirmDialog } from '../services/appDialog';
 import { notify } from '../services/notify';
@@ -335,12 +340,32 @@ export default function ExamRecordsPanel({
       setPage(1);
     };
 
-  // 详情始终取列表里的最新一行：动作完成后列表刷新，抽屉里的状态与时间会跟着更新。
-  // 草稿区是另一次 preset=draft 请求的结果，不在 records 里，所以这里必须一起找——
-  // 只查 records 的话点草稿什么都不会发生（抽屉打不开），也就是「草稿无法再次编辑」。
-  const detailRecord = detailId
+  // 详情抽屉自己按 id 取数（见 ExamRecordDetailDrawer）。这里只是把手里已有的那一行
+  // 当种子传过去，避免开抽屉时先闪一下「正在读取」。
+  const detailSeed = detailId
     ? (records.find((item) => item.id === detailId) ?? drafts.find((item) => item.id === detailId) ?? null)
     : null;
+
+  /**
+   * 按 id 找一条记录：先看本地这两批数据（当前板块列表 + 草稿），都没有再按 id 向服务端要。
+   *
+   * 日程轴与班级网格的行来自本地快照，可能属于别的板块（进行中的考试属「当前考试」、
+   * 已结束的属「历史考试」），光查 records/drafts 找不到——行内「编辑」以前就是在这里
+   * 静默失效的；详情抽屉已经改成自取，这里保留同样的兜底。
+   */
+  const resolveRecordById = useCallback(
+    async (recordId: string): Promise<ExamRecordListEntry | null> => {
+      const local = records.find((item) => item.id === recordId) ?? drafts.find((item) => item.id === recordId);
+      if (local) return local;
+      try {
+        return await fetchExamRecord(recordId);
+      } catch (caught) {
+        notify('warning', formatApiError(caught, '这场考试的记录读取失败'), '读取考试失败');
+        return null;
+      }
+    },
+    [drafts, records],
+  );
   /** 收在「更多筛选」里、但当前有生效值的条数（给折叠状态的按钮做提示）。 */
   const hiddenFilterCount = (source ? 1 : 0) + (createdBy.trim() ? 1 : 0);
   const copy = PRESET_COPY[preset];
@@ -795,9 +820,9 @@ export default function ExamRecordsPanel({
           onEditRecord={
             onEditRecord
               ? (recordId) => {
-                  const found =
-                    records.find((item) => item.id === recordId) ?? drafts.find((item) => item.id === recordId);
-                  if (found) onEditRecord(found);
+                  void resolveRecordById(recordId).then((found) => {
+                    if (found) onEditRecord(found);
+                  });
                 }
               : undefined
           }
@@ -1119,21 +1144,21 @@ export default function ExamRecordsPanel({
         </div>
       </footer>
 
-      {detailRecord && (
+      {detailId && (
         <ExamRecordDetailDrawer
-          record={detailRecord}
+          recordId={detailId}
+          record={detailSeed}
           grades={grades}
           classes={classes}
           can={can}
           onClose={() => setDetailId('')}
           onChanged={() => setRefreshKey((value) => value + 1)}
-          onEdit={onEditRecord ? () => onEditRecord(detailRecord) : undefined}
+          onEdit={onEditRecord}
           onDiscard={
             onDeleteDraft
-              ? () => {
-                  const target = detailRecord;
+              ? (record) => {
                   setDetailId('');
-                  void requestDeleteDraft(target);
+                  void requestDeleteDraft(record);
                 }
               : undefined
           }

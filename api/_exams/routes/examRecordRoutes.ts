@@ -682,6 +682,42 @@ async function handleRecordPrecheck(req: VercelRequest, res: VercelResponse): Pr
   });
 }
 
+/**
+ * 按 id 读单场考试记录（考试详情抽屉自己取数用）。
+ *
+ * 为什么需要它：详情抽屉以前是在「当前板块列表页那一页数据」里按 id 找记录，找不到就
+ * 整个抽屉不渲染——表现是点「详情」毫无反应。而「考试安排」的日程轴/班级网格的行来自
+ * 本地快照，覆盖 current/history 等其它板块（例如进行中的考试属「当前考试」），
+ * 于是这些行永远点不开。现在抽屉按 id 直接向服务端要这一条，跟行来自哪个板块无关。
+ */
+async function handleRecordGet(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'GET') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  const recordId = text(req.query?.recordId ?? req.query?.id)
+    .trim()
+    .slice(0, 128);
+  if (!recordId) {
+    error(res, 400, 'INVALID_RECORD_ID', '缺少考试记录 ID');
+    return;
+  }
+  await ensureTableOnce();
+  // 与列表同一个口径：读之前先推进系统流程（到点自动开考、申请停止的判定），
+  // 否则详情里的状态可能比列表慢一拍。
+  await advanceExamLifecycle(Date.now());
+  const sql = database();
+  const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
+  if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
+    error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
+    return;
+  }
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(200).json({ ok: true, data: recordJson(rows[0], Date.now()) });
+}
+
 async function handleRecordOperations(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
@@ -1090,6 +1126,10 @@ export async function handleExamRecordRoute(req: VercelRequest, res: VercelRespo
   }
   if (req.method === 'GET' && text(req.query?.resource) === 'record-operations') {
     await handleRecordOperations(req, res);
+    return;
+  }
+  if (req.method === 'GET' && text(req.query?.resource) === 'record') {
+    await handleRecordGet(req, res);
     return;
   }
   if (req.method === 'GET' && text(req.query?.resource) === 'record-precheck') {
