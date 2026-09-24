@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, ChevronRight, ClipboardList, Info } from 'lucide-react';
 import AdminModalPortal from '../AdminModalPortal';
+import { DateTimeField } from '../touch-datetime-picker';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 import { formatClockHm } from '../../utils/examCenterStatus';
 import { getShanghaiDateKey } from '../../utils/weeklySchedule';
@@ -461,27 +462,36 @@ export default function ScheduleBoard({
             </p>
             <label className="weekly-field">
               <span>日期</span>
-              <input
-                type="date"
+              <DateTimeField
+                className="admin-date-time-field"
                 value={rescheduleForm.targetDate}
-                onChange={(event) => setRescheduleForm((form) => ({ ...form, targetDate: event.target.value }))}
+                onChange={(value) => setRescheduleForm((form) => ({ ...form, targetDate: value }))}
+                mode="date"
+                title="选择调整后的日期"
+                showFieldPreview={false}
               />
             </label>
             <div className="exam-schedule__time-fields">
               <label className="weekly-field">
                 <span>开始</span>
-                <input
-                  type="time"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={rescheduleForm.startClock}
-                  onChange={(event) => setRescheduleForm((form) => ({ ...form, startClock: event.target.value }))}
+                  onChange={(value) => setRescheduleForm((form) => ({ ...form, startClock: value }))}
+                  mode="time"
+                  title="选择开始时间"
+                  showFieldPreview={false}
                 />
               </label>
               <label className="weekly-field">
                 <span>结束</span>
-                <input
-                  type="time"
+                <DateTimeField
+                  className="admin-date-time-field"
                   value={rescheduleForm.endClock}
-                  onChange={(event) => setRescheduleForm((form) => ({ ...form, endClock: event.target.value }))}
+                  onChange={(value) => setRescheduleForm((form) => ({ ...form, endClock: value }))}
+                  mode="time"
+                  title="选择结束时间"
+                  showFieldPreview={false}
                 />
               </label>
             </div>
