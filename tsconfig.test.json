@@ -98,6 +98,7 @@
     "src/utils/examCenterStatus.ts",
     "src/utils/scheduleTimeline.ts",
     "src/utils/examDeviceDisplay.ts",
-    "src/utils/examRecordTimeline.ts"
+    "src/utils/examRecordTimeline.ts",
+    "src/utils/examRecordTimestampBackfill.ts"
   ]
 }

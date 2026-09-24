@@ -11,7 +11,11 @@
   },
   "include": [
     "scripts/backfillTrackClassIds.ts",
+    "scripts/backfillExamRecordTimestamps.ts",
+    "api/_dbAdapter.ts",
     "src/utils/trackClassIds.ts",
+    "src/utils/examRecordTimestampBackfill.ts",
+    "src/utils/examWindow.ts",
     "src/data/subjects.ts",
     "src/types/index.ts",
     "src/types/school.ts"
