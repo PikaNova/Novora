@@ -4,6 +4,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { useExamNotify } from '../src/hooks/useExamNotify.js';
 import type { ExamItem } from '../src/types/index.js';
+import { getZonedParts } from '../src/utils/zonedTime.js';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -23,13 +24,21 @@ class MemoryStorage {
 
 function examNamed(name: string): ExamItem {
   const start = Date.now() - 5_000;
-  const localIso = (time: number) =>
-    new Date(time - new Date(time).getTimezoneOffset() * 60_000).toISOString().slice(0, 19);
+  // 考试时间一律按展示时区（Asia/Shanghai）解析，不能用运行机器的本地时区拼字符串：
+  // CI runner 是 UTC，那样拼出来的时间会比“现在”晚 8 小时，开考检查点永远不触发。
+  const pad2 = (value: number) => String(value).padStart(2, '0');
+  const shanghaiIso = (time: number) => {
+    const parts = getZonedParts(time);
+    return (
+      `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}` +
+      `T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second)}`
+    );
+  };
   return {
     id: 'exam-1',
     name,
-    startTime: localIso(start),
-    endTime: localIso(start + 10 * 60_000),
+    startTime: shanghaiIso(start),
+    endTime: shanghaiIso(start + 10 * 60_000),
     enabled: true,
     order: 0,
   };
