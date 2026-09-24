@@ -15,6 +15,21 @@ export type AppDialogRequest = AppDialogOptions & {
 
 export const APP_DIALOG_EVENT = 'novora:app-dialog';
 
+/**
+ * 当前有多少个确认框还没关闭。
+ * 弹窗层（例如编辑器弹窗）的 Esc 处理要先问一下：确认框开着时 Esc 只该关确认框，
+ * 不能顺手把下面那一层也关掉。
+ */
+let openDialogCount = 0;
+
+export function hasOpenAppDialog(): boolean {
+  return openDialogCount > 0;
+}
+
+export function setAppDialogOpenCount(count: number): void {
+  openDialogCount = Math.max(0, Math.trunc(count));
+}
+
 function openDialog(options: AppDialogOptions): Promise<boolean> {
   if (typeof window === 'undefined') return Promise.resolve(false);
   return new Promise((resolve) => {

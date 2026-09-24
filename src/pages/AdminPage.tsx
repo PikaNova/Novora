@@ -19,6 +19,7 @@ import SchedulePrintPreview from '../components/SchedulePrintPreview';
 import LoadingState from '../components/LoadingState';
 import QuickMajorPublishModal from '../components/QuickMajorPublishModal';
 import MajorBatchAddModal from '../components/MajorBatchAddModal';
+import MajorEditorModal from '../components/major/MajorEditorModal';
 import TimeRangePickerModal from '../components/TimeRangePickerModal';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
@@ -143,9 +144,7 @@ export default function AdminPage() {
   );
   // 占位实现：真实 buildPayload 在下面 `buildPayloadRef.current = buildPayload` 处回填，
   // 调用方都在挂载后的回调里使用，所以这里只需要一个类型正确的空壳。
-  const buildPayloadRef = useRef<(ms: MajorExam[], activeId: string) => ExamSavePayload>(() =>
-    ({} as ExamSavePayload),
-  );
+  const buildPayloadRef = useRef<(ms: MajorExam[], activeId: string) => ExamSavePayload>(() => ({}) as ExamSavePayload);
   const setMajorsRef = useRef<(ms: MajorExam[]) => void>(() => {});
   const setActiveMajorIdRef = useRef<(id: string) => void>(() => {});
   const editingRef = useRef<{ name: string } | null>(null);
@@ -158,6 +157,12 @@ export default function AdminPage() {
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [adminNow, setAdminNow] = useState(() => Date.now());
   const [publishBusy, setPublishBusy] = useState(false);
+  /**
+   * 「分考试编辑器」的弹窗开关。编辑器面板本体（MajorTabPanel）与整页兜底
+   * （深链 /admin/exam/editor）都不变，弹窗只是它的第二个容器：
+   * 从考试中心或向导进来时叠在当前视图上，关掉即回到原处。
+   */
+  const [editorModalOpen, setEditorModalOpen] = useState(false);
   // 向导第 1 步会把草稿写进库、收起弹窗并直接进编辑器；用这个标记避免重复建草稿，
   // 同时记住这次的填写内容（wizardSnapshotRef），好在右下角提示里点「下一步」回到确认步骤。
   const [wizardDraftCreated, setWizardDraftCreated] = useState(false);
@@ -711,11 +716,12 @@ export default function AdminPage() {
     writePendingWizardDraft(null);
     commitMajorModal(() => {});
     setWizardDraftCreated(true);
-    // 第 3 步（科目与时间）不在弹窗里编辑：草稿已经落库，直接把弹窗收起来进编辑器填科目，
+    // 第 3 步（科目与时间）不在向导里编辑：草稿已经落库，收起向导、用编辑器弹窗填科目，
     // 右下角留一条常驻提示；填完点提示里的「下一步」回到向导的「确认」步骤，再保存或发布。
+    // 弹窗关掉后人还停在原视图（不再换页），提示条就在原地不动。
     setMajorModal(null);
     setMajorModalStep(3);
-    selectExamView('editor');
+    setEditorModalOpen(true);
   };
   /**
    * 提示条里的「下一步」：把向导恢复到确认步骤。
@@ -811,14 +817,14 @@ export default function AdminPage() {
     );
   };
 
+  /**
+   * 向导第 2 步的「打开编辑器 / 去编辑器逐项调整」：不再收起向导、也不再换页，
+   * 改成把编辑器弹窗叠在向导之上——关掉弹窗就回到刚才那一步，草稿与填写进度都还在。
+   * （以前这里会把向导整个关掉再跳页，回来后只能靠右下角提示条找回去。）
+   */
   const openMajorEditor = () => {
-    setMajorModal(null);
-    setWizardDraftCreated(false);
-    wizardDraftIdRef.current = '';
-    wizardSnapshotRef.current = null;
-    writePendingWizardDraft(null);
     setMajorError('');
-    selectExamView('editor');
+    setEditorModalOpen(true);
   };
   /**
    * 关闭创建向导（A 方案）。第 1 步「创建并继续」会把草稿真正落库，所以直接关掉就会在草稿区
@@ -873,7 +879,9 @@ export default function AdminPage() {
     }
     if (target.gradeId) changeSelectedGrade(target.gradeId);
     setEditingMajorId(target.majorId);
-    selectExamView('editor');
+    // 已经在编辑器整页（深链打开）时就地切换那一场；其余场景叠弹窗，关掉即回到原视图，
+    // 筛选与滚动位置都不会丢——以前这里会换页，回来要重新找。
+    if (examViewActive !== 'editor') setEditorModalOpen(true);
   };
   // 「当前考试」态势页只带得过来考试 id 与名称，复用同一套定位逻辑，避免两处各写一份。
   const editExamFromCurrent = (majorId: string, examName: string) => openExamRecordEditor(majorId, examName);
@@ -953,6 +961,84 @@ export default function AdminPage() {
     modalOpen: Boolean(majorModal),
     tabIsExam: adminTab === 'exam',
   });
+
+  /**
+   * 分考试编辑器面板。同一份元素用在两处：整页兜底（深链 /admin/exam/editor）与编辑器弹窗
+   * （从考试中心或向导打开）。两者互斥，不会同时挂载。
+   */
+  /**
+   * 编辑器弹窗内部还会再开一批子弹窗（批量添加 / AI 导入 / 时间选择器 / 打印预览 / 删除确认）。
+   * 它们开着时，编辑器弹窗自己的 Esc 与遮罩点击要让位，避免一次关掉两层。
+   */
+  const editorNestedModalOpen = Boolean(
+    majorBatchAddOpen ||
+    majorPrintOpen ||
+    majorTimeFlowOpen ||
+    deleteSelectedOpen ||
+    deleteMajorOpen ||
+    deleteTarget ||
+    quickMajorDeleteTarget ||
+    importOpen,
+  );
+
+  const majorTabPanelElement = (
+    <MajorTabPanel
+      grades={grades}
+      selectedGradeId={selectedGradeId}
+      orderedScopedMajors={orderedScopedMajors}
+      activeMajor={activeMajor}
+      items={items}
+      can={can}
+      isOwnQuickTemporaryMajor={isOwnQuickTemporaryMajor}
+      setMajorModal={setMajorModal}
+      setMajorError={setMajorError}
+      hasScopedMajor={hasScopedMajor}
+      canDeleteActiveMajor={canDeleteActiveMajor}
+      majors={majors}
+      setDeleteMajorOpen={setDeleteMajorOpen}
+      activeMajorTrackSubjects={activeMajorTrackSubjects}
+      subjectTrackModeEnabled={subjectTrackModeEnabled}
+      activeMajorTrackScopedCount={activeMajorTrackScopedCount}
+      activeMajorUnsetTrackClassCount={activeMajorUnsetTrackClassCount}
+      quickScopedMajors={quickScopedMajors}
+      adminNow={adminNow}
+      visibleClasses={visibleClasses}
+      canEndQuickTemporaryMajorInScope={canEndQuickTemporaryMajorInScope}
+      extendQuickMajor={extendQuickMajor}
+      endQuickMajor={endQuickMajor}
+      promoteQuickMajor={promoteQuickMajor}
+      setQuickMajorDeleteTarget={setQuickMajorDeleteTarget}
+      canEditActiveMajor={canEditActiveMajor}
+      editing={editing}
+      editError={editError}
+      customSubjectActive={customSubjectActive}
+      setCustomSubjectActive={setCustomSubjectActive}
+      setEditing={setEditing}
+      setEditError={setEditError}
+      majorTimeFlowAnchorRef={majorTimeFlowAnchorRef}
+      openMajorStartTimeFlow={openMajorStartTimeFlow}
+      isLongEdit={isLongEdit}
+      longDurationConfirmed={longDurationConfirmed}
+      setLongDurationConfirmed={setLongDurationConfirmed}
+      commitEdit={commitEdit}
+      setMajorTimeFlowOpen={setMajorTimeFlowOpen}
+      setMajorTimeFlowInitialEnd={setMajorTimeFlowInitialEnd}
+      setMajorBatchAddOpen={setMajorBatchAddOpen}
+      majorConflictLabels={majorConflictLabels}
+      selectedItemIds={selectedItemIds}
+      collapsedList={collapsedList}
+      setDeleteSelectedOpen={setDeleteSelectedOpen}
+      openMajorImport={openMajorImport}
+      setMajorPrintOpen={setMajorPrintOpen}
+      setCollapsedList={setCollapsedList}
+      lastDeletedExam={lastDeletedExam}
+      restoreExam={restoreExam}
+      majorConflictItemKeys={majorConflictItemKeys}
+      setSelectedItemIds={setSelectedItemIds}
+      setExamEnabled={setExamEnabled}
+      setDeleteTarget={setDeleteTarget}
+    />
+  );
 
   return (
     <div className="admin-page">
@@ -1163,62 +1249,7 @@ export default function AdminPage() {
                   openBatchCreate={new URLSearchParams(location.search).get('batch') === '1'}
                 />
               ) : (
-                <MajorTabPanel
-                  grades={grades}
-                  selectedGradeId={selectedGradeId}
-                  orderedScopedMajors={orderedScopedMajors}
-                  activeMajor={activeMajor}
-                  items={items}
-                  can={can}
-                  isOwnQuickTemporaryMajor={isOwnQuickTemporaryMajor}
-                  setMajorModal={setMajorModal}
-                  setMajorError={setMajorError}
-                  hasScopedMajor={hasScopedMajor}
-                  canDeleteActiveMajor={canDeleteActiveMajor}
-                  majors={majors}
-                  setDeleteMajorOpen={setDeleteMajorOpen}
-                  activeMajorTrackSubjects={activeMajorTrackSubjects}
-                  subjectTrackModeEnabled={subjectTrackModeEnabled}
-                  activeMajorTrackScopedCount={activeMajorTrackScopedCount}
-                  activeMajorUnsetTrackClassCount={activeMajorUnsetTrackClassCount}
-                  quickScopedMajors={quickScopedMajors}
-                  adminNow={adminNow}
-                  visibleClasses={visibleClasses}
-                  canEndQuickTemporaryMajorInScope={canEndQuickTemporaryMajorInScope}
-                  extendQuickMajor={extendQuickMajor}
-                  endQuickMajor={endQuickMajor}
-                  promoteQuickMajor={promoteQuickMajor}
-                  setQuickMajorDeleteTarget={setQuickMajorDeleteTarget}
-                  canEditActiveMajor={canEditActiveMajor}
-                  editing={editing}
-                  editError={editError}
-                  customSubjectActive={customSubjectActive}
-                  setCustomSubjectActive={setCustomSubjectActive}
-                  setEditing={setEditing}
-                  setEditError={setEditError}
-                  majorTimeFlowAnchorRef={majorTimeFlowAnchorRef}
-                  openMajorStartTimeFlow={openMajorStartTimeFlow}
-                  isLongEdit={isLongEdit}
-                  longDurationConfirmed={longDurationConfirmed}
-                  setLongDurationConfirmed={setLongDurationConfirmed}
-                  commitEdit={commitEdit}
-                  setMajorTimeFlowOpen={setMajorTimeFlowOpen}
-                  setMajorTimeFlowInitialEnd={setMajorTimeFlowInitialEnd}
-                  setMajorBatchAddOpen={setMajorBatchAddOpen}
-                  majorConflictLabels={majorConflictLabels}
-                  selectedItemIds={selectedItemIds}
-                  collapsedList={collapsedList}
-                  setDeleteSelectedOpen={setDeleteSelectedOpen}
-                  openMajorImport={openMajorImport}
-                  setMajorPrintOpen={setMajorPrintOpen}
-                  setCollapsedList={setCollapsedList}
-                  lastDeletedExam={lastDeletedExam}
-                  restoreExam={restoreExam}
-                  majorConflictItemKeys={majorConflictItemKeys}
-                  setSelectedItemIds={setSelectedItemIds}
-                  setExamEnabled={setExamEnabled}
-                  setDeleteTarget={setDeleteTarget}
-                />
+                majorTabPanelElement
               )}
             </Suspense>
           </div>
@@ -1254,6 +1285,21 @@ export default function AdminPage() {
           setGradeAdminSetupPromptOpen={setGradeAdminSetupPromptOpen}
           setAdminTab={setAdminTab}
         />
+      )}
+      {/*
+        编辑器弹窗：考试中心的行、日程轴的行、当前考试面板、向导第 2 步都打开这一份面板。
+        关掉即回到原视图（筛选与滚动位置不动）；深链 /admin/exam/editor 仍然是整页兜底，
+        所以这里用 examViewActive 互斥，避免同一份面板同时挂载两次。
+      */}
+      {editorModalOpen && examViewActive !== 'editor' && (
+        <MajorEditorModal
+          title={`编辑考试 · ${activeMajor?.name || '未命名考试'}`}
+          hint="科目与时间改完直接关闭即可，修改会自动保存并同步到云"
+          nestedModalOpen={editorNestedModalOpen}
+          onClose={() => setEditorModalOpen(false)}
+        >
+          {majorTabPanelElement}
+        </MajorEditorModal>
       )}
       {majorModal && (
         <MajorModalWizard

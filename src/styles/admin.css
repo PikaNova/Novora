@@ -1002,6 +1002,103 @@
 .admin-modal--wide {
   max-width: 620px;
 }
+/*
+ * 「分考试编辑器」弹窗：整页形态是两栏（左栏考试卡 + 主区列表），弹窗形态沿用同一份面板，
+ * 所以这里只定尺寸与滚动——左栏和主区各自滚动，不给整窗加一根长滚动条。
+ * 高度用 min() 自适应：内容少时不高出一片空白，内容多时最多到 92vh。
+ */
+.admin-modal--editor {
+  width: min(1180px, 100vw - 48px);
+  max-width: min(1180px, 100vw - 48px);
+  height: auto;
+  min-height: min(560px, calc(100dvh - 48px));
+  max-height: min(92vh, 880px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 18px 14px;
+}
+.admin-editor-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.admin-editor-modal__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.admin-editor-modal__title strong {
+  font-size: 1rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-editor-modal__title small {
+  font-size: 0.76rem;
+  opacity: 0.6;
+}
+.admin-editor-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+  gap: 16px;
+}
+/* 弹窗里左栏不再吸顶，改成自己滚动。 */
+.admin-modal--editor .admin-sidebar {
+  position: static;
+  top: auto;
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.admin-modal--editor .admin-main {
+  min-height: 0;
+  padding: 0 4px 0 0;
+}
+@media (max-width: 900px) {
+  /*
+   * 窄屏（平板以下）压成单栏：左栏在上、列表在下，整窗一起滚动。
+   * 弹窗本身在 ≤760px 时已经是整屏（见下方 .admin-modal-overlay 规则）。
+   */
+  .admin-editor-modal__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: min-content;
+    overflow-y: auto;
+  }
+  .admin-modal--editor .admin-sidebar,
+  .admin-modal--editor .admin-main {
+    overflow: visible;
+    max-height: none;
+    border-right: none;
+  }
+}
+@media (max-width: 760px) {
+  .admin-modal--editor {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 14px 12px max(12px, env(safe-area-inset-bottom));
+  }
+  .admin-editor-modal__head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-bottom: 8px;
+    background: #1a1a1a;
+  }
+}
 .admin-modal__title {
   font-size: 1rem;
   font-weight: 600;
