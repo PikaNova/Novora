@@ -224,7 +224,7 @@ export default function DiagnosticLogsSection({
           </div>
           <p className="set-note">
             {rangeEntries
-              ? `所选时间共 ${rangeEntries.length} 条本地日志，超过 5000 条或 8 MB 时自动分片上传。`
+              ? `所选时间共 ${rangeEntries.length} 条本地日志，点下面的按钮才会发送；单次超过 5000 条或 8 MB 时会自动拆成多个分片。`
               : '请选择有效的开始与结束时间。'}
           </p>
           <div className="set-row">
