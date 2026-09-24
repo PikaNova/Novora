@@ -4,7 +4,11 @@ import InlineSelect from '../InlineSelect';
 import { sendExamAnnouncement } from '../../services/examAnnouncements';
 import { formatApiError } from '../../services/apiError';
 import { notify } from '../../services/notify';
-import { ANNOUNCEMENT_EXPIRY_OPTIONS } from '../../shared/examAnnouncementContracts.js';
+import {
+  ANNOUNCEMENT_EXPIRY_OPTIONS,
+  ANNOUNCEMENT_STYLES,
+  type AnnouncementStyle,
+} from '../../shared/examAnnouncementContracts.js';
 
 type Props = {
   open: boolean;
@@ -27,6 +31,7 @@ export default function ExamAnnouncementDialog({ open, onClose, record, gradeNam
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [level, setLevel] = useState<'normal' | 'urgent'>('normal');
+  const [style, setStyle] = useState<AnnouncementStyle>('card');
   const [scope, setScope] = useState<'exam' | 'all'>('exam');
   const [expiry, setExpiry] = useState('120');
   const [busy, setBusy] = useState(false);
@@ -37,6 +42,7 @@ export default function ExamAnnouncementDialog({ open, onClose, record, gradeNam
     setTitle('');
     setBody('');
     setLevel('normal');
+    setStyle('card');
     setScope('exam');
     setExpiry('120');
     setError('');
@@ -60,6 +66,7 @@ export default function ExamAnnouncementDialog({ open, onClose, record, gradeNam
         title: title.trim(),
         body: body.trim(),
         level,
+        style,
         scopeType: useExamScope ? (classIds.length ? 'class' : 'grade') : 'all',
         scopeIds: useExamScope ? (classIds.length ? classIds : gradeIds) : [],
         ...(record?.id ? { examId: record.id } : {}),
@@ -86,7 +93,9 @@ export default function ExamAnnouncementDialog({ open, onClose, record, gradeNam
       >
         <h2 className="admin-modal__title">发送考试公告</h2>
         <p className="admin-modal__body">
-          {record?.name ? `来自「${record.name}」。` : ''}公告会下发到所选范围的教室大屏；紧急公告置顶且不可关闭。
+          {record?.name ? `来自「${record.name}」。` : ''}
+          公告会下发到所选范围的教室大屏；正文支持 Markdown；紧急公告置顶且不可关闭。
+          需要插入图片或先看大屏预览，请到「公告」板块发布。
         </p>
         <label className="admin-label">
           标题
@@ -110,6 +119,14 @@ export default function ExamAnnouncementDialog({ open, onClose, record, gradeNam
           />
         </label>
         <div className="exam-announce-dialog__row">
+          <label className="admin-label">
+            样式
+            <InlineSelect
+              value={style}
+              onChange={(value) => setStyle(value as AnnouncementStyle)}
+              options={ANNOUNCEMENT_STYLES.map((item) => ({ value: item.value, label: item.label }))}
+            />
+          </label>
           <label className="admin-label">
             级别
             <InlineSelect

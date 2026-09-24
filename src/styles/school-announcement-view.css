@@ -1,0 +1,275 @@
+/*
+ * 学校公告的展示样式（大屏窗口 + 后台预览共用）。
+ *
+ * 与作者端「系统公告窗口」刻意做出区分：整体更大、排版更醒目，并提供三种样式——
+ * card（标准卡片）/ poster（大字海报）/ bulletin（浅色公告栏）。
+ * `is-urgent` 只改强调色：大屏上紧急公告置顶且不可关闭。
+ */
+.sann-view {
+  display: grid;
+  gap: 16px;
+  padding: 24px 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: #0f1319;
+  color: #ecf1f6;
+}
+.sann-view__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.sann-view__title {
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.3;
+  font-weight: 800;
+  font-family: var(--font-region-display, inherit);
+}
+.sann-view__tag {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.18);
+  color: #cfe4f6;
+  font-size: 13px;
+  font-style: normal;
+}
+.sann-view__body {
+  font-size: 17.5px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.sann-view__body--empty {
+  margin: 0;
+  color: rgba(236, 241, 246, 0.45);
+}
+.sann-view__meta {
+  color: rgba(236, 241, 246, 0.5);
+  font-size: 14px;
+}
+
+/* ===== 样式一：标准卡片（默认）===== */
+.sann-view.is-card {
+  border-left: 6px solid #3498db;
+}
+
+/* ===== 样式二：大字海报（居中、更大）===== */
+.sann-view.is-poster {
+  justify-items: center;
+  padding: 38px 34px;
+  text-align: center;
+  background: linear-gradient(140deg, #12395c 0%, #0b1a2a 100%);
+  border-color: rgba(88, 168, 236, 0.45);
+}
+.sann-view.is-poster .sann-view__head {
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.sann-view.is-poster .sann-view__title {
+  font-size: 42px;
+  line-height: 1.22;
+}
+.sann-view.is-poster .sann-view__body {
+  font-size: 24px;
+  line-height: 1.65;
+}
+.sann-view.is-poster .md-p {
+  margin: 10px 0;
+}
+
+/* ===== 样式三：公告栏（浅色纸张风，适合长文）===== */
+.sann-view.is-bulletin {
+  background: #f6f2e7;
+  color: #22262c;
+  border-color: #ded5c0;
+  border-top: 6px solid #c9a227;
+}
+.sann-view.is-bulletin .sann-view__title {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(34, 38, 44, 0.16);
+  font-size: 30px;
+}
+.sann-view.is-bulletin .sann-view__body {
+  font-size: 18.5px;
+  line-height: 1.9;
+}
+.sann-view.is-bulletin .sann-view__tag {
+  background: rgba(34, 38, 44, 0.08);
+  color: #4a4f57;
+}
+.sann-view.is-bulletin .sann-view__body--empty,
+.sann-view.is-bulletin .sann-view__meta {
+  color: rgba(34, 38, 44, 0.45);
+}
+
+/* ===== 紧急（红）===== */
+.sann-view.is-urgent {
+  border-color: rgba(231, 76, 60, 0.6);
+  border-left-color: #e74c3c;
+}
+.sann-view.is-poster.is-urgent {
+  background: linear-gradient(140deg, #6d1a12 0%, #2b0b07 100%);
+  border-color: rgba(231, 76, 60, 0.65);
+}
+.sann-view.is-bulletin.is-urgent {
+  border-top-color: #e74c3c;
+}
+.sann-view.is-urgent .sann-view__tag {
+  background: rgba(231, 76, 60, 0.28);
+  color: #ffb3aa;
+  font-weight: 700;
+}
+.sann-view.is-bulletin.is-urgent .sann-view__tag {
+  background: rgba(231, 76, 60, 0.16);
+  color: #a8321f;
+}
+
+/* ===== Markdown 排版（.md-body 由 renderMarkdown 输出）===== */
+.sann-view .md-body .md-h {
+  margin: 18px 0 10px;
+  line-height: 1.35;
+  font-weight: 800;
+  font-family: var(--font-region-display, inherit);
+}
+.sann-view .md-body .md-h1 {
+  font-size: 1.32em;
+}
+.sann-view .md-body .md-h2 {
+  font-size: 1.2em;
+}
+.sann-view .md-body .md-h3 {
+  font-size: 1.1em;
+}
+.sann-view .md-body .md-p {
+  margin: 10px 0;
+}
+.sann-view .md-body .md-ul,
+.sann-view .md-body .md-ol {
+  margin: 10px 0;
+  padding-left: 26px;
+}
+.sann-view .md-body li {
+  margin: 4px 0;
+}
+.sann-view .md-body a {
+  color: #7ec8ff;
+  text-decoration: none;
+}
+.sann-view .md-body a:hover {
+  text-decoration: underline;
+}
+.sann-view .md-body .md-quote {
+  margin: 12px 0;
+  padding: 8px 16px;
+  border-left: 4px solid #3498db;
+  border-radius: 0 8px 8px 0;
+  background: rgba(52, 152, 219, 0.12);
+}
+.sann-view .md-body .md-hr {
+  margin: 18px 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+.sann-view .md-body code {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  font:
+    14px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+.sann-view .md-body .md-pre {
+  margin: 12px 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.sann-view .md-body .md-pre code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+}
+.sann-view .md-body .md-table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+.sann-view .md-body .md-table th,
+.sann-view .md-body .md-table td {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  text-align: left;
+}
+.sann-view .md-body .md-table th {
+  background: rgba(255, 255, 255, 0.06);
+}
+/* 图片：大屏上要看得清，比系统公告窗口里的图明显更大。 */
+.sann-view .md-body .md-img {
+  display: block;
+  width: auto;
+  max-width: min(620px, 100%);
+  height: auto;
+  margin: 14px 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+}
+.sann-view.is-poster .md-body .md-img {
+  margin-inline: auto;
+  max-width: min(520px, 100%);
+}
+.sann-view.is-bulletin .md-body .md-hr {
+  border-top-color: rgba(34, 38, 44, 0.16);
+}
+.sann-view.is-bulletin .md-body a {
+  color: #1c5f9e;
+}
+.sann-view.is-bulletin .md-body code {
+  background: rgba(34, 38, 44, 0.08);
+}
+.sann-view.is-bulletin .md-body .md-pre {
+  background: #eae4d4;
+}
+.sann-view.is-bulletin .md-body .md-table th,
+.sann-view.is-bulletin .md-body .md-table td {
+  border-color: rgba(34, 38, 44, 0.2);
+}
+.sann-view.is-bulletin .md-body .md-table th {
+  background: rgba(34, 38, 44, 0.06);
+}
+.sann-view.is-bulletin .md-body .md-img {
+  border-color: rgba(34, 38, 44, 0.18);
+}
+
+@media (max-width: 700px) {
+  .sann-view {
+    padding: 18px 16px;
+    gap: 12px;
+    border-radius: 14px;
+  }
+  .sann-view__title {
+    font-size: 21px;
+  }
+  .sann-view__body {
+    font-size: 15.5px;
+  }
+  .sann-view.is-poster {
+    padding: 26px 20px;
+  }
+  .sann-view.is-poster .sann-view__title {
+    font-size: 28px;
+  }
+  .sann-view.is-poster .sann-view__body {
+    font-size: 18px;
+  }
+  .sann-view.is-bulletin .sann-view__title {
+    font-size: 23px;
+  }
+}

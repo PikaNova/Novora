@@ -1,7 +1,7 @@
 /*
  * 后台「公告」板块（学校公告管理）。
- * 视觉沿用后台既有卡片（见 admin.css 的 .device-status__stats）：深色底 + 细描边，
- * 紧急公告用红色，与教室大屏的 .eann-school 强调色保持一致。
+ * 视觉沿用后台既有卡片（见 admin.css 的 .device-status__stats）：深色底 + 细描边。
+ * 大屏上的公告外观由 school-announcement-view.css 提供，本文件只负责后台编辑器与列表。
  */
 .school-announcements {
   display: flex;
@@ -34,12 +34,13 @@
   height: 18px;
 }
 .sann-note {
+  margin: 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 0.78rem;
 }
 .sann-compose {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -59,6 +60,60 @@
   gap: 10px;
   flex-wrap: wrap;
 }
+/* ===== Markdown 正文编辑器 ===== */
+.sann-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sann-editor__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sann-editor__label {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+}
+.sann-editor__tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sann-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.sann-tool:hover:not(:disabled) {
+  border-color: rgba(52, 152, 219, 0.6);
+  color: #fff;
+}
+.sann-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sann-editor__input {
+  min-height: 190px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  resize: vertical;
+}
+/* ===== 样式选择 ===== */
+.sann-style-picker,
 .sann-scope-picker {
   display: flex;
   flex-direction: column;
@@ -68,6 +123,40 @@
 .sann-scope-picker__title {
   color: rgba(255, 255, 255, 0.62);
   font-size: 0.78rem;
+}
+.sann-style-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.sann-style {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sann-style strong {
+  font-size: 0.84rem;
+}
+.sann-style small {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.sann-style.is-active {
+  border-color: rgba(52, 152, 219, 0.7);
+  background: rgba(52, 152, 219, 0.18);
+}
+.sann-style:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .sann-chips {
   display: flex;
@@ -94,24 +183,43 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* ===== 右侧实时预览（与大屏同一组类名渲染）===== */
 .sann-preview {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  background: #0d0f14;
 }
 .sann-preview__head {
-  color: #8b95a1;
+  color: rgba(255, 255, 255, 0.55);
   font-size: 0.76rem;
 }
-/* 预览里的卡片由 .eann-school（教室大屏同一套样式）渲染，这里只清掉它的外边距。 */
-.sann-preview .eann-school {
-  margin: 0;
+.sann-preview__screen {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(3, 6, 14, 0.9), rgba(3, 6, 14, 0.7));
 }
+/* 预览里按大屏比例缩小，长内容不撑破卡片。 */
+.sann-preview__screen .sann-view {
+  padding: 18px 20px;
+  gap: 12px;
+}
+.sann-preview__screen .sann-view__title {
+  font-size: 21px;
+}
+.sann-preview__screen .sann-view.is-poster .sann-view__title {
+  font-size: 30px;
+}
+.sann-preview__screen .sann-view__body {
+  font-size: 15px;
+}
+.sann-preview__screen .sann-view.is-poster .sann-view__body {
+  font-size: 18px;
+}
+/* ===== 记录列表 ===== */
 .sann-filters {
   display: flex;
   gap: 8px;
@@ -158,13 +266,44 @@
 .sann-item__title strong {
   font-size: 0.94rem;
 }
+/* 列表里的正文也按 Markdown 渲染，但压到适合后台阅读的字号。 */
 .sann-item__body {
-  margin: 0;
   color: rgba(255, 255, 255, 0.78);
-  font-size: 0.85rem;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  font-size: 0.84rem;
+  line-height: 1.65;
   overflow-wrap: anywhere;
+}
+.sann-item__body .md-p {
+  margin: 4px 0;
+}
+.sann-item__body .md-h {
+  margin: 8px 0 4px;
+  font-size: 0.92rem;
+}
+.sann-item__body .md-ul,
+.sann-item__body .md-ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.sann-item__body .md-img {
+  display: block;
+  width: auto;
+  max-width: min(260px, 100%);
+  margin: 8px 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+.sann-item__body a {
+  color: #7ec8ff;
+}
+.sann-item__body .md-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.sann-item__body .md-table th,
+.sann-item__body .md-table td {
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 .sann-item__meta {
   display: flex;
@@ -199,12 +338,52 @@
   justify-content: center;
   margin-top: 14px;
 }
+/* ===== 发布前确认窗 ===== */
+.sann-publish__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.sann-publish__facts > div {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.sann-publish__facts dt {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.72rem;
+}
+.sann-publish__facts dd {
+  margin: 4px 0 0;
+  font-size: 0.86rem;
+}
+.sann-publish__preview {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(3, 6, 14, 0.9), rgba(3, 6, 14, 0.7));
+  max-height: 46vh;
+  overflow: auto;
+}
+.sann-publish__preview .sann-view__title {
+  font-size: 22px;
+}
+.sann-publish__preview .sann-view.is-poster .sann-view__title {
+  font-size: 32px;
+}
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .sann-compose {
     grid-template-columns: minmax(0, 1fr);
   }
-  .sann-compose__row {
+}
+@media (max-width: 900px) {
+  .sann-compose__row,
+  .sann-style-list {
     grid-template-columns: minmax(0, 1fr);
   }
   .sann-item {

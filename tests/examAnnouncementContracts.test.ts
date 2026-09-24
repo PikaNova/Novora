@@ -2,11 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   ANNOUNCEMENT_EXPIRY_OPTIONS,
+  ANNOUNCEMENT_IMAGE_MAX_BYTES,
   ANNOUNCEMENT_SCOPE_LABELS,
   ANNOUNCEMENT_STATUS_LABELS,
+  ANNOUNCEMENT_STYLES,
+  ANNOUNCEMENT_STYLE_LABELS,
+  isAnnouncementImageType,
   parseAnnouncementLevelFilter,
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
+  parseAnnouncementStyle,
   resolveAnnouncementStatus,
 } from '../src/shared/examAnnouncementContracts.js';
 
@@ -63,4 +68,37 @@ test('labels and expiry presets stay in sync with the contract unions', () => {
     assert.ok(Number.isFinite(Number(option.value)), `expiry value must be numeric: ${option.value}`);
     assert.ok(option.label.length > 0);
   }
+});
+
+// 学校公告的三种大屏样式：旧数据 / 未知值必须回落成默认卡片，不能整页报错。
+test('style parsing keeps known values and falls back to the default card', () => {
+  assert.equal(parseAnnouncementStyle('card'), 'card');
+  assert.equal(parseAnnouncementStyle('poster'), 'poster');
+  assert.equal(parseAnnouncementStyle('bulletin'), 'bulletin');
+  assert.equal(parseAnnouncementStyle('  '), 'card');
+  assert.equal(parseAnnouncementStyle('poster-2'), 'card');
+  assert.equal(parseAnnouncementStyle(undefined), 'card');
+  assert.equal(parseAnnouncementStyle(null, 'poster'), 'poster');
+});
+
+test('style catalogue drives the editor picker and its labels', () => {
+  assert.deepEqual(
+    ANNOUNCEMENT_STYLES.map((item) => item.value),
+    ['card', 'poster', 'bulletin'],
+  );
+  assert.deepEqual(Object.keys(ANNOUNCEMENT_STYLE_LABELS).sort(), ['bulletin', 'card', 'poster']);
+  for (const item of ANNOUNCEMENT_STYLES) {
+    assert.equal(ANNOUNCEMENT_STYLE_LABELS[item.value], item.label);
+    assert.ok(item.description.length > 0, 'each style needs a description for the picker');
+  }
+});
+
+test('image constraints match what the server accepts', () => {
+  for (const mimeType of ['image/png', 'image/jpeg', 'image/webp', 'image/gif']) {
+    assert.equal(isAnnouncementImageType(mimeType), true);
+  }
+  for (const mimeType of ['image/svg+xml', 'text/html', 'application/pdf', '']) {
+    assert.equal(isAnnouncementImageType(mimeType), false);
+  }
+  assert.equal(ANNOUNCEMENT_IMAGE_MAX_BYTES, 2 * 1024 * 1024);
 });

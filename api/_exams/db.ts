@@ -150,6 +150,17 @@ export function ensureTableOnce(): Promise<void> {
         )`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcements_created ON exam_announcements(created_at DESC)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcements_status ON exam_announcements(status, expires_at)`,
+          // 6：公告增加大屏展示样式；正文改为 Markdown 后需要图片存储（与作者端公告图片同一套做法）。
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS style TEXT NOT NULL DEFAULT 'card'`,
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcement_images (
+          id BIGSERIAL PRIMARY KEY,
+          filename TEXT NOT NULL DEFAULT '',
+          mime_type TEXT NOT NULL DEFAULT '',
+          data BYTEA NOT NULL,
+          size_bytes INTEGER NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_images_created ON exam_announcement_images(created_at DESC)`,
           transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
           grade_id TEXT NOT NULL DEFAULT '',
@@ -292,14 +303,16 @@ export function ensureTableOnce(): Promise<void> {
         await sql.transaction((transaction) => [projectCurrentExamRecords(transaction)]);
         await recordSchemaMigration(sql, {
           component: 'exams',
-          version: 5,
-          description: 'exam snapshot, devices, plugins, commands, write throttle, and school announcements',
+          version: 6,
+          description:
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images',
           startedAt: migrationStartedAt,
         });
       } catch (error) {
         await recordSchemaMigration(sql, {
           component: 'exams',
-          description: 'exam snapshot, devices, plugins, commands, write throttle, and school announcements',
+          description:
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images',
           startedAt: migrationStartedAt,
           error,
         }).catch(() => undefined);

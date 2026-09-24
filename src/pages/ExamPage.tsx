@@ -27,6 +27,7 @@ import { getDesignId, resolveManagedDesign, setDesignId } from '../utils/designP
 import { getCachedDeviceBinding, getClassBindingInstanceId } from '../services/classBinding';
 import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
+import SchoolAnnouncementOverlay from '../components/SchoolAnnouncementOverlay';
 import LoadingState from '../components/LoadingState';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
@@ -221,11 +222,16 @@ function BoundExamPage() {
   });
   const [schoolLogo, setSchoolLogo] = useState<string>(() => getAppSettings().exam.initialization.schoolLogo ?? '');
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  /** 作者端系统公告窗口。 */
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
-  // 学校侧考试公告（T-286-03）：与作者端公告分开拉，urgent 优先展示且不可关闭。
+  /**
+   * 学校侧考试公告（T-286-03）：与作者端公告分开拉，走另一扇更大的窗口。
+   * 紧急公告立刻弹出、置顶且不可关闭；系统公告窗口在它打开期间让位（避免两扇窗口叠在一起）。
+   */
   const [schoolAnnouncements, setSchoolAnnouncements] = useState<SchoolExamAnnouncement[]>([]);
+  const [schoolAnnouncementsOpen, setSchoolAnnouncementsOpen] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
   const examLiveRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -300,7 +306,27 @@ function BoundExamPage() {
     };
   }, []);
 
+  /**
+   * 大屏上的公告入口只有一个（考试页顶栏的公告按钮），点开后按优先级决定打开哪扇窗口：
+   * 有学校公告就先看学校公告（更新鲜、更大），没有才回落到作者端系统公告。
+   */
   const openAnnouncements = useCallback(() => {
+    const instanceId = getClassBindingInstanceId();
+    if (instanceId) {
+      void fetchDeviceExamAnnouncements(instanceId).then((list) => {
+        setSchoolAnnouncements(list);
+        if (list.length > 0) {
+          setSchoolAnnouncementsOpen(true);
+          return;
+        }
+        setAnnouncementsOpen(true);
+        setAnnouncementsLoading(true);
+        void fetchAnnouncements(true)
+          .then(setAnnouncements)
+          .finally(() => setAnnouncementsLoading(false));
+      });
+      return;
+    }
     setAnnouncementsOpen(true);
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
@@ -310,7 +336,7 @@ function BoundExamPage() {
 
   /**
    * 学校侧公告轮询：拉本机（按绑定班级）能收到的公告。
-   * 出现紧急公告时立刻弹出，且由弹层禁止关闭（用户口径：学校侧紧急公告盖过作者端公告）。
+   * 出现紧急公告时立刻弹出，且由窗口自身禁止关闭；公告全部过期/撤回后自动收起空窗口。
    */
   useEffect(() => {
     let alive = true;
@@ -320,7 +346,8 @@ function BoundExamPage() {
       const list = await fetchDeviceExamAnnouncements(instanceId);
       if (!alive) return;
       setSchoolAnnouncements(list);
-      if (list.some((item) => item.level === 'urgent')) setAnnouncementsOpen(true);
+      if (list.some((item) => item.level === 'urgent')) setSchoolAnnouncementsOpen(true);
+      else if (list.length === 0) setSchoolAnnouncementsOpen(false);
     };
     void refreshSchoolAnnouncements();
     const intervalId = window.setInterval(() => {
@@ -741,11 +768,16 @@ function BoundExamPage() {
         </div>
       </div>
       <ExamAnnouncementOverlay
-        open={announcementsOpen}
+        open={announcementsOpen && !schoolAnnouncementsOpen}
         announcements={announcements}
         loading={announcementsLoading}
-        schoolAnnouncements={schoolAnnouncements}
         onClose={() => setAnnouncementsOpen(false)}
+      />
+      <SchoolAnnouncementOverlay
+        open={schoolAnnouncementsOpen}
+        announcements={schoolAnnouncements}
+        schoolName={schoolName}
+        onClose={() => setSchoolAnnouncementsOpen(false)}
       />
       {/* 设计切换窗由各设计顶栏按钮触发，避免悬浮按钮遮挡大屏元素。 */}
       <DesignSwitcher
