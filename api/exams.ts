@@ -29,6 +29,7 @@ import { handleDeviceBinding, handleDeviceHeartbeat } from './_exams/routes/devi
 import { handleDesignPolicy, handleMajorBatchPresets, handleResetData } from './_exams/routes/settingsRoutes.js';
 import { handleDashboard } from './_exams/routes/dashboardRoutes.js';
 import { handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
+import { handleExamAnnouncementRoute } from './_exams/routes/examAnnouncementRoutes.js';
 
 type RouteHandler = (req: VercelRequest, res: VercelResponse, startedAt: number) => Promise<void>;
 
@@ -141,6 +142,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res, action);
         return;
       }
+      if (action === 'announce-send') {
+        await handleExamAnnouncementRoute(req, res, action);
+        return;
+      }
       const postOnlyHandler = POST_ONLY_ROUTES[action];
       if (postOnlyHandler) {
         await postOnlyHandler(req, res, startedAt);
@@ -150,8 +155,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       const resource = String(req.query?.resource ?? '');
-      if (resource === 'records' || resource === 'record-operations') {
+      if (resource === 'records' || resource === 'record-operations' || resource === 'record-precheck') {
         await handleExamRecordRoute(req, res);
+        return;
+      }
+      if (resource === 'announcements' || resource === 'device-announcements') {
+        await handleExamAnnouncementRoute(req, res);
         return;
       }
       await handleExamDataGet(req, res, startedAt);

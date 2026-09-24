@@ -30,6 +30,7 @@ import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
 import LoadingState from '../components/LoadingState';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
+import { fetchDeviceExamAnnouncements, type SchoolExamAnnouncement } from '../services/examAnnouncements';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
@@ -223,6 +224,8 @@ function BoundExamPage() {
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  // 学校侧考试公告（T-286-03）：与作者端公告分开拉，urgent 优先展示且不可关闭。
+  const [schoolAnnouncements, setSchoolAnnouncements] = useState<SchoolExamAnnouncement[]>([]);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
   const examLiveRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -303,6 +306,30 @@ function BoundExamPage() {
     void fetchAnnouncements(true)
       .then(setAnnouncements)
       .finally(() => setAnnouncementsLoading(false));
+  }, []);
+
+  /**
+   * 学校侧公告轮询：拉本机（按绑定班级）能收到的公告。
+   * 出现紧急公告时立刻弹出，且由弹层禁止关闭（用户口径：学校侧紧急公告盖过作者端公告）。
+   */
+  useEffect(() => {
+    let alive = true;
+    const instanceId = getClassBindingInstanceId();
+    if (!instanceId) return () => undefined;
+    const refreshSchoolAnnouncements = async () => {
+      const list = await fetchDeviceExamAnnouncements(instanceId);
+      if (!alive) return;
+      setSchoolAnnouncements(list);
+      if (list.some((item) => item.level === 'urgent')) setAnnouncementsOpen(true);
+    };
+    void refreshSchoolAnnouncements();
+    const intervalId = window.setInterval(() => {
+      void refreshSchoolAnnouncements();
+    }, ANNOUNCEMENT_POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const tick = useCallback(() => setNow(nowMs()), []);
@@ -717,6 +744,7 @@ function BoundExamPage() {
         open={announcementsOpen}
         announcements={announcements}
         loading={announcementsLoading}
+        schoolAnnouncements={schoolAnnouncements}
         onClose={() => setAnnouncementsOpen(false)}
       />
       {/* 设计切换窗由各设计顶栏按钮触发，避免悬浮按钮遮挡大屏元素。 */}

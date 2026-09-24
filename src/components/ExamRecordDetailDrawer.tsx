@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { History, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import AdminModalPortal from './AdminModalPortal';
+import ExamAnnouncementDialog from './admin/ExamAnnouncementDialog';
 import { confirmDialog } from '../services/appDialog';
 import { formatApiError } from '../services/apiError';
 import { fetchDeviceBindings, type DeviceBindingInfo } from '../services/classBinding';
@@ -154,6 +155,7 @@ export default function ExamRecordDetailDrawer({
 }: Props) {
   const navigate = useNavigate();
   const [operations, setOperations] = useState<ExamRecordOperationEntry[]>([]);
+  const [announceOpen, setAnnounceOpen] = useState(false);
   const [operationsError, setOperationsError] = useState('');
   const [loadingOperations, setLoadingOperations] = useState(true);
   const [busyAction, setBusyAction] = useState<ExamRecordActionName | null>(null);
@@ -353,6 +355,12 @@ export default function ExamRecordDetailDrawer({
             <code className="exam-record-detail__id">{record.id}</code>
           </div>
           <div className="exam-record-detail__head-actions">
+            {/* T-286-03 一期：从这场考试直接给它的范围发公告（可选全校）。 */}
+            {can('major.edit') && (
+              <button className="admin-btn admin-btn--ghost" type="button" onClick={() => setAnnounceOpen(true)}>
+                发送公告
+              </button>
+            )}
             {onDiscard && record.displayStatus === 'draft' && (
               <button className="admin-btn admin-btn--danger" type="button" onClick={onDiscard}>
                 删除草稿
@@ -575,6 +583,17 @@ export default function ExamRecordDetailDrawer({
           {actionNotice && <div className="exam-record-detail__feedback">{actionNotice}</div>}
         </footer>
       </div>
+      <ExamAnnouncementDialog
+        open={announceOpen}
+        onClose={() => setAnnounceOpen(false)}
+        record={{
+          id: record.id,
+          name: record.name,
+          targetGradeIds: record.targetGradeIds,
+          targetClassIds: record.targetClassIds,
+        }}
+        gradeName={grades.find((grade) => grade.id === record.targetGradeIds[0])?.name}
+      />
     </AdminModalPortal>
   );
 }

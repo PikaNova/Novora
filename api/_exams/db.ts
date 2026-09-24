@@ -134,6 +134,22 @@ export function ensureTableOnce(): Promise<void> {
           transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS to_status TEXT NOT NULL DEFAULT ''`,
           transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT ''`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_record_operations_created ON exam_record_operations(created_at DESC)`,
+          // 学校侧考试公告（作者端统一公告是另一条通道，不复用这张表）。
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcements (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          level TEXT NOT NULL DEFAULT 'normal',
+          exam_id TEXT,
+          scope_type TEXT NOT NULL DEFAULT 'all',
+          scope_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_by BIGINT,
+          created_at BIGINT NOT NULL,
+          expires_at BIGINT,
+          status TEXT NOT NULL DEFAULT 'sent'
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcements_created ON exam_announcements(created_at DESC)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcements_status ON exam_announcements(status, expires_at)`,
           transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
           grade_id TEXT NOT NULL DEFAULT '',
@@ -276,14 +292,14 @@ export function ensureTableOnce(): Promise<void> {
         await sql.transaction((transaction) => [projectCurrentExamRecords(transaction)]);
         await recordSchemaMigration(sql, {
           component: 'exams',
-          version: 4,
-          description: 'exam snapshot, devices, plugins, commands, and write throttle',
+          version: 5,
+          description: 'exam snapshot, devices, plugins, commands, write throttle, and school announcements',
           startedAt: migrationStartedAt,
         });
       } catch (error) {
         await recordSchemaMigration(sql, {
           component: 'exams',
-          description: 'exam snapshot, devices, plugins, commands, and write throttle',
+          description: 'exam snapshot, devices, plugins, commands, write throttle, and school announcements',
           startedAt: migrationStartedAt,
           error,
         }).catch(() => undefined);

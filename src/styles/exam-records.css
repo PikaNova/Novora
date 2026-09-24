@@ -759,6 +759,23 @@
 }
 
 /* ── 考试详情抽屉 ───────────────────────────────────────────── */
+.exam-announce-dialog {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+.exam-announce-dialog__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.exam-announce-dialog textarea.admin-input {
+  min-height: 96px;
+  padding: 8px 9px;
+  resize: vertical;
+  font-family: inherit;
+}
+
 .exam-record-detail__time-note {
   display: block;
   margin-top: 4px;
