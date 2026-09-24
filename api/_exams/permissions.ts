@@ -21,17 +21,20 @@ export const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 export function freezeArchivedMajors(
   current: ExamPayload,
   body: Record<string, unknown>,
-): { body: Record<string, unknown>; frozenIds: string[] } {
-  if (!Array.isArray(body.majors)) return { body, frozenIds: [] };
+): { body: Record<string, unknown>; frozenIds: string[]; frozenMajors: unknown[] } {
+  if (!Array.isArray(body.majors)) return { body, frozenIds: [], frozenMajors: [] };
   const archivedById = new Map<string, unknown>();
   for (const major of current.majors) {
     const record = asRecord(major);
     if (record.archivedAt == null) continue;
     archivedById.set(String(record.id ?? ''), major);
   }
-  if (!archivedById.size) return { body, frozenIds: [] };
+  if (!archivedById.size) return { body, frozenIds: [], frozenMajors: [] };
 
   const frozenIds: string[] = [];
+  // 连同服务端版本一起回传：客户端据此把本地副本纠正回服务端版本，否则会出现
+  // 「本机显示删除/改名成功，刷新后又变回来」的幽灵改动。
+  const frozenMajors: unknown[] = [];
   const submittedIds = new Set<string>();
   const majors: unknown[] = [];
   for (const raw of body.majors) {
@@ -42,16 +45,20 @@ export function freezeArchivedMajors(
       majors.push(raw);
       continue;
     }
-    if (!sameJson(raw, frozen)) frozenIds.push(id);
+    if (!sameJson(raw, frozen)) {
+      frozenIds.push(id);
+      frozenMajors.push(frozen);
+    }
     majors.push(frozen);
   }
   // 被删掉的归档考试按原相对顺序补回，避免历史记录凭空消失。
   for (const [id, major] of archivedById) {
     if (submittedIds.has(id)) continue;
     frozenIds.push(id);
+    frozenMajors.push(major);
     majors.push(major);
   }
-  return { body: { ...body, majors }, frozenIds };
+  return { body: { ...body, majors }, frozenIds, frozenMajors };
 }
 
 const isOwnedQuickTemporaryMajor = (actor: AdminActor, major: unknown) => {

@@ -67,6 +67,8 @@ export type ExamRecordListEntry = {
   source: 'regular' | 'quick';
   itemCount: number;
   createdBy: number | null;
+  /** 创建人显示名；服务端读不到用户时是空串，界面回退成 #id。 */
+  createdByName: string;
   createdAt: number;
   updatedAt: number;
   startAt: number | null;
@@ -149,6 +151,7 @@ function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
     source: row.source === 'quick' ? 'quick' : 'regular',
     itemCount: typeof row.itemCount === 'number' && Number.isFinite(row.itemCount) ? row.itemCount : 0,
     createdBy: numberOrNull(row.createdBy),
+    createdByName: textValue(row.createdByName),
     createdAt: numberOrNull(row.createdAt) ?? 0,
     updatedAt: numberOrNull(row.updatedAt) ?? 0,
     startAt: numberOrNull(row.startAt),

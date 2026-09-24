@@ -182,15 +182,12 @@ export function useAdminSyncEngine(params: {
       const remote = await remoteP;
       if (cancelled) return;
       if (remote) setCloudReadConfirmed(true);
-      const localAt = getAppSettings().exam?.updatedAt ?? 0;
       const pendingSync = getPendingExamSync();
 
-      if (
-        remote &&
-        (remote.updatedAt > localAt ||
-          (remote.updatedAt === localAt && !pendingSync) ||
-          (remote.updatedAt < localAt && !pendingSync))
-      ) {
+      // 本地还有待同步的改动（含「删除草稿」）时绝不能用云端快照整体覆盖本地：
+      // 覆盖会把本机刚删掉的考试复活（表现就是"本机显示删除、刷新又出现"）。
+      // 待同步一律交给 pushToServer，真冲突由它的三方合并处理。
+      if (remote && !pendingSync) {
         const remoteUpdates: Record<string, unknown> = {
           items: remote.items,
           title: remote.title,
@@ -232,7 +229,7 @@ export function useAdminSyncEngine(params: {
         setInitialization(merged.initialization);
         pendingRef.current = false;
         setSync('saved');
-      } else if (pendingSync && localAt > (remote?.updatedAt ?? 0)) {
+      } else if (pendingSync) {
         pendingRef.current = true;
         const localExam = getAppSettings().exam;
         void pushToServer(localExam.majors, localExam.activeMajorId);

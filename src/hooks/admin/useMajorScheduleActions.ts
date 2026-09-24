@@ -7,8 +7,20 @@ import { isTrackSubject, normalizeSubjectName } from '../../data/subjects';
 import { classesInMajorScope as sharedClassesInMajorScope, computeAutoTrackClassIds } from '../../utils/trackClassIds';
 import { majorAppliesToGrade as sharedMajorAppliesToGrade } from '../../utils/examRecordEditTarget';
 import type { InitializationState } from '../../utils/settings/school';
-import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId } from '../../utils/appSettings';
-import { getCloudSnapshot, saveExamsToServer, type AdminUserContext } from '../../services/examService';
+import {
+  getAppSettings,
+  updateExamSettings,
+  updateAlertsSettings,
+  genMajorId,
+  normalizeConflictPolicy,
+} from '../../utils/appSettings';
+import {
+  applyFrozenArchivedMajors,
+  getCloudSnapshot,
+  saveExamsToServer,
+  takeFrozenArchivedMajors,
+  type AdminUserContext,
+} from '../../services/examService';
 import type { ExamSavePayload } from '../../shared/examContracts';
 import { threeWayMergeExam } from '../../utils/examMerge';
 import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '../../services/examOutbox';
@@ -277,11 +289,14 @@ export function useMajorScheduleActions(params: {
           const merged = threeWayMergeExam(currentBaseline ?? result.remote, local, result.remote);
           if (merged.conflictCount) void recordSyncConflict(merged.conflictCount, local, result.remote);
           const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
+          // 云端契约里 weeklyConflictPolicy 可以是 null（老快照没有这个字段），
+          // 本地设置要的是已规范化的策略对象：统一在这里过一遍规范化，缺字段就沿用当前值。
           const normalizedMergedExam = {
             ...mergedExam,
-            weeklyConflictPolicy:
+            weeklyConflictPolicy: normalizeConflictPolicy(
               (mergedExam as { weeklyConflictPolicy?: unknown }).weeklyConflictPolicy ??
-              weeklyStateRef.current.weeklyConflictPolicy,
+                weeklyStateRef.current.weeklyConflictPolicy,
+            ),
           };
           if (isStalePush()) return;
           const mergedQueuedAt = Date.now();
@@ -339,12 +354,35 @@ export function useMajorScheduleActions(params: {
         }
         pendingRef.current = false;
         clearPendingExamSync(expectedSavedAt);
+        // 服务端把已归档考试回退成了它自己的版本（含"本地删了但服务端仍在"）。
+        // 本地必须跟着回灌 + 告诉用户，否则就是「本机删掉了、刷新又回来」的幽灵改动。
+        const frozenMajors = takeFrozenArchivedMajors();
+        if (frozenMajors.length) {
+          const currentMajors = stateRef.current.majors;
+          const restored = frozenMajors.filter(
+            (major) => !currentMajors.some((item) => String(item.id) === String(major.id)),
+          );
+          const mergedMajors = applyFrozenArchivedMajors(currentMajors, frozenMajors);
+          syncMajorStateRef(stateRef, mergedMajors, stateRef.current.activeMajorId);
+          setMajors(mergedMajors);
+          updateExamSettings({ majors: mergedMajors, updatedAt: result });
+          const names = frozenMajors.map((major) => major.name || major.id).join('、');
+          notify(
+            'warning',
+            restored.length
+              ? `「${names}」已归档：服务端不接受删除，已按服务端版本放回。需要先「取消归档」再删除或修改。`
+              : `「${names}」已归档：这次修改没有生效，已按服务端版本还原。需要先「取消归档」再修改。`,
+            '改动没有生效',
+            { id: 'exam-frozen-archived' },
+          );
+        }
         const { alerts: pAlerts, ...examPayload } = currentPayload;
         updateExamSettings({
           ...examPayload,
-          weeklyConflictPolicy:
+          weeklyConflictPolicy: normalizeConflictPolicy(
             (examPayload as { weeklyConflictPolicy?: unknown }).weeklyConflictPolicy ??
-            weeklyStateRef.current.weeklyConflictPolicy,
+              weeklyStateRef.current.weeklyConflictPolicy,
+          ),
           updatedAt: result,
         });
         if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
@@ -367,13 +405,17 @@ export function useMajorScheduleActions(params: {
   );
 
   const commit = useCallback(
-    (ms: MajorExam[], activeId: string, immediate = false, syncLabel = '保存考试安排') => {
+    (ms: MajorExam[], activeId: string, immediate = false, syncLabel = '保存考试安排'): Promise<void> | void => {
       syncMajorStateRef(stateRef, ms, activeId);
       setMajors(ms);
       setActiveMajorId(activeId);
       const now = Date.now();
       const { alerts: pAlerts, ...examPayload } = buildPayload(ms, activeId);
-      updateExamSettings({ ...examPayload, updatedAt: now });
+      updateExamSettings({
+        ...examPayload,
+        weeklyConflictPolicy: normalizeConflictPolicy(examPayload.weeklyConflictPolicy),
+        updatedAt: now,
+      });
       if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: now });
       queuePendingExamSync({
         payload: { ...examPayload, alerts: pAlerts ?? null },
@@ -383,8 +425,8 @@ export function useMajorScheduleActions(params: {
       pendingRef.current = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (immediate) {
-        void pushToServer(ms, activeId, syncLabel);
-        return;
+        // 返回推送 Promise：删除草稿这类需要"服务端确认过才算数"的调用方可以 await 它。
+        return pushToServer(ms, activeId, syncLabel);
       }
       setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'saving');
       saveTimer.current = setTimeout(() => {
@@ -459,7 +501,7 @@ export function useMajorScheduleActions(params: {
     setDeleteMajorOpen(false);
   };
   /** 按 id 删掉一场考试（草稿、临时考试都走这里），并推送快照。 */
-  const removeMajorById = (major: MajorExam, syncLabel: string) => {
+  const removeMajorById = (major: MajorExam, syncLabel: string): Promise<void> | void => {
     const ms = majors.filter((item) => item.id !== major.id).map((item, index) => ({ ...item, order: index }));
     const nextActiveId = activeMajorId === major.id ? (ms[0]?.id ?? '') : activeMajorId;
     const nextEditing = ms.find((item) => majorAppliesToGrade(item, selectedGradeId)) ?? ms[0];
@@ -472,16 +514,15 @@ export function useMajorScheduleActions(params: {
       if (selectedGradeId && nextEditing) next[selectedGradeId] = nextEditing.id;
       return next;
     });
-    commit(ms, nextActiveId, true, syncLabel);
+    return commit(ms, nextActiveId, true, syncLabel);
   };
   const removeQuickMajor = (major: MajorExam) => {
     removeMajorById(major, `删除临时考试「${major.name}」`);
     setQuickMajorDeleteTarget(null);
   };
   /** 关闭创建向导时丢弃空草稿（A 方案：只删还没填科目的那一场）。 */
-  const discardDraftMajor = (major: MajorExam) => {
+  const discardDraftMajor = (major: MajorExam): Promise<void> | void =>
     removeMajorById(major, `丢弃草稿「${major.name}」`);
-  };
   const publishQuickMajor = (input: QuickMajorPublishInput) => {
     const start = new Date(input.startTime).getTime();
     if (!Number.isFinite(start)) {

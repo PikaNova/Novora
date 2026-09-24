@@ -17,6 +17,7 @@
     "verify:fast": "node scripts/verify-changed.cjs",
     "verify:full": "npm test && npm run build && npm run typecheck:api",
     "backfill:track-class-ids": "node scripts/run-track-backfill.cjs",
+    "purge:orphan-records": "node scripts/purge-orphan-exam-records.cjs",
     "backfill:record-timestamps": "node scripts/run-record-timestamps-backfill.cjs",
     "typecheck:api": "tsc -p tsconfig.api.json && node -e \"import('./.api-check/api/exams.js')\"",
     "lint": "eslint .",

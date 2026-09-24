@@ -153,3 +153,61 @@ test('考试详情抽屉：记录不在调用方列表里（只给 id）也能�
     globalThis.fetch = ORIGINAL_FETCH;
   }
 });
+
+/** 用一条给定的记录渲染详情抽屉，返回渲染树文本（创建人显示名的回归用）。 */
+async function renderDrawerTree(record: Record<string, unknown>): Promise<string> {
+  installCssHook();
+  const { default: ExamRecordDetailDrawer } = await import('../src/components/ExamRecordDetailDrawer.js');
+  const granted = new Set(['major.read', 'device.read']);
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('resource=record-operations')) return jsonResponse({ ok: true, data: [] });
+    if (url.includes('record-precheck')) return jsonResponse({ ok: true, data: {} });
+    if (url.includes('device-bindings')) return jsonResponse({ ok: true, bindings: [] });
+    if (url.includes('resource=record&')) return jsonResponse({ ok: true, data: record });
+    return jsonResponse({ ok: false, code: 'UNKNOWN', error: 'unexpected' }, 400);
+  }) as typeof fetch;
+
+  let renderer: TestRenderer.ReactTestRenderer | undefined;
+  try {
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          MemoryRouter,
+          null,
+          React.createElement(ExamRecordDetailDrawer, {
+            recordId: String(record.id),
+            record: null,
+            grades: [],
+            classes: [],
+            can: (permission: string) => granted.has(permission),
+            onClose: () => {},
+            onChanged: () => {},
+          }),
+        ),
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return JSON.stringify(renderer?.toJSON() ?? null);
+  } finally {
+    await act(async () => {
+      renderer?.unmount();
+    });
+    globalThis.fetch = ORIGINAL_FETCH;
+  }
+}
+
+/**
+ * 创建人以前只显示 `#7` 这种编号，管理员认不出是谁建的。
+ * 服务端读列表/单条时顺带带出 `createdByName`，渲染时优先用它，读不到才回退编号。
+ */
+test('考试详情抽屉：创建人显示姓名，读不到姓名才回退 #id', async () => {
+  const named = await renderDrawerTree({ ...RECORD, createdBy: 7, createdByName: '王老师' });
+  assert.ok(named.includes('王老师'), '有显示名时要显示姓名');
+  assert.ok(!named.includes('#7'), '有姓名时不该再显示 #id');
+
+  const fallback = await renderDrawerTree({ ...RECORD, createdBy: 7, createdByName: '' });
+  assert.ok(fallback.includes('#7'), '没有显示名时回退到 #7');
+});

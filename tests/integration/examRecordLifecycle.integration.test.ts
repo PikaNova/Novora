@@ -1063,6 +1063,10 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   const renamed = await saveExamData(admin.token, [{ ...archivedMajor, name: '被改名的归档考试' }], 'frozen');
   assert.equal(renamed.statusCode, 200);
   assert.deepEqual(renamed.body.ignoredArchivedMajors, ['frozen']);
+  // 客户端要拿服务端版本把本地副本纠回来，否则就是"本机改好了、刷新又变回来"。
+  const renamedFrozen = Array.isArray(renamed.body.frozenMajors) ? renamed.body.frozenMajors : [];
+  assert.equal(renamedFrozen.length, 1);
+  assert.equal((renamedFrozen[0] as Record<string, unknown>).name, '待归档考试');
   let snapshot = await readSnapshotMajors();
   assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '待归档考试', '归档考试改名必须无效');
 
@@ -1070,6 +1074,9 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   const removed = await saveExamData(admin.token, [], '');
   assert.equal(removed.statusCode, 200);
   assert.deepEqual(removed.body.ignoredArchivedMajors, ['frozen']);
+  const removedFrozen = Array.isArray(removed.body.frozenMajors) ? removed.body.frozenMajors : [];
+  assert.equal(removedFrozen.length, 1, '被删掉的归档考试也要回传服务端版本，界面才能提示并回灌');
+  assert.equal((removedFrozen[0] as Record<string, unknown>).id, 'frozen');
   snapshot = await readSnapshotMajors();
   assert.equal(
     snapshot.some((major) => major.id === 'frozen'),
@@ -1083,6 +1090,7 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   const afterEdit = await saveExamData(admin.token, [{ ...editable, name: '取消归档后改名' }], 'frozen');
   assert.equal(afterEdit.statusCode, 200);
   assert.equal(afterEdit.body.ignoredArchivedMajors, undefined, '取消归档后不应再被冻结');
+  assert.equal(afterEdit.body.frozenMajors, undefined, '没有冻结条目时不该回传 frozenMajors');
   snapshot = await readSnapshotMajors();
   assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '取消归档后改名');
 });

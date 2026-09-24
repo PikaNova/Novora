@@ -430,7 +430,8 @@ function ExamRecordDetailBody({
               </div>
               <div>
                 <dt>创建人</dt>
-                <dd>{record.createdBy == null ? '系统' : `#${record.createdBy}`}</dd>
+                {/* 服务端顺带带出创建人显示名；老数据或用户已删时退回 #id。 */}
+                <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
               </div>
               <div>
                 <dt>创建时间</dt>

@@ -13,7 +13,7 @@ import {
 } from '../../services/examService';
 import { threeWayMergeExam } from '../../utils/examMerge';
 import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '../../services/examOutbox';
-import { updateExamSettings } from '../../utils/appSettings';
+import { normalizeConflictPolicy, updateExamSettings } from '../../utils/appSettings';
 import { notify } from '../../services/notify';
 import { formatApiError } from '../../services/apiError';
 import type { ExamSavePayload } from '../../shared/examContracts';
@@ -229,7 +229,14 @@ export function useWeeklyScheduleSync(params: {
       }
       pendingRef.current = false;
       clearPendingExamSync(queued?.savedAt);
-      updateExamSettings({ ...payload, updatedAt: result });
+      updateExamSettings({
+        ...payload,
+        // 同一个理由：云端契约允许 null，本地设置只接受已规范化的策略对象。
+        weeklyConflictPolicy: normalizeConflictPolicy(
+          payload.weeklyConflictPolicy ?? weeklyStateRef.current.weeklyConflictPolicy,
+        ),
+        updatedAt: result,
+      });
       setSync('saved');
     },
     [buildPayloadRef, navigate, pendingRef, setActiveMajorIdRef, setMajorsRef, setSync, stateRef],

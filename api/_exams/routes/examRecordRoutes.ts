@@ -50,6 +50,8 @@ type RecordRow = {
   priority_over_schedule?: unknown;
   config?: unknown;
   created_by?: unknown;
+  /** 读列表 / 读单条时顺带取出的创建人显示名（详情抽屉展示用）。 */
+  created_by_name?: unknown;
   created_at?: unknown;
   updated_at?: unknown;
   start_at?: unknown;
@@ -162,6 +164,9 @@ function recordJson(row: RecordRow, now: number): Record<string, unknown> {
     priorityOverSchedule: row.priority_over_schedule === true,
     config: row.config && typeof row.config === 'object' && !Array.isArray(row.config) ? row.config : {},
     createdBy: nullableNumber(row.created_by),
+    // 创建人姓名：详情抽屉要显示「谁建的」，而不是一个 #id。读不到用户（老数据 / 用户已删）时给空串，
+    // 由前端回退成 #id。
+    createdByName: text(row.created_by_name),
     createdAt: number(row.created_at),
     updatedAt: number(row.updated_at),
     startAt: nullableNumber(row.start_at),
@@ -320,6 +325,10 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         config, created_by, created_at, updated_at, start_at, end_at,
         actual_start_at, actual_end_at, paused_at, paused_ms, stop_requested_at, published_at, ended_at, archived_at,
         version, sort_order
+        -- 创建人姓名用相关子查询取，不 JOIN app_users：那张表也有 created_at/updated_at/靠前的同名列，
+        -- 一旦并进来，上面这些裸列名就会再次变成二义（42702）。
+        , (SELECT COALESCE(NULLIF(creator.display_name, ''), creator.username, '')
+           FROM app_users AS creator WHERE creator.id = exam_records.created_by) AS created_by_name
         , last_op.action AS last_op_action, last_op.reason AS last_op_reason, last_op.op_created_at AS last_op_at
       FROM exam_records
       -- 列表里的「时间已调整」提示读最近一次操作（extend/pause/resume/auto_* 等）
@@ -709,7 +718,12 @@ async function handleRecordGet(req: VercelRequest, res: VercelResponse): Promise
   // 否则详情里的状态可能比列表慢一拍。
   await advanceExamLifecycle(Date.now());
   const sql = database();
-  const rows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
+  const rows = (await sql`
+    SELECT exam_records.*,
+      (SELECT COALESCE(NULLIF(creator.display_name, ''), creator.username, '')
+         FROM app_users AS creator WHERE creator.id = exam_records.created_by) AS created_by_name
+    FROM exam_records WHERE id=${recordId}
+  `) as unknown as RecordRow[];
   if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
     error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
     return;
