@@ -351,8 +351,14 @@ export default function ExamRecordDetailDrawer({
     <AdminModalPortal className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label="考试详情">
       <div className="admin-modal admin-modal--wide exam-record-detail" onClick={(event) => event.stopPropagation()}>
         <header className="exam-record-detail__head">
-          <div>
-            <h2 className="admin-modal__title">{record.name || '未命名考试'}</h2>
+          <div className="exam-record-detail__head-main">
+            <div className="exam-record-detail__title-row">
+              <h2 className="admin-modal__title">{record.name || '未命名考试'}</h2>
+              {/* 状态徽标从「基本信息」里挪上来：宽屏两栏之后，它属于标题而不是某个字段。 */}
+              <span className={`exam-records-status is-${record.displayStatus}`}>
+                {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
+              </span>
+            </div>
             <code className="exam-record-detail__id">{record.id}</code>
           </div>
           <div className="exam-record-detail__head-actions">
@@ -391,9 +397,7 @@ export default function ExamRecordDetailDrawer({
 
         <div className="exam-record-detail__body">
           <section className="exam-record-detail__facts" aria-label="基本信息">
-            <span className={`exam-records-status is-${record.displayStatus}`}>
-              {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
-            </span>
+            <h3>基本信息</h3>
             <dl>
               <div>
                 <dt>适用范围</dt>
@@ -447,12 +451,20 @@ export default function ExamRecordDetailDrawer({
               <p className="exam-record-detail__hint">正在读取设备状态…</p>
             ) : (
               <>
-                <p className="exam-record-detail__hint">
-                  {deviceSummary.devices.length === 0
-                    ? '这场考试范围内还没有绑定设备。'
-                    : `覆盖 ${deviceSummary.devices.length} 台设备 · 在线 ${deviceSummary.online} · 离线 ${deviceSummary.offline}`}
-                  {deviceSummary.unboundClasses > 0 && ` · ${deviceSummary.unboundClasses} 个班级未绑定设备`}
-                </p>
+                {deviceSummary.devices.length === 0 ? (
+                  <p className="exam-record-detail__hint">这场考试范围内还没有绑定设备。</p>
+                ) : (
+                  <p className="exam-record-detail__device-summary">
+                    <span>覆盖 {deviceSummary.devices.length} 台设备</span>
+                    <span className={deviceSummary.online > 0 ? 'is-online' : undefined}>
+                      在线 {deviceSummary.online}
+                    </span>
+                    <span>离线 {deviceSummary.offline}</span>
+                    {deviceSummary.unboundClasses > 0 && (
+                      <span className="is-warn">{deviceSummary.unboundClasses} 个班级未绑定设备</span>
+                    )}
+                  </p>
+                )}
                 {deviceSummary.devices.length > 0 && (
                   <ul>
                     {deviceSummary.devices.slice(0, 6).map((item) => {

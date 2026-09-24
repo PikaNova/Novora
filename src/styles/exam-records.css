@@ -788,8 +788,10 @@
 .exam-record-detail {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(880px, 100%);
-  max-height: min(88vh, 900px);
+  /* 同时挂着 .admin-modal--wide（max-width: 620px），不覆盖 max-width 的话这里的宽度根本不起作用。 */
+  width: min(1120px, 100%);
+  max-width: min(1120px, calc(100vw - 48px));
+  max-height: min(88vh, 820px);
 }
 .exam-record-detail__head {
   display: flex;
@@ -797,9 +799,23 @@
   justify-content: space-between;
   gap: 12px;
 }
+.exam-record-detail__head-main {
+  min-width: 0;
+}
+.exam-record-detail__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.exam-record-detail__title-row .admin-modal__title {
+  margin: 0;
+}
 .exam-record-detail__head-actions {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   flex: none;
 }
@@ -816,7 +832,7 @@
 }
 .exam-record-detail__facts dl {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px 16px;
   margin: 10px 0 0;
 }
@@ -895,16 +911,17 @@
 }
 .exam-record-detail__devices ul {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 8px;
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
 }
 .exam-record-detail__devices li {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 4px 8px;
   padding: 7px 10px;
   border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
   border-radius: 6px;
@@ -915,8 +932,30 @@
   color: var(--adm-text, #eaf2f8);
 }
 .exam-record-detail__devices li em {
+  grid-column: 1 / -1;
   color: var(--adm-text-3, #879caf);
   font-style: normal;
+}
+.exam-record-detail__device-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+.exam-record-detail__device-summary span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+}
+.exam-record-detail__device-summary span.is-online {
+  background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
+  color: var(--adm-success, #4cbe8c);
+}
+.exam-record-detail__device-summary span.is-warn {
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
 }
 .exam-record-detail__devices li span {
   padding: 2px 8px;
@@ -974,6 +1013,111 @@
   width: 100%;
   color: var(--adm-text-2, #a9bdd0);
   font-size: 12px;
+}
+
+/* 宽屏：信息与设备并排，生命周期和操作记录吃整幅宽度（窄屏保持原来的竖排）。 */
+@media (min-width: 1120px) {
+  .exam-record-detail__body {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 16px 18px;
+    align-items: start;
+  }
+  .exam-record-detail__facts {
+    grid-area: 1 / 1;
+  }
+  .exam-record-detail__devices {
+    grid-area: 1 / 2;
+  }
+  /* 5 个阶段挤在半栏里每段只剩 ~97px，「2026/09/19 17:38」这种时间会折行，所以让这两段横跨整幅。 */
+  .exam-record-detail__timeline {
+    grid-area: 2 / 1 / 3 / 3;
+  }
+  .exam-record-detail__operations {
+    grid-area: 3 / 1 / 4 / 3;
+  }
+  .exam-record-detail__facts,
+  .exam-record-detail__devices,
+  .exam-record-detail__timeline,
+  .exam-record-detail__operations {
+    padding: 12px 14px;
+    border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+    border-radius: 10px;
+    background: rgba(148, 180, 208, 0.03);
+  }
+  .exam-record-detail__facts dl {
+    margin-top: 8px;
+  }
+
+  /* 生命周期改横向 stepper：节点一行，节点之间连线，已完成的段用主色。 */
+  .exam-record-detail__timeline ol {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+  }
+  .exam-record-detail__timeline li {
+    display: block;
+    position: relative;
+    padding: 14px 10px 0 0;
+  }
+  .exam-record-detail__timeline li::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 10px;
+    right: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: rgba(148, 180, 208, 0.18);
+  }
+  .exam-record-detail__timeline li:last-child::after {
+    display: none;
+  }
+  .exam-record-detail__timeline li.is-done::after {
+    background: var(--adm-accent, #3b8fd0);
+    opacity: 0.55;
+  }
+  .exam-record-detail__dot {
+    position: absolute;
+    top: 2px;
+    left: 1px;
+    margin-top: 0;
+  }
+  .exam-record-detail__timeline li div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: 4px;
+  }
+  .exam-record-detail__timeline li strong {
+    min-width: 0;
+  }
+
+  /* 操作记录：时间 / 动作 / 操作者 一行，状态变化与原因另起一行。 */
+  .exam-record-detail__operations li {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr) auto;
+    gap: 3px 10px;
+  }
+  .exam-record-detail__operations li strong {
+    grid-area: 1 / 2;
+  }
+  .exam-record-detail__operations li > span:nth-child(2) {
+    grid-area: 1 / 1;
+  }
+  .exam-record-detail__operations li > span:nth-child(3) {
+    grid-area: 1 / 3;
+    text-align: right;
+  }
+  .exam-record-detail__operations li em {
+    grid-column: 2 / -1;
+  }
+
+  /* 底栏：抽屉变宽后备注框跟着铺开，不再固定 190px。 */
+  .exam-record-detail__reason {
+    flex: 1;
+  }
+  .exam-record-detail__reason .admin-input {
+    width: 100%;
+  }
 }
 
 @media (max-width: 700px) {
