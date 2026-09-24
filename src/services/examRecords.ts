@@ -307,7 +307,28 @@ export type ExamRecordActionRequest = {
   idempotencyKey?: string;
 };
 
-/** 执行一次考试记录动作；失败抛 ApiError，调用方用 formatApiError 展示。 */
+/**
+ * 全局写槽（服务端 `GLOBAL_WRITE_MIN_INTERVAL_MS = 900`）同时只放行一个写请求。
+ * 向导「保存并发布」是两次连写：先写考试窗口快照，紧接着发发布动作，第二个请求
+ * 几乎必然落在前一个请求刚占用的窗口里，服务端按约回 429 RATE_LIMITED + Retry-After。
+ * 写槽是动作的第一道门，429 发生在任何写语句之前，所以照服务端提示等一会儿重发
+ * 既安全、也不会把动作执行两遍；需要幂等键的动作重试时沿用同一个键。
+ */
+const RATE_LIMITED_MAX_ATTEMPTS = 4;
+const RATE_LIMITED_FALLBACK_WAIT_MS = 900;
+const RATE_LIMITED_MAX_WAIT_MS = 5_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 服务端 Retry-After 优先；没带就按写槽窗口的量级兜底，单次最多等 5s。 */
+function writeSlotRetryWaitMs(retryAfterMs: number | undefined): number {
+  const suggested = retryAfterMs && retryAfterMs > 0 ? retryAfterMs : RATE_LIMITED_FALLBACK_WAIT_MS;
+  return Math.min(RATE_LIMITED_MAX_WAIT_MS, suggested);
+}
+
+/** 执行一次考试记录动作；写槽繁忙时自动重试；失败抛 ApiError，调用方用 formatApiError 展示。 */
 export async function runExamRecordAction(input: ExamRecordActionRequest): Promise<{ idempotent: boolean }> {
   const idempotencyKey =
     input.idempotencyKey || (requiresIdempotencyKey(input.action) ? newIdempotencyKey(input.action, input.id) : '');
@@ -318,21 +339,30 @@ export async function runExamRecordAction(input: ExamRecordActionRequest): Promi
   if (input.minutes != null) body.minutes = input.minutes;
   if (input.reason) body.reason = input.reason;
 
-  let response: Response;
-  try {
-    response = await fetch('/api/exams', {
-      method: 'POST',
-      headers: authHeaders(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
-      body: JSON.stringify(body),
-      cache: 'no-store',
-    });
-  } catch {
-    throw networkApiError();
+  for (let attempt = 1; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch('/api/exams', {
+        method: 'POST',
+        headers: authHeaders(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+    } catch {
+      throw networkApiError();
+    }
+    if (!response.ok) {
+      const error = await apiErrorFromResponse(response, '考试操作失败');
+      if (error.code === 'RATE_LIMITED' && attempt < RATE_LIMITED_MAX_ATTEMPTS) {
+        await sleep(writeSlotRetryWaitMs(error.retryAfterMs));
+        continue;
+      }
+      throw error;
+    }
+    const payload = (await response.json().catch(() => null)) as { ok?: boolean; idempotent?: boolean } | null;
+    if (!payload?.ok) throw await apiErrorFromResponse(response, '考试操作失败');
+    return { idempotent: payload.idempotent === true };
   }
-  if (!response.ok) throw await apiErrorFromResponse(response, '考试操作失败');
-  const payload = (await response.json().catch(() => null)) as { ok?: boolean; idempotent?: boolean } | null;
-  if (!payload?.ok) throw await apiErrorFromResponse(response, '考试操作失败');
-  return { idempotent: payload.idempotent === true };
 }
 
 /** 读取一场考试的操作记录（详情页时间线用）。 */
