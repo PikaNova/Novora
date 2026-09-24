@@ -23,7 +23,7 @@ import {
   EXAM_RECORD_STATUS_LABELS,
   type ExamRecordActionName,
 } from '../shared/examRecordContracts.js';
-import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts.js';
+import { buildExamDeviceSummary, filterExamDevices, isDeviceOnline } from '../utils/examDeviceDisplay';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 
@@ -168,6 +168,10 @@ export default function ExamRecordDetailDrawer({
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [devicesError, setDevicesError] = useState('');
+  const [devicesTruncated, setDevicesTruncated] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [devicesExpanded, setDevicesExpanded] = useState(false);
+  const [unboundOpen, setUnboundOpen] = useState(false);
 
   const canReadDevices = can('device.read');
 
@@ -197,11 +201,14 @@ export default function ExamRecordDetailDrawer({
     setDevicesError('');
     void fetchDeviceBindings()
       .then((result) => {
-        if (active) setDevices(result.bindings);
+        if (!active) return;
+        setDevices(result.bindings);
+        setDevicesTruncated(result.truncated);
       })
       .catch((caught) => {
         if (!active) return;
         setDevices([]);
+        setDevicesTruncated(false);
         setDevicesError(formatApiError(caught, '读取设备状态失败'));
       })
       .finally(() => {
@@ -236,26 +243,28 @@ export default function ExamRecordDetailDrawer({
   const effectiveEndAt = record.endAt == null ? null : record.endAt + record.pausedMs;
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
-  const deviceSummary = useMemo(() => {
-    const schoolWide = record.targetGradeIds.length === 0 && record.targetClassIds.length === 0;
-    const inScope = devices.filter(
-      (item) =>
-        !item.revoked &&
-        (schoolWide || record.targetGradeIds.includes(item.gradeId) || record.targetClassIds.includes(item.classId)),
-    );
-    const now = Date.now();
-    const online = inScope.filter((item) => now - item.lastSeenAt <= DEVICE_ONLINE_WINDOW_MS).length;
-    const coveredClassIds = new Set(inScope.map((item) => item.classId).filter(Boolean));
-    const scopedClasses = classes.filter(
-      (item) => schoolWide || record.targetClassIds.includes(item.id) || record.targetGradeIds.includes(item.gradeId),
-    );
-    return {
-      devices: inScope,
-      online,
-      offline: inScope.length - online,
-      unboundClasses: scopedClasses.filter((item) => !coveredClassIds.has(item.id)).length,
-    };
-  }, [classes, devices, record.targetClassIds, record.targetGradeIds]);
+  // 筛选/排序/汇总的规则在 utils/examDeviceDisplay.ts，那边有回归测试。
+  const deviceSummary = useMemo(
+    () =>
+      buildExamDeviceSummary({
+        devices,
+        classes,
+        targetGradeIds: record.targetGradeIds,
+        targetClassIds: record.targetClassIds,
+        examName: record.name,
+        now: Date.now(),
+      }),
+    [classes, devices, record.name, record.targetClassIds, record.targetGradeIds],
+  );
+
+  // 「设备多了怎么展示」：默认 6 张，展开后面板自己滚动，不把抽屉撑长。
+  const filteredDevices = useMemo(
+    () => filterExamDevices(deviceSummary.devices, deviceFilter, Date.now()),
+    [deviceFilter, deviceSummary.devices],
+  );
+  const visibleDevices = devicesExpanded ? filteredDevices : filteredDevices.slice(0, 6);
+  const deviceChipClass = (tone: 'online' | 'warn' | null, active: boolean) =>
+    [tone ? `is-${tone}` : '', active ? 'is-active' : ''].filter(Boolean).join(' ') || undefined;
 
   const classLabel = (gradeId: string, classId: string) => {
     const gradeName = grades.find((grade) => grade.id === gradeId)?.name ?? gradeId ?? '未知年级';
@@ -467,21 +476,58 @@ export default function ExamRecordDetailDrawer({
                 {deviceSummary.devices.length === 0 ? (
                   <p className="exam-record-detail__hint">这场考试范围内还没有绑定设备。</p>
                 ) : (
-                  <p className="exam-record-detail__device-summary">
-                    <span>覆盖 {deviceSummary.devices.length} 台设备</span>
-                    <span className={deviceSummary.online > 0 ? 'is-online' : undefined}>
-                      在线 {deviceSummary.online}
-                    </span>
-                    <span>离线 {deviceSummary.offline}</span>
-                    {deviceSummary.unboundClasses > 0 && (
-                      <span className="is-warn">{deviceSummary.unboundClasses} 个班级未绑定设备</span>
+                  <>
+                    {/* chip 兼筛选器：点「离线 8」就只看离线那批，排查时最常用。 */}
+                    <p className="exam-record-detail__device-summary">
+                      <button
+                        type="button"
+                        className={deviceChipClass(null, deviceFilter === 'all')}
+                        aria-pressed={deviceFilter === 'all'}
+                        onClick={() => setDeviceFilter('all')}
+                      >
+                        覆盖 {deviceSummary.devices.length} 台设备
+                      </button>
+                      <button
+                        type="button"
+                        className={deviceChipClass(
+                          deviceSummary.online > 0 ? 'online' : null,
+                          deviceFilter === 'online',
+                        )}
+                        aria-pressed={deviceFilter === 'online'}
+                        onClick={() => setDeviceFilter((value) => (value === 'online' ? 'all' : 'online'))}
+                      >
+                        在线 {deviceSummary.online}
+                      </button>
+                      <button
+                        type="button"
+                        className={deviceChipClass(null, deviceFilter === 'offline')}
+                        aria-pressed={deviceFilter === 'offline'}
+                        onClick={() => setDeviceFilter((value) => (value === 'offline' ? 'all' : 'offline'))}
+                      >
+                        离线 {deviceSummary.offline}
+                      </button>
+                      {deviceSummary.unboundClasses > 0 && (
+                        <button
+                          type="button"
+                          className={deviceChipClass('warn', unboundOpen)}
+                          aria-expanded={unboundOpen}
+                          onClick={() => setUnboundOpen((value) => !value)}
+                        >
+                          {deviceSummary.unboundClasses} 个班级未绑定设备
+                        </button>
+                      )}
+                    </p>
+                    {unboundOpen && deviceSummary.unboundClassNames.length > 0 && (
+                      <p className="exam-record-detail__hint">
+                        未绑定设备：{deviceSummary.unboundClassNames.join('、')}
+                      </p>
                     )}
-                  </p>
+                  </>
                 )}
-                {deviceSummary.devices.length > 0 && (
-                  <ul>
-                    {deviceSummary.devices.slice(0, 6).map((item) => {
-                      const online = Date.now() - item.lastSeenAt <= DEVICE_ONLINE_WINDOW_MS;
+                {filteredDevices.length > 0 && (
+                  <ul className={devicesExpanded && filteredDevices.length > 6 ? 'is-scroll' : undefined}>
+                    {visibleDevices.map((item) => {
+                      const online = isDeviceOnline(item, Date.now());
                       return (
                         <li key={item.instanceId}>
                           <strong>{classLabel(item.gradeId, item.classId)}</strong>
@@ -496,10 +542,20 @@ export default function ExamRecordDetailDrawer({
                     })}
                   </ul>
                 )}
-                {deviceSummary.devices.length > 6 && (
-                  <p className="exam-record-detail__hint">
-                    还有 {deviceSummary.devices.length - 6} 台设备未列出，可在设备管理中查看。
-                  </p>
+                {deviceSummary.devices.length > 0 && filteredDevices.length === 0 && (
+                  <p className="exam-record-detail__hint">当前筛选下没有设备。</p>
+                )}
+                {filteredDevices.length > 6 && (
+                  <button
+                    className="admin-btn admin-btn--ghost admin-btn--sm exam-record-detail__devices-more"
+                    type="button"
+                    onClick={() => setDevicesExpanded((value) => !value)}
+                  >
+                    {devicesExpanded ? '收起' : `展开全部 ${filteredDevices.length} 台`}
+                  </button>
+                )}
+                {devicesTruncated && (
+                  <p className="exam-record-detail__hint">设备总数超过一次读取上限，这里只统计了前 500 台。</p>
                 )}
               </>
             )}

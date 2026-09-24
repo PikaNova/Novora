@@ -943,19 +943,43 @@
   margin: 0;
   font-size: 12px;
 }
-.exam-record-detail__device-summary span {
+.exam-record-detail__device-summary span,
+.exam-record-detail__device-summary button {
   padding: 2px 8px;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: rgba(148, 180, 208, 0.1);
   color: var(--adm-text-3, #879caf);
+  font: inherit;
 }
-.exam-record-detail__device-summary span.is-online {
+.exam-record-detail__device-summary button {
+  cursor: pointer;
+}
+.exam-record-detail__device-summary button:hover {
+  border-color: var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+}
+.exam-record-detail__device-summary button.is-active {
+  border-color: var(--adm-accent, #3b8fd0);
+  color: var(--adm-accent, #3b8fd0);
+}
+.exam-record-detail__device-summary span.is-online,
+.exam-record-detail__device-summary button.is-online {
   background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
   color: var(--adm-success, #4cbe8c);
 }
-.exam-record-detail__device-summary span.is-warn {
+.exam-record-detail__device-summary span.is-warn,
+.exam-record-detail__device-summary button.is-warn {
   background: rgba(230, 162, 60, 0.14);
   color: #e6a23c;
+}
+/* 展开全部之后设备面板自己滚动，不把整个抽屉撑长。 */
+.exam-record-detail__devices ul.is-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.exam-record-detail__devices-more {
+  margin-top: 8px;
 }
 .exam-record-detail__devices li span {
   padding: 2px 8px;

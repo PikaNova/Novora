@@ -95,6 +95,7 @@
     "src/shared/abortError.ts",
     "src/utils/diagnostics.ts",
     "src/utils/examCenterStatus.ts",
-    "src/utils/scheduleTimeline.ts"
+    "src/utils/scheduleTimeline.ts",
+    "src/utils/examDeviceDisplay.ts"
   ]
 }
