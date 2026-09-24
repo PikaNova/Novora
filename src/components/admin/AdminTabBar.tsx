@@ -1,6 +1,6 @@
 // 后台主导航栏：只负责主功能切换。运行模式/年级/班级等页面状态由页面内的
 // AdminContextBar 承载，导航栏不再挂页面控件。
-import { ADMIN_NAV } from '../../hooks/admin/useAdminModals';
+import { ADMIN_NAV } from '../../hooks/admin/adminRoutes';
 import type { AdminTab, ExamCenterView } from '../../types/exam';
 import { EXAM_CENTER_NAV_ITEMS } from '../exam-center/ExamCenterNav';
 import ModuleIcon from '../ModuleIcon';

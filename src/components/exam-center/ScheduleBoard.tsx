@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, ChevronRight, ClipboardList } from 'lucide-react';
+import AdminModalPortal from '../AdminModalPortal';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 import { formatClockHm } from '../../utils/examCenterStatus';
 import { getShanghaiDateKey } from '../../utils/weeklySchedule';
 import {
@@ -29,6 +31,15 @@ export type ScheduleBoardProps = {
   onEditRecord?: (recordId: string) => void;
   onOpenWeeklyPlan?: () => void;
   onDeleteDraft?: (recordId: string) => void;
+  /** 行内复制：由上层调用考试动作（复制出新草稿），面板不自己发请求。 */
+  onCopyRecord?: (recordId: string) => void;
+  /** 周测行内动作：取消本次 / 改时间 / 冲突仍然进行（写进计划的 overrides）。 */
+  onCancelWeeklyOccurrence?: (row: ScheduleRow) => void;
+  onRescheduleWeeklyOccurrence?: (
+    row: ScheduleRow,
+    next: { startClock: string; endClock: string; targetDate: string },
+  ) => void;
+  onForceWeeklyOccurrence?: (row: ScheduleRow) => void;
 };
 
 /** 时间列：同一天只写钟点，跨天补一个「次日」。 */
@@ -52,6 +63,10 @@ function ScheduleRowView({
   onEditRecord,
   onOpenWeeklyPlan,
   onDeleteDraft,
+  onCopyRecord,
+  onCancelWeeklyOccurrence,
+  onForceWeeklyOccurrence,
+  onRequestReschedule,
 }: {
   row: ScheduleRow;
   subjects: ScheduleSubjectRow[];
@@ -60,6 +75,10 @@ function ScheduleRowView({
   onEditRecord?: (recordId: string) => void;
   onOpenWeeklyPlan?: () => void;
   onDeleteDraft?: (recordId: string) => void;
+  onCopyRecord?: (recordId: string) => void;
+  onCancelWeeklyOccurrence?: (row: ScheduleRow) => void;
+  onForceWeeklyOccurrence?: (row: ScheduleRow) => void;
+  onRequestReschedule: (row: ScheduleRow) => void;
 }) {
   const [open, setOpen] = useState(false);
   const canExpand = row.kind === 'major' || row.kind === 'quick' || row.kind === 'draft';
@@ -134,6 +153,43 @@ function ScheduleRowView({
                 去周测计划
               </button>
             )}
+            {/* 周测行内动作：学校最常做的就是"这天不考了"或"临时调课"。 */}
+            {row.kind === 'weekly' &&
+              row.weekly &&
+              onCancelWeeklyOccurrence &&
+              can('weekly.edit') &&
+              row.status !== 'suppressed' && (
+                <button
+                  className="admin-btn admin-btn--ghost admin-btn--sm"
+                  type="button"
+                  onClick={() => onCancelWeeklyOccurrence(row)}
+                >
+                  取消本次
+                </button>
+              )}
+            {row.kind === 'weekly' && row.weekly && can('weekly.edit') && row.status !== 'suppressed' && (
+              <button
+                className="admin-btn admin-btn--ghost admin-btn--sm"
+                type="button"
+                onClick={() => onRequestReschedule(row)}
+              >
+                改时间
+              </button>
+            )}
+            {row.kind === 'weekly' &&
+              row.weekly &&
+              onForceWeeklyOccurrence &&
+              can('weekly.edit') &&
+              row.status === 'suppressed' && (
+                <button
+                  className="admin-btn admin-btn--ghost admin-btn--sm"
+                  type="button"
+                  onClick={() => onForceWeeklyOccurrence(row)}
+                  title="大型考试当天照常进行这次周测"
+                >
+                  仍然进行
+                </button>
+              )}
             {row.recordId && onEditRecord && can('major.edit') && row.kind !== 'weekly' && (
               <button
                 className="admin-btn admin-btn--ghost admin-btn--sm"
@@ -141,6 +197,15 @@ function ScheduleRowView({
                 onClick={() => onEditRecord(row.recordId as string)}
               >
                 编辑
+              </button>
+            )}
+            {row.recordId && onCopyRecord && can('major.create') && row.kind !== 'draft' && row.kind !== 'weekly' && (
+              <button
+                className="admin-btn admin-btn--ghost admin-btn--sm"
+                type="button"
+                onClick={() => onCopyRecord(row.recordId as string)}
+              >
+                复制
               </button>
             )}
             {row.kind === 'draft' && row.recordId && onDeleteDraft && can('major.delete') && (
@@ -173,11 +238,47 @@ export default function ScheduleBoard({
   onEditRecord,
   onOpenWeeklyPlan,
   onDeleteDraft,
+  onCopyRecord,
+  onCancelWeeklyOccurrence,
+  onRescheduleWeeklyOccurrence,
+  onForceWeeklyOccurrence,
 }: ScheduleBoardProps) {
   const [collapsed, setCollapsed] = useState<string[]>([]);
+  const [rescheduleRow, setRescheduleRow] = useState<ScheduleRow | null>(null);
+  const [rescheduleForm, setRescheduleForm] = useState({ targetDate: '', startClock: '', endClock: '' });
+  const [rescheduleError, setRescheduleError] = useState('');
+  const backdropProps = useBackdropDismiss();
   const visibleConflicts = useMemo(() => conflicts.slice(0, 3), [conflicts]);
   const toggle = (key: string) =>
     setCollapsed((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+
+  const requestReschedule = (row: ScheduleRow) => {
+    setRescheduleError('');
+    setRescheduleForm({
+      targetDate: row.weekly?.dateKey ?? '',
+      startClock: row.weekly?.startClock ?? '',
+      endClock: row.weekly?.endClock ?? '',
+    });
+    setRescheduleRow(row);
+  };
+  const submitReschedule = () => {
+    if (!rescheduleRow || !onRescheduleWeeklyOccurrence) return;
+    const { targetDate, startClock, endClock } = rescheduleForm;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      setRescheduleError('请选择调课后的日期');
+      return;
+    }
+    if (!/^\d{2}:\d{2}$/.test(startClock) || !/^\d{2}:\d{2}$/.test(endClock)) {
+      setRescheduleError('请填写开始与结束时间');
+      return;
+    }
+    if (endClock <= startClock) {
+      setRescheduleError('结束时间要晚于开始时间');
+      return;
+    }
+    onRescheduleWeeklyOccurrence(rescheduleRow, { targetDate, startClock, endClock });
+    setRescheduleRow(null);
+  };
 
   if (error) return <div className="exam-schedule__banner is-error">{error}</div>;
   // 首屏用骨架行占位（与真实行同高），刷新时不再整块替换——元素只会在原地更新，不会消失再出现。
@@ -291,6 +392,10 @@ export default function ScheduleBoard({
                             onEditRecord={onEditRecord}
                             onOpenWeeklyPlan={onOpenWeeklyPlan}
                             onDeleteDraft={onDeleteDraft}
+                            onCopyRecord={onCopyRecord}
+                            onCancelWeeklyOccurrence={onCancelWeeklyOccurrence}
+                            onForceWeeklyOccurrence={onForceWeeklyOccurrence}
+                            onRequestReschedule={requestReschedule}
                           />
                         )),
                       ])
@@ -304,6 +409,10 @@ export default function ScheduleBoard({
                           onEditRecord={onEditRecord}
                           onOpenWeeklyPlan={onOpenWeeklyPlan}
                           onDeleteDraft={onDeleteDraft}
+                          onCopyRecord={onCopyRecord}
+                          onCancelWeeklyOccurrence={onCancelWeeklyOccurrence}
+                          onForceWeeklyOccurrence={onForceWeeklyOccurrence}
+                          onRequestReschedule={requestReschedule}
                         />
                       ))}
                 </ul>
@@ -312,6 +421,55 @@ export default function ScheduleBoard({
           );
         })}
       </div>
+
+      {rescheduleRow && (
+        <AdminModalPortal className="admin-modal-overlay" {...backdropProps(() => setRescheduleRow(null))}>
+          <div className="admin-modal" onClick={(event) => event.stopPropagation()}>
+            <h2 className="admin-modal__title">临时调整这次周测</h2>
+            <p className="admin-modal__body">
+              「{rescheduleRow.title}
+              {rescheduleRow.subject ? ` · ${rescheduleRow.subject}` : ''}」原本在 {rescheduleRow.weekly?.dateKey}{' '}
+              {rescheduleRow.weekly?.startClock}–{rescheduleRow.weekly?.endClock}
+              ；这里只改这一次，周期规则不动。
+            </p>
+            <label className="weekly-field">
+              <span>日期</span>
+              <input
+                type="date"
+                value={rescheduleForm.targetDate}
+                onChange={(event) => setRescheduleForm((form) => ({ ...form, targetDate: event.target.value }))}
+              />
+            </label>
+            <div className="exam-schedule__time-fields">
+              <label className="weekly-field">
+                <span>开始</span>
+                <input
+                  type="time"
+                  value={rescheduleForm.startClock}
+                  onChange={(event) => setRescheduleForm((form) => ({ ...form, startClock: event.target.value }))}
+                />
+              </label>
+              <label className="weekly-field">
+                <span>结束</span>
+                <input
+                  type="time"
+                  value={rescheduleForm.endClock}
+                  onChange={(event) => setRescheduleForm((form) => ({ ...form, endClock: event.target.value }))}
+                />
+              </label>
+            </div>
+            {rescheduleError && <p className="admin-error">{rescheduleError}</p>}
+            <div className="admin-modal__actions">
+              <button className="admin-btn" type="button" onClick={() => setRescheduleRow(null)}>
+                取消
+              </button>
+              <button className="admin-btn admin-btn--primary" type="button" onClick={submitReschedule}>
+                保存这次调整
+              </button>
+            </div>
+          </div>
+        </AdminModalPortal>
+      )}
     </section>
   );
 }

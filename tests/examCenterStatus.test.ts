@@ -269,6 +269,12 @@ test('同内容的周测计划合并成一条，不随班级数膨胀', () => {
   assert.equal(sessions.length, 1, '60 个班级共用同一份周测内容时只应出现一条');
   assert.equal(sessions[0].scope.classCount, 60);
   assert.deepEqual(sessions[0].scope.gradeIds.sort(), ['g1', 'g2']);
+  // 行内「取消本次 / 改时间 / 仍然进行」要能定位到每条计划的源科目：一条行带全部计划的 id。
+  assert.equal(sessions[0].weekly?.planIds.length, 60);
+  assert.equal(sessions[0].weekly?.itemId, 'w1');
+  assert.equal(sessions[0].weekly?.dateKey, DAY);
+  assert.equal(sessions[0].weekly?.startClock, '14:00');
+  assert.equal(sessions[0].weekly?.endClock, '15:00');
 
   const started = performance.now();
   collectExamSessions({

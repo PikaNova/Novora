@@ -28,6 +28,7 @@ import {
 import { fetchDeviceBindings, type DeviceBindingInfo } from '../services/classBinding';
 import { fetchAuditOverview, type AuditLog } from '../services/adminUsers';
 import type { LoginFailureAlert } from '../shared/authContracts';
+import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import { getQuickMajorDisplayStatus } from '../utils/majorDisplayStatus';
 import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts';
@@ -450,17 +451,17 @@ export default function OverviewPanel({
             <small>快速发布单科考试</small>
           </button>
         )}
-        <a className="ovd-quick__card" href="/admin?tab=dashboard">
+        <a className="ovd-quick__card" href={adminSectionUrl({ tab: 'dashboard' })}>
           <BarChart3 size={18} />
           <span>数据大屏</span>
           <small>全校/年级考试总览</small>
         </a>
-        <a className="ovd-quick__card" href="/admin?tab=major">
+        <a className="ovd-quick__card" href={adminSectionUrl({ tab: 'exam', view: 'editor' })}>
           <GraduationCap size={18} />
           <span>大型考试</span>
           <small>安排与下发分考试</small>
         </a>
-        <a className="ovd-quick__card" href="/admin?tab=weekly">
+        <a className="ovd-quick__card" href={adminSectionUrl({ tab: 'exam', view: 'weekly' })}>
           <CalendarDays size={18} />
           <span>周测计划</span>
           <small>班级周测与调课</small>
@@ -749,11 +750,11 @@ export default function OverviewPanel({
             </div>
             <footer>
               {detailOpen === 'online' || detailOpen === 'attention' ? (
-                <a className="admin-btn" href="/admin?tab=devices">
+                <a className="admin-btn" href={adminSectionUrl({ tab: 'devices' })}>
                   进入设备管理
                 </a>
               ) : detailOpen === 'majors' ? (
-                <a className="admin-btn" href="/admin?tab=major">
+                <a className="admin-btn" href={adminSectionUrl({ tab: 'exam', view: 'editor' })}>
                   进入大型考试
                 </a>
               ) : null}

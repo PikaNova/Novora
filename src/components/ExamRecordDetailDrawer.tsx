@@ -25,6 +25,7 @@ import {
 } from '../shared/examRecordContracts.js';
 import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts.js';
 import type { SchoolClass, SchoolGrade } from '../types/school';
+import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 
 const DEFAULT_EXTEND_MINUTES = 15;
 const MAX_EXTEND_MINUTES = 600;
@@ -44,7 +45,7 @@ type Props = {
   onChanged: () => void;
   /**
    * 「编辑考试」的落点，由上层给：它知道要编辑哪一场、需不需要先切年级。
-   * 没有传时退回旧的 `?tab=major` 深链（只用于兼容旧调用方）。
+   * 没有传时直接跳「编辑考试」板块（只用于兼容旧调用方）。
    */
   onEdit?: () => void;
   /** 草稿才有：删除这场草稿（由上层二次确认后按 id 从快照里移除）。 */
@@ -376,7 +377,7 @@ export default function ExamRecordDetailDrawer({
                     onEdit();
                     return;
                   }
-                  navigate('/admin?tab=major');
+                  navigate(adminSectionUrl({ tab: 'exam', view: 'editor' }));
                 }}
               >
                 编辑考试

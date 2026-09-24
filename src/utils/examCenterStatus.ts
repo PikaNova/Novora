@@ -70,6 +70,17 @@ export type ExamSession = {
   pausedMs: number;
   endedAt: number | null;
   scope: ExamSessionScope;
+  /**
+   * 周测实例的来源信息：行内「取消本次 / 改时间 / 仍然进行」需要它来写计划的 overrides。
+   * `planIds` 是同一时间结构下所有参与班级的计划——一次动作要覆盖这一整组。
+   */
+  weekly?: {
+    itemId: string;
+    dateKey: string;
+    startClock: string;
+    endClock: string;
+    planIds: string[];
+  };
 };
 
 export type ExamSessionView = ExamSession & {
@@ -173,6 +184,8 @@ type WeeklyGroup = {
   plan: WeeklyPlan;
   /** 组内出现过的计划名；多于一个时页面用「等 N 个计划」表述。 */
   planNames: string[];
+  /** 同一时间结构下的全部计划 id（每个班一份），行内动作要一起改。 */
+  planIds: string[];
   classIds: string[];
   gradeIds: string[];
 };
@@ -270,6 +283,8 @@ type OccurrenceTiming = {
   endIso: string;
   name: string;
   forced: boolean;
+  /** 写 override 需要的源信息（代表计划里的 item）。 */
+  itemId: string;
 };
 
 /** 把缓存下来的时间结构还原成周测实例，交给 `resolveMajorWeeklyConflicts` 判断冲突。 */
@@ -331,12 +346,14 @@ function groupWeeklyPlans(
       if (!existing.classIds.includes(schoolClass.id)) existing.classIds.push(schoolClass.id);
       if (!existing.gradeIds.includes(schoolClass.gradeId)) existing.gradeIds.push(schoolClass.gradeId);
       if (plan.name && !existing.planNames.includes(plan.name)) existing.planNames.push(plan.name);
+      if (!existing.planIds.includes(plan.id)) existing.planIds.push(plan.id);
       continue;
     }
     groups.set(signature, {
       signature,
       plan,
       planNames: plan.name ? [plan.name] : [],
+      planIds: [plan.id],
       classIds: [schoolClass.id],
       gradeIds: [schoolClass.gradeId],
     });
@@ -529,6 +546,7 @@ export function collectScheduleSessions(input: CollectExamSessionsInput): Collec
             endIso: occurrence.endTime,
             name: occurrence.name,
             forced: occurrence.forced === true,
+            itemId: occurrence.weeklyItemId,
           }))
           .filter(
             (item) =>
@@ -595,6 +613,13 @@ export function collectScheduleSessions(input: CollectExamSessionsInput): Collec
           pausedMs: 0,
           endedAt: null,
           scope: buildScope('class', group.gradeIds, group.classIds, grades, classes, group.classIds.length),
+          weekly: {
+            itemId: timing.itemId,
+            dateKey: timing.date,
+            startClock: timing.startIso.slice(11, 16),
+            endClock: timing.endIso.slice(11, 16),
+            planIds: [...group.planIds],
+          },
         };
         // 被大型考试暂停的实例单独收集：安排页要显式告诉用户「当天这场不考」。
         if (activeFlags[index]) sessions.push(weeklySession);

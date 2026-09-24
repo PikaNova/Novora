@@ -1,8 +1,5 @@
 import type { ExamCenterView } from '../../types/exam';
 
-/** 全部内部视图（含不进导航的二级页面），深链校验用。 */
-export const EXAM_CENTER_VIEWS: readonly ExamCenterView[] = ['current', 'schedule', 'history', 'weekly', 'editor'];
-
 export type ExamCenterNavItem = { id: ExamCenterView; label: string; permission: string };
 
 /**

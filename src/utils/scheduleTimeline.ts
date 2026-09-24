@@ -41,6 +41,8 @@ export type ScheduleRow = {
   unscheduled: boolean;
   /** 大型考试按天合并时，这一行包含的科目数（用于展开区提示）。 */
   daySubjectCount: number;
+  /** 周测行的来源信息：行内「取消本次 / 改时间 / 仍然进行」写计划 overrides 要用。 */
+  weekly?: ExamSession['weekly'];
   /** 与其它行发生的冲突 key；展示时用来加标记。 */
   conflictKeys: string[];
 };
@@ -242,6 +244,7 @@ function sessionToRow(
     itemCount: record?.itemCount ?? 0,
     unscheduled: false,
     daySubjectCount: 1,
+    ...(session.weekly ? { weekly: session.weekly } : {}),
     conflictKeys: [],
   };
 }
