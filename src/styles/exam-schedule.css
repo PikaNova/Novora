@@ -230,6 +230,57 @@
 .exam-schedule__status.is-suppressed {
   border-style: dashed;
 }
+.exam-schedule__subjects-count {
+  flex: none;
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 未排期分组内的小标题：草稿（未发布） / 已发布·待排期。 */
+.exam-schedule__subgroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(148, 180, 208, 0.04);
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-schedule__subgroup em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 首屏骨架：与真实行同高，刷新时不再整块替换内容。 */
+.exam-schedule__row.is-skeleton,
+.exam-schedule__day-head.is-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+.exam-schedule__day-head.is-skeleton {
+  display: flex;
+  gap: 8px;
+}
+.exam-schedule__skeleton-line {
+  display: inline-block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(148, 180, 208, 0.12), rgba(148, 180, 208, 0.24), rgba(148, 180, 208, 0.12));
+  background-size: 200% 100%;
+  animation: exam-schedule-skeleton 1.4s ease-in-out infinite;
+}
+.exam-schedule__stats span.is-placeholder {
+  color: var(--adm-text-3, #879caf);
+}
+@keyframes exam-schedule-skeleton {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
 
 .exam-schedule__detail {
   display: grid;

@@ -37,6 +37,10 @@ export type ScheduleRow = {
   startAt: number | null;
   endAt: number | null;
   itemCount: number;
+  /** 未排期：草稿（未发布）与「已发布但没有任何科目时间」都归到「未排期」分组。 */
+  unscheduled: boolean;
+  /** 大型考试按天合并时，这一行包含的科目数（用于展开区提示）。 */
+  daySubjectCount: number;
   /** 与其它行发生的冲突 key；展示时用来加标记。 */
   conflictKeys: string[];
 };
@@ -47,6 +51,8 @@ export type ScheduleGroup = {
   label: string;
   dateKey: string | null;
   rows: ScheduleRow[];
+  /** 「未排期」分组内再分「草稿（未发布）」与「已发布·待排期」两段。 */
+  subgroups?: Array<{ key: string; label: string; rows: ScheduleRow[] }>;
   /** 这一天的冲突组数（不是涉及的行数）。 */
   conflictCount: number;
 };
@@ -223,6 +229,8 @@ function sessionToRow(
     startAt: session.startAt,
     endAt: session.endAt,
     itemCount: record?.itemCount ?? 0,
+    unscheduled: false,
+    daySubjectCount: 1,
     conflictKeys: [],
   };
 }
@@ -242,8 +250,44 @@ function draftToRow(record: ScheduleRecordLike, grades: SchoolGrade[], classes: 
     startAt: record.startAt,
     endAt: record.endAt,
     itemCount: record.itemCount,
+    // 草稿（未发布）无论有没有时间都进「未排期」：它还不是一份对外生效的安排。
+    unscheduled: true,
+    daySubjectCount: record.itemCount,
     conflictKeys: [],
   };
+}
+
+/**
+ * 大型考试按「整场一行（按天）」合并：同一场考试同一天的多个科目只占一行，
+ * 时间取当天首科的开始到末科的结束，科目清单留给展开区。
+ * 周测不合并——「数学周测」和「语文周测」本来就是两件事。
+ */
+function mergeMajorRows(rows: ScheduleRow[], recordsById: Map<string, ScheduleRecordLike>): ScheduleRow[] {
+  const merged: ScheduleRow[] = [];
+  const indexByKey = new Map<string, number>();
+  for (const row of rows) {
+    const mergeable = row.kind === 'major' || row.kind === 'quick';
+    if (!mergeable || row.recordId == null || row.startAt == null || row.endAt == null) {
+      merged.push(row);
+      continue;
+    }
+    const key = `${row.kind}|${row.recordId}|${getShanghaiDateKey(row.startAt)}`;
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex == null) {
+      indexByKey.set(key, merged.length);
+      merged.push({ ...row, key, daySubjectCount: 1 });
+      continue;
+    }
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existing,
+      startAt: Math.min(existing.startAt as number, row.startAt),
+      endAt: Math.max(existing.endAt as number, row.endAt),
+      daySubjectCount: existing.daySubjectCount + 1,
+      itemCount: Math.max(existing.itemCount, recordsById.get(row.recordId)?.itemCount ?? existing.itemCount),
+    };
+  }
+  return merged;
 }
 
 /** 两行的适用范围是否有交集（全校与任何范围都算有交集）。 */
@@ -310,10 +354,53 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
   const recordsById = new Map<string, ScheduleRecordLike>();
   for (const record of records ?? []) recordsById.set(record.id, record);
 
+  // 记录层说「草稿」的考试只以草稿行出现在未排期里：dev 上就存在「记录层是草稿、
+  // 快照里却带着科目时间」的历史数据，不去重的话同一场考试会同时出现在日期分组和未排期里。
+  const draftIds = new Set<string>();
+  for (const draft of drafts) draftIds.add(draft.id);
+  for (const record of records ?? []) if (record.displayStatus === 'draft') draftIds.add(record.id);
+
+  const sessionRows = sessions
+    .filter((session) => !(session.recordId && draftIds.has(session.recordId)))
+    .map((session) => sessionToRow(session, recordsById, now, false));
+  const mergedRows = mergeMajorRows(sessionRows, recordsById);
+
+  // 已发布但一个科目时间都没有的考试：以前既不在 sessions 也不在 drafts 里，等于从轴上消失。
+  const coveredIds = new Set<string>();
+  for (const row of mergedRows) if (row.recordId) coveredIds.add(row.recordId);
+  const unscheduledPublished: ScheduleRow[] = (records ?? [])
+    .filter(
+      (record) =>
+        record.displayStatus !== 'draft' &&
+        record.displayStatus !== 'ended' &&
+        record.displayStatus !== 'archived' &&
+        record.startAt == null &&
+        !coveredIds.has(record.id),
+    )
+    .map((record) => ({
+      key: `unscheduled|${record.id}`,
+      kind: record.source === 'quick' ? 'quick' : 'major',
+      status: statusFromRecord(record.displayStatus, record.startAt, record.endAt, now),
+      recordId: record.id,
+      planId: null,
+      title: record.name,
+      subject: '',
+      scopeLabel: scopeLabelOf(record.targetGradeIds, record.targetClassIds, grades, classes),
+      gradeIds: record.targetGradeIds,
+      classIds: record.targetClassIds,
+      startAt: null,
+      endAt: null,
+      itemCount: record.itemCount,
+      unscheduled: true,
+      daySubjectCount: record.itemCount,
+      conflictKeys: [],
+    }));
+
   const rows: ScheduleRow[] = [
-    ...sessions.map((session) => sessionToRow(session, recordsById, now, false)),
+    ...mergedRows,
     ...suppressedWeekly.map((session) => sessionToRow(session, recordsById, now, true)),
     ...drafts.map((record) => draftToRow(record, grades, classes)),
+    ...unscheduledPublished,
   ];
 
   const conflicts = findScheduleConflicts(rows);
@@ -330,7 +417,7 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
 
   const groupMap = new Map<string, ScheduleRow[]>();
   for (const row of rows) {
-    const key = row.startAt == null ? UNSCHEDULED_KEY : getShanghaiDateKey(row.startAt);
+    const key = row.unscheduled || row.startAt == null ? UNSCHEDULED_KEY : getShanghaiDateKey(row.startAt);
     const list = groupMap.get(key);
     if (list) list.push(row);
     else groupMap.set(key, [row]);
@@ -347,6 +434,18 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
       ),
       conflictCount: conflicts.filter((item) => item.dateKey === key).length,
     }))
+    .map((group) =>
+      group.key === UNSCHEDULED_KEY
+        ? {
+            ...group,
+            label: '未排期',
+            subgroups: [
+              { key: 'draft', label: '草稿（未发布）', rows: group.rows.filter((row) => row.kind === 'draft') },
+              { key: 'published', label: '已发布·待排期', rows: group.rows.filter((row) => row.kind !== 'draft') },
+            ].filter((subgroup) => subgroup.rows.length > 0),
+          }
+        : group,
+    )
     // 有日期的在前（按时间升序），「待排期」永远排在最后。
     .sort((left, right) => {
       if (left.dateKey == null) return 1;
@@ -363,8 +462,10 @@ export function buildScheduleBoard(input: BuildScheduleBoardInput): {
       total: rows.length,
       conflicted: conflictedKeys.size,
       suppressedWeekly: rows.filter((row) => row.status === 'suppressed').length,
-      unscheduled: rows.filter((row) => row.startAt == null).length,
-      todayCount: rows.filter((row) => row.startAt != null && getShanghaiDateKey(row.startAt) === todayKey).length,
+      unscheduled: rows.filter((row) => row.unscheduled).length,
+      todayCount: rows.filter(
+        (row) => !row.unscheduled && row.startAt != null && getShanghaiDateKey(row.startAt) === todayKey,
+      ).length,
     },
   };
 }

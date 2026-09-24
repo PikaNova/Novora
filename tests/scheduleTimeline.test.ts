@@ -182,6 +182,8 @@ test('冲突：同一天、范围有交集、时间重叠才算', () => {
       startAt: at('10:00'),
       endAt: at('11:00'),
       itemCount: 1,
+      unscheduled: false,
+      daySubjectCount: 1,
       conflictKeys: [],
     },
     {
@@ -198,6 +200,8 @@ test('冲突：同一天、范围有交集、时间重叠才算', () => {
       startAt: at('10:30'),
       endAt: at('11:30'),
       itemCount: 0,
+      unscheduled: false,
+      daySubjectCount: 1,
       conflictKeys: [],
     },
     {
@@ -214,6 +218,8 @@ test('冲突：同一天、范围有交集、时间重叠才算', () => {
       startAt: at('10:30'),
       endAt: at('11:30'),
       itemCount: 1,
+      unscheduled: false,
+      daySubjectCount: 1,
       conflictKeys: [],
     },
     {
@@ -230,6 +236,8 @@ test('冲突：同一天、范围有交集、时间重叠才算', () => {
       startAt: at('11:00'),
       endAt: at('12:00'),
       itemCount: 1,
+      unscheduled: false,
+      daySubjectCount: 1,
       conflictKeys: [],
     },
   ];
@@ -270,7 +278,7 @@ test('按日分组：今天/明天/日期，待排期永远最后', () => {
   });
   assert.deepEqual(
     board.groups.map((group) => group.label),
-    ['今天', '明天', '周一 9/28', '待排期（未定时间）'],
+    ['今天', '明天', '周一 9/28', '未排期'],
   );
   assert.equal(scheduleDayLabel('2026-09-24', at('07:00')), '今天');
   assert.equal(scheduleDayLabel('2026-09-28', at('07:00')), '周一 9/28');
@@ -304,6 +312,75 @@ test('统计：今日场次、冲突行数、待排期数', () => {
   assert.equal(board.stats.todayCount, 2);
   assert.equal(board.stats.conflicted, 2);
   assert.equal(board.stats.unscheduled, 1);
+});
+
+test('大型考试按天合并：同一场 3 科只占一行，时间跨首科到末科', () => {
+  const board = buildScheduleBoard({
+    sessions: [
+      session({ key: 'major|m1|i1', subject: '语文', startAt: at('08:00'), endAt: at('09:30') }),
+      session({ key: 'major|m1|i2', subject: '数学', startAt: at('10:00'), endAt: at('11:30') }),
+      session({ key: 'major|m1|i3', subject: '英语', startAt: at('14:00'), endAt: at('15:30') }),
+    ],
+    records: [record({ id: 'm1', itemCount: 3, startAt: at('08:00'), endAt: at('15:30') })],
+    grades,
+    classes,
+    now: at('07:00'),
+  });
+  assert.equal(board.rows.length, 1, '同一场考试同一天只应占一行');
+  const row = board.rows[0];
+  assert.equal(row.key, 'major|m1|2026-09-24');
+  assert.equal(row.startAt, at('08:00'));
+  assert.equal(row.endAt, at('15:30'));
+  assert.equal(row.daySubjectCount, 3);
+  assert.equal(row.unscheduled, false);
+});
+
+test('记录层是草稿、快照却带时间：只出草稿一行，进未排期', () => {
+  const draftRecord = record({ id: 'm1', displayStatus: 'draft', itemCount: 3 });
+  const board = buildScheduleBoard({
+    sessions: [
+      session({ key: 'major|m1|i1', subject: '语文', startAt: at('08:00'), endAt: at('09:30') }),
+      session({ key: 'major|m1|i2', subject: '数学', startAt: at('10:00'), endAt: at('11:30') }),
+      session({ key: 'major|m1|i3', subject: '英语', startAt: at('14:00'), endAt: at('15:30') }),
+    ],
+    drafts: [draftRecord],
+    records: [draftRecord],
+    grades,
+    classes,
+    now: at('07:00'),
+  });
+  assert.equal(board.rows.length, 1, '草稿不能同时出现在日期分组和未排期里');
+  assert.equal(board.rows[0].kind, 'draft');
+  assert.equal(board.rows[0].unscheduled, true);
+  assert.deepEqual(
+    board.groups.map((group) => group.key),
+    ['unscheduled'],
+  );
+  assert.equal(board.stats.todayCount, 0, '草稿不算今天的场次');
+});
+
+test('已发布但没有任何科目时间：补进未排期的「已发布·待排期」子段', () => {
+  const publishedNoTime = record({ id: 'm9', name: '高一月考', displayStatus: 'published', itemCount: 0 });
+  const board = buildScheduleBoard({
+    sessions: [],
+    drafts: [record({ id: 'd1', name: '初一摸底（草稿）', displayStatus: 'draft', itemCount: 0 })],
+    records: [publishedNoTime],
+    grades,
+    classes,
+    now: at('07:00'),
+  });
+  const group = board.groups.find((item) => item.key === 'unscheduled');
+  assert.ok(group);
+  assert.deepEqual(
+    group?.subgroups?.map((subgroup) => subgroup.label),
+    ['草稿（未发布）', '已发布·待排期'],
+  );
+  assert.deepEqual(
+    group?.subgroups?.map((subgroup) => subgroup.rows.length),
+    [1, 1],
+  );
+  assert.equal(board.rows.find((row) => row.recordId === 'm9')?.status, 'scheduled');
+  assert.equal(board.stats.unscheduled, 2);
 });
 
 test('时间窗：今天/明天/本周/未来两周/全部 的边界与 from/to', () => {

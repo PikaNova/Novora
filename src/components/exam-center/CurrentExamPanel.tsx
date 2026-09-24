@@ -264,6 +264,8 @@ export default function CurrentExamPanel({
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [devices, setDevices] = useState<DeviceSummary | null>(null);
+  /** 设备心跳最近一次读取失败：保留旧数字并标注滞后，而不是清空状态条。 */
+  const [devicesStale, setDevicesStale] = useState(false);
   const [detailId, setDetailId] = useState('');
   const [manualRefresh, setManualRefresh] = useState(0);
 
@@ -294,8 +296,8 @@ export default function CurrentExamPanel({
       setRecordsError('');
       setLastSyncedAt(Date.now());
     } catch (caught) {
-      // 记录层只是状态权威源；读不到时仍用本地快照展示时间线，只把状态标注为未知。
-      setRecords(null);
+      // 记录层只是状态权威源：读不到时保留上一批状态（首次失败才退回「状态未知」），
+      // 清空会让整页状态闪一下再恢复。
       setRecordsError(formatApiError(caught, '考试状态读取失败'));
     } finally {
       setRecordsLoading(false);
@@ -318,8 +320,10 @@ export default function CurrentExamPanel({
         total: active.length,
         inExam: active.filter((item) => item.status === 'exam-running').length,
       });
+      setDevicesStale(false);
     } catch {
-      setDevices(null);
+      // 同理：读不到设备心跳时保留上一次的数字，只标「可能滞后」，不要清空状态条。
+      setDevicesStale(true);
     }
   }, []);
 
@@ -593,7 +597,9 @@ export default function CurrentExamPanel({
           {devices
             ? devices.total === 0
               ? '暂无绑定客户端'
-              : `客户端 ${devices.online}/${devices.total} 在线${devices.inExam ? ` · ${devices.inExam} 台考试中` : ''}`
+              : `客户端 ${devices.online}/${devices.total} 在线${devices.inExam ? ` · ${devices.inExam} 台考试中` : ''}${
+                  devicesStale ? ' · 可能滞后' : ''
+                }`
             : '客户端状态读取失败'}
         </span>
         <span className="exam-now-status">

@@ -165,6 +165,25 @@ export default function ExamRecordsPanel({
   const [expandedClassId, setExpandedClassId] = useState('');
   const [weeklyExpanded, setWeeklyExpanded] = useState(false);
 
+  /**
+   * 父级（AdminPage）每 10 秒重渲染一次，`visibleClasses` 这类派生数组每次都是新引用；
+   * 直接把它们放进 useCallback/useEffect 依赖，会让列表与草稿每 10 秒重新请求一次——
+   * 用户看到的就是「页面自己在刷新、元素消失又回来」。这里改用内容签名做依赖，
+   * 班级列表通过 ref 读取最新值（不参与依赖）。
+   */
+  const classIdsByGrade = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const item of classes) {
+      const list = map.get(item.gradeId);
+      if (list) list.push(item.id);
+      else map.set(item.gradeId, [item.id]);
+    }
+    return map;
+  }, [classes]);
+  const classIdsByGradeRef = useRef(classIdsByGrade);
+  classIdsByGradeRef.current = classIdsByGrade;
+  const classSignature = useMemo(() => classes.map((item) => `${item.id}:${item.gradeId}`).join(','), [classes]);
+
   // 「考试安排」的时间窗：今天 / 明天 / 本周 / 未来两周 / 全部。
   const window = useMemo(
     () => resolveScheduleWindow(scheduleWindow, Date.now()),
@@ -185,7 +204,7 @@ export default function ExamRecordsPanel({
         includeArchived: preset === 'history' && showArchived,
         q: query.trim() || undefined,
         gradeId: gradeId || undefined,
-        classIds: gradeId ? classes.filter((item) => item.gradeId === gradeId).map((item) => item.id) : undefined,
+        classIds: gradeId ? classIdsByGradeRef.current.get(gradeId) : undefined,
         source: source || undefined,
         createdBy: createdBy.trim() || undefined,
         ...(boardTimeline && window.from && window.to
@@ -196,16 +215,14 @@ export default function ExamRecordsPanel({
       setTotal(result.total);
       setTotalPages(result.totalPages);
     } catch (caught) {
-      setRecords([]);
-      setTotal(0);
-      setTotalPages(0);
+      // 刷新失败保留上一批数据：清空会让整张列表消失再回来（列表与文案都由这些状态驱动）。
       setError(formatApiError(caught, '考试列表读取失败'));
     } finally {
       setLoading(false);
     }
   }, [
     boardTimeline,
-    classes,
+    classSignature,
     createdBy,
     gradeId,
     page,
@@ -266,7 +283,7 @@ export default function ExamRecordsPanel({
       preset: 'draft',
       q: query.trim() || undefined,
       gradeId: gradeId || undefined,
-      classIds: gradeId ? classes.filter((item) => item.gradeId === gradeId).map((item) => item.id) : undefined,
+      classIds: gradeId ? classIdsByGradeRef.current.get(gradeId) : undefined,
       source: source || undefined,
       createdBy: createdBy.trim() || undefined,
     })
@@ -274,7 +291,7 @@ export default function ExamRecordsPanel({
         if (active) setDrafts(result.data);
       })
       .catch(() => {
-        if (active) setDrafts([]);
+        // 同上：草稿取数失败时保留上一批，避免「未排期」分组闪一下又回来。
       })
       .finally(() => {
         if (active) setDraftsLoading(false);
@@ -282,7 +299,7 @@ export default function ExamRecordsPanel({
     return () => {
       active = false;
     };
-  }, [boardTimeline, classes, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
+  }, [boardTimeline, classSignature, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
 
   /** 筛选项变化一律回到第一页；DOM 事件的值会被放宽成 string，这里集中收窄一次。 */
   const filterHandler =

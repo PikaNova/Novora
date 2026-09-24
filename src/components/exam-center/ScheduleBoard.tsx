@@ -63,6 +63,13 @@ function ScheduleRowView({
 }) {
   const [open, setOpen] = useState(false);
   const canExpand = row.kind === 'major' || row.kind === 'quick' || row.kind === 'draft';
+  // 大型考试按天合并成一行：展开区只列「这一天的」科目，跨天考试的另一天各自展开。
+  const daySubjects = useMemo(() => {
+    if (row.startAt == null) return subjects;
+    const dayKey = getShanghaiDateKey(row.startAt);
+    const sameDay = subjects.filter((item) => getShanghaiDateKey(item.startAt) === dayKey);
+    return sameDay.length ? sameDay : subjects;
+  }, [row.startAt, subjects]);
   return (
     <li className={`exam-schedule__item is-${row.status}${rowHasConflict(row) ? ' has-conflict' : ''}`}>
       <button
@@ -79,6 +86,7 @@ function ScheduleRowView({
           <strong title={row.title}>{row.title}</strong>
           {row.kind === 'weekly' && <span className="exam-schedule__subject">{row.subject}</span>}
           <span className="exam-schedule__kind">{SCHEDULE_ROW_KIND_LABELS[row.kind]}</span>
+          {row.daySubjectCount > 1 && <span className="exam-schedule__subjects-count">{row.daySubjectCount} 科</span>}
           {rowHasConflict(row) && (
             <span className="exam-schedule__conflict-flag">
               <AlertTriangle size={12} aria-hidden="true" />
@@ -95,13 +103,13 @@ function ScheduleRowView({
       </button>
       {open && (
         <div className="exam-schedule__detail">
-          {subjects.length === 0 ? (
+          {daySubjects.length === 0 ? (
             <p className="exam-schedule__detail-empty">
               {row.kind === 'draft' ? '这场考试还没有科目与时间，进编辑器补全后才能发布。' : '没有启用中的科目。'}
             </p>
           ) : (
             <ul className="exam-schedule__subjects">
-              {subjects.map((item) => (
+              {daySubjects.map((item) => (
                 <li key={item.id}>
                   <span>{item.name}</span>
                   <em>
@@ -172,7 +180,36 @@ export default function ScheduleBoard({
     setCollapsed((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
 
   if (error) return <div className="exam-schedule__banner is-error">{error}</div>;
-  if (loading && groups.length === 0) return <div className="exam-schedule__banner">正在读取安排…</div>;
+  // 首屏用骨架行占位（与真实行同高），刷新时不再整块替换——元素只会在原地更新，不会消失再出现。
+  if (loading && groups.length === 0) {
+    return (
+      <section className="exam-schedule is-loading" aria-busy="true" aria-label="考试安排时间轴">
+        <div className="exam-schedule__stats">
+          <span className="is-placeholder">读取中…</span>
+        </div>
+        <div className="exam-schedule__days">
+          <section className="exam-schedule__day">
+            <div className="exam-schedule__day-head is-skeleton">
+              <span className="exam-schedule__skeleton-line" style={{ width: 72 }} />
+              <span className="exam-schedule__skeleton-line" style={{ width: 40 }} />
+            </div>
+            <ul className="exam-schedule__list">
+              {[0, 1, 2].map((index) => (
+                <li className="exam-schedule__item" key={index}>
+                  <div className="exam-schedule__row is-skeleton">
+                    <span className="exam-schedule__skeleton-line" style={{ width: 96 }} />
+                    <span className="exam-schedule__skeleton-line" style={{ width: 180 }} />
+                    <span className="exam-schedule__skeleton-line" style={{ width: 64 }} />
+                    <span className="exam-schedule__skeleton-line" style={{ width: 56 }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </section>
+    );
+  }
   if (groups.length === 0)
     return (
       <div className="exam-schedule__empty">
@@ -237,18 +274,38 @@ export default function ScheduleBoard({
               </button>
               {!isCollapsed && (
                 <ul className="exam-schedule__list">
-                  {group.rows.map((row) => (
-                    <ScheduleRowView
-                      key={row.key}
-                      row={row}
-                      subjects={row.recordId ? (subjectsByRecordId[row.recordId] ?? []) : []}
-                      can={can}
-                      onOpenDetail={onOpenDetail}
-                      onEditRecord={onEditRecord}
-                      onOpenWeeklyPlan={onOpenWeeklyPlan}
-                      onDeleteDraft={onDeleteDraft}
-                    />
-                  ))}
+                  {/* 未排期分组里再分「草稿（未发布）」与「已发布·待排期」两段，避免两种语义混排。 */}
+                  {group.subgroups?.length
+                    ? group.subgroups.flatMap((subgroup) => [
+                        <li className="exam-schedule__subgroup" key={`sub-${subgroup.key}`}>
+                          {subgroup.label}
+                          <em>{subgroup.rows.length}</em>
+                        </li>,
+                        ...subgroup.rows.map((row) => (
+                          <ScheduleRowView
+                            key={row.key}
+                            row={row}
+                            subjects={row.recordId ? (subjectsByRecordId[row.recordId] ?? []) : []}
+                            can={can}
+                            onOpenDetail={onOpenDetail}
+                            onEditRecord={onEditRecord}
+                            onOpenWeeklyPlan={onOpenWeeklyPlan}
+                            onDeleteDraft={onDeleteDraft}
+                          />
+                        )),
+                      ])
+                    : group.rows.map((row) => (
+                        <ScheduleRowView
+                          key={row.key}
+                          row={row}
+                          subjects={row.recordId ? (subjectsByRecordId[row.recordId] ?? []) : []}
+                          can={can}
+                          onOpenDetail={onOpenDetail}
+                          onEditRecord={onEditRecord}
+                          onOpenWeeklyPlan={onOpenWeeklyPlan}
+                          onDeleteDraft={onDeleteDraft}
+                        />
+                      ))}
                 </ul>
               )}
             </section>
