@@ -529,6 +529,7 @@ async function handleRecordConsistency(req: VercelRequest, res: VercelResponse):
 
   const missingProjection: string[] = [];
   const drifted: Array<{ id: string; fields: string[] }> = [];
+  let runtimeAheadCount = 0;
   const snapshotIds = new Set<string>();
   const compareKeys: Array<[string, keyof ReturnType<typeof buildExamRecordProjection>]> = [
     ['name', 'name'],
@@ -560,9 +561,22 @@ async function handleRecordConsistency(req: VercelRequest, res: VercelResponse):
                 ? nullableNumber(row.end_at)
                 : nullableNumber(row.archived_at);
       const wanted = expected[key] as string | number | null;
-      // 运行时会推进的状态/时间不参与比对：系统开考、判定结束、归档都是合法的“投影领先快照”。
-      if (key === 'status' && wanted === 'ended' && actual === 'archived') continue;
-      if (key === 'archivedAt' && actual != null && wanted == null) continue;
+      // 运行时推进会让投影**领先**快照：draft→published→ended→archived 是单向的，
+      // 系统开考/判定结束/自动归档都只在前者留下痕迹（快照的 endedAt/archivedAt 随后补齐）。
+      // 这类单独计数，不算漂移；只有"投影落后或字段对不上"才是真漂移。
+      if (key === 'status') {
+        const rank: Record<string, number> = { draft: 0, published: 1, ended: 2, archived: 3 };
+        const actualRank = rank[String(actual)] ?? -1;
+        const wantedRank = rank[String(wanted)] ?? -1;
+        if (actualRank > wantedRank) {
+          runtimeAheadCount += 1;
+          continue;
+        }
+      }
+      if (key === 'archivedAt' && actual != null && wanted == null) {
+        runtimeAheadCount += 1;
+        continue;
+      }
       if (actual !== wanted) fields.push(label);
     }
     if (fields.length) drifted.push({ id, fields });
@@ -578,6 +592,7 @@ async function handleRecordConsistency(req: VercelRequest, res: VercelResponse):
       missingProjectionCount: missingProjection.length,
       orphanedCount: orphaned.length,
       driftedCount: drifted.length,
+      runtimeAheadCount,
       missingProjection: missingProjection.slice(0, 20),
       orphaned: orphaned.slice(0, 20),
       drifted: drifted.slice(0, 20),
