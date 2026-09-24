@@ -12,6 +12,9 @@ import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, RefreshC
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { MajorExam } from '../types';
 import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
+import { runExamRecordAction } from '../services/examRecords';
+import { confirmDialog } from '../services/appDialog';
+import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
 import { EXAM_RECORD_STATUS_LABELS, EXAM_RECORD_TIME_CHANGE_ACTIONS } from '../shared/examRecordContracts.js';
 import { addDaysToDateKey, getShanghaiDateKey } from '../utils/weeklySchedule';
@@ -75,6 +78,20 @@ type Props = {
   activeWeeklyPlanId?: string | null;
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
   subjectTrackModeEnabled?: boolean;
+  /** 周测行的「取消本次 / 改时间 / 冲突仍然进行」：写进对应班级计划的 overrides。 */
+  onWeeklyOccurrenceAction?: (input: WeeklyOccurrenceActionInput) => void;
+};
+
+export type WeeklyOccurrenceActionInput = {
+  planIds: string[];
+  itemId: string;
+  dateKey: string;
+  startClock: string;
+  endClock: string;
+  action: 'cancel' | 'reschedule' | 'force';
+  targetDate?: string;
+  newStart?: string;
+  newEnd?: string;
 };
 
 const PRESET_COPY: Record<Props['preset'], { title: string; description: string; empty: string }> = {
@@ -144,6 +161,7 @@ export default function ExamRecordsPanel({
   activeWeeklyPlanId,
   activeWeeklyPlanIdByClassId,
   subjectTrackModeEnabled,
+  onWeeklyOccurrenceAction,
 }: Props) {
   // 切板块或去编辑器会卸载本面板：筛选条件从内存快照读回，见 utils/examListFilterMemory。
   const [rememberedFilters] = useState(() => readExamListFilters(preset));
@@ -439,6 +457,29 @@ export default function ExamRecordsPanel({
     if (!onDeleteDraft) return;
     const deleted = await onDeleteDraft(record);
     if (deleted) setRefreshKey((value) => value + 1);
+  };
+
+  /**
+   * 行内复制：以这场考试的科目生成一场新草稿。复制走记录层动作（带幂等键），
+   * 成功后立刻重拉——副本会落在「未排期」里，不需要用户再去找。
+   */
+  const requestCopyRecord = async (recordId: string) => {
+    const record = records.find((item) => item.id === recordId) ?? drafts.find((item) => item.id === recordId);
+    const name = record?.name || recordId;
+    const confirmed = await confirmDialog({
+      title: '复制这场考试',
+      message: `会以「${name}」的科目生成一场新的草稿考试，原考试不受影响。`,
+      tone: 'info',
+      confirmLabel: '复制',
+    });
+    if (!confirmed) return;
+    try {
+      await runExamRecordAction({ id: recordId, action: 'copy' });
+      notify('success', '已生成副本，可在「未排期」里继续完善。', '已复制考试');
+      setRefreshKey((value) => value + 1);
+    } catch (caught) {
+      notify('error', formatApiError(caught, '复制失败'), '复制失败');
+    }
   };
 
   // 分组表头与记录行拍平成一条渲染流；折叠的分组只留表头。
@@ -751,6 +792,52 @@ export default function ExamRecordsPanel({
               : undefined
           }
           onOpenWeeklyPlan={onOpenWeeklyEditor}
+          onCopyRecord={(recordId) => void requestCopyRecord(recordId)}
+          onCancelWeeklyOccurrence={
+            onWeeklyOccurrenceAction
+              ? (row) =>
+                  row.weekly &&
+                  onWeeklyOccurrenceAction({
+                    planIds: row.weekly.planIds,
+                    itemId: row.weekly.itemId,
+                    dateKey: row.weekly.dateKey,
+                    startClock: row.weekly.startClock,
+                    endClock: row.weekly.endClock,
+                    action: 'cancel',
+                  })
+              : undefined
+          }
+          onForceWeeklyOccurrence={
+            onWeeklyOccurrenceAction
+              ? (row) =>
+                  row.weekly &&
+                  onWeeklyOccurrenceAction({
+                    planIds: row.weekly.planIds,
+                    itemId: row.weekly.itemId,
+                    dateKey: row.weekly.dateKey,
+                    startClock: row.weekly.startClock,
+                    endClock: row.weekly.endClock,
+                    action: 'force',
+                  })
+              : undefined
+          }
+          onRescheduleWeeklyOccurrence={
+            onWeeklyOccurrenceAction
+              ? (row, next) =>
+                  row.weekly &&
+                  onWeeklyOccurrenceAction({
+                    planIds: row.weekly.planIds,
+                    itemId: row.weekly.itemId,
+                    dateKey: row.weekly.dateKey,
+                    startClock: row.weekly.startClock,
+                    endClock: row.weekly.endClock,
+                    action: 'reschedule',
+                    targetDate: next.targetDate,
+                    newStart: next.startClock,
+                    newEnd: next.endClock,
+                  })
+              : undefined
+          }
           onDeleteDraft={
             onDeleteDraft
               ? (recordId) => {

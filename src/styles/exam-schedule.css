@@ -252,6 +252,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 「临时调整这次周测」弹窗里的时间字段并排。 */
+.exam-schedule__time-fields {
+  display: flex;
+  gap: 10px;
+}
+.exam-schedule__time-fields .weekly-field {
+  flex: 1;
+}
+
 /* 首屏骨架：与真实行同高，刷新时不再整块替换内容。 */
 .exam-schedule__row.is-skeleton,
 .exam-schedule__day-head.is-skeleton {

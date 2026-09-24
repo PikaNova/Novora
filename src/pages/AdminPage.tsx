@@ -23,14 +23,15 @@ import TimeRangePickerModal from '../components/TimeRangePickerModal';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
 import { runExamRecordAction, type ExamRecordListEntry } from '../services/examRecords';
-import { getShanghaiDateKey } from '../utils/weeklySchedule';
+import { genWeeklyOverrideId, getShanghaiDateKey, isoWeekdayOfDateKey } from '../utils/weeklySchedule';
+import type { WeeklyOccurrenceActionInput } from '../components/ExamRecordsPanel';
 import { examWindowFromItems } from '../utils/examWindow';
 import { resolveExamEditTarget } from '../utils/examRecordEditTarget';
 import { confirmDialog } from '../services/appDialog';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
-import type { AdminTab, ExamCenterView } from '../types/exam';
+import type { AdminTab, ExamCenterView, WeeklyExamOverride } from '../types/exam';
 import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
@@ -753,6 +754,59 @@ export default function AdminPage() {
     notify('success', `草稿「${draft.name || draft.id}」已删除。`, '已删除草稿');
     return true;
   };
+  /**
+   * 「考试安排」里对某一次周测做单次调整：取消本次 / 临时调课 / 冲突仍然进行。
+   *
+   * 一条周测行可能覆盖多个班级（每个班一份计划），所以按 planIds 一起写 overrides；
+   * 每份计划有自己的科目 id，按「星期几 + 原开始时间」匹配到各自的源科目。
+   * 只动 overrides，周期规则本身不变——这与周测计划里的「例外日期管理」是同一套语义。
+   */
+  const applyWeeklyOccurrenceAction = (input: WeeklyOccurrenceActionInput) => {
+    const weekday = isoWeekdayOfDateKey(input.dateKey);
+    let touched = 0;
+    const nextPlans = weeklyPlans.map((plan) => {
+      if (!input.planIds.includes(plan.id)) return plan;
+      const item = plan.items.find((entry) => entry.weekday === weekday && entry.startTime === input.startClock);
+      if (!item) return plan;
+      touched += 1;
+      const overrideId = genWeeklyOverrideId(item.id, input.dateKey);
+      const override: WeeklyExamOverride = {
+        id: overrideId,
+        sourceItemId: item.id,
+        date: input.dateKey,
+        action: input.action === 'cancel' ? 'cancel' : 'replace',
+        ...(input.action === 'reschedule'
+          ? {
+              startTime: input.newStart ?? item.startTime,
+              endTime: input.newEnd ?? item.endTime,
+              targetDate: input.targetDate,
+            }
+          : {}),
+        ...(input.action === 'force' ? { forceRunDuringMajorExam: true } : {}),
+      };
+      const exists = plan.overrides.some((entry) => entry.id === overrideId);
+      const overrides = exists
+        ? plan.overrides.map((entry) => (entry.id === overrideId ? override : entry))
+        : [...plan.overrides, override];
+      return { ...plan, overrides };
+    });
+    if (!touched) {
+      notify('warning', '找不到对应的周测科目，可能计划刚被改过；刷新列表后再试。', '无法调整这次周测');
+      return;
+    }
+    const ownerClassId = weeklyPlans.find((plan) => input.planIds.includes(plan.id))?.classId ?? selectedClassId;
+    handleSaveWeeklyPlans(nextPlans, activeWeeklyPlanId, ownerClassId, true, activeWeeklyPlanIdByClassId);
+    notify(
+      'success',
+      input.action === 'cancel'
+        ? `已取消 ${input.dateKey} 这一次周测，周期规则不变。`
+        : input.action === 'force'
+          ? '这次周测会在大型考试期间照常进行。'
+          : `已把这次周测改到 ${input.targetDate} ${input.newStart}–${input.newEnd}。`,
+      '周测已调整',
+    );
+  };
+
   const openMajorEditor = () => {
     setMajorModal(null);
     setWizardDraftCreated(false);
@@ -1066,6 +1120,7 @@ export default function AdminPage() {
                   activeWeeklyPlanId={activeWeeklyPlanId}
                   activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
                   subjectTrackModeEnabled={subjectTrackModeEnabled}
+                  onWeeklyOccurrenceAction={can('weekly.edit') ? applyWeeklyOccurrenceAction : undefined}
                 />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel
