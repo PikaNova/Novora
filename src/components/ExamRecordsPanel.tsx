@@ -1036,7 +1036,7 @@ export default function ExamRecordsPanel({
             (draftsLoading ? (
               <p className="exam-records-drafts__hint">正在读取草稿…</p>
             ) : drafts.length === 0 ? (
-              <p className="exam-records-drafts__hint">没有草稿。新建考试默认先存为草稿，会出现在这里。</p>
+              <p className="exam-records-drafts__hint">没有草稿。复制一场考试生成的副本会先落在这里。</p>
             ) : (
               <ul className="exam-records-drafts__list">
                 {drafts.map((record) => (
