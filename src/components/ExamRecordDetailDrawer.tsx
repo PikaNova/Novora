@@ -25,6 +25,7 @@ import {
   type ExamRecordActionName,
 } from '../shared/examRecordContracts.js';
 import { buildExamDeviceSummary, filterExamDevices, isDeviceOnline } from '../utils/examDeviceDisplay';
+import { buildExamRecordTimeline } from '../utils/examRecordTimeline';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 
@@ -128,29 +129,6 @@ function formatDuration(ms: number): string {
   return `${hours} 小时 ${minutes % 60} 分钟`;
 }
 
-type TimelineStage = { key: string; label: string; at: number | null; note?: string };
-
-/** 时间线按「创建 → 发布 → 开考 → 暂停/继续 → 结束 → 归档」构造，未发生的阶段保留占位。 */
-function buildTimeline(record: ExamRecordListEntry, operations: ExamRecordOperationEntry[]): TimelineStage[] {
-  const pauseStages: TimelineStage[] = operations
-    .filter((entry) => entry.action === 'pause' || entry.action === 'resume')
-    .sort((left, right) => left.createdAt - right.createdAt)
-    .map((entry) => ({
-      key: `${entry.action}-${entry.createdAt}`,
-      label: entry.action === 'pause' ? '暂停' : '继续',
-      at: entry.createdAt,
-      note: entry.actorName || undefined,
-    }));
-  return [
-    { key: 'created', label: '创建', at: record.createdAt },
-    { key: 'published', label: '发布', at: record.publishedAt },
-    { key: 'started', label: '开考', at: record.actualStartAt },
-    ...pauseStages,
-    { key: 'ended', label: '结束', at: record.actualEndAt ?? record.endedAt },
-    { key: 'archived', label: '归档', at: record.archivedAt },
-  ];
-}
-
 type BodyProps = Omit<Props, 'recordId' | 'record'> & {
   record: ExamRecordListEntry;
   /** 动作执行后按 id 重新取一次这条记录，抽屉自己也能跟上最新状态。 */
@@ -243,7 +221,7 @@ function ExamRecordDetailBody({
     [can, record.actualStartAt, record.displayStatus, record.pausedAt],
   );
 
-  const timeline = useMemo(() => buildTimeline(record, operations), [operations, record]);
+  const timeline = useMemo(() => buildExamRecordTimeline(record, operations), [operations, record]);
   // P1-⑤：最近一次改动时间的操作（延长/暂停/继续/结束/系统判定…），文案里带「旧 → 新」。
   const latestTimeChange = useMemo(
     () =>
