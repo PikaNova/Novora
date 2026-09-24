@@ -280,15 +280,6 @@
   }
 }
 
-.exam-design-loading {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: #101216;
-  color: #f4f7fb;
-  font: 600 16px var(--font-region-content, system-ui);
-}
 /* Responsive safety rail: design internals may scale, but never grow the viewport. */
 .exam-root,
 .exam-root * {
