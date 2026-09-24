@@ -1,0 +1,43 @@
+name: Verify
+
+on:
+  push:
+    branches: ['main', 'upload/main']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # 单测 + 构建：本地会话不再需要每轮背这套全量，交给这里跑。
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Unit tests（全量、每文件独立进程）
+        run: npm test
+      - name: Front-end build
+        run: npm run build
+      - name: API typecheck
+        run: npm run typecheck:api
+      - name: Server build
+        run: npm run serve:build
+
+  # src 全量类型检查。当前仓库有 5 条既有错误（考试安排那条线正在改的
+  # useMajorScheduleActions / useWeeklyScheduleSync / AdminPage），所以先非阻断；
+  # 那批改完后把 continue-on-error 删掉，这条就会变成真正的闸门。
+  src-typecheck:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck src
+        run: npx tsc -p tsconfig.json --noEmit

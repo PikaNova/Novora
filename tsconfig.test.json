@@ -6,6 +6,8 @@
     "moduleResolution": "Bundler",
     "rootDir": ".",
     "outDir": ".test-check",
+    "incremental": true,
+    "tsBuildInfoFile": ".test-check/.tsbuildinfo",
     "skipLibCheck": true,
     "strict": true,
     "types": ["node"]
