@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Plus, RefreshCw, Search } from 'lucide-react';
 import type { SchoolClass, SchoolGrade } from '../types/school';
+import type { MajorExam } from '../types';
 import { fetchExamRecords, type ExamRecordListEntry, type ExamRecordPreset } from '../services/examRecords';
 import { formatApiError } from '../services/apiError';
 import { EXAM_RECORD_STATUS_LABELS } from '../shared/examRecordContracts.js';
@@ -21,10 +22,20 @@ import {
   readExamListFilters,
   writeExamListCollapsed,
   writeExamListFilters,
+  type ScheduleWindowKey,
 } from '../utils/examListFilterMemory';
+import { collectScheduleSessions } from '../utils/examCenterStatus';
+import { buildScheduleBoard, resolveScheduleWindow, SCHEDULE_WINDOW_KEYS } from '../utils/scheduleTimeline';
 import { examTimeRange } from '../utils/examRecordTimeLabel';
-import type { WeeklyPlan } from '../types/exam';
+import {
+  DEFAULT_WEEKLY_CONFLICT_POLICY,
+  type ScheduleMode,
+  type WeeklyConflictPolicy,
+  type WeeklyPlan,
+} from '../types/exam';
+import { parseZonedTime } from '../utils/zonedTime';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
+import ScheduleBoard, { type ScheduleSubjectRow } from './exam-center/ScheduleBoard';
 import RefreshButton from './admin/RefreshButton';
 import InlineSelect from './InlineSelect';
 import '../styles/exam-records.css';
@@ -48,6 +59,13 @@ type Props = {
   onEditRecord?: (record: ExamRecordListEntry) => void;
   /** 删除草稿：返回 true 表示确实删了（面板据此立刻重拉草稿列表）。 */
   onDeleteDraft?: (record: ExamRecordListEntry) => Promise<boolean>;
+  /** 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突并列出科目。 */
+  majors?: MajorExam[];
+  scheduleMode?: ScheduleMode;
+  weeklyConflictPolicy?: WeeklyConflictPolicy;
+  activeWeeklyPlanId?: string | null;
+  activeWeeklyPlanIdByClassId?: Record<string, string | null>;
+  subjectTrackModeEnabled?: boolean;
 };
 
 const PRESET_COPY: Record<Props['preset'], { title: string; description: string; empty: string }> = {
@@ -111,6 +129,12 @@ export default function ExamRecordsPanel({
   onOpenWeeklyEditor,
   onEditRecord,
   onDeleteDraft,
+  majors,
+  scheduleMode,
+  weeklyConflictPolicy,
+  activeWeeklyPlanId,
+  activeWeeklyPlanIdByClassId,
+  subjectTrackModeEnabled,
 }: Props) {
   // 切板块或去编辑器会卸载本面板：筛选条件从内存快照读回，见 utils/examListFilterMemory。
   const [rememberedFilters] = useState(() => readExamListFilters(preset));
@@ -134,17 +158,29 @@ export default function ExamRecordsPanel({
   const [createOpen, setCreateOpen] = useState(rememberedFilters?.createOpen ?? false);
   const [moreOpen, setMoreOpen] = useState(rememberedFilters?.moreOpen ?? false);
   const [density, setDensity] = useState<'comfortable' | 'compact'>(rememberedFilters?.density ?? 'comfortable');
-  const [viewMode, setViewMode] = useState<'exam' | 'class'>(rememberedFilters?.viewMode ?? 'exam');
+  const [viewMode, setViewMode] = useState<'timeline' | 'exam' | 'class'>(
+    rememberedFilters?.viewMode ?? (preset === 'schedule' ? 'timeline' : 'exam'),
+  );
+  const [scheduleWindow, setScheduleWindow] = useState<ScheduleWindowKey>(rememberedFilters?.scheduleWindow ?? 'week');
   const [expandedClassId, setExpandedClassId] = useState('');
   const [weeklyExpanded, setWeeklyExpanded] = useState(false);
+
+  // 「考试安排」的时间窗：今天 / 明天 / 本周 / 未来两周 / 全部。
+  const window = useMemo(
+    () => resolveScheduleWindow(scheduleWindow, Date.now()),
+    // 时间窗只跟档位走；重新挂载（切板块回来）也会重算一次「今天」。
+    [scheduleWindow],
+  );
+  const boardTimeline = preset === 'schedule' && viewMode === 'timeline';
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const result = await fetchExamRecords({
-        page,
-        pageSize,
+        // 日程轴按时间窗一次取全：窗口内不再分页，避免同一个日期分组被切到两页。
+        page: boardTimeline ? 1 : page,
+        pageSize: boardTimeline ? 100 : pageSize,
         preset,
         includeArchived: preset === 'history' && showArchived,
         q: query.trim() || undefined,
@@ -152,6 +188,9 @@ export default function ExamRecordsPanel({
         classIds: gradeId ? classes.filter((item) => item.gradeId === gradeId).map((item) => item.id) : undefined,
         source: source || undefined,
         createdBy: createdBy.trim() || undefined,
+        ...(boardTimeline && window.from && window.to
+          ? { from: window.from, to: window.to, includeUnscheduled: true }
+          : {}),
       });
       setRecords(result.data);
       setTotal(result.total);
@@ -164,7 +203,20 @@ export default function ExamRecordsPanel({
     } finally {
       setLoading(false);
     }
-  }, [classes, createdBy, gradeId, page, pageSize, preset, query, showArchived, source]);
+  }, [
+    boardTimeline,
+    classes,
+    createdBy,
+    gradeId,
+    page,
+    pageSize,
+    preset,
+    query,
+    showArchived,
+    source,
+    window.from,
+    window.to,
+  ]);
 
   useEffect(() => {
     void loadRecords();
@@ -185,6 +237,7 @@ export default function ExamRecordsPanel({
       pageSize,
       density,
       viewMode,
+      scheduleWindow,
     });
   }, [
     preset,
@@ -199,11 +252,12 @@ export default function ExamRecordsPanel({
     pageSize,
     density,
     viewMode,
+    scheduleWindow,
   ]);
 
-  // 考试安排的草稿区：默认折叠，展开时单独拉一次，草稿不参与主列表分页。
+  // 考试安排的草稿：表格视图里是可折叠的一块，日程轴里是「待排期」分组，两种都要拉一次。
   useEffect(() => {
-    if (preset !== 'schedule' || !draftsOpen) return;
+    if (preset !== 'schedule' || !(draftsOpen || boardTimeline)) return;
     let active = true;
     setDraftsLoading(true);
     void fetchExamRecords({
@@ -228,7 +282,7 @@ export default function ExamRecordsPanel({
     return () => {
       active = false;
     };
-  }, [classes, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
+  }, [boardTimeline, classes, createdBy, draftsOpen, gradeId, preset, query, refreshKey, source]);
 
   /** 筛选项变化一律回到第一页；DOM 事件的值会被放宽成 string，这里集中收窄一次。 */
   const filterHandler =
@@ -259,6 +313,73 @@ export default function ExamRecordsPanel({
       daysForward: 7,
     });
   }, [preset, weeklyPlans, weeklyPlanIdByClassId, classes, grades]);
+
+  // 日程轴的数据来源：本地快照展开出「大型考试 / 快速发布 / 周测」场次（周测已按时间结构合并，
+  // 被大型考试按冲突策略暂停的实例单独返回），再和记录层的生命周期状态、草稿合流成一条轴。
+  const collected = useMemo(() => {
+    if (!boardTimeline || !majors?.length) return { sessions: [], suppressed: [] };
+    return collectScheduleSessions({
+      majors,
+      weeklyPlans: weeklyPlans ?? [],
+      classes,
+      grades,
+      scheduleMode: scheduleMode ?? 'automatic',
+      weeklyConflictPolicy: weeklyConflictPolicy ?? DEFAULT_WEEKLY_CONFLICT_POLICY,
+      activeWeeklyPlanId: activeWeeklyPlanId ?? null,
+      activeWeeklyPlanIdByClassId,
+      subjectTrackModeEnabled,
+      dayKey: window.dayKey,
+      daysForward: window.daysForward,
+      windowBackMs: 0,
+    });
+  }, [
+    boardTimeline,
+    majors,
+    weeklyPlans,
+    classes,
+    grades,
+    scheduleMode,
+    weeklyConflictPolicy,
+    activeWeeklyPlanId,
+    activeWeeklyPlanIdByClassId,
+    subjectTrackModeEnabled,
+    window.dayKey,
+    window.daysForward,
+  ]);
+
+  const board = useMemo(
+    () =>
+      boardTimeline
+        ? buildScheduleBoard({
+            sessions: collected.sessions,
+            suppressedWeekly: collected.suppressed,
+            drafts,
+            records,
+            grades,
+            classes,
+            now: Date.now(),
+          })
+        : null,
+    [boardTimeline, collected, drafts, records, grades, classes],
+  );
+
+  /** 展开某场考试时列出的科目清单（取本地快照里启用且有时间的科目）。 */
+  const subjectsByRecordId = useMemo(() => {
+    const map: Record<string, ScheduleSubjectRow[]> = {};
+    for (const major of majors ?? []) {
+      map[major.id] = major.items
+        .filter((item) => item.enabled !== false)
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          startAt: parseZonedTime(item.startTime),
+          endAt: parseZonedTime(item.endTime),
+        }))
+        .filter((row) => Number.isFinite(row.startAt) && Number.isFinite(row.endAt))
+        .sort((left, right) => left.startAt - right.startAt);
+    }
+    return map;
+  }, [majors]);
 
   // 分组：安排页是 今天/明天/本周内/更晚，历史页是自然月（当前考试不分段）。
   const groupedRows = useMemo(() => {
@@ -428,6 +549,26 @@ export default function ExamRecordsPanel({
         </div>
       </header>
 
+      {/* 时间窗：日程轴的取数范围；「全部」退回按需分页的表格口径。 */}
+      {preset === 'schedule' && viewMode !== 'class' && (
+        <nav className="exam-records-window" aria-label="时间窗">
+          {SCHEDULE_WINDOW_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={`exam-records-window__item${scheduleWindow === key ? ' is-active' : ''}`}
+              aria-current={scheduleWindow === key ? 'true' : undefined}
+              onClick={() => {
+                setScheduleWindow(key);
+                setPage(1);
+              }}
+            >
+              {resolveScheduleWindow(key, Date.now()).label}
+            </button>
+          ))}
+        </nav>
+      )}
+
       <section className="exam-records-filters" aria-label="考试筛选">
         <label className="exam-records-search">
           <Search size={16} aria-hidden="true" />
@@ -495,11 +636,22 @@ export default function ExamRecordsPanel({
             <span>视图</span>
             <InlineSelect
               value={viewMode}
-              onChange={(value) => setViewMode(value as 'exam' | 'class')}
-              options={[
-                { value: 'exam', label: '按考试' },
-                { value: 'class', label: '按班级' },
-              ]}
+              onChange={(value) => {
+                setViewMode(value as 'timeline' | 'exam' | 'class');
+                setPage(1);
+              }}
+              options={
+                preset === 'schedule'
+                  ? [
+                      { value: 'timeline', label: '日程' },
+                      { value: 'class', label: '按班级' },
+                      { value: 'exam', label: '表格' },
+                    ]
+                  : [
+                      { value: 'exam', label: '按考试' },
+                      { value: 'class', label: '按班级' },
+                    ]
+              }
             />
           </label>
           <label className="exam-records-filters__compact">
@@ -530,108 +682,148 @@ export default function ExamRecordsPanel({
         </label>
       )}
 
-      {error && <div className="exam-records-feedback is-error">{error}</div>}
-      {/* 刷新时保留上一批数据：只有「第一次加载、手上还没有任何行」才用占位替换列表。
-          否则关闭创建向导 / 点刷新都会让列表瞬间变空（巡检 P1-1：用户以为考试没了）。 */}
-      {loading && records.length === 0 ? (
-        <div className="exam-records-feedback">正在读取考试记录…</div>
-      ) : records.length === 0 ? (
-        <div className="exam-records-empty">
-          <ClipboardList size={30} aria-hidden="true" />
-          <strong>{copy.empty}</strong>
-          <span>可以调整筛选条件，或用右上角「创建考试」新建一场。</span>
-        </div>
+      {boardTimeline && board ? (
+        <ScheduleBoard
+          groups={board.groups}
+          conflicts={board.conflicts}
+          stats={board.stats}
+          subjectsByRecordId={subjectsByRecordId}
+          windowLabel={window.label}
+          loading={loading}
+          error={error}
+          compact={density === 'compact'}
+          can={can}
+          onOpenDetail={(recordId) => setDetailId(recordId)}
+          onEditRecord={
+            onEditRecord
+              ? (recordId) => {
+                  const found =
+                    records.find((item) => item.id === recordId) ?? drafts.find((item) => item.id === recordId);
+                  if (found) onEditRecord(found);
+                }
+              : undefined
+          }
+          onOpenWeeklyPlan={onOpenWeeklyEditor}
+          onDeleteDraft={
+            onDeleteDraft
+              ? (recordId) => {
+                  const found =
+                    drafts.find((item) => item.id === recordId) ?? records.find((item) => item.id === recordId);
+                  if (found) void requestDeleteDraft(found);
+                }
+              : undefined
+          }
+        />
       ) : (
-        <section
-          className={`exam-records-table-wrap${density === 'compact' ? ' is-compact' : ''}`}
-          aria-label={viewMode === 'class' ? '按班级查看' : '考试记录'}
-        >
-          {viewMode === 'class' ? (
-            <div className="exam-records-table exam-records-classview">
-              <div className="exam-records-table__row is-head" role="row">
-                <span role="columnheader">班级</span>
-                <span role="columnheader">年级</span>
-                <span role="columnheader">考试</span>
-                <span role="columnheader">最近一场</span>
-                <span role="columnheader">操作</span>
-              </div>
-              {classRows.length === 0 ? (
-                <p className="exam-records-drafts__hint">当前页里没有影响到班级的考试。</p>
-              ) : (
-                classRows.map((row) => (
-                  <div className="exam-records-classrow" key={row.id}>
-                    <div className="exam-records-table__row" role="row">
-                      <strong className="exam-records-classrow__name">{row.name}</strong>
-                      <span role="cell">{row.gradeName}</span>
-                      <span className="exam-records-count" role="cell">
-                        {row.items.length} 场
-                      </span>
-                      <span className="exam-records-time" role="cell">
-                        <CalendarClock size={14} aria-hidden="true" />
-                        {examTimeRange(row.items[0].startAt, row.items[0].endAt)}
-                      </span>
-                      <span className="exam-records-row-actions" role="cell">
-                        <button
-                          className="admin-btn admin-btn--ghost"
-                          type="button"
-                          aria-expanded={expandedClassId === row.id}
-                          onClick={() => setExpandedClassId((current) => (current === row.id ? '' : row.id))}
-                        >
-                          {expandedClassId === row.id ? '收起' : '展开'}
-                        </button>
-                      </span>
-                    </div>
-                    {expandedClassId === row.id && (
-                      <ul className="exam-records-classrow__list">
-                        {row.items.map((item) => (
-                          <li key={item.id}>
-                            <strong>{item.name || item.id}</strong>
-                            <span>{examTimeRange(item.startAt, item.endAt)}</span>
-                            <em>{EXAM_RECORD_STATUS_LABELS[item.displayStatus]}</em>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))
-              )}
+        <>
+          {error && <div className="exam-records-feedback is-error">{error}</div>}
+          {/* 刷新时保留上一批数据：只有「第一次加载、手上还没有任何行」才用占位替换列表。
+              否则关闭创建向导 / 点刷新都会让列表瞬间变空（巡检 P1-1：用户以为考试没了）。 */}
+          {loading && records.length === 0 ? (
+            <div className="exam-records-feedback">正在读取考试记录…</div>
+          ) : records.length === 0 ? (
+            <div className="exam-records-empty">
+              <ClipboardList size={30} aria-hidden="true" />
+              <strong>{copy.empty}</strong>
+              <span>可以调整筛选条件，或用右上角「创建考试」新建一场。</span>
             </div>
           ) : (
-            <>
-              <div className="exam-records-table" role="table">
-                <div className="exam-records-table__row is-head" role="row">
-                  <span role="columnheader">考试</span>
-                  <span role="columnheader">状态</span>
-                  <span role="columnheader">适用范围</span>
-                  <span role="columnheader">时间</span>
-                  <span role="columnheader">科目</span>
-                  <span role="columnheader">操作</span>
-                </div>
-                {rowItems.map((row) =>
-                  row.kind === 'group' ? (
-                    <div className="exam-records-table__group" role="row" key={row.key}>
-                      <button
-                        className="exam-records-group-toggle"
-                        type="button"
-                        aria-expanded={!row.collapsed}
-                        onClick={() => toggleGroup(row.groupKey)}
-                      >
-                        <ChevronRight size={14} aria-hidden="true" className={row.collapsed ? undefined : 'is-open'} />
-                        {row.label}
-                        <em>{row.count}</em>
-                      </button>
-                    </div>
+            <section
+              className={`exam-records-table-wrap${density === 'compact' ? ' is-compact' : ''}`}
+              aria-label={viewMode === 'class' ? '按班级查看' : '考试记录'}
+            >
+              {viewMode === 'class' ? (
+                <div className="exam-records-table exam-records-classview">
+                  <div className="exam-records-table__row is-head" role="row">
+                    <span role="columnheader">班级</span>
+                    <span role="columnheader">年级</span>
+                    <span role="columnheader">考试</span>
+                    <span role="columnheader">最近一场</span>
+                    <span role="columnheader">操作</span>
+                  </div>
+                  {classRows.length === 0 ? (
+                    <p className="exam-records-drafts__hint">当前页里没有影响到班级的考试。</p>
                   ) : (
-                    renderRecordRow(row.record)
-                  ),
-                )}
-              </div>
-            </>
+                    classRows.map((row) => (
+                      <div className="exam-records-classrow" key={row.id}>
+                        <div className="exam-records-table__row" role="row">
+                          <strong className="exam-records-classrow__name">{row.name}</strong>
+                          <span role="cell">{row.gradeName}</span>
+                          <span className="exam-records-count" role="cell">
+                            {row.items.length} 场
+                          </span>
+                          <span className="exam-records-time" role="cell">
+                            <CalendarClock size={14} aria-hidden="true" />
+                            {examTimeRange(row.items[0].startAt, row.items[0].endAt)}
+                          </span>
+                          <span className="exam-records-row-actions" role="cell">
+                            <button
+                              className="admin-btn admin-btn--ghost"
+                              type="button"
+                              aria-expanded={expandedClassId === row.id}
+                              onClick={() => setExpandedClassId((current) => (current === row.id ? '' : row.id))}
+                            >
+                              {expandedClassId === row.id ? '收起' : '展开'}
+                            </button>
+                          </span>
+                        </div>
+                        {expandedClassId === row.id && (
+                          <ul className="exam-records-classrow__list">
+                            {row.items.map((item) => (
+                              <li key={item.id}>
+                                <strong>{item.name || item.id}</strong>
+                                <span>{examTimeRange(item.startAt, item.endAt)}</span>
+                                <em>{EXAM_RECORD_STATUS_LABELS[item.displayStatus]}</em>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="exam-records-table" role="table">
+                    <div className="exam-records-table__row is-head" role="row">
+                      <span role="columnheader">考试</span>
+                      <span role="columnheader">状态</span>
+                      <span role="columnheader">适用范围</span>
+                      <span role="columnheader">时间</span>
+                      <span role="columnheader">科目</span>
+                      <span role="columnheader">操作</span>
+                    </div>
+                    {rowItems.map((row) =>
+                      row.kind === 'group' ? (
+                        <div className="exam-records-table__group" role="row" key={row.key}>
+                          <button
+                            className="exam-records-group-toggle"
+                            type="button"
+                            aria-expanded={!row.collapsed}
+                            onClick={() => toggleGroup(row.groupKey)}
+                          >
+                            <ChevronRight
+                              size={14}
+                              aria-hidden="true"
+                              className={row.collapsed ? undefined : 'is-open'}
+                            />
+                            {row.label}
+                            <em>{row.count}</em>
+                          </button>
+                        </div>
+                      ) : (
+                        renderRecordRow(row.record)
+                      ),
+                    )}
+                  </div>
+                </>
+              )}
+            </section>
           )}
-        </section>
+        </>
       )}
 
-      {preset === 'schedule' && (
+      {preset === 'schedule' && !boardTimeline && (
         <section className="exam-records-weekly" aria-label="周测安排">
           <header className="exam-records-weekly__head">
             <h3>周测（未来 7 天）</h3>

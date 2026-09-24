@@ -23,9 +23,14 @@ export type ExamListFilters = {
   pageSize: number;
   /** 表格密度：舒适 / 紧凑。 */
   density: 'comfortable' | 'compact';
-  /** 视图：按考试 / 按班级。 */
-  viewMode: 'exam' | 'class';
+  /** 视图：日程轴 / 按班级 / 表格。 */
+  viewMode: 'timeline' | 'exam' | 'class';
+  /** 考试安排的时间窗：今天 / 明天 / 本周 / 未来两周 / 全部。 */
+  scheduleWindow?: ScheduleWindowKey;
 };
+
+/** 考试安排的时间窗口径；由面板换算成服务端 from/to 与采集天数。 */
+export type ScheduleWindowKey = 'today' | 'tomorrow' | 'week' | 'fortnight' | 'all';
 
 const memory = new Map<string, ExamListFilters>();
 /** 分组折叠状态：与筛选条件同一套「切板块回来还在」的语义，单独存以免污染筛选项。 */

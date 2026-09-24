@@ -127,6 +127,20 @@ export type CollectExamSessionsInput = {
   subjectTrackModeEnabled?: boolean;
   /** 上海日历日 'YYYY-MM-DD'；决定「今天」是哪一天。 */
   dayKey: string;
+  /** 向后展开的天数（默认 7）。「考试安排」按时间窗取数时传 1/2/14/…。 */
+  daysForward?: number;
+  /** 向前回看的毫秒数（默认 6 小时，供「当前考试」接住跨零点的上一场）。 */
+  windowBackMs?: number;
+};
+
+/** 「当前考试」和「考试安排」共用的采集结果。 */
+export type CollectedSchedule = {
+  sessions: ExamSession[];
+  /**
+   * 被大型考试按冲突策略暂停掉的周测实例（同样按时间结构聚合）。
+   * 安排页要把它们显示成「已被大型考试暂停」，而不是让用户以为当天真的要考。
+   */
+  suppressed: ExamSession[];
 };
 
 /** 向前多看一点，跨零点的考试结束时仍能正确归到「上一场」。 */
@@ -336,6 +350,14 @@ function groupWeeklyPlans(
  * 每个科目只产生一条记录，参与范围写在 `scope` 里；同一时刻的多场考试会同时保留。
  */
 export function collectExamSessions(input: CollectExamSessionsInput): ExamSession[] {
+  return collectScheduleSessions(input).sessions;
+}
+
+/**
+ * 采集时间窗内的全部场次（大型考试 / 快速考试 / 周测），并单独返回被抑制的周测。
+ * 「当前考试」只用 sessions；「考试安排」两个都要。
+ */
+export function collectScheduleSessions(input: CollectExamSessionsInput): CollectedSchedule {
   const {
     majors,
     weeklyPlans,
@@ -347,12 +369,15 @@ export function collectExamSessions(input: CollectExamSessionsInput): ExamSessio
     activeWeeklyPlanIdByClassId,
     subjectTrackModeEnabled,
     dayKey,
+    daysForward = WINDOW_FORWARD_DAYS,
+    windowBackMs = WINDOW_BACK_MS,
   } = input;
 
   const dayStart = parseZonedTime(`${dayKey}T00:00:00`);
-  if (!Number.isFinite(dayStart)) return [];
-  const windowStart = dayStart - WINDOW_BACK_MS;
-  const windowEnd = parseZonedTime(`${addDaysToDateKey(dayKey, WINDOW_FORWARD_DAYS)}T00:00:00`);
+  if (!Number.isFinite(dayStart)) return { sessions: [], suppressed: [] };
+  const windowStart = dayStart - windowBackMs;
+  const daySpan = Math.max(1, Math.trunc(daysForward));
+  const windowEnd = parseZonedTime(`${addDaysToDateKey(dayKey, daySpan)}T00:00:00`);
   // 周测解析需要一天内稳定的 now；用当天正午，避免恰好压在零点边界上。
   const anchor = dayStart + 12 * 60 * 60 * 1000;
 
@@ -435,6 +460,7 @@ export function collectExamSessions(input: CollectExamSessionsInput): ExamSessio
   );
 
   const sessions: ExamSession[] = [];
+  const suppressedWeekly: ExamSession[] = [];
   const examEndBySource = new Map<string, number>();
   const pushMajorSession = (candidate: MajorCandidate) => {
     const { major, item } = candidate;
@@ -552,8 +578,7 @@ export function collectExamSessions(input: CollectExamSessionsInput): ExamSessio
         }
       }
       for (const [index, timing] of timings.entries()) {
-        if (!activeFlags[index]) continue;
-        sessions.push({
+        const weeklySession: ExamSession = {
           key: `weekly|${group.signature}|${index}`,
           kind: 'weekly',
           examName:
@@ -570,12 +595,17 @@ export function collectExamSessions(input: CollectExamSessionsInput): ExamSessio
           pausedMs: 0,
           endedAt: null,
           scope: buildScope('class', group.gradeIds, group.classIds, grades, classes, group.classIds.length),
-        });
+        };
+        // 被大型考试暂停的实例单独收集：安排页要显式告诉用户「当天这场不考」。
+        if (activeFlags[index]) sessions.push(weeklySession);
+        else suppressedWeekly.push(weeklySession);
       }
     }
   }
 
-  return sessions.sort((left, right) => left.startAt - right.startAt || left.subject.localeCompare(right.subject));
+  const byStart = (left: ExamSession, right: ExamSession) =>
+    left.startAt - right.startAt || left.subject.localeCompare(right.subject);
+  return { sessions: sessions.sort(byStart), suppressed: suppressedWeekly.sort(byStart) };
 }
 
 function sessionStatus(

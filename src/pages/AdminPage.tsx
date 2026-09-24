@@ -1033,6 +1033,13 @@ export default function AdminPage() {
                     can('major.edit') ? (record) => openExamRecordEditor(record.id, record.name) : undefined
                   }
                   onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
+                  // 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突、列出科目。
+                  majors={visibleMajors}
+                  scheduleMode={scheduleMode}
+                  weeklyConflictPolicy={weeklyConflictPolicy}
+                  activeWeeklyPlanId={activeWeeklyPlanId}
+                  activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+                  subjectTrackModeEnabled={subjectTrackModeEnabled}
                 />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel

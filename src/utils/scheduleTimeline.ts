@@ -1,0 +1,370 @@
+import type { SchoolClass, SchoolGrade } from '../types/school';
+import type { ExamRecordDisplayStatus } from '../shared/examRecordContracts';
+import type { ExamSession } from './examCenterStatus';
+import { IMMINENT_WINDOW_MS } from './examCenterStatus';
+import { addDaysToDateKey, getShanghaiDateKey } from './weeklySchedule';
+import { getZonedParts, parseZonedTime } from './zonedTime';
+import type { ScheduleWindowKey } from './examListFilterMemory';
+
+/**
+ * 「考试安排」页的行模型。
+ *
+ * 这页要把三种来源放进同一条时间轴：
+ * - 大型考试 / 快速考试：来自 `exam_records`（快照投影），整场一行，展开看科目；
+ * - 周测：来自周期规则展开出的实例，**某天某科一行**，被大型考试按冲突策略暂停的实例
+ *   仍然出现在轴上（状态为「已被大型考试暂停」），否则用户会以为当天真的要考；
+ * - 草稿：还没排期的考试，归入「待排期」分组，不参与冲突判定。
+ */
+
+export type ScheduleRowKind = 'major' | 'quick' | 'weekly' | 'draft';
+
+export type ScheduleRowStatus = 'draft' | 'scheduled' | 'imminent' | 'ongoing' | 'stopping' | 'ended' | 'suppressed';
+
+export type ScheduleRow = {
+  key: string;
+  kind: ScheduleRowKind;
+  status: ScheduleRowStatus;
+  /** 考试记录 id（大型/快速/草稿）；周测为空。 */
+  recordId: string | null;
+  /** 周测计划 id；其它为空。 */
+  planId: string | null;
+  title: string;
+  /** 周测的科目名；大型考试为空（科目在 items 里展开看）。 */
+  subject: string;
+  scopeLabel: string;
+  gradeIds: string[];
+  classIds: string[];
+  startAt: number | null;
+  endAt: number | null;
+  itemCount: number;
+  /** 与其它行发生的冲突 key；展示时用来加标记。 */
+  conflictKeys: string[];
+};
+
+export type ScheduleGroup = {
+  /** 'YYYY-MM-DD' 或 'unscheduled'。 */
+  key: string;
+  label: string;
+  dateKey: string | null;
+  rows: ScheduleRow[];
+  /** 这一天的冲突组数（不是涉及的行数）。 */
+  conflictCount: number;
+};
+
+export type ScheduleConflict = {
+  key: string;
+  aKey: string;
+  bKey: string;
+  /** 冲突发生在哪一天（上海日历日）。 */
+  dateKey: string;
+  /** 重叠时长（毫秒），用于挑「更严重」的那条做提示。 */
+  overlapMs: number;
+  scopeLabel: string;
+};
+
+export type ScheduleBoardStats = {
+  total: number;
+  conflicted: number;
+  suppressedWeekly: number;
+  unscheduled: number;
+  todayCount: number;
+};
+
+/** 只取行模型需要的记录字段，避免和列表服务耦合。 */
+export type ScheduleRecordLike = {
+  id: string;
+  name: string;
+  displayStatus: ExamRecordDisplayStatus;
+  itemCount: number;
+  startAt: number | null;
+  endAt: number | null;
+  targetGradeIds: string[];
+  targetClassIds: string[];
+  source: 'regular' | 'quick';
+};
+
+export type BuildScheduleBoardInput = {
+  /** 时间窗内的大型/快速/周测场次（已做冲突抑制与去重）。 */
+  sessions: ExamSession[];
+  /** 被大型考试暂停的周测实例（`collectScheduleSessions().suppressed`）。 */
+  suppressedWeekly?: ExamSession[];
+  /** 未定时间的草稿（`preset=draft` 的结果）。 */
+  drafts?: readonly ScheduleRecordLike[];
+  /** 时间窗内取回的真实记录，用于把生命周期状态贴到行上（可能缺少部分行）。 */
+  records?: readonly ScheduleRecordLike[] | null;
+  grades?: SchoolGrade[];
+  classes?: SchoolClass[];
+  now: number;
+};
+
+const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const UNSCHEDULED_KEY = 'unscheduled';
+
+export const SCHEDULE_ROW_STATUS_LABELS: Record<ScheduleRowStatus, string> = {
+  draft: '草稿',
+  scheduled: '待开始',
+  imminent: '即将开始',
+  ongoing: '进行中',
+  stopping: '停止中',
+  ended: '已结束',
+  suppressed: '已被大型考试暂停',
+};
+
+export const SCHEDULE_ROW_KIND_LABELS: Record<ScheduleRowKind, string> = {
+  major: '大型考试',
+  quick: '快速发布',
+  weekly: '周测',
+  draft: '草稿',
+};
+
+/** 时间窗档位 → 采集起点、展开天数、服务端 from/to。 */
+export type ResolvedScheduleWindow = {
+  key: ScheduleWindowKey;
+  label: string;
+  /** 采集起点日（上海日历日）；「明天」档从明天零点开始。 */
+  dayKey: string;
+  daysForward: number;
+  from: number | null;
+  to: number | null;
+};
+
+const WINDOW_LABELS: Record<ScheduleWindowKey, string> = {
+  today: '今天',
+  tomorrow: '明天',
+  week: '本周',
+  fortnight: '未来两周',
+  all: '全部',
+};
+
+export const SCHEDULE_WINDOW_KEYS: readonly ScheduleWindowKey[] = ['today', 'tomorrow', 'week', 'fortnight', 'all'];
+
+/**
+ * 「全部」不设上限地展开会把整库搬回来，这里给一个足够大的天数（按两周一个考期估算）；
+ * 真正的兜底是服务端分页（表格视图）与页面上「缩小时间窗」的提示。
+ */
+const ALL_WINDOW_DAYS = 60;
+
+export function resolveScheduleWindow(key: ScheduleWindowKey, now: number): ResolvedScheduleWindow {
+  const todayKey = getShanghaiDateKey(now);
+  const dayStart = (dateKey: string) => parseZonedTime(`${dateKey}T00:00:00`);
+  const days = key === 'fortnight' ? 14 : key === 'week' ? 7 : key === 'all' ? ALL_WINDOW_DAYS : 1;
+  const baseKey = key === 'tomorrow' ? addDaysToDateKey(todayKey, 1) : todayKey;
+  const bounded = key !== 'all';
+  return {
+    key,
+    label: WINDOW_LABELS[key],
+    dayKey: baseKey,
+    daysForward: days,
+    from: bounded ? dayStart(baseKey) : null,
+    to: bounded ? dayStart(addDaysToDateKey(baseKey, days)) : null,
+  };
+}
+
+/** 与列表页一致的口径：全校 / 年级 / 班级，班级多时只报数量。 */
+export function scopeLabelOf(
+  gradeIds: string[],
+  classIds: string[],
+  grades: SchoolGrade[],
+  classes: SchoolClass[],
+): string {
+  if (!gradeIds.length && !classIds.length) return '全校';
+  const gradeNames = gradeIds.map((id) => grades.find((grade) => grade.id === id)?.name ?? id).slice(0, 2);
+  if (classIds.length > 2) return [...gradeNames, `${classIds.length} 个班`].join('、');
+  const classNames = classIds.map((id) => classes.find((item) => item.id === id)?.name ?? id);
+  return [...gradeNames, ...classNames].join('、') || '全校';
+}
+
+function timeStatusOf(startAt: number | null, endAt: number | null, now: number): ScheduleRowStatus {
+  if (startAt == null || endAt == null) return 'scheduled';
+  if (now >= startAt && now < endAt) return 'ongoing';
+  if (now >= endAt) return 'ended';
+  return startAt - now <= IMMINENT_WINDOW_MS ? 'imminent' : 'scheduled';
+}
+
+function statusFromRecord(
+  displayStatus: ExamRecordDisplayStatus,
+  startAt: number | null,
+  endAt: number | null,
+  now: number,
+): ScheduleRowStatus {
+  if (displayStatus === 'draft') return 'draft';
+  if (displayStatus === 'stopping') return 'stopping';
+  if (displayStatus === 'ongoing') return 'ongoing';
+  if (displayStatus === 'ended' || displayStatus === 'archived') return 'ended';
+  // published：再按时间细分出「即将开始」，让近场更醒目。
+  const byTime = timeStatusOf(startAt, endAt, now);
+  return byTime === 'ongoing' ? 'scheduled' : byTime;
+}
+
+function sessionToRow(
+  session: ExamSession,
+  recordsById: Map<string, ScheduleRecordLike>,
+  now: number,
+  suppressed: boolean,
+): ScheduleRow {
+  const record = session.recordId ? recordsById.get(session.recordId) : undefined;
+  const kind: ScheduleRowKind = session.kind === 'weekly' ? 'weekly' : session.kind === 'temporary' ? 'quick' : 'major';
+  const status: ScheduleRowStatus = suppressed
+    ? 'suppressed'
+    : record
+      ? statusFromRecord(record.displayStatus, session.startAt, session.endAt, now)
+      : timeStatusOf(session.startAt, session.endAt, now);
+  return {
+    key: session.key,
+    kind,
+    status,
+    recordId: session.recordId,
+    planId: session.kind === 'weekly' ? session.sourceId : null,
+    title: session.examName,
+    subject: session.kind === 'weekly' ? session.subject : '',
+    scopeLabel: session.scope.label,
+    gradeIds: session.scope.gradeIds,
+    classIds: session.scope.classIds,
+    startAt: session.startAt,
+    endAt: session.endAt,
+    itemCount: record?.itemCount ?? 0,
+    conflictKeys: [],
+  };
+}
+
+function draftToRow(record: ScheduleRecordLike, grades: SchoolGrade[], classes: SchoolClass[]): ScheduleRow {
+  return {
+    key: `draft|${record.id}`,
+    kind: 'draft',
+    status: 'draft',
+    recordId: record.id,
+    planId: null,
+    title: record.name,
+    subject: '',
+    scopeLabel: scopeLabelOf(record.targetGradeIds, record.targetClassIds, grades, classes),
+    gradeIds: record.targetGradeIds,
+    classIds: record.targetClassIds,
+    startAt: record.startAt,
+    endAt: record.endAt,
+    itemCount: record.itemCount,
+    conflictKeys: [],
+  };
+}
+
+/** 两行的适用范围是否有交集（全校与任何范围都算有交集）。 */
+function scopesOverlap(left: ScheduleRow, right: ScheduleRow): boolean {
+  if (!left.gradeIds.length && !left.classIds.length) return true;
+  if (!right.gradeIds.length && !right.classIds.length) return true;
+  if (left.gradeIds.some((id) => right.gradeIds.includes(id))) return true;
+  if (left.classIds.some((id) => right.classIds.includes(id))) return true;
+  return false;
+}
+
+/**
+ * 冲突判定：同一天、范围有交集、时间真正重叠。
+ * 被暂停的周测与草稿不参与（前者当天不考，后者没时间）。
+ */
+export function findScheduleConflicts(rows: readonly ScheduleRow[]): ScheduleConflict[] {
+  const candidates = rows.filter(
+    (row) =>
+      row.status !== 'suppressed' &&
+      row.status !== 'draft' &&
+      row.startAt != null &&
+      row.endAt != null &&
+      row.endAt > row.startAt,
+  );
+  const conflicts: ScheduleConflict[] = [];
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const left = candidates[i];
+      const right = candidates[j];
+      const startAt = Math.max(left.startAt as number, right.startAt as number);
+      const endAt = Math.min(left.endAt as number, right.endAt as number);
+      if (endAt <= startAt) continue;
+      if (!scopesOverlap(left, right)) continue;
+      conflicts.push({
+        key: `${left.key}~${right.key}`,
+        aKey: left.key,
+        bKey: right.key,
+        dateKey: getShanghaiDateKey(startAt),
+        overlapMs: endAt - startAt,
+        scopeLabel: left.scopeLabel === right.scopeLabel ? left.scopeLabel : `${left.scopeLabel} / ${right.scopeLabel}`,
+      });
+    }
+  }
+  return conflicts.sort((a, b) => a.dateKey.localeCompare(b.dateKey) || b.overlapMs - a.overlapMs);
+}
+
+/** 日期头的文案：今天 / 明天 / 周四 9/25。 */
+export function scheduleDayLabel(dateKey: string, now: number): string {
+  const todayKey = getShanghaiDateKey(now);
+  if (dateKey === todayKey) return '今天';
+  if (dateKey === addDaysToDateKey(todayKey, 1)) return '明天';
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const weekday = WEEKDAY_LABELS[getZonedParts(Date.UTC(year, month - 1, day, 4, 0, 0)).weekday] ?? '';
+  return `${weekday} ${month}/${day}`;
+}
+
+export function buildScheduleBoard(input: BuildScheduleBoardInput): {
+  rows: ScheduleRow[];
+  groups: ScheduleGroup[];
+  conflicts: ScheduleConflict[];
+  stats: ScheduleBoardStats;
+} {
+  const { sessions, suppressedWeekly = [], drafts = [], records, grades = [], classes = [], now } = input;
+  const recordsById = new Map<string, ScheduleRecordLike>();
+  for (const record of records ?? []) recordsById.set(record.id, record);
+
+  const rows: ScheduleRow[] = [
+    ...sessions.map((session) => sessionToRow(session, recordsById, now, false)),
+    ...suppressedWeekly.map((session) => sessionToRow(session, recordsById, now, true)),
+    ...drafts.map((record) => draftToRow(record, grades, classes)),
+  ];
+
+  const conflicts = findScheduleConflicts(rows);
+  const conflictedKeys = new Set<string>();
+  for (const conflict of conflicts) {
+    conflictedKeys.add(conflict.aKey);
+    conflictedKeys.add(conflict.bKey);
+  }
+  for (const row of rows) {
+    row.conflictKeys = conflicts
+      .filter((item) => item.aKey === row.key || item.bKey === row.key)
+      .map((item) => item.key);
+  }
+
+  const groupMap = new Map<string, ScheduleRow[]>();
+  for (const row of rows) {
+    const key = row.startAt == null ? UNSCHEDULED_KEY : getShanghaiDateKey(row.startAt);
+    const list = groupMap.get(key);
+    if (list) list.push(row);
+    else groupMap.set(key, [row]);
+  }
+  const groups: ScheduleGroup[] = [...groupMap.entries()]
+    .map(([key, groupRows]) => ({
+      key,
+      label: key === UNSCHEDULED_KEY ? '待排期（未定时间）' : scheduleDayLabel(key, now),
+      dateKey: key === UNSCHEDULED_KEY ? null : key,
+      rows: groupRows.sort(
+        (left, right) =>
+          (left.startAt ?? Number.MAX_SAFE_INTEGER) - (right.startAt ?? Number.MAX_SAFE_INTEGER) ||
+          left.title.localeCompare(right.title),
+      ),
+      conflictCount: conflicts.filter((item) => item.dateKey === key).length,
+    }))
+    // 有日期的在前（按时间升序），「待排期」永远排在最后。
+    .sort((left, right) => {
+      if (left.dateKey == null) return 1;
+      if (right.dateKey == null) return -1;
+      return left.dateKey.localeCompare(right.dateKey);
+    });
+
+  const todayKey = getShanghaiDateKey(now);
+  return {
+    rows,
+    groups,
+    conflicts,
+    stats: {
+      total: rows.length,
+      conflicted: conflictedKeys.size,
+      suppressedWeekly: rows.filter((row) => row.status === 'suppressed').length,
+      unscheduled: rows.filter((row) => row.startAt == null).length,
+      todayCount: rows.filter((row) => row.startAt != null && getShanghaiDateKey(row.startAt) === todayKey).length,
+    },
+  };
+}

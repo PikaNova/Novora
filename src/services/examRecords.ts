@@ -95,6 +95,11 @@ export type ExamRecordListQuery = {
   source?: string;
   time?: string;
   createdBy?: string;
+  /** 时间窗（毫秒）。给了窗口就只取窗内的考试，用于「考试安排」一次看全一周。 */
+  from?: number;
+  to?: number;
+  /** 时间窗取数时，是否把「未定时间」（start_at 为空）的记录也带上。 */
+  includeUnscheduled?: boolean;
 };
 
 export type ExamRecordPreset = 'current' | 'schedule' | 'draft' | 'history';
@@ -175,6 +180,11 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
   if (query.source) params.set('source', query.source);
   if (query.time) params.set('time', query.time);
   if (query.createdBy) params.set('createdBy', query.createdBy);
+  if (query.from && query.to) {
+    params.set('from', String(query.from));
+    params.set('to', String(query.to));
+    if (query.includeUnscheduled) params.set('includeUnscheduled', '1');
+  }
 
   let response: Response;
   try {
