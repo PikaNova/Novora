@@ -942,6 +942,50 @@ test('草稿板块：删掉考试后残留的孤儿记录不再展示', async ()
   assert.equal(ids.includes('orphan-draft'), false, '快照里已不存在的孤儿草稿不再展示');
 });
 
+test('记录层是快照的投影：已删除的考试在任何板块都不展示，详情也打不开', async () => {
+  const now = Date.now();
+  await seedMajors([{ id: 'live-after-delete', name: '还在快照里', startAt: now - 60_000, endAt: now + 3_600_000 }]);
+  // 模拟历史数据：考试已从快照里删掉，但 exam_records 还留着行（投影只增不删）。
+  for (const [id, status] of [
+    ['orphan-published', 'published'],
+    ['orphan-ended', 'ended'],
+    ['orphan-archived', 'archived'],
+  ] as const) {
+    await database()`
+      INSERT INTO exam_records (
+        id, runtime_major_id, name, description, status, items, target_grade_ids, target_class_ids,
+        source, temporary, priority_over_schedule, config, created_by, created_at, updated_at, version, sort_order
+      )
+      VALUES (
+        ${id}, ${id}, '已删除的考试', '', ${status}, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+        'regular', FALSE, FALSE, '{}'::jsonb, NULL, ${now}, ${now}, 1, 98
+      )
+    `;
+  }
+  const orphans = ['orphan-published', 'orphan-ended', 'orphan-archived'];
+
+  const all = listedIds(await listRecords(admin.token, { pageSize: '100' }));
+  const history = listedIds(
+    await listRecords(admin.token, { preset: 'history', includeArchived: '1', pageSize: '100' }),
+  );
+  const schedule = listedIds(await listRecords(admin.token, { preset: 'schedule', pageSize: '100' }));
+  for (const id of orphans) {
+    assert.equal(all.includes(id), false, `「全部」不应该再列出已删除的考试（${id}）`);
+    assert.equal(history.includes(id), false, `历史板块不应该再列出已删除的考试（${id}）`);
+    assert.equal(schedule.includes(id), false, `考试安排不应该再列出已删除的考试（${id}）`);
+  }
+  assert.ok(all.includes('live-after-delete'), '快照里还在的考试照常展示');
+
+  // 详情：已删除的考试按 id 也取不到（否则抽屉会打开一个"不存在"的考试）
+  const byId = await getRecordById(admin.token, 'orphan-ended');
+  assert.equal(byId.statusCode, 404);
+  assert.equal(byId.body.code, 'RECORD_NOT_FOUND');
+
+  // 服务端自报耗时：排查"读取慢"时用它区分服务端与链路
+  const live = await getRecordById(admin.token, 'live-after-delete');
+  assert.match(String(live.headers['Server-Timing'] ?? ''), /^app;dur=\d+$/);
+});
+
 test('复制考试：结果强制进草稿，重新投影不会被自动发布，发布后才转正式', async () => {
   const now = Date.now();
   // 源考试科目时间齐全，按「创建即发布」本该是 published。
@@ -1063,6 +1107,10 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   const renamed = await saveExamData(admin.token, [{ ...archivedMajor, name: '被改名的归档考试' }], 'frozen');
   assert.equal(renamed.statusCode, 200);
   assert.deepEqual(renamed.body.ignoredArchivedMajors, ['frozen']);
+  // 客户端要拿服务端版本把本地副本纠回来，否则就是"本机改好了、刷新又变回来"。
+  const renamedFrozen = Array.isArray(renamed.body.frozenMajors) ? renamed.body.frozenMajors : [];
+  assert.equal(renamedFrozen.length, 1);
+  assert.equal((renamedFrozen[0] as Record<string, unknown>).name, '待归档考试');
   let snapshot = await readSnapshotMajors();
   assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '待归档考试', '归档考试改名必须无效');
 
@@ -1070,6 +1118,9 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   const removed = await saveExamData(admin.token, [], '');
   assert.equal(removed.statusCode, 200);
   assert.deepEqual(removed.body.ignoredArchivedMajors, ['frozen']);
+  const removedFrozen = Array.isArray(removed.body.frozenMajors) ? removed.body.frozenMajors : [];
+  assert.equal(removedFrozen.length, 1, '被删掉的归档考试也要回传服务端版本，界面才能提示并回灌');
+  assert.equal((removedFrozen[0] as Record<string, unknown>).id, 'frozen');
   snapshot = await readSnapshotMajors();
   assert.equal(
     snapshot.some((major) => major.id === 'frozen'),
@@ -1083,6 +1134,7 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   const afterEdit = await saveExamData(admin.token, [{ ...editable, name: '取消归档后改名' }], 'frozen');
   assert.equal(afterEdit.statusCode, 200);
   assert.equal(afterEdit.body.ignoredArchivedMajors, undefined, '取消归档后不应再被冻结');
+  assert.equal(afterEdit.body.frozenMajors, undefined, '没有冻结条目时不该回传 frozenMajors');
   snapshot = await readSnapshotMajors();
   assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '取消归档后改名');
 });

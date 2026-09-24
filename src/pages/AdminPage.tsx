@@ -8,7 +8,7 @@ import {
 import type { MajorExam } from '../types';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
 import { adminCan, getCloudSnapshot, saveExamsToServer, takeGeneratedRecoveryKey } from '../services/examService';
-import { clearPendingExamSync } from '../services/examOutbox';
+import { clearPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import AdminDeviceSetupPrompt from '../components/AdminDeviceSetupPrompt';
 import InitializationWizard, {
   type InitializationCompletion,
@@ -760,8 +760,23 @@ export default function AdminPage() {
       confirmLabel: '删除草稿',
     });
     if (!confirmed) return false;
-    discardDraftMajor(draft);
-    notify('success', `草稿「${draft.name || draft.id}」已删除。`, '已删除草稿');
+    // 等一次真实推送：删除必须"服务端确认过"才算数。已归档的草稿会被服务端冻结，
+    // 推送成功后本地也会被回灌回来（那时 hook 已经给过提示），这里就不再报"已删除"。
+    const pushed = discardDraftMajor(draft);
+    if (pushed) await pushed;
+    const name = draft.name || draft.id;
+    if (getAppSettings().exam.majors.some((item) => item.id === draft.id)) {
+      // 被冻结回灌：具体原因由 useMajorScheduleActions 的"改动没有生效"提示说明。
+      return false;
+    }
+    const stillPending = Boolean(getPendingExamSync());
+    notify(
+      stillPending ? 'warning' : 'success',
+      stillPending
+        ? `「${name}」已从本机移除，但还没同步到服务器（离线或网络不稳）；联网后会自动同步。`
+        : `草稿「${name}」已删除。`,
+      stillPending ? '待同步' : '已删除草稿',
+    );
     return true;
   };
   /**

@@ -1,21 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Megaphone } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Bold, ImagePlus, List, Megaphone, Type } from 'lucide-react';
 import HelpTip from './HelpTip';
 import RefreshButton from './admin/RefreshButton';
 import InlineSelect from './InlineSelect';
 import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
 import Mascot from './Mascot';
+import SchoolAnnouncementCard from './SchoolAnnouncementCard';
+import SchoolAnnouncementPublishDialog from './admin/SchoolAnnouncementPublishDialog';
 import { getAppSettings } from '../utils/appSettings';
 import { getAdminUser } from '../services/examService';
 import { resolveDeviceScope } from '../utils/deviceScope';
 import { confirmDialog } from '../services/appDialog';
 import { formatApiError } from '../services/apiError';
 import { notify } from '../services/notify';
+import { renderMarkdown } from '../utils/renderMarkdown';
 import { formatDateTimeInZone } from '../utils/timeSource';
 import {
   fetchSchoolAnnouncements,
   revokeSchoolAnnouncement,
   sendExamAnnouncement,
+  uploadSchoolAnnouncementImage,
   type SchoolAnnouncementQuery,
   type SchoolExamAnnouncement,
 } from '../services/examAnnouncements';
@@ -23,16 +27,19 @@ import {
   ANNOUNCEMENT_BODY_MAX,
   ANNOUNCEMENT_DEFAULT_EXPIRES_MINUTES,
   ANNOUNCEMENT_EXPIRY_OPTIONS,
+  ANNOUNCEMENT_IMAGE_MAX_BYTES,
   ANNOUNCEMENT_SCOPE_LABELS,
   ANNOUNCEMENT_STATUS_LABELS,
+  ANNOUNCEMENT_STYLES,
+  ANNOUNCEMENT_STYLE_LABELS,
   ANNOUNCEMENT_TITLE_MAX,
+  isAnnouncementImageType,
   type AnnouncementLevel,
   type AnnouncementScopeType,
   type AnnouncementStatus,
+  type AnnouncementStyle,
 } from '../shared/examAnnouncementContracts.js';
 import '../styles/school-announcements.css';
-// 预览直接复用教室大屏的公告卡片样式，保证"后台看到的"与"大屏显示的"是同一种排版。
-import '../styles/exam-announcement-overlay.css';
 
 const PAGE_SIZE = 20;
 
@@ -40,6 +47,7 @@ type Draft = {
   title: string;
   body: string;
   level: AnnouncementLevel;
+  style: AnnouncementStyle;
   scope: AnnouncementScopeType;
   gradeIds: string[];
   classIds: string[];
@@ -50,6 +58,7 @@ const emptyDraft = (): Draft => ({
   title: '',
   body: '',
   level: 'normal',
+  style: 'card',
   scope: 'all',
   gradeIds: [],
   classIds: [],
@@ -76,11 +85,26 @@ const SCOPE_FILTER_OPTIONS = [
   { value: 'class', label: '班级' },
 ];
 
+/** 读取本地文件为 data URL；服务端会自己剥掉 `data:...;base64,` 前缀。 */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('图片读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /**
  * 学校公告管理页（后台一级板块「公告」）。
  *
  * 只管理学校自己发出去的公告（学校 → 教室大屏）。作者端统一公告是另一条通道，
  * 仍由遥测台发布、在「更多 → 查看公告」查看，本页不掺进来。
+ *
+ * 编辑器口径（2026-09-24）：
+ * - 正文用 Markdown（推荐），支持插入图片（图片存学校库，正文只保存同源地址）；
+ * - 三种大屏样式，右侧实时预览与教室大屏用同一个组件渲染；
+ * - 发送前先弹「预览 + 确认」，确认后才真正下发。
  */
 export default function SchoolAnnouncementsPanel({ can }: { can: (permission: string) => boolean }) {
   const canSend = can('major.edit');
@@ -111,8 +135,12 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
   );
 
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [sending, setSending] = useState(false);
   const [draftError, setDraftError] = useState('');
+  const [imageBusy, setImageBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [filters, setFilters] = useState<{
     status: AnnouncementStatus | 'all';
@@ -126,12 +154,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
   const [revokingId, setRevokingId] = useState('');
 
   const query: SchoolAnnouncementQuery = useMemo(
-    () => ({
-      status: filters.status,
-      level: filters.level,
-      scope: filters.scope,
-      limit: PAGE_SIZE,
-    }),
+    () => ({ status: filters.status, level: filters.level, scope: filters.scope, limit: PAGE_SIZE }),
     [filters],
   );
 
@@ -188,7 +211,66 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
     setDraftError('');
   };
 
-  const send = async () => {
+  /** 在光标处插入 Markdown 片段；有选中文本时用它替换选中内容。 */
+  const insertMarkdown = (before: string, after = '', placeholder = '') => {
+    const element = bodyRef.current;
+    if (!element) return;
+    const start = element.selectionStart ?? draft.body.length;
+    const end = element.selectionEnd ?? start;
+    const selected = draft.body.slice(start, end) || placeholder;
+    const next = `${draft.body.slice(0, start)}${before}${selected}${after}${draft.body.slice(end)}`;
+    setDraft((current) => ({ ...current, body: next }));
+    const caret = start + before.length + selected.length;
+    window.requestAnimationFrame(() => {
+      element.focus();
+      element.setSelectionRange(caret, caret);
+    });
+  };
+
+  /** 行级语法（标题 / 列表）：必要时先补一个换行，避免粘在上一段末尾。 */
+  const insertParagraph = (prefix: string, placeholder: string) => {
+    const element = bodyRef.current;
+    const start = element?.selectionStart ?? draft.body.length;
+    const needsBreak = start > 0 && !draft.body.slice(0, start).endsWith('\n');
+    insertMarkdown(`${needsBreak ? '\n' : ''}${prefix}`, '', placeholder);
+  };
+
+  const chooseImage = () => imageInputRef.current?.click();
+
+  const onImageChosen = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // 清空 value:同一张图连续插入两次也能再次触发 change。
+    event.target.value = '';
+    if (!file) return;
+    if (!isAnnouncementImageType(file.type)) {
+      setDraftError('图片只支持 PNG、JPG、WEBP、GIF。');
+      return;
+    }
+    if (file.size > ANNOUNCEMENT_IMAGE_MAX_BYTES) {
+      setDraftError('图片不能超过 2MB。');
+      return;
+    }
+    setImageBusy(true);
+    setDraftError('');
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const uploaded = await uploadSchoolAnnouncementImage({
+        filename: file.name,
+        mimeType: file.type,
+        base64: dataUrl,
+      });
+      const needsBreak = draft.body.length > 0 && !draft.body.endsWith('\n');
+      insertMarkdown(`${needsBreak ? '\n' : ''}![${file.name}](${uploaded.url})\n`);
+      notify('success', '图片已插入正文，可在右侧预览里确认。', '图片已上传');
+    } catch (cause) {
+      setDraftError(formatApiError(cause, '图片上传失败'));
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  /** 点「预览并发送」先校验，再弹预览+确认窗；真正下发在 publish()。 */
+  const beginPublish = () => {
     const title = draft.title.trim();
     const body = draft.body.trim();
     if (!title && !body) {
@@ -199,13 +281,19 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
       setDraftError(draft.scope === 'grade' ? '请选择至少一个年级。' : '请选择至少一个班级。');
       return;
     }
+    setDraftError('');
+    setConfirmOpen(true);
+  };
+
+  const publish = async () => {
     setSending(true);
     setDraftError('');
     try {
       await sendExamAnnouncement({
-        title,
-        body,
+        title: draft.title.trim(),
+        body: draft.body.trim(),
         level: draft.level,
+        style: draft.style,
         scopeType: draft.scope,
         scopeIds: draft.scope === 'all' ? [] : scopeIdsForSend,
         expiresInMinutes: Number(draft.expiry),
@@ -215,6 +303,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
         `公告已发送到 ${scopeSummary}，教室大屏 1 分钟内更新。`,
         draft.level === 'urgent' ? '紧急公告已发送' : '公告已发送',
       );
+      setConfirmOpen(false);
       resetDraft();
       // 新公告一定是"生效中"，发完把筛选切回生效中才能立刻看到它。
       if (filters.status === 'active' && filters.level === 'all' && filters.scope === 'any') {
@@ -260,9 +349,6 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
     return names.length > 3 ? `${shown} 等 ${names.length} 个${noun}` : shown;
   };
 
-  const timeLabel = (value: number | null, fallback = '不过期') =>
-    value && Number.isFinite(value) ? formatDateTimeInZone(value) : fallback;
-
   return (
     <main className="school-announcements">
       <div className="device-status__heading">
@@ -271,8 +357,9 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
             <span className="with-help-tip">
               公告
               <HelpTip title="学校公告与作者端公告">
-                这里是学校自己发的公告，会下发到所选范围的教室大屏；紧急公告置顶且不能关闭。
-                作者端统一公告由遥测台发布，可在「更多 → 查看公告」里查看。
+                这里是学校自己发的公告，会下发到所选范围的教室大屏；正文支持 Markdown 与图片，可选三种大屏样式，
+                发送前会先给你看预览。紧急公告置顶且不能关闭。作者端统一公告由遥测台发布，可在「更多 →
+                查看公告」里查看。
               </HelpTip>
             </span>
           </h2>
@@ -302,18 +389,71 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                 placeholder="如：本场考试延长 15 分钟"
               />
             </label>
-            <label className="admin-label">
-              内容
+            <div className="sann-editor">
+              <div className="sann-editor__bar">
+                <span className="sann-editor__label">正文</span>
+                <div className="sann-editor__tools">
+                  <button
+                    type="button"
+                    className="sann-tool"
+                    disabled={!canSend || sending}
+                    title="插入标题（## ）"
+                    onClick={() => insertParagraph('## ', '小标题')}
+                  >
+                    <Type size={16} aria-hidden="true" />
+                    标题
+                  </button>
+                  <button
+                    type="button"
+                    className="sann-tool"
+                    disabled={!canSend || sending}
+                    title="加粗（**）"
+                    onClick={() => insertMarkdown('**', '**', '加粗文字')}
+                  >
+                    <Bold size={16} aria-hidden="true" />
+                    加粗
+                  </button>
+                  <button
+                    type="button"
+                    className="sann-tool"
+                    disabled={!canSend || sending}
+                    title="列表（- ）"
+                    onClick={() => insertParagraph('- ', '列表项')}
+                  >
+                    <List size={16} aria-hidden="true" />
+                    列表
+                  </button>
+                  <button
+                    type="button"
+                    className="sann-tool"
+                    disabled={!canSend || sending || imageBusy}
+                    title="上传并插入图片（≤2MB，PNG/JPG/WEBP/GIF）"
+                    onClick={chooseImage}
+                  >
+                    <ImagePlus size={16} aria-hidden="true" />
+                    {imageBusy ? '上传中…' : '插入图片'}
+                  </button>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    hidden
+                    onChange={(event) => void onImageChosen(event)}
+                  />
+                </div>
+              </div>
               <textarea
-                className="admin-input"
-                rows={4}
+                ref={bodyRef}
+                className="admin-input sann-editor__input"
+                rows={10}
                 value={draft.body}
                 maxLength={ANNOUNCEMENT_BODY_MAX}
                 disabled={!canSend || sending}
                 onChange={(event) => setDraft({ ...draft, body: event.target.value })}
-                placeholder="写清楚要通知教室的内容；紧急公告会在大屏置顶。"
+                placeholder={'推荐用 Markdown：## 小标题、**加粗**、- 列表；图片点上面的「插入图片」。'}
               />
-            </label>
+              <p className="sann-note">Markdown 实时预览在右侧；图片存在学校库里，正文只保存同源地址。</p>
+            </div>
             <div className="sann-compose__row">
               <label className="admin-label">
                 级别
@@ -354,6 +494,27 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                   options={ANNOUNCEMENT_EXPIRY_OPTIONS}
                 />
               </label>
+            </div>
+            <div className="sann-style-picker">
+              <span className="sann-scope-picker__title">大屏样式</span>
+              <div className="sann-style-list">
+                {ANNOUNCEMENT_STYLES.map((option) => {
+                  const active = draft.style === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`sann-style${active ? ' is-active' : ''}`}
+                      aria-pressed={active}
+                      disabled={!canSend || sending}
+                      onClick={() => setDraft({ ...draft, style: option.value })}
+                    >
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             {draft.scope === 'grade' && (
               <div className="sann-scope-picker">
@@ -405,10 +566,10 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
               <button
                 className="admin-btn admin-btn--primary"
                 type="button"
-                disabled={!canSend || sending}
-                onClick={() => void send()}
+                disabled={!canSend || sending || imageBusy}
+                onClick={beginPublish}
               >
-                {sending ? '发送中…' : '发送公告'}
+                预览并发送
               </button>
               <button className="admin-btn admin-btn--ghost" type="button" disabled={sending} onClick={resetDraft}>
                 清空
@@ -416,19 +577,12 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
             </div>
           </div>
           <aside className="sann-preview">
-            <div className="sann-preview__head">教室大屏展示效果</div>
-            <ul className="eann-school">
-              <li className={draft.level === 'urgent' ? 'is-urgent' : undefined}>
-                <header>
-                  <strong>{draft.title.trim() || '公告标题'}</strong>
-                  <em>{draft.level === 'urgent' ? '紧急' : '学校公告'}</em>
-                </header>
-                <p>{draft.body.trim() || '公告内容会显示在这里。'}</p>
-                <small>
-                  {scopeSummary} · 展示 {expiryLabel}
-                </small>
-              </li>
-            </ul>
+            <div className="sann-preview__head">
+              教室大屏预览 · {ANNOUNCEMENT_STYLE_LABELS[draft.style]} · {scopeSummary}
+            </div>
+            <div className="sann-preview__screen">
+              <SchoolAnnouncementCard item={draft} />
+            </div>
           </aside>
         </div>
       </section>
@@ -474,12 +628,18 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                     <strong>{item.title || '无标题公告'}</strong>
                     <span className={`sann-badge is-${item.status}`}>{ANNOUNCEMENT_STATUS_LABELS[item.status]}</span>
                     {item.level === 'urgent' && <span className="sann-badge is-urgent">紧急</span>}
+                    <span className="sann-badge">{ANNOUNCEMENT_STYLE_LABELS[item.style]}</span>
                   </div>
-                  {item.body && <p className="sann-item__body">{item.body}</p>}
+                  {item.body.trim() && (
+                    <div
+                      className="sann-item__body md-body"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
+                    />
+                  )}
                   <div className="sann-item__meta">
                     <span>{audienceLabel(item)}</span>
                     <span>发送 {formatDateTimeInZone(item.createdAt)}</span>
-                    <span>{item.expiresAt ? `有效至 ${timeLabel(item.expiresAt)}` : '不过期'}</span>
+                    <span>{item.expiresAt ? `有效至 ${formatDateTimeInZone(item.expiresAt)}` : '不过期'}</span>
                     {item.examId && <span>关联考试 {item.examId}</span>}
                   </div>
                 </div>
@@ -505,6 +665,21 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
           </div>
         )}
       </section>
+
+      {confirmOpen && (
+        <SchoolAnnouncementPublishDialog
+          draft={{ title: draft.title.trim(), body: draft.body.trim(), level: draft.level, style: draft.style }}
+          audience={scopeSummary}
+          expiryLabel={draft.expiry === '0' ? '不过期（需要手动撤回）' : `展示 ${expiryLabel}`}
+          busy={sending}
+          error={draftError}
+          onConfirm={() => void publish()}
+          onCancel={() => {
+            if (sending) return;
+            setConfirmOpen(false);
+          }}
+        />
+      )}
     </main>
   );
 }

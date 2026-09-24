@@ -3,7 +3,7 @@ import type { ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } from '../types/ex
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import type { ExamPayload } from './examService';
-import { getAdminUser, saveExamsToServer } from './examService';
+import { applyFrozenArchivedMajors, getAdminUser, saveExamsToServer, takeFrozenArchivedMajors } from './examService';
 import { threeWayMergeExam } from '../utils/examMerge';
 import { recordSyncConflict } from './offlineStore';
 import { ApiError } from './apiError';
@@ -239,7 +239,13 @@ export async function flushPendingExamSync(force = false): Promise<FlushResult> 
   // ── 保存成功 ─────────────────────────────────────────────────────────────────────
   if (typeof first === 'number') {
     clearPendingExamSync(pending.savedAt);
-    return { kind: 'saved', payload: pending.payload, updatedAt: first };
+    // 服务端冻结了归档考试（典型场景：这条待同步就是"删除已归档的草稿"）：
+    // 把服务端版本并回载荷，否则界面会一直显示"已删除"，刷新又被拉回来。
+    const frozen = takeFrozenArchivedMajors();
+    const payload = frozen.length
+      ? { ...pending.payload, majors: applyFrozenArchivedMajors(pending.payload.majors, frozen) }
+      : pending.payload;
+    return { kind: 'saved', payload, updatedAt: first };
   }
 
   // ── 鉴权失效 ──────────────────────────────────────────────────────────────────────

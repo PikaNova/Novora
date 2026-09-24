@@ -250,6 +250,9 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
+  // 服务端自报耗时：HAR 里只有 app;dur 才能区分"服务端慢"还是"链路慢"
+  // （dev 上实测 handler 20-49ms，而端到端 5-29s，就是靠这个字段定位出来的）。
+  const startedAt = Date.now();
   const actor = await requireActor(req, res, 'major.read');
   if (!actor) return;
   await ensureTableOnce();
@@ -408,15 +411,17 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
             ELSE TRUE
           END
         ))
-        AND (${presetFilter}::text <> 'draft' OR EXISTS (
-          -- 删掉考试后记录行会留在 exam_records 里（投影只增不删），
-          -- 草稿板块只展示快照里仍然存在的考试，避免列表越用越脏。
+        -- 记录层是快照的单向投影，而投影只增不删：考试从快照里被删掉后，exam_records 会留下孤儿行。
+        -- 因此任何板块、任何筛选都只展示"快照里仍然存在"的考试（以前只有草稿板块这么过滤，
+        -- 于是删掉的考试会继续留在当前/安排/历史/全部这些视图里）。数据侧清理见
+        -- scripts/purge-orphan-exam-records.cjs。
+        AND EXISTS (
           SELECT 1 FROM exam_data AS snapshot
           CROSS JOIN LATERAL jsonb_array_elements(
             CASE WHEN jsonb_typeof(snapshot.majors) = 'array' THEN snapshot.majors ELSE '[]'::jsonb END
           ) AS major(value)
           WHERE snapshot.id = 1 AND major.value->>'id' = exam_records.id
-        ))
+        )
     ),
     paged AS (
       SELECT * FROM filtered
@@ -449,6 +454,7 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
   const pageRows = Array.isArray(resultRows[0]?.page_rows) ? (resultRows[0].page_rows as RecordRow[]) : [];
   const data = pageRows.map((row) => recordJson(row, now));
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({
     ok: true,
     data,
@@ -704,6 +710,7 @@ async function handleRecordGet(req: VercelRequest, res: VercelResponse): Promise
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
+  const startedAt = Date.now();
   const actor = await requireActor(req, res, 'major.read');
   if (!actor) return;
   const recordId = text(req.query?.recordId ?? req.query?.id)
@@ -723,12 +730,22 @@ async function handleRecordGet(req: VercelRequest, res: VercelResponse): Promise
       (SELECT COALESCE(NULLIF(creator.display_name, ''), creator.username, '')
          FROM app_users AS creator WHERE creator.id = exam_records.created_by) AS created_by_name
     FROM exam_records WHERE id=${recordId}
+      -- 与列表同一个口径：只认快照里还在的考试，删掉的考试不该还能被详情抽屉打开
+      -- （exam_records 里的孤儿行只是投影残留，见 scripts/purge-orphan-exam-records.cjs）。
+      AND EXISTS (
+        SELECT 1 FROM exam_data AS snapshot
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(snapshot.majors) = 'array' THEN snapshot.majors ELSE '[]'::jsonb END
+        ) AS major(value)
+        WHERE snapshot.id = 1 AND major.value->>'id' = exam_records.id
+      )
   `) as unknown as RecordRow[];
   if (!rows[0] || !actorCanAccessRecord(actor, rows[0])) {
     error(res, 404, 'RECORD_NOT_FOUND', '考试记录不存在或无权访问');
     return;
   }
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({ ok: true, data: recordJson(rows[0], Date.now()) });
 }
 
@@ -737,6 +754,7 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
     error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return;
   }
+  const startedAt = Date.now();
   const actor = await requireActor(req, res, 'major.read');
   if (!actor) return;
   const recordId = text(req.query?.recordId ?? req.query?.id)
@@ -769,6 +787,7 @@ async function handleRecordOperations(req: VercelRequest, res: VercelResponse): 
     LIMIT ${limit}
   `) as unknown as OperationRow[];
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({
     ok: true,
     data: operationRows.map((row) => operationJson(row)),

@@ -1,0 +1,108 @@
+/*
+ * 学校公告窗口（教室大屏）：比作者端「系统公告窗口」更大、更醒目。
+ * 系统公告窗口 max-width 760px；这里 min(1180px, 95vw)，正文字号也整体更大。
+ * 卡片样式由 school-announcement-view.css 提供，后台预览复用同一套类名。
+ */
+.sann-screen-overlay {
+  position: fixed;
+  inset: 0;
+  /* 压在系统公告窗口（z-index 3000）与提醒浮层之上：学校公告优先。 */
+  z-index: 3200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 3vw, 52px);
+  background: rgba(3, 6, 14, 0.76);
+  backdrop-filter: blur(10px);
+}
+.sann-screen-window {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 95vw);
+  max-height: min(92vh, 1040px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  background: #090c12;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-region-content, inherit);
+}
+.sann-screen-window__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+.sann-screen-window__title {
+  margin: 0;
+  color: #f2f6fa;
+  font-size: 30px;
+  line-height: 1.3;
+  font-family: var(--font-region-display, inherit);
+}
+.sann-screen-window__lead {
+  margin: 8px 0 0;
+  color: #93a0ad;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.sann-screen-window__close {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  color: #d6dde5;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sann-screen-window__close:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+.sann-screen-window__close:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.sann-screen-window__body {
+  display: grid;
+  gap: 20px;
+  padding: 24px 28px 30px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.sann-screen-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 48px 12px;
+  color: #8b95a1;
+  font-size: 16px;
+}
+
+@media (max-width: 700px) {
+  .sann-screen-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+  .sann-screen-window {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 16px;
+  }
+  .sann-screen-window__head {
+    padding: 16px 16px 14px;
+  }
+  .sann-screen-window__title {
+    font-size: 22px;
+  }
+  .sann-screen-window__body {
+    gap: 14px;
+    padding: 16px 16px 22px;
+  }
+}

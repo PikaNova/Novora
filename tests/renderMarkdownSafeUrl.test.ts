@@ -34,3 +34,11 @@ test('renderMarkdown escapes markup inside allowed URLs', () => {
   assert.ok(!html.includes('<script>'));
   assert.match(html, /href="[^"]*"/);
 });
+
+// 公告正文里的图片来自公告图片接口（同源根路径），必须能在 Markdown 渲染后保留下来。
+test('renderMarkdown keeps the same-origin announcement image url', () => {
+  const html = renderMarkdown('![现场图](/api/exams?resource=announcement-image&id=12)');
+  // 渲染前先转义 HTML，属性里的 & 会变成 &amp;（浏览器解析后仍是 &id=12）。
+  assert.match(html, /<img class="md-img" src="\/api\/exams\?resource=announcement-image&amp;id=12"/);
+  assert.match(html, /alt="现场图"/);
+});

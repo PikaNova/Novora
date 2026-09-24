@@ -30,4 +30,14 @@ if (typeof globals.localStorage === 'undefined') {
   globals.localStorage = new MemoryStorage();
 }
 
+// Node 也有 navigator，但没有 onLine（undefined 会被 `!navigator.onLine` 判成离线，
+// 离线的分支在测试里通常不是我们想验证的那条）。显式置为在线。
+if (typeof globals.navigator === 'object' && globals.navigator !== null) {
+  try {
+    Object.defineProperty(globals.navigator, 'onLine', { value: true, configurable: true });
+  } catch {
+    /* 定义不了就交给测试自己处理 */
+  }
+}
+
 export {};

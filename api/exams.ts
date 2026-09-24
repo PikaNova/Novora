@@ -78,6 +78,14 @@ const RECORD_ACTIONS = new Set([
   'record-force-end',
 ]);
 
+/** 公告相关的写操作（发送 / 撤回 / 正文图片上传与删除）。 */
+const ANNOUNCEMENT_WRITE_ACTIONS = new Set([
+  'announce-send',
+  'announce-revoke',
+  'announce-image-upload',
+  'announce-image-delete',
+]);
+
 const GENERAL_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_WINDOW_MS, 10_000);
 const GENERAL_RATE_LIMIT_MAX_REQUESTS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_MAX_REQUESTS, 30);
 const WRITE_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_WRITE_WINDOW_MS, 10_000);
@@ -142,8 +150,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res, action);
         return;
       }
-      // 公告写操作：发送 / 撤回，都在同一个路由文件里按 action 分发。
-      if (action === 'announce-send' || action === 'announce-revoke') {
+      // 公告写操作：发送 / 撤回 / 正文图片上传与删除，都在同一个路由文件里按 action 分发。
+      if (ANNOUNCEMENT_WRITE_ACTIONS.has(action)) {
         await handleExamAnnouncementRoute(req, res, action);
         return;
       }
@@ -165,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res);
         return;
       }
-      if (resource === 'announcements' || resource === 'device-announcements') {
+      if (resource === 'announcements' || resource === 'device-announcements' || resource === 'announcement-image') {
         await handleExamAnnouncementRoute(req, res);
         return;
       }

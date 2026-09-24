@@ -11,6 +11,8 @@
 
 export type AnnouncementLevel = 'normal' | 'urgent';
 export type AnnouncementScopeType = 'all' | 'grade' | 'class';
+/** 大屏展示样式（学校公告窗口；作者端系统公告窗口不参与选择）。 */
+export type AnnouncementStyle = 'card' | 'poster' | 'bulletin';
 /** 展示状态：active = 未撤回且未过期。 */
 export type AnnouncementStatus = 'active' | 'expired' | 'revoked';
 
@@ -18,6 +20,9 @@ export const ANNOUNCEMENT_TITLE_MAX = 120;
 export const ANNOUNCEMENT_BODY_MAX = 4000;
 export const ANNOUNCEMENT_SCOPE_ID_MAX = 200;
 export const ANNOUNCEMENT_DEFAULT_EXPIRES_MINUTES = 120;
+export const ANNOUNCEMENT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+export const ANNOUNCEMENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
+export const ANNOUNCEMENT_DEFAULT_STYLE: AnnouncementStyle = 'card';
 
 /** 发送时的有效期选项（分钟，0 = 不过期）。发送弹窗与公告管理页共用一份。 */
 export const ANNOUNCEMENT_EXPIRY_OPTIONS: Array<{ value: string; label: string }> = [
@@ -37,6 +42,23 @@ export const ANNOUNCEMENT_SCOPE_LABELS: Record<AnnouncementScopeType, string> = 
   all: '全校',
   grade: '指定年级',
   class: '指定班级',
+};
+
+/** 样式清单（后台选择器与预览共用；顺序即推荐顺序）。 */
+export const ANNOUNCEMENT_STYLES: Array<{
+  value: AnnouncementStyle;
+  label: string;
+  description: string;
+}> = [
+  { value: 'card', label: '标准卡片', description: '深色大卡片，左对齐，适合通知与较长内容。' },
+  { value: 'poster', label: '大字海报', description: '居中放大，标题特大，适合一句话紧急通知。' },
+  { value: 'bulletin', label: '公告栏', description: '浅色纸张风，适合需要静下来读的长文。' },
+];
+
+export const ANNOUNCEMENT_STYLE_LABELS: Record<AnnouncementStyle, string> = {
+  card: '标准卡片',
+  poster: '大字海报',
+  bulletin: '公告栏',
 };
 
 /** 由数据库行算出展示状态：撤回优先于过期。 */
@@ -70,4 +92,16 @@ export function parseAnnouncementLevelFilter(value: unknown): AnnouncementLevel 
  */
 export function parseAnnouncementScopeFilter(value: unknown): AnnouncementScopeType | 'any' {
   return pick(value, ['any', 'all', 'grade', 'class'] as const, 'any');
+}
+
+/** 展示样式：未知/缺失一律回落到默认卡片，保证旧数据与大屏都能正常渲染。 */
+export function parseAnnouncementStyle(
+  value: unknown,
+  fallback: AnnouncementStyle = ANNOUNCEMENT_DEFAULT_STYLE,
+): AnnouncementStyle {
+  return pick(value, ['card', 'poster', 'bulletin'] as const, fallback);
+}
+
+export function isAnnouncementImageType(mimeType: unknown): boolean {
+  return (ANNOUNCEMENT_IMAGE_TYPES as readonly string[]).includes(String(mimeType ?? ''));
 }

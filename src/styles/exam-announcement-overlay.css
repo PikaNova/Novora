@@ -235,52 +235,7 @@
     padding: 14px;
   }
 }
-/* 学校侧考试公告：排在作者端公告之前；紧急项用红色强调且不可关闭。 */
-.eann-school {
-  display: grid;
-  gap: 10px;
-  margin: 0 0 14px;
-  padding: 0;
-  list-style: none;
-}
-.eann-school li {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid rgba(148, 180, 208, 0.24);
-  border-radius: 10px;
-  background: rgba(148, 180, 208, 0.06);
-}
-.eann-school li.is-urgent {
-  border-color: rgba(231, 76, 60, 0.55);
-  background: rgba(231, 76, 60, 0.12);
-}
-.eann-school li > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.eann-school li strong {
-  font-size: 15px;
-}
-.eann-school li em {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(148, 180, 208, 0.16);
-  color: inherit;
-  font-size: 11px;
-  font-style: normal;
-}
-.eann-school li.is-urgent em {
-  background: rgba(231, 76, 60, 0.24);
-  color: #ffb3aa;
-}
-.eann-school li p {
-  margin: 0;
-  white-space: pre-wrap;
-  line-height: 1.5;
-}
-.eann-school li small {
-  opacity: 0.6;
-}
+/*
+ * 学校侧公告不再渲染在系统公告窗口里（它有自己的更大窗口与样式，
+ * 见 school-announcement-overlay.css / school-announcement-view.css）。
+ */

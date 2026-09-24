@@ -7,11 +7,14 @@ import { hasAllScope } from '../../../src/shared/permissionRules.js';
 import {
   ANNOUNCEMENT_BODY_MAX,
   ANNOUNCEMENT_DEFAULT_EXPIRES_MINUTES,
+  ANNOUNCEMENT_IMAGE_MAX_BYTES,
   ANNOUNCEMENT_SCOPE_ID_MAX,
   ANNOUNCEMENT_TITLE_MAX,
+  isAnnouncementImageType,
   parseAnnouncementLevelFilter,
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
+  parseAnnouncementStyle,
   resolveAnnouncementStatus,
 } from '../../../src/shared/examAnnouncementContracts.js';
 
@@ -58,6 +61,7 @@ function announcementJson(row: Row, now: number): Record<string, unknown> {
     level: text(row.level) === 'urgent' ? 'urgent' : 'normal',
     // 展示状态（active / expired / revoked）：数据库里的 'sent' 不再向上暴露。
     status: resolveAnnouncementStatus({ status: row.status, expiresAt }, now),
+    style: parseAnnouncementStyle(row.style),
     examId: text(row.exam_id) || null,
     scopeType: text(row.scope_type) || 'all',
     scopeIds: idList(row.scope_ids),
@@ -119,7 +123,7 @@ async function handleAnnouncementList(req: VercelRequest, res: VercelResponse): 
   const now = Date.now();
   const classGradeIds = await loadClassGradeIds(sql, actor);
   const rows = (await sql`
-    SELECT id, title, body, level, exam_id, scope_type, scope_ids, created_by, created_at, expires_at
+    SELECT id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at
     FROM exam_announcements
     WHERE (
         ${status} = 'all'
@@ -167,7 +171,7 @@ async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse
   const classId = text(device.class_id);
   const now = Date.now();
   const rows = (await sql`
-    SELECT id, title, body, level, exam_id, scope_type, scope_ids, created_by, created_at, expires_at
+    SELECT id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at
     FROM exam_announcements
     WHERE status = 'sent'
       AND (expires_at IS NULL OR expires_at > ${now})
@@ -197,6 +201,7 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
     return;
   }
   const level = text(req.body?.level) === 'urgent' ? 'urgent' : 'normal';
+  const style = parseAnnouncementStyle(req.body?.style);
   const scopeType = ['all', 'grade', 'class'].includes(text(req.body?.scopeType)) ? text(req.body?.scopeType) : 'all';
   const scopeIds = scopeType === 'all' ? [] : idList(req.body?.scopeIds).slice(0, ANNOUNCEMENT_SCOPE_ID_MAX);
   if (scopeType !== 'all' && !scopeIds.length) {
@@ -213,8 +218,8 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
   const sql = database();
   try {
     await sql`
-      INSERT INTO exam_announcements (id, title, body, level, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status)
-      VALUES (${id}, ${title}, ${body}, ${level}, ${examId}, ${scopeType}, ${JSON.stringify(scopeIds)}::jsonb, ${actor.id}, ${now}, ${expiresAt}, 'sent')
+      INSERT INTO exam_announcements (id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status)
+      VALUES (${id}, ${title}, ${body}, ${level}, ${style}, ${examId}, ${scopeType}, ${JSON.stringify(scopeIds)}::jsonb, ${actor.id}, ${now}, ${expiresAt}, 'sent')
     `;
   } catch (caught) {
     if (missingRelation(caught)) {
@@ -226,6 +231,7 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
   }
   await writeAudit(actor, 'exam.announcement.send', 'exam_announcement', id, {
     level,
+    style,
     scopeType,
     scopeIds,
     ...(examId ? { examId } : {}),
@@ -239,6 +245,7 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
       title,
       body,
       level,
+      style,
       status: 'active',
       examId,
       scopeType,
@@ -272,7 +279,7 @@ async function handleAnnouncementRevoke(req: VercelRequest, res: VercelResponse)
   const rows = (await sql`
     UPDATE exam_announcements SET status = 'revoked'
     WHERE id = ${id} AND status = 'sent'
-    RETURNING id, title, body, level, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status
+    RETURNING id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status
   `) as unknown as Row[];
   if (!rows.length) {
     error(res, 404, 'ANNOUNCEMENT_NOT_FOUND', '公告不存在或已经撤回');
@@ -284,12 +291,95 @@ async function handleAnnouncementRevoke(req: VercelRequest, res: VercelResponse)
   res.status(200).json({ ok: true, data: announcementJson(rows[0], now) });
 }
 
+/** 公告正文图片的同源地址（后台编辑器插入、教室大屏加载都用它）。 */
+export function announcementImageUrl(id: number | string): string {
+  return `/api/exams?resource=announcement-image&id=${id}`;
+}
+
+/**
+ * 公告正文图片。
+ *
+ * - `GET ?resource=announcement-image&id=N` 不鉴权：教室大屏按公告正文里的 Markdown
+ *   直接拉图，和公告正文一样属于对教室公开的内容（与作者端公告图片接口同口径）。
+ * - 上传（`action=announce-image-upload`，默认）与删除（`action=announce-image-delete`）
+ *   需要 major.edit：图片存在学校库里，正文只保存 `/api/exams?resource=...&id=N` 这样的同源地址。
+ */
+async function handleAnnouncementImage(req: VercelRequest, res: VercelResponse): Promise<void> {
+  await ensureTableOnce();
+  const sql = database();
+  if (req.method === 'GET') {
+    const id = Number(Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id);
+    if (!Number.isFinite(id)) {
+      error(res, 400, 'INVALID_IMAGE', 'id is required');
+      return;
+    }
+    const rows = (await sql`
+      SELECT mime_type, encode(data, 'base64') AS data_b64 FROM exam_announcement_images WHERE id = ${id}
+    `) as unknown as Row[];
+    if (!rows.length) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader('Content-Type', String(rows[0].mime_type || 'application/octet-stream'));
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.status(200).send(Buffer.from(String(rows[0].data_b64 || ''), 'base64'));
+    return;
+  }
+  if (req.method !== 'POST') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const actor = await requireActor(req, res, 'major.edit');
+  if (!actor) return;
+  const action = text(req.body?.action);
+  if (action === 'announce-image-delete') {
+    const id = Number(req.body?.id);
+    if (!Number.isFinite(id)) {
+      error(res, 400, 'INVALID_IMAGE', 'id is required');
+      return;
+    }
+    await sql`DELETE FROM exam_announcement_images WHERE id = ${id}`;
+    res.status(200).json({ ok: true });
+    return;
+  }
+  const mimeType = text(req.body?.mimeType);
+  if (!isAnnouncementImageType(mimeType)) {
+    error(res, 400, 'INVALID_IMAGE_TYPE', '仅支持 PNG、JPG、WEBP、GIF');
+    return;
+  }
+  const raw = text(req.body?.base64).replace(/^data:[^;]+;base64,/, '');
+  const data = Buffer.from(raw, 'base64');
+  if (!data.length || data.length > ANNOUNCEMENT_IMAGE_MAX_BYTES) {
+    error(res, 400, 'INVALID_IMAGE_SIZE', '图片不能为空且不能超过 2MB');
+    return;
+  }
+  const filename = text(req.body?.filename).slice(0, 255) || 'image';
+  const rows = (await sql`
+    INSERT INTO exam_announcement_images (filename, mime_type, data, size_bytes, created_at)
+    VALUES (${filename}, ${mimeType}, decode(${raw}, 'base64'), ${data.length}, ${Date.now()})
+    RETURNING id
+  `) as unknown as Row[];
+  const id = number(rows[0]?.id, 0);
+  res.status(200).json({
+    ok: true,
+    image: { id, filename, mimeType, sizeBytes: data.length, url: announcementImageUrl(id) },
+  });
+}
+
 export async function handleExamAnnouncementRoute(
   req: VercelRequest,
   res: VercelResponse,
   actionName = '',
 ): Promise<void> {
   const resource = text(req.query?.resource);
+  if (
+    resource === 'announcement-image' ||
+    actionName === 'announce-image-upload' ||
+    actionName === 'announce-image-delete'
+  ) {
+    await handleAnnouncementImage(req, res);
+    return;
+  }
   if (req.method === 'GET' && resource === 'device-announcements') {
     await handleDeviceAnnouncements(req, res);
     return;

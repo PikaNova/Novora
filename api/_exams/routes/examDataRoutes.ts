@@ -169,6 +169,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   let priorMajors: unknown = null;
   /** 本次保存中被「归档只读」挡下的考试 id（仅用于回传提示，不影响写入）。 */
   let frozenArchivedIds: string[] = [];
+  let frozenArchivedMajors: unknown[] = [];
   if (actor || action === 'initialize') {
     let currentRows: ExamRow[];
     try {
@@ -224,6 +225,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
         isolateQuickMajorCreate(actor, currentPayload, req.body ?? {}),
       );
       frozenArchivedIds = archived.frozenIds;
+      frozenArchivedMajors = archived.frozenMajors;
       req.body = sanitizeStaleSnapshot(actor, currentPayload, archived.body);
       const permission = validateMutation(actor, currentPayload, req.body ?? {});
       if (!permission.ok) {
@@ -370,6 +372,8 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     updatedAt,
     ...(recoveryKey ? { recoveryKey } : {}),
     ...(frozenArchivedIds.length ? { ignoredArchivedMajors: frozenArchivedIds } : {}),
+    // 冻结条目的服务端版本：客户端用它把本地副本纠回来（否则本地显示删除/改名、刷新又回来）。
+    ...(frozenArchivedMajors.length ? { frozenMajors: frozenArchivedMajors } : {}),
   });
   return;
 }

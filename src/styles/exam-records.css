@@ -766,8 +766,14 @@
 }
 .exam-announce-dialog__row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 四个字段（样式 / 级别 / 范围 / 有效期）：两列排布，窄屏再退回单列。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+@media (max-width: 560px) {
+  .exam-announce-dialog__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .exam-announce-dialog textarea.admin-input {
   min-height: 96px;

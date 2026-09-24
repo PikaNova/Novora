@@ -1,9 +1,11 @@
 import { apiErrorFromResponse, networkApiError } from './apiError';
 import {
+  parseAnnouncementStyle,
   resolveAnnouncementStatus,
   type AnnouncementLevel,
   type AnnouncementScopeType,
   type AnnouncementStatus,
+  type AnnouncementStyle,
 } from '../shared/examAnnouncementContracts.js';
 
 /**
@@ -18,6 +20,8 @@ export type SchoolExamAnnouncement = {
   level: AnnouncementLevel;
   /** 展示状态：生效中 / 已过期 / 已撤回（数据库里的 'sent' 不会出现在这里）。 */
   status: AnnouncementStatus;
+  /** 大屏展示样式：标准卡片 / 大字海报 / 公告栏。 */
+  style: AnnouncementStyle;
   examId: string | null;
   scopeType: AnnouncementScopeType;
   scopeIds: string[];
@@ -30,6 +34,8 @@ export type SendExamAnnouncementInput = {
   title: string;
   body: string;
   level: AnnouncementLevel;
+  /** 大屏展示样式；不传按标准卡片处理。 */
+  style?: AnnouncementStyle;
   scopeType: AnnouncementScopeType;
   scopeIds?: string[];
   examId?: string;
@@ -50,6 +56,14 @@ export type SchoolAnnouncementPage = {
   items: SchoolExamAnnouncement[];
   /** 还有没有下一页（服务端用 limit+1 探测，不返回总数）。 */
   hasMore: boolean;
+};
+
+export type UploadedAnnouncementImage = {
+  id: number;
+  url: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
 };
 
 function authToken(): string {
@@ -75,6 +89,7 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
     title: typeof row.title === 'string' ? row.title : '',
     body: typeof row.body === 'string' ? row.body : '',
     level: row.level === 'urgent' ? 'urgent' : 'normal',
+    style: parseAnnouncementStyle(row.style),
     // 服务端已经算好展示状态；旧实例没这一列时按 expiresAt 兜底，避免状态一直显示"生效中"。
     status:
       row.status === 'active' || row.status === 'expired' || row.status === 'revoked'
@@ -173,4 +188,58 @@ export async function revokeSchoolAnnouncement(id: string): Promise<SchoolExamAn
   const parsed = parseAnnouncement(payload?.data);
   if (!payload?.ok || !parsed) throw await apiErrorFromResponse(response, '公告撤回失败');
   return parsed;
+}
+
+/**
+ * 上传公告正文图片（权限：major.edit）。
+ *
+ * 图片存在学校库里（`exam_announcement_images`），返回同源地址；正文里只保存地址，
+ * 于是教室大屏和后台预览看到的是同一张图，换域名也不会裂图。
+ */
+export async function uploadSchoolAnnouncementImage(input: {
+  filename: string;
+  mimeType: string;
+  base64: string;
+}): Promise<UploadedAnnouncementImage> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams?resource=announcement-image', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'announce-image-upload', ...input }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '图片上传失败');
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    image?: Partial<UploadedAnnouncementImage>;
+  } | null;
+  const image = payload?.image;
+  if (!payload?.ok || !image || typeof image.url !== 'string' || !image.url) {
+    throw await apiErrorFromResponse(response, '图片上传失败');
+  }
+  return {
+    id: Number(image.id) || 0,
+    url: image.url,
+    filename: typeof image.filename === 'string' ? image.filename : input.filename,
+    mimeType: typeof image.mimeType === 'string' ? image.mimeType : input.mimeType,
+    sizeBytes: Number(image.sizeBytes) || 0,
+  };
+}
+
+/** 删除公告正文图片（权限：major.edit）；正文里已经插入的引用需要管理员手动改掉。 */
+export async function deleteSchoolAnnouncementImage(id: number): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams?resource=announcement-image', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'announce-image-delete', id }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '图片删除失败');
 }
