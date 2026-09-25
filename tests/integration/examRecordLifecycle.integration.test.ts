@@ -103,6 +103,27 @@ async function openWriteSlot() {
 }
 
 /**
+ * 经顶层 /api/exams 入口发 GET。
+ *
+ * 以前列表/详情的用例都直接调 `handleExamRecordRoute`，绕过了入口那张 resource 判断，
+ * 所以「入口没把 record 登记进来」这类问题一直测不出来——线上表现是详情拿到整份快照、
+ * 前端报「考试详情数据不完整」。
+ */
+async function getThroughEntry(token: string, query: Record<string, string>) {
+  __resetRateLimiterForTests();
+  const { res, calls } = makeRes();
+  const req = {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+    query,
+    cookies: {},
+    body: {},
+  } as unknown as VercelRequest;
+  await examsHandler(req, res);
+  return calls;
+}
+
+/**
  * 新约定下开考由系统按计划时间完成，测试里没法「点按钮开考」：
  * 把计划开始时间调到过去，再触发一次惰性推进（与读列表/心跳同一条路径）。
  */
@@ -1207,4 +1228,39 @@ test('还没开考就申请停止 = 取消：立即结束，不用等到结束�
     ops.some((op) => op.action === 'auto_end' && String(op.reason ?? '').includes('取消')),
     '取消也要留下系统操作日志',
   );
+});
+
+/**
+ * 回归：`resource=record` 必须被入口分发到记录路由。
+ *
+ * 线上表现（dev 站，考试详情打不开）：
+ *   前端 `fetchExamRecord` 请求 `?resource=record&recordId=...` →
+ *   入口白名单没登记 `record` → 掉到快照接口 → 返回整份 `{ok,items,majors,title,...}` →
+ *   客户端解析不出 status/displayStatus → 「考试详情数据不完整，请返回列表刷新后重试」。
+ * 同一张白名单此前还漏过 `record-precheck` 与 `record-consistency`，所以这里一次把
+ * 记录路由的全部 GET resource 都过一遍。
+ */
+test('考试详情：入口分发认得记录路由的全部 GET resource（不再掉到快照接口）', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'detail-by-id', startAt: Date.now() - 1_000, endAt }]);
+
+  const detail = await getThroughEntry(admin.token, { resource: 'record', recordId: 'detail-by-id' });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(data(detail).id, 'detail-by-id', '详情要按 id 返回那一条记录');
+  assert.equal(typeof data(detail).status, 'string');
+  assert.equal(typeof data(detail).displayStatus, 'string');
+  // 快照接口的响应顶层带 majors/items/title，且没有 data —— 掉过去就说明没被分发。
+  assert.equal((detail.body as Record<string, unknown>).majors, undefined, '详情接口不能返回整份快照');
+
+  const others: Array<[string, Record<string, string>]> = [
+    ['records', { resource: 'records', page: '1', pageSize: '10' }],
+    ['record-operations', { resource: 'record-operations', recordId: 'detail-by-id' }],
+    ['record-precheck', { resource: 'record-precheck', recordId: 'detail-by-id' }],
+    ['record-consistency', { resource: 'record-consistency' }],
+  ];
+  for (const [label, query] of others) {
+    const calls = await getThroughEntry(admin.token, query);
+    assert.equal(calls.statusCode, 200, `${label} 应被入口分发到记录路由`);
+    assert.equal((calls.body as Record<string, unknown>).majors, undefined, `${label} 不该返回快照`);
+  }
 });

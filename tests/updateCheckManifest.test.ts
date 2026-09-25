@@ -27,7 +27,7 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   return githubHandler();
 }) as typeof fetch;
 
-const { default: handler } = await import('../api/update-check.js');
+const { handleUpdateCheck: handler } = await import('../api/_system/updateCheck.js');
 
 function createRequest() {
   return { method: 'GET', headers: {}, query: { current: '2.7.5' } };

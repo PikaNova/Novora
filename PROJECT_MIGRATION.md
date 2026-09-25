@@ -177,7 +177,11 @@ remote: https://github.com/PikaNova/Novora.git
 - `/api/redeploy`
 - `/api/update-check`
 
-`vercel.json` 将 `/api/health`、`/api/status`、`/api/email-worker` 重写到 `/api/system`。
+`vercel.json` 把多个对外 URL 重写到同一个入口（Vercel Hobby 单次部署最多 12 个 Serverless
+Function，`api/` 目录是一个文件算一个）：`/api/health`、`/api/status`、`/api/email-worker`、
+`/api/diagnostic-worker`、`/api/time`、`/api/update-check`、`/api/redeploy` → `/api/system`；
+`/api/announcement-images` → `/api/announcements`；`/api/error-report` → `/api/telemetry`。
+对外路径与响应契约不变。
 
 ### 6.2 `/api/exams` 主要 action
 

@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from './_cors.js';
-import { telemetryConfig } from './_telemetryConfig.js';
-import { NOVORA_SCHEMA_VERSION } from './_schemaMigration.js';
+import { applyCors } from '../_cors.js';
+import { telemetryConfig } from '../_telemetryConfig.js';
+import { NOVORA_SCHEMA_VERSION } from '../_schemaMigration.js';
 
 /**
  * 检查更新：优先读作者端发布清单（国内可达），GitHub 只作为兜底。
+ * 对外仍是 GET /api/update-check，由 api/system.ts 按 ?sys=update-check 分发。
  * - 发布清单：`GET ${TELEMETRY_BASE_URL}/api/releases/latest.json?channel=stable`
  *   返回版本号以及 image / digest / minSchema —— 部署端据此决定拉哪个镜像、校验哪个摘要、
  *   以及当前 schema 是否达标；GitHub 答不了这三个问题，且国内学校网络通常直连不通。
@@ -195,7 +196,7 @@ function schemaReadiness(minSchema: string | null): { schemaVersion: number; sch
   return { schemaVersion: NOVORA_SCHEMA_VERSION, schemaReady: NOVORA_SCHEMA_VERSION >= required };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handleUpdateCheck(req: VercelRequest, res: VercelResponse): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
   if (!applyCors(req, res, { methods: ['GET'], public: true })) return;
   if (req.method !== 'GET') {

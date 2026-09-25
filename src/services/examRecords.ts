@@ -1,5 +1,12 @@
-import type { ExamRecordActionName, ExamRecordDisplayStatus, ExamRecordStatus } from '../shared/examRecordContracts.js';
+import {
+  EXAM_RECORD_STATUSES,
+  EXAM_RECORD_STATUS_LABELS,
+  type ExamRecordActionName,
+  type ExamRecordDisplayStatus,
+  type ExamRecordStatus,
+} from '../shared/examRecordContracts.js';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
+import { logger } from '../utils/logger';
 
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
@@ -116,8 +123,16 @@ export type ExamRecordListPage = {
   totalPages: number;
 };
 
-const RECORD_STATUSES: readonly ExamRecordStatus[] = ['draft', 'published', 'ended', 'archived'];
-const DISPLAY_STATUSES: readonly ExamRecordDisplayStatus[] = [...RECORD_STATUSES, 'ongoing'];
+/**
+ * 允许的状态以共享契约为准，别再手抄一份。
+ * 以前这里写死 `['draft','published','ended','archived','ongoing']`，服务端加上派生的
+ * 「停止中」之后没同步：带停止申请的记录在**列表**里被静默丢掉，**详情**直接报
+ * 「考试详情数据不完整」。现在两种状态都从契约里取，加状态不会再漏。
+ */
+const RECORD_STATUSES: readonly ExamRecordStatus[] = EXAM_RECORD_STATUSES;
+const DISPLAY_STATUSES: readonly ExamRecordDisplayStatus[] = Object.keys(
+  EXAM_RECORD_STATUS_LABELS,
+) as ExamRecordDisplayStatus[];
 
 function textValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -212,8 +227,25 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
   } | null;
   if (!payload?.ok) throw await apiErrorFromResponse(response, '考试列表读取失败');
   const rows = Array.isArray(payload.data) ? payload.data : [];
+  const parsed = rows.map(parseRecordEntry);
+  const dropped = rows.length - parsed.filter((entry) => entry !== null).length;
+  if (dropped > 0) {
+    // 别再静默丢行：以前客户端状态白名单比服务端少一项（缺「停止中」），
+    // 结果是这类记录在列表里凭空消失，页面上完全看不出原因。
+    logger.warn('[exam-records] 列表里有记录没通过客户端校验，已丢弃', {
+      dropped,
+      total: rows.length,
+      statuses: rows
+        .map((row) => {
+          const record = (row ?? {}) as Record<string, unknown>;
+          return `${String(record.status ?? '?')}/${String(record.displayStatus ?? '?')}`;
+        })
+        .filter((_, index) => parsed[index] === null)
+        .slice(0, 5),
+    });
+  }
   return {
-    data: rows.map(parseRecordEntry).filter((entry): entry is ExamRecordListEntry => entry !== null),
+    data: parsed.filter((entry): entry is ExamRecordListEntry => entry !== null),
     page: typeof payload.page === 'number' ? payload.page : query.page,
     pageSize: typeof payload.pageSize === 'number' ? payload.pageSize : query.pageSize,
     total: typeof payload.total === 'number' ? payload.total : 0,
