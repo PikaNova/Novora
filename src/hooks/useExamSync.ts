@@ -8,12 +8,20 @@ import {
   updateAlertsSettings,
   type ExamSettings,
 } from '../utils/appSettings';
-import { fetchExamsFromServer, getLastExamApiError } from '../services/examService';
+import {
+  CLOUD_VERSION_EVENT,
+  fetchExamsFromServer,
+  getCloudVersion,
+  getLastExamApiError,
+  type ExamPayload,
+} from '../services/examService';
 import { flushPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import { getResolvedExamItems } from '../utils/appSchedule';
 import type { DeviceBinding } from '../services/classBinding';
 import { ApiError, formatApiError, getSyncNotifyTitle } from '../services/apiError';
 import { notify } from '../services/notify';
+import { jitteredIntervalMs } from '../shared/polling';
+import { parseExamVersion } from '../shared/examContracts';
 
 interface Options {
   onUpdate?: (data: { items: ExamItem[]; title: string; alerts: AlertsSettings }) => void;
@@ -30,6 +38,9 @@ const AUTO_REFRESH_COOLDOWN_MS = 10_000;
 // 大概率是打到了服务端某个刚启动、还没看到最新写入的旧缓存实例（详见 api/exams.ts 的说明）。
 // 稍等片刻后强制重拉一次即可自愈，避免用户误以为“班级没建成功”，非要手动刷新页面才恢复。
 const STALE_FIRST_SYNC_RETRY_MS = 1_500;
+// 服务端开始随心跳下发版本号后，心跳就是同步触发器，这里只保留一条兜底轮询：
+// 万一心跳链路先坏掉，页面仍能靠它拿到最新考试数据。
+const VERSION_DRIVEN_FALLBACK_MS = 180_000;
 
 export function useExamSync({
   onUpdate,
@@ -43,6 +54,7 @@ export function useExamSync({
   const pulling = useRef(false);
   const staleFirstSyncRetryDone = useRef(false);
   const bootstrapResolved = useRef(false);
+  const versionDriven = useRef(false);
   const bootstrapInstanceIdRef = useRef(bootstrapInstanceId);
   if (!bootstrapResolved.current && bootstrapInstanceId) bootstrapInstanceIdRef.current = bootstrapInstanceId;
   const onUpdateRef = useRef(onUpdate);
@@ -91,50 +103,30 @@ export function useExamSync({
     setSyncState(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : pending ? 'pending' : 'local');
   }, []);
 
-  const applyPayload = useCallback(
-    (payload: {
-      items: ExamItem[];
-      title: string;
-      alerts: AlertsSettings | null;
-      majors: any[];
-      activeMajorId: string;
-      updatedAt: number;
-      scheduleMode?: any;
-      weeklyPlans?: any;
-      activeWeeklyPlanId?: any;
-      activeWeeklyPlanIdByClassId?: any;
-      grades?: any;
-      classes?: any;
-      initialization?: any;
-      weeklyConflictPolicy?: any;
-      designPolicy?: any;
-      majorBatchPresets?: any;
-    }) => {
-      const updates: Record<string, unknown> = {
-        items: payload.items,
-        title: payload.title,
-        updatedAt: payload.updatedAt,
-      };
-      if (payload.majors && payload.majors.length) updates.majors = payload.majors;
-      if (payload.activeMajorId) updates.activeMajorId = payload.activeMajorId;
-      if (payload.scheduleMode !== undefined) updates.scheduleMode = payload.scheduleMode;
-      if (payload.weeklyPlans !== undefined) updates.weeklyPlans = payload.weeklyPlans;
-      if (payload.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = payload.activeWeeklyPlanId;
-      if (payload.activeWeeklyPlanIdByClassId !== undefined)
-        updates.activeWeeklyPlanIdByClassId = payload.activeWeeklyPlanIdByClassId;
-      if (payload.grades !== undefined) updates.grades = payload.grades;
-      if (payload.classes !== undefined) updates.classes = payload.classes;
-      if (payload.initialization !== undefined) updates.initialization = payload.initialization;
-      if (payload.weeklyConflictPolicy !== undefined) updates.weeklyConflictPolicy = payload.weeklyConflictPolicy;
-      if (payload.designPolicy !== undefined) updates.designPolicy = payload.designPolicy;
-      if (payload.majorBatchPresets !== undefined) updates.majorBatchPresets = payload.majorBatchPresets;
-      updateExamSettings(updates as Partial<ExamSettings>);
-      if (payload.alerts) updateAlertsSettings(payload.alerts);
-      const s = getAppSettings();
-      onUpdateRef.current?.({ items: getResolvedExamItems(), title: s.exam.title, alerts: s.alerts });
-    },
-    [],
-  );
+  const applyPayload = useCallback((payload: ExamPayload) => {
+    const updates: Record<string, unknown> = {
+      items: payload.items,
+      title: payload.title,
+      updatedAt: payload.updatedAt,
+    };
+    if (payload.majors && payload.majors.length) updates.majors = payload.majors;
+    if (payload.activeMajorId) updates.activeMajorId = payload.activeMajorId;
+    if (payload.scheduleMode !== undefined) updates.scheduleMode = payload.scheduleMode;
+    if (payload.weeklyPlans !== undefined) updates.weeklyPlans = payload.weeklyPlans;
+    if (payload.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = payload.activeWeeklyPlanId;
+    if (payload.activeWeeklyPlanIdByClassId !== undefined)
+      updates.activeWeeklyPlanIdByClassId = payload.activeWeeklyPlanIdByClassId;
+    if (payload.grades !== undefined) updates.grades = payload.grades;
+    if (payload.classes !== undefined) updates.classes = payload.classes;
+    if (payload.initialization !== undefined) updates.initialization = payload.initialization;
+    if (payload.weeklyConflictPolicy !== undefined) updates.weeklyConflictPolicy = payload.weeklyConflictPolicy;
+    if (payload.designPolicy !== undefined) updates.designPolicy = payload.designPolicy;
+    if (payload.majorBatchPresets !== undefined) updates.majorBatchPresets = payload.majorBatchPresets;
+    updateExamSettings(updates as Partial<ExamSettings>);
+    if (payload.alerts) updateAlertsSettings(payload.alerts);
+    const s = getAppSettings();
+    onUpdateRef.current?.({ items: getResolvedExamItems(), title: s.exam.title, alerts: s.alerts });
+  }, []);
 
   const refresh = useCallback(
     async (force = false) => {
@@ -243,13 +235,20 @@ export function useExamSync({
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const pull = () => {
       if (!cancelled) void refresh();
     };
     pull();
-    const id = setInterval(() => {
-      if (document.visibilityState === 'visible') pull();
-    }, intervalMs);
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      const base = versionDriven.current ? Math.max(intervalMs, VERSION_DRIVEN_FALLBACK_MS) : intervalMs;
+      timer = setTimeout(() => {
+        if (document.visibilityState === 'visible') pull();
+        schedule();
+      }, jitteredIntervalMs(base));
+    };
+    schedule();
     const onOnline = () => {
       void pull();
     };
@@ -268,21 +267,29 @@ export function useExamSync({
     const onStorage = (event: StorageEvent) => {
       if (event.key === APP_SETTINGS_KEY) applyLocal();
     };
+    const onCloudVersion = (event: Event) => {
+      const version = parseExamVersion((event as CustomEvent<{ version?: unknown }>).detail?.version);
+      if (!version) return;
+      versionDriven.current = true;
+      if (version !== getCloudVersion()) void refresh(true);
+    };
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onFocus);
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener(APP_SETTINGS_CHANGED_EVENT, onLocalChanged);
     window.addEventListener('storage', onStorage);
+    window.addEventListener(CLOUD_VERSION_EVENT, onCloudVersion);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (timer) clearTimeout(timer);
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onLocalChanged);
       window.removeEventListener('storage', onStorage);
+      window.removeEventListener(CLOUD_VERSION_EVENT, onCloudVersion);
     };
   }, [intervalMs, refresh, applyLocal]);
 

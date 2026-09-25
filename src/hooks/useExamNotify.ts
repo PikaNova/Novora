@@ -84,21 +84,24 @@ function getCheckpoints(exam: ExamItem) {
 
 export function useExamNotify(exam: ExamItem | null) {
   const [notification, setNotification] = useState<ExamNotification | null>(null);
+  const examRef = useRef(exam);
+  examRef.current = exam;
   const fired = useRef(new Set<string>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!exam) {
+    if (!examRef.current) {
       setNotification(null);
       return;
     }
     const check = () => {
-      if (!exam) return;
+      const currentExam = examRef.current;
+      if (!currentExam) return;
       const now = nowMs();
-      for (const { phase, triggerAt } of getCheckpoints(exam)) {
+      for (const { phase, triggerAt } of getCheckpoints(currentExam)) {
         // key 同时包含开考与结束时间：管理员修改任一时间后产生新 key，
         // 旧 fired 记录不会拦截新的开考、结束类提醒。
-        const key = `${exam.id}_${phase}_${exam.startTime}_${exam.endTime}`;
+        const key = `${currentExam.id}_${phase}_${currentExam.name}_${currentExam.startTime}_${currentExam.endTime}`;
         if (fired.current.has(key)) continue;
         if (now < triggerAt) continue;
         if (now - triggerAt > 60000) {
@@ -111,11 +114,11 @@ export function useExamNotify(exam: ExamItem | null) {
           phase,
           level: cfg.level,
           title: cfg.title,
-          message: cfg.message(exam.name),
+          message: cfg.message(currentExam.name),
           color: cfg.color,
           icon: cfg.icon,
           durationMs: cfg.durationMs,
-          exam,
+          exam: currentExam,
           id: key,
         });
         if (timer.current) clearTimeout(timer.current);
@@ -134,7 +137,8 @@ export function useExamNotify(exam: ExamItem | null) {
       // 考试数据改变时，不能继续展示按旧时间生成、且已失去自动关闭 timer 的通知。
       setNotification(null);
     };
-    // ID、名称或任一时间变化时都重跑：闭包始终使用最新考试数据生成提醒。
+    // ID、名称或任一时间变化时都重跑。其他无关属性变化不重置 1s 扫描；
+    // examRef 保证回调读取的是最新对象。
   }, [exam?.id, exam?.name, exam?.startTime, exam?.endTime]);
 
   return {

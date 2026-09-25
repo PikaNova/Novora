@@ -38,6 +38,7 @@ function Controls(
         <LayoutGrid />
       </button>
       <button
+        data-fullscreen-toggle
         onClick={p.onToggleFullscreen}
         aria-label={p.isFullscreen ? '退出全屏' : '进入全屏'}
         title={p.isFullscreen ? '退出全屏' : '进入全屏'}

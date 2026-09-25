@@ -6,9 +6,13 @@ import {
   fmtLocal,
   makeId,
   phase,
+  readPendingWizardDraft,
+  shouldShowWizardDraftHint,
+  shouldResetWizardStepOnOpen,
   syncMajorStateRef,
   toISO,
   toLocalInput,
+  writePendingWizardDraft,
 } from '../src/hooks/admin/adminPageUtils.js';
 import type { ExamItem, MajorExam } from '../src/types/index.js';
 
@@ -153,4 +157,88 @@ test('fmtAnnTime: returns a 24-hour locale date-time string', () => {
   const formatted = fmtAnnTime(Date.UTC(2024, 10, 14, 22, 13, 20));
   assert.match(formatted, /^\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}:\d{2}$/);
   assert.doesNotMatch(formatted, /AM|PM/);
+});
+
+const draftHintContext = {
+  draftCreated: true,
+  draftId: 'major-1',
+  draftExists: true,
+  modalOpen: false,
+  tabIsExam: true,
+};
+
+test('shouldShowWizardDraftHint: 向导草稿还开着时提示常驻', () => {
+  assert.equal(shouldShowWizardDraftHint(draftHintContext), true);
+  // 换到考试中心其它板块（用户顺手去查别的考试）也要留着，那是回「下一步」的唯一入口。
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftId: '', draftExists: false }), true);
+});
+
+test('shouldShowWizardDraftHint: 向导弹窗自己打开时让位', () => {
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, modalOpen: true }), false);
+});
+
+test('shouldShowWizardDraftHint: 没在向导流程或不在考试中心不显示', () => {
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftCreated: false }), false);
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, tabIsExam: false }), false);
+});
+
+test('shouldShowWizardDraftHint: 草稿被删掉后撤下，避免下一步发布错考试', () => {
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftExists: false }), false);
+});
+
+/** 用最小内存实现替换 localStorage，覆盖读写与异常分支。 */
+function withFakeStorage(run: (store: Map<string, string>) => void) {
+  const store = new Map<string, string>();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    },
+  });
+  try {
+    run(store);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+}
+
+test('挂起的向导草稿：写入后能原样读回', () => {
+  withFakeStorage(() => {
+    assert.equal(readPendingWizardDraft(), null);
+    writePendingWizardDraft({ id: 'major-9', name: '初二期中考试', targetGradeIds: ['g1'] });
+    assert.deepEqual(readPendingWizardDraft(), { id: 'major-9', name: '初二期中考试', targetGradeIds: ['g1'] });
+    writePendingWizardDraft(null);
+    assert.equal(readPendingWizardDraft(), null, '向导结束后必须清掉挂起记录');
+  });
+});
+
+test('挂起的向导草稿：坏数据一律当作没有挂起，不抛错', () => {
+  withFakeStorage((store) => {
+    store.set('novora_wizard_draft_v1', '{ 这不是 JSON');
+    assert.equal(readPendingWizardDraft(), null);
+    store.set('novora_wizard_draft_v1', JSON.stringify({ name: '缺 id' }));
+    assert.equal(readPendingWizardDraft(), null);
+    store.set('novora_wizard_draft_v1', JSON.stringify({ id: ' major-1 ', name: 42, targetGradeIds: ['g1', 7, ''] }));
+    assert.deepEqual(readPendingWizardDraft(), { id: 'major-1', name: '', targetGradeIds: ['g1'] });
+  });
+});
+
+test('挂起的向导草稿：没有 localStorage 时静默降级', () => {
+  assert.equal(readPendingWizardDraft(), null);
+  assert.doesNotThrow(() => writePendingWizardDraft({ id: 'major-1', name: 'x', targetGradeIds: [] }));
+});
+
+test('向导步骤重置：新开向导回到第一步，恢复路径保留调用方设好的步骤', () => {
+  // 新开：之前关着、这次打开 → 回到第一步。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: true, wasOpen: false, keepStep: false }), true);
+  // 弹窗内改名称 / 改范围：已经开着，不能把步骤打回 0（这条以前踩过）。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: true, wasOpen: true, keepStep: false }), false);
+  // 草稿提示条「下一步」：恢复路径已经设好确认步，必须保留。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: true, wasOpen: false, keepStep: true }), false);
+  // 关掉向导时什么都不用做。
+  assert.equal(shouldResetWizardStepOnOpen({ opened: false, wasOpen: true, keepStep: false }), false);
 });

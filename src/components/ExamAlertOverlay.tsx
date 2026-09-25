@@ -187,7 +187,7 @@ export default function ExamAlertOverlay({ item, now, designId, masterTitle, tim
       return () => clearTimeout(t);
     }
     setVisible(false);
-  }, [item?.key]);
+  }, [item]);
 
   if (!item) return null;
 

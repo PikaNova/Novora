@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import path from 'node:path';
 
-const authSource = readFileSync(path.join(process.cwd(), 'api/_auth.ts'), 'utf8');
+// 鉴权实现自 v1.32 起按职责拆在 api/_auth/*（见 api/_auth.ts 的 barrel 说明），
+// 因此这里拼接模块文件来断言「建表语句里确实有遥测配置表」。
+const authModuleDir = path.join(process.cwd(), 'api/_auth');
+const authSource = [
+  readFileSync(path.join(process.cwd(), 'api/_auth.ts'), 'utf8'),
+  ...readdirSync(authModuleDir)
+    .filter((name) => name.endsWith('.ts'))
+    .sort()
+    .map((name) => readFileSync(path.join(authModuleDir, name), 'utf8')),
+].join('\n');
+// 遥测 IP 盐已移出鉴权模块，独立成 api/_telemetry/ipSalt.ts。
+const ipSaltSource = readFileSync(path.join(process.cwd(), 'api/_telemetry/ipSalt.ts'), 'utf8');
 const configSource = readFileSync(path.join(process.cwd(), 'api/_telemetryConfig.ts'), 'utf8');
 const telemetrySource = readFileSync(path.join(process.cwd(), 'api/telemetry.ts'), 'utf8');
 
@@ -26,7 +37,7 @@ test('the authentication migration creates a server-only telemetry configuration
 });
 
 test('ensureTelemetryIpSalt generates, persists, and rereads one database salt', () => {
-  const source = functionSource(authSource, 'ensureTelemetryIpSalt');
+  const source = functionSource(ipSaltSource, 'ensureTelemetryIpSalt');
   assert.match(source, /randomBytes\(24\)/);
   assert.match(source, /INSERT INTO app_telemetry_config/);
   assert.match(source, /ON CONFLICT \(id\) DO NOTHING/);
@@ -36,7 +47,7 @@ test('ensureTelemetryIpSalt generates, persists, and rereads one database salt',
 
 test('resolveIpSalt uses an optional environment override before the persistent server value', () => {
   const source = functionSource(configSource, 'resolveIpSalt');
-  assert.match(configSource, /import \{ ensureTelemetryIpSalt \} from '.\/\_auth\.js';/);
+  assert.match(configSource, /import \{ ensureTelemetryIpSalt \} from '.\/_telemetry\/ipSalt\.js';/);
   assert.match(source, /process\.env\.TELEMETRY_IP_SALT/);
   assert.match(source, /ensureTelemetryIpSalt\(\)/);
 });

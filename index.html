@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Novora · 考试管理与教室大屏</title>
-    <meta name="description" content="Novora 学校考试管理与教室大屏平台" />
+    <meta
+      name="description"
+      content="Novora 为学校提供考试安排、周测计划、临时考试与教室大屏管理能力，支持多角色权限、班级端同步、考试提醒和本地或云端部署。"
+    />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="alternate icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -42,7 +45,23 @@
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <h1
+        class="seo-fallback"
+        style="
+          position: fixed;
+          inset: 0;
+          display: grid;
+          place-items: center;
+          margin: 0;
+          font-family: var(--font-ui);
+          font-size: 1.5rem;
+          text-align: center;
+        "
+      >
+        Novora · 考试管理与教室大屏
+      </h1>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

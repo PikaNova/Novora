@@ -140,3 +140,104 @@
   color: #e29a9a;
   font-size: 13px;
 }
+
+/* ===== 动效（2026-09-25） =====
+ * 这个列表此前零动效：卡片整块硬出现，展开是瞬变，NEW 徽标直接出现。
+ * 它是「新公告到达」的现场，所以动效只服务两件事：谁先到、哪一条是新的。
+ */
+
+@keyframes announcement-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 展开的正文从上方压下来，读起来像「展开」而不是「替换」。 */
+@keyframes announcement-body-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes announcement-badge-pop {
+  from {
+    transform: scale(0.55);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.announcement-card {
+  /* fill-mode 用 backwards 不用 both：both 会把 transform: none 永久按住，
+     卡片后续任何 hover 位移都会静默失效。 */
+  animation: announcement-card-in var(--motion-medium) var(--motion-spring-snappy) backwards;
+  /* 无 sibling-index() 的浏览器上这条声明整体失效，退化成不延迟。 */
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition: border-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.announcement-card:hover {
+  border-color: rgba(255, 255, 255, 0.17);
+}
+
+.announcement-card__head {
+  transition: background-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.announcement-card__head:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+/* 未读徽标是列表里唯一需要「被看见」的东西，给它一次落定，不做循环脉冲。 */
+.announcement-card__new {
+  animation: announcement-badge-pop var(--motion-medium) var(--motion-spring-pop) 140ms backwards;
+  transform-origin: center;
+}
+
+.announcement-card__body {
+  animation: announcement-body-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+}
+
+.announcement-tabs button {
+  transition:
+    opacity var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.announcement-card__document {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-fast) var(--motion-ease-standard);
+}
+
+.announcement-card__document:hover {
+  background: rgba(92, 174, 232, 0.2);
+}
+
+.announcement-card__document:active {
+  transform: scale(0.985);
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .announcement-card,
+  html:not([data-motion='best-effects']) .announcement-card__new,
+  html:not([data-motion='best-effects']) .announcement-card__body {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}

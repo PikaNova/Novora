@@ -17,6 +17,8 @@ export interface RoleSectionProps {
   saveMatrixRole: () => void | Promise<void>;
   setRoleError: (message: string) => void;
   setRoleDraft: React.Dispatch<React.SetStateAction<RoleDraft | null>>;
+  /** 当前账号能不能把这个模块设到这个级别；不能就禁用格子（服务端一定会拒）。 */
+  canGrantLevel: (module: (typeof ROLE_MODULES)[number], level: RoleLevel) => boolean;
   rolePermissionGroups: (
     role: ManagedRole,
     draft: RoleDraft | null,
@@ -37,6 +39,7 @@ export default function RoleSection(props: RoleSectionProps) {
     saveMatrixRole,
     setRoleError,
     setRoleDraft,
+    canGrantLevel,
     rolePermissionGroups,
   } = props;
   return (
@@ -106,6 +109,7 @@ export default function RoleSection(props: RoleSectionProps) {
                         </span>
                         {(['none', 'read', 'manage'] as const).map((levelKey) => {
                           const disabled = readonly || (!canManage && levelKey === 'manage');
+                          const notDelegable = !readonly && !canGrantLevel(module, levelKey);
                           return (
                             <button
                               type="button"
@@ -113,9 +117,12 @@ export default function RoleSection(props: RoleSectionProps) {
                               className={
                                 'user-management__matrix-cell' +
                                 (level === levelKey ? ' is-active' : '') +
-                                (disabled ? ' is-disabled' : '')
+                                (disabled || notDelegable ? ' is-disabled' : '')
                               }
-                              disabled={disabled}
+                              disabled={disabled || notDelegable}
+                              title={
+                                notDelegable ? '当前账号没有这些权限，无法授出（服务端会拒绝这种授权）' : undefined
+                              }
                               onClick={() => {
                                 if (draft) {
                                   setMatrixModuleLevel(module, levelKey);

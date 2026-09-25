@@ -3,8 +3,12 @@ import test from 'node:test';
 import type { PendingExamSync } from '../src/services/examOutbox.js';
 import type { ExamPayload } from '../src/services/examService.js';
 
-(globalThis as any).__APP_VERSION__ = 'test';
-(globalThis as any).__COMMIT_SHA__ = 'test';
+const testGlobals = globalThis as typeof globalThis & {
+  __APP_VERSION__?: string;
+  __COMMIT_SHA__?: string;
+};
+testGlobals.__APP_VERSION__ = 'test';
+testGlobals.__COMMIT_SHA__ = 'test';
 
 const { __detectGhostSaveForTests: detectGhostSave } = await import('../src/services/examOutbox.js');
 
@@ -80,10 +84,12 @@ test('ghost save treats a missing base snapshot as version zero', () => {
 
 test('ghost save ignores object key order in serialized records', () => {
   const pending = makePending({
-    payload: makePayload({ items: [{ id: '1', subject: 'Math', startAt: 100, endAt: 200 }] as any }),
+    payload: makePayload({
+      items: [{ id: '1', subject: 'Math', startAt: 100, endAt: 200 }] as unknown as ExamPayload['items'],
+    }),
   });
   const remote = makePayload({
-    items: [{ endAt: 200, startAt: 100, subject: 'Math', id: '1' }] as any,
+    items: [{ endAt: 200, startAt: 100, subject: 'Math', id: '1' }] as unknown as ExamPayload['items'],
     updatedAt: NOW - 1_000,
   });
   assert.equal(detectGhostSave(pending, remote, NOW), true);

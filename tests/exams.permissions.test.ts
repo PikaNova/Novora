@@ -6,7 +6,7 @@ import {
   validateMutation,
   allScope,
 } from '../api/_exams/permissions.js';
-import type { AdminActor, AdminScope, Permission } from '../api/_auth.js';
+import type { AdminActor, AdminScope } from '../api/_auth.js';
 import type { ExamPayload } from '../api/_exams/payload.js';
 
 function makeActor(overrides: Partial<AdminActor> = {}): AdminActor {
@@ -27,7 +27,7 @@ function scope(partial: Partial<AdminScope>): AdminScope {
   return { type: 'grade', gradeId: '', classId: '', ...partial };
 }
 
-function makeCurrent(overrides: Partial<ExamPayload> = {}): ExamPayload {
+function makeCurrent(overrides: Record<string, unknown> = {}): ExamPayload {
   return {
     ok: true,
     items: [],
@@ -45,7 +45,7 @@ function makeCurrent(overrides: Partial<ExamPayload> = {}): ExamPayload {
     weeklyConflictPolicy: null,
     designPolicy: { rules: [], updatedAt: 0 },
     updatedAt: 0,
-    ...overrides,
+    ...(overrides as Partial<ExamPayload>),
   } as ExamPayload;
 }
 
@@ -569,6 +569,54 @@ test('validateMutation: a class co-manager cannot end a temporary quick major th
     items: ended.items,
     title: ended.name,
     activeMajorId: ended.id,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.permission, 'major.edit');
+});
+
+// 域级提交（客户端只发变化域）落地后，未携带的域必须按服务器当前值参与比对；
+// 否则「只发周测」会被 recordDiff 当成「把大型考试全删了」，触发无谓的权限拒绝。
+test('validateMutation: 只提交周测时不会被当成删空大型考试（省略安全）', () => {
+  const actor = makeActor({ permissions: ['weekly.edit'], scopes: [scope({ type: 'all' })] });
+  const current = makeCurrent({
+    items: [{ id: 'item-1', name: '语文' }],
+    title: '期中考试',
+    majors: [{ id: 'major-1', name: '期中考试', items: [{ id: 'item-1', name: '语文' }] }],
+    activeMajorId: 'major-1',
+    weeklyPlans: [{ id: 'w1', gradeId: 'g1', classId: 'c1', name: 'before' }],
+  });
+  const result = validateMutation(actor, current, {
+    weeklyPlans: [{ id: 'w1', gradeId: 'g1', classId: 'c1', name: 'after' }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.actions, ['weekly.edit']);
+});
+
+test('validateMutation: 只提交班级时，未携带的考试与提醒都不参与判定', () => {
+  const actor = makeActor({ permissions: ['school.class_manage'], scopes: [scope({ type: 'all' })] });
+  const current = makeCurrent({
+    items: [{ id: 'item-1', name: '语文' }],
+    title: '期中考试',
+    majors: [{ id: 'major-1', name: '期中考试', items: [{ id: 'item-1', name: '语文' }] }],
+    activeMajorId: 'major-1',
+    grades: [{ id: 'g1', name: '高一' }],
+    classes: [{ id: 'c1', gradeId: 'g1', name: '1班' }],
+  });
+  const result = validateMutation(actor, current, {
+    classes: [{ id: 'c1', gradeId: 'g1', name: '2班' }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.actions, ['school.class_manage']);
+});
+
+test('validateMutation: 省略 items/title 时，真实的大型考试改动仍需要 major.edit', () => {
+  const actor = makeActor({ permissions: ['weekly.edit'], scopes: [scope({ type: 'all' })] });
+  const current = makeCurrent({
+    majors: [{ id: 'major-1', name: '期中考试', items: [{ id: 'item-1', name: '语文' }] }],
+    activeMajorId: 'major-1',
+  });
+  const result = validateMutation(actor, current, {
+    majors: [{ id: 'major-1', name: '期末考试', items: [{ id: 'item-1', name: '语文' }] }],
   });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.permission, 'major.edit');

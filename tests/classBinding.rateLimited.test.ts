@@ -23,9 +23,15 @@ class MemoryStorage {
   }
 }
 
-(globalThis as any).localStorage = new MemoryStorage();
-(globalThis as any).__APP_VERSION__ = 'test';
-(globalThis as any).__COMMIT_SHA__ = 'test';
+const testGlobals = globalThis as typeof globalThis & {
+  localStorage?: MemoryStorage;
+  fetch?: typeof fetch;
+  __APP_VERSION__?: string;
+  __COMMIT_SHA__?: string;
+};
+testGlobals.localStorage = new MemoryStorage();
+testGlobals.__APP_VERSION__ = 'test';
+testGlobals.__COMMIT_SHA__ = 'test';
 
 const { revokeDevice } = await import('../src/services/classBinding.js');
 const { __resetSyncQueueForTests } = await import('../src/services/syncQueue.js');
@@ -45,7 +51,7 @@ test('device writes retry once after RATE_LIMITED', async () => {
   __resetSyncQueueForTests();
   let calls = 0;
   const originalFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => {
+  testGlobals.fetch = async () => {
     calls += 1;
     return calls === 1 ? rateLimitedResponse() : new Response(JSON.stringify({ ok: true }), { status: 200 });
   };
@@ -54,7 +60,7 @@ test('device writes retry once after RATE_LIMITED', async () => {
     await assert.doesNotReject(() => revokeDevice('device-1'));
     assert.equal(calls, 2);
   } finally {
-    (globalThis as any).fetch = originalFetch;
+    testGlobals.fetch = originalFetch;
   }
 });
 
@@ -62,7 +68,7 @@ test('device writes keep the server message after a second RATE_LIMITED', async 
   __resetSyncQueueForTests();
   let calls = 0;
   const originalFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => {
+  testGlobals.fetch = async () => {
     calls += 1;
     return rateLimitedResponse();
   };
@@ -71,6 +77,6 @@ test('device writes keep the server message after a second RATE_LIMITED', async 
     await assert.rejects(() => revokeDevice('device-1'), /Another device is saving/);
     assert.equal(calls, 2);
   } finally {
-    (globalThis as any).fetch = originalFetch;
+    testGlobals.fetch = originalFetch;
   }
 });

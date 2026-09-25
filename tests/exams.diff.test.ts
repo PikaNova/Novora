@@ -53,7 +53,7 @@ test('recordDiff: classifies records as added/removed/updated by id, ignoring ke
 });
 
 test('recordDiff: treats non-array inputs as empty', () => {
-  const diff = recordDiff(undefined as unknown as any[], [{ id: 'a' }]);
+  const diff = recordDiff(undefined as unknown as Array<{ id?: unknown }>, [{ id: 'a' }]);
   assert.deepEqual(diff.added, [{ id: 'a' }]);
   assert.deepEqual(diff.removed, []);
   assert.deepEqual(diff.updated, []);
@@ -80,7 +80,7 @@ test('changedRecords: returns both the before and after version of every changed
 
 test('changedRecords: a pure removal only contributes the before version', () => {
   const before = [{ id: 'a', v: 1 }];
-  const after: any[] = [];
+  const after: Array<{ id?: unknown }> = [];
   assert.deepEqual(changedRecords(before, after), [{ id: 'a', v: 1 }]);
 });
 

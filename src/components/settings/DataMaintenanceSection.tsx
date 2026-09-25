@@ -1,4 +1,3 @@
-import { DatabaseZap } from 'lucide-react';
 import { useDataMaintenanceSettings } from '../../hooks/settings/useDataMaintenanceSettings';
 
 export default function DataMaintenanceSection({ canResetDatabase }: { canResetDatabase: boolean }) {

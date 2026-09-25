@@ -3,11 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
 import { getClassBindingInstanceId } from '../services/classBinding';
 import { getAppSettings } from '../utils/appSettings';
-import {
-  loadTypographyFont,
-  typographyFontStack,
-  TYPOGRAPHY_FONT_OPTIONS,
-} from '../utils/typographySettings';
+import { loadTypographyFont, typographyFontStack, TYPOGRAPHY_FONT_OPTIONS } from '../utils/typographySettings';
 import type { TypographyFontId } from '../utils/settings/typography';
 import { addDaysToDateKey, getShanghaiDateKey, isoWeekdayOfDateKey, weekRangeStarts } from '../utils/weeklySchedule';
 import InlineSelect from './InlineSelect';
@@ -147,7 +143,7 @@ export default function SchedulePrintPreview({
         };
       });
     });
-  }, [documents, mode, weekCount, weekStart]);
+  }, [documents, mode, weekCount, weekEnd, weekStart]);
   useEffect(() => {
     [titleFont, bodyFont, numericFont].forEach((id) => {
       const selected = FONT_OPTIONS.find((font) => font.id === id);
@@ -268,7 +264,12 @@ export default function SchedulePrintPreview({
             <InlineSelect
               value={titleFont}
               onChange={(value) => setTitleFont(value as FontKey)}
-              options={FONT_OPTIONS.map((font) => ({ value: font.id, label: font.label, group: font.group, fontFamily: font.fontFamily }))}
+              options={FONT_OPTIONS.map((font) => ({
+                value: font.id,
+                label: font.label,
+                group: font.group,
+                fontFamily: font.fontFamily,
+              }))}
             />
           </label>
           <label>
@@ -276,7 +277,12 @@ export default function SchedulePrintPreview({
             <InlineSelect
               value={bodyFont}
               onChange={(value) => setBodyFont(value as FontKey)}
-              options={FONT_OPTIONS.map((font) => ({ value: font.id, label: font.label, group: font.group, fontFamily: font.fontFamily }))}
+              options={FONT_OPTIONS.map((font) => ({
+                value: font.id,
+                label: font.label,
+                group: font.group,
+                fontFamily: font.fontFamily,
+              }))}
             />
           </label>
           <label>
@@ -284,7 +290,12 @@ export default function SchedulePrintPreview({
             <InlineSelect
               value={numericFont}
               onChange={(value) => setNumericFont(value as FontKey)}
-              options={FONT_OPTIONS.map((font) => ({ value: font.id, label: font.label, group: font.group, fontFamily: font.fontFamily }))}
+              options={FONT_OPTIONS.map((font) => ({
+                value: font.id,
+                label: font.label,
+                group: font.group,
+                fontFamily: font.fontFamily,
+              }))}
             />
           </label>
         </div>

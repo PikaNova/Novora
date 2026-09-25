@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import '../styles/inline-select.css';
@@ -36,7 +36,7 @@ export default function InlineSelect({
   const [style, setStyle] = useState<React.CSSProperties>({});
   const selected = options.find((option) => option.value === value);
 
-  const place = () => {
+  const place = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const width = Math.max(rect.width, Math.min(320, window.innerWidth - 24));
@@ -51,7 +51,7 @@ export default function InlineSelect({
       ...(up ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
       maxHeight: `min(320px, ${Math.max(160, (up ? above : below) - 12)}px)`,
     });
-  };
+  }, [options.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,7 +74,7 @@ export default function InlineSelect({
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
     };
-  }, [open, options.length]);
+  }, [open, place]);
 
   return (
     <span className={`inline-select ${className}${open ? ' is-open' : ''}${disabled ? ' is-disabled' : ''}`}>
@@ -105,7 +105,11 @@ export default function InlineSelect({
               const showGroup = option.group && option.group !== previous?.group;
               return (
                 <React.Fragment key={option.value}>
-                  {showGroup && <div className="inline-select__group" role="presentation">{option.group}</div>}
+                  {showGroup && (
+                    <div className="inline-select__group" role="presentation">
+                      {option.group}
+                    </div>
+                  )}
                   <button
                     type="button"
                     role="option"
@@ -119,7 +123,9 @@ export default function InlineSelect({
                       }
                     }}
                   >
-                    <span style={option.fontFamily ? { fontFamily: option.fontFamily } : undefined}>{option.label}</span>
+                    <span style={option.fontFamily ? { fontFamily: option.fontFamily } : undefined}>
+                      {option.label}
+                    </span>
                     {option.value === value && <Check aria-hidden="true" size={15} />}
                   </button>
                 </React.Fragment>

@@ -1,0 +1,94 @@
+/* ===== 动效 token 层（2026-09-25 引入） =====
+ *
+ * 数值来源，不是拍脑袋：
+ *   - 时长阶梯、缓动字典：motion-web `references/motion-tokens.md`；
+ *   - --motion-spring-* ：二阶弹簧单位阶跃响应采样出的 CSS linear()，
+ *     生成脚本 .tmp-motion-probe/spring-curves.cjs（ζ/ωn 与时长都打印在那里）。
+ *
+ * 使用约定：
+ *   1. 新写的动效只引用这里的变量，不再手写毫秒数与 cubic-bezier；
+ *   2. 每个动效都要给出降级：`prefers-reduced-motion: reduce` 且
+ *      `html:not([data-motion='best-effects'])` 时归零（「最佳效果」模式按设计忽略系统设置）；
+ *   3. 只动 transform / opacity。width / height / top / left 会触发布局，
+ *      box-shadow 大面积模糊会触发重绘，都不要放进动画里。
+ */
+
+:root {
+  /* ── 时长阶梯：写不出意图就用上一档，拿不准就砍半 ── */
+  --motion-instant: 90ms; /* 指针反馈、tooltip 出现 */
+  --motion-fast: 160ms; /* hover、按下、开关 */
+  --motion-standard: 240ms; /* 卡片展开、面板位移 */
+  --motion-medium: 360ms; /* 分区入场、列表编排 */
+  --motion-slow: 520ms; /* 整页进入 */
+
+  /* ── 缓动字典 ── */
+  --motion-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* 快进慢落，入场默认 */
+  --motion-ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0); /* 慢起硬走，只给出场 */
+  --motion-ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1); /* 轻微过冲，成功后落定 */
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-ease-settle: cubic-bezier(0.2, 0.75, 0.25, 1); /* 项目原有曲线，保留为默认 */
+
+  /* ── 弹簧：k=stiffness / c=damping / m=mass ──
+   * 默认给 cubic-bezier；支持 linear() 的浏览器在下面的 @supports 里换成真弹簧曲线。
+   * 这里必须先兜底再覆盖，不能靠同名声明叠加——var() 替换后无效的声明会整体作废
+   * （invalid at computed-value time），不会回退到前一条。
+   */
+  --motion-spring-snappy: var(--motion-ease-out-expo); /* k350 c28 ζ0.748 峰值1.029 286ms */
+  --motion-spring-gentle: var(--motion-ease-out-expo); /* k200 c22 ζ0.778 峰值1.020 364ms */
+  --motion-spring-pop: var(--motion-ease-out-back); /* k420 c22 ζ0.537 峰值1.136 364ms */
+
+  /* ── 编排：stagger 步长 ── */
+  --motion-stagger: 26ms; /* 日历格、卡片这类密集网格 */
+  --motion-stagger-lg: 45ms; /* 区块级编排 */
+}
+
+/* 真弹簧曲线：末段强制落在 1（transition 结束会吸附到目标值，停在 1.03 会看到最后一帧回落）。 */
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --motion-spring-snappy: linear(
+      0,
+      0.079 8%,
+      0.251 17%,
+      0.446 25%,
+      0.625 33%,
+      0.77 42%,
+      0.878 50%,
+      0.95 58%,
+      0.994 67%,
+      1.018 75%,
+      1.028 83%,
+      1.029 92%,
+      1 100%
+    );
+    --motion-spring-gentle: linear(
+      0,
+      0.073 8%,
+      0.233 17%,
+      0.417 25%,
+      0.588 33%,
+      0.73 42%,
+      0.839 50%,
+      0.916 58%,
+      0.967 67%,
+      0.997 75%,
+      1.013 83%,
+      1.02 92%,
+      1 100%
+    );
+    --motion-spring-pop: linear(
+      0,
+      0.152 8%,
+      0.461 17%,
+      0.766 25%,
+      0.987 33%,
+      1.104 42%,
+      1.136 50%,
+      1.115 58%,
+      1.073 67%,
+      1.031 75%,
+      1.002 83%,
+      0.986 92%,
+      1 100%
+    );
+  }
+}

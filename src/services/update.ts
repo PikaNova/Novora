@@ -5,9 +5,14 @@
  * - triggerRedeploy：触发一键重新部署（需管理 token）。
  */
 
-const CHECK_URL = '/api/update-check';
-const REDEPLOY_URL = '/api/redeploy';
-const TOKEN_KEY = 'admin_auth_token';
+import { recordUserAction } from '../utils/diagnostics';
+import { authHeaders } from './auth/session';
+
+// 检查更新与一键部署已合并进 /api/system（Vercel Hobby 单次部署最多 12 个函数），
+// 旧地址 /api/update-check、/api/redeploy 仍由 vercel.json rewrite 兜底；
+// 这里直接用规范地址，查询串写在请求本身、不经过 rewrite，参数不会被丢掉。
+const CHECK_URL = '/api/system?sys=update-check';
+const REDEPLOY_URL = '/api/system?sys=redeploy';
 
 export interface UpdateInfo {
   ok: boolean;
@@ -18,17 +23,28 @@ export interface UpdateInfo {
   releaseUrl?: string | null;
   notes?: string | null;
   publishedAt?: string | null;
-  source?: 'release' | 'tag' | 'none';
+  /** 版本来源：registry = 作者端登记的产品发布（权威）；github/release/tag = 兜底来源。 */
+  origin?: 'registry' | 'github';
+  source?: 'registry' | 'author' | 'release' | 'tag' | 'none';
+  channel?: 'stable' | 'beta';
+  /** 部署契约：拉哪个镜像、校验哪个摘要、要求 schema 到哪一版。 */
+  image?: string | null;
+  digest?: string | null;
+  minSchema?: string | null;
+  schemaVersion?: number | null;
+  schemaReady?: boolean | null;
+  warnings?: string[];
   error?: string;
 }
 
 export async function checkForUpdate(current: string): Promise<UpdateInfo> {
+  recordUserAction('检查更新');
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     let res: Response;
     try {
-      res = await fetch(`${CHECK_URL}?current=${encodeURIComponent(current)}`, {
+      res = await fetch(`${CHECK_URL}&current=${encodeURIComponent(current)}`, {
         headers: { 'Cache-Control': 'no-store' },
         signal: controller.signal,
       });
@@ -81,10 +97,9 @@ export interface RedeployResult {
 }
 
 export async function triggerRedeploy(): Promise<RedeployResult> {
+  recordUserAction('触发重新部署');
   try {
-    const headers: Record<string, string> = {};
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers: Record<string, string> = authHeaders();
     const res = await fetch(REDEPLOY_URL, { method: 'POST', headers });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) {

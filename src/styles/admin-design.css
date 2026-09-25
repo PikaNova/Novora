@@ -19,6 +19,14 @@
   --adm-danger: #e06060;
   --adm-danger-soft: rgba(224, 96, 96, 0.1);
   --adm-card: #0c1219;
+  /*
+   * 提醒层：toast / 草稿提示条 / 更新提示 / 未完成提示。
+   * 页面优先级永远最高——提醒里常带「下一步」这类必须能点的操作，
+   * 被任何弹窗盖住都等于丢掉入口。数值要高于 transitions.css 那条叠层阶梯
+   * （弹窗遮罩 15000 起，最高 19510，且带 !important）与确认框 12000；
+   * 只有首次进入的遥测同意卡（99999，属于强制门禁）在它之上。
+   */
+  --z-reminder: 20000;
   --adm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 26px rgba(0, 0, 0, 0.22);
   --adm-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.32), 0 20px 44px rgba(0, 0, 0, 0.28);
   --adm-radius: 10px;
@@ -56,10 +64,25 @@
   color: var(--adm-text);
   font-family: var(--font-region-display);
 }
+.ovd__title p {
+  margin: 6px 0 0;
+  color: var(--adm-text-3);
+  font-size: 12px;
+}
 .ovd__actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.ovd-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--adm-text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 .ovd-sync {
   display: inline-flex;
@@ -163,6 +186,73 @@
   background: var(--adm-success);
 }
 
+.ovd-health {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--adm-line);
+  border-radius: var(--adm-radius);
+  background: var(--adm-line);
+}
+.ovd-health__item {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--adm-bg1);
+}
+.ovd-health__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--adm-accent-soft);
+  color: var(--adm-accent);
+}
+.ovd-health__item > span:not(.ovd-health__icon) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ovd-health small {
+  color: var(--adm-text-3);
+  font-size: 11px;
+}
+.ovd-health strong {
+  overflow: hidden;
+  color: var(--adm-text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ovd-health em {
+  grid-column: 2;
+  overflow: hidden;
+  margin-top: -3px;
+  color: var(--adm-text-3);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ovd-health__item.is-ok .ovd-health__icon {
+  background: var(--adm-success-soft);
+  color: var(--adm-success);
+}
+.ovd-health__item.is-warn .ovd-health__icon {
+  background: var(--adm-warn-soft);
+  color: var(--adm-warn);
+}
+.ovd-health__item.is-danger .ovd-health__icon {
+  background: var(--adm-danger-soft);
+  color: var(--adm-danger);
+}
+
 .ovd-quick {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -203,7 +293,7 @@
 }
 .ovd-quick__card--primary {
   border-color: rgba(59, 143, 208, 0.45);
-  background: linear-gradient(180deg, rgba(59, 143, 208, 0.1), rgba(59, 143, 208, 0.02));
+  background: var(--adm-accent-soft);
 }
 
 .ovd-panels {
@@ -356,11 +446,28 @@
 
 @media (max-width: 980px) {
   .ovd-capsules,
-  .ovd-quick {
+  .ovd-quick,
+  .ovd-health {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .ovd-panels {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 620px) {
+  .ovd__actions {
+    justify-content: flex-start;
+  }
+  .ovd-capsules,
+  .ovd-quick,
+  .ovd-health {
+    grid-template-columns: 1fr;
+  }
+  .ovd-capsule {
+    padding: 13px 14px;
+  }
+  .ovd-health__item {
+    padding: 11px 12px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -843,7 +950,7 @@
 .help-tip.help-tip {
   color: var(--adm-text-2);
 }
-.admin-tabbar__mode.admin-tabbar__mode {
+.admin-context-bar__field.admin-context-bar__field {
   color: var(--adm-text-2);
 }
 
@@ -1663,18 +1770,18 @@
   }
 }
 
-/* ================= Tab bar selector group (运行模式/年级/班级) ================= */
-.admin-tabbar__modes {
+/* ================= Page context bar (运行模式/年级/班级) ================= */
+.admin-context-bar {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   min-width: 0;
 }
-.admin-tabbar__mode {
+.admin-context-bar__field {
   margin: 0;
 }
-.admin-tabbar__mode-label.with-help-tip {
+.admin-context-bar__label.with-help-tip {
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -1682,63 +1789,49 @@
   line-height: 1.4;
   vertical-align: middle;
 }
-.admin-tabbar__mode .help-tip {
+.admin-context-bar__field .help-tip {
   align-self: center;
   margin-left: 0;
 }
-.admin-tabbar__mode .help-tip__trigger {
+.admin-context-bar__field .help-tip__trigger {
   font-family: inherit;
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
 }
 
-/* Medium widths: two-layer form — tabs on one scrollable line, fields as a tidy grid */
+/* Medium widths: context fields as a tidy row */
 @media (max-width: 1300px) and (min-width: 701px) {
-  .admin-tabbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  .admin-tabbar__tabs {
-    width: 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
-  .admin-tabbar__modes {
+  .admin-context-bar {
     width: 100%;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
     align-items: end;
   }
-  .admin-tabbar__mode {
+  .admin-context-bar__field {
     display: grid;
     gap: 5px;
     font-size: 12px;
     color: var(--adm-text-2);
   }
-  .admin-tabbar__mode .admin-input {
+  .admin-context-bar__field .admin-input {
     width: 100%;
   }
-  .admin-tabbar__mode-label.with-help-tip {
+  .admin-context-bar__label.with-help-tip {
     justify-content: flex-start;
   }
 }
 
 /* Mobile: keep the 2-column grid from base, polish alignment */
 @media (max-width: 700px) {
-  .admin-tabbar__modes {
-    display: contents;
-  }
-  .admin-tabbar__mode {
+  .admin-context-bar__field {
     color: var(--adm-text-2);
   }
-  .admin-tabbar__mode-label.with-help-tip {
+  .admin-context-bar__label.with-help-tip {
     justify-content: flex-start;
   }
-  .admin-tabbar__mode .help-tip {
+  .admin-context-bar__field .help-tip {
     align-self: center;
   }
 }

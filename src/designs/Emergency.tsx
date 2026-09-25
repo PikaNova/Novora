@@ -25,7 +25,6 @@ export default function Emergency({
     startHM,
     endHM,
     progressPct,
-    elapsedText,
     remainingText,
     countdownText,
     nextName,
@@ -100,6 +99,7 @@ export default function Emergency({
             </button>
             <button
               className="em__ghost"
+              data-fullscreen-toggle
               onClick={onToggleFullscreen}
               aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
               title={isFullscreen ? '退出全屏' : '进入全屏'}

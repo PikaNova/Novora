@@ -74,6 +74,8 @@ export function useWeeklyPlanModal({
 
   useEffect(() => {
     if (planModal) setPlanWizardStep(0);
+    // Only reset the wizard step when the modal mode changes, not when its fields change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- modal field identity intentionally excluded
   }, [planModal?.mode]);
 
   const openNewPlan = () => {

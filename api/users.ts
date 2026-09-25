@@ -44,6 +44,21 @@ const jsonPermissions = (value: unknown): Permission[] =>
       ] as Permission[])
     : [];
 
+/**
+ * 统一的 4xx 出口：**一律带 field**，前端据此决定提示落在哪个字段上。
+ * `_form` 表示表单级错误（没有具体字段），客户端会把它渲染在弹窗顶部而不是某个输入框下面——
+ * 以前这类响应不带 field，前端只能写进面板横幅，弹窗挡着就谁也看不见。
+ */
+function fail(
+  res: VercelResponse,
+  status: number,
+  error: string,
+  field = '_form',
+  extra: Record<string, unknown> = {},
+) {
+  return res.status(status).json({ ok: false, field, error, ...extra });
+}
+
 const isUnknown = (_value: unknown): _value is unknown => true;
 const isScopeType = (value: unknown): value is AdminScope['type'] =>
   value === 'all' || value === 'grade' || value === 'class';
@@ -61,6 +76,10 @@ const isUserRoleStatusRow = rowShape<{ role_id: string; status: string }>({
   status: isString,
 });
 const isBuiltInRow = rowShape<{ built_in: boolean }>({ built_in: isBoolean });
+const isBuiltInWithPermissionsRow = rowShape<{ built_in: boolean; permissions: unknown }>({
+  built_in: isBoolean,
+  permissions: isUnknown,
+});
 const isTargetInfoRow = rowShape<{ username: string; role_id: string; status: string }>({
   username: isString,
   role_id: isString,
@@ -319,7 +338,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
       String(body.username ?? ''),
       String(body.newPassword ?? ''),
     );
-    if (!result.ok) return res.status(400).json(result);
+    if (!result.ok) return res.status(400).json({ ...result, field: result.field ?? '_form' });
     await writeAudit(actor, 'user.credentials.change', 'user', String(actor.id), {
       from: result.oldUsername,
       to: result.username,
@@ -333,13 +352,13 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
       String(body.currentPassword ?? ''),
       String(body.newPassword ?? ''),
     );
-    if (!result.ok) return res.status(400).json(result);
+    if (!result.ok) return res.status(400).json({ ...result, field: result.field ?? '_form' });
     await writeAudit(actor, 'user.password.change', 'user', String(actor.id));
     return res.json({ ok: true, message: 'Password changed. Please sign in again.' });
   }
   if (req.method === 'POST' && action === 'change-own-username') {
     const result = await changeOwnUsername(actor.id, String(body.currentPassword ?? ''), String(body.username ?? ''));
-    if (!result.ok) return res.status(400).json(result);
+    if (!result.ok) return res.status(400).json({ ...result, field: result.field ?? '_form' });
     await writeAudit(actor, 'user.username.change', 'user', String(actor.id), {
       from: result.oldUsername,
       to: text(body.username, 40),
@@ -347,7 +366,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     return res.json({ ok: true, message: 'Username changed. Please sign in again.' });
   }
   if (req.method === 'GET') {
-    if (!hasPermission(actor, 'user.read')) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (!hasPermission(actor, 'user.read')) return fail(res, 403, '当前账号没有查看用户列表的权限');
     return res.json({
       ok: true,
       users: await listUsers(actor),
@@ -356,7 +375,7 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     });
   }
   if (action === 'create') {
-    if (!hasPermission(actor, 'user.create')) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (!hasPermission(actor, 'user.create')) return fail(res, 403, '当前账号没有创建用户的权限');
     const username = text(body.username, 40);
     const displayName = text(body.displayName, 80) || username;
     const password = String(body.password ?? '');
@@ -365,19 +384,17 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
       return res
         .status(400)
         .json({ ok: false, field: 'username', error: '用户名需为 3-40 位字母、数字、点、横线或下划线' });
-    if (!displayName) return res.status(400).json({ ok: false, field: 'displayName', error: '请输入显示名称' });
-    if (password.length < 8)
-      return res.status(400).json({ ok: false, field: 'password', error: '初始密码至少需要 8 位' });
+    if (!displayName) return fail(res, 400, '请输入显示名称', 'displayName');
+    if (password.length < 8) return fail(res, 400, '初始密码至少需要 8 位', 'password');
     const role = await delegatedRole(actor, roleId);
-    if (!role) return res.status(403).json({ ok: false, field: 'roleId', error: '不能授予超出当前账号的角色权限' });
+    if (!role) return fail(res, 403, '不能授予超出当前账号的角色权限', 'roleId');
     const nextScopes =
       roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     const scopeError = roleScopeError(roleId, nextScopes);
-    if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
+    if (scopeError) return fail(res, 400, scopeError, 'scopes');
     const allScopeOnlyError = allScopeOnlyPermissionError(role.permissions, nextScopes);
-    if (allScopeOnlyError) return res.status(400).json({ ok: false, field: 'scopes', error: allScopeOnlyError });
-    if (!canDelegateScopes(actor, nextScopes))
-      return res.status(403).json({ ok: false, field: 'scopes', error: '不能授予超出当前账号的数据范围' });
+    if (allScopeOnlyError) return fail(res, 400, allScopeOnlyError, 'scopes');
+    if (!canDelegateScopes(actor, nextScopes)) return fail(res, 403, '不能授予超出当前账号的数据范围', 'scopes');
     const { hash, salt } = await makePasswordHash(password);
     const at = Date.now();
     try {
@@ -392,41 +409,39 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
       return res.json({ ok: true, users: await listUsers(actor) });
     } catch (error) {
       if (/unique/i.test(error instanceof Error ? error.message : String(error)))
-        return res.status(409).json({ ok: false, field: 'username', error: '用户名已存在' });
+        return fail(res, 409, '用户名已存在', 'username');
       throw error;
     }
   }
   if (action === 'update') {
-    if (!hasPermission(actor, 'user.edit')) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (!hasPermission(actor, 'user.edit')) return fail(res, 403, '当前账号没有修改用户的权限');
     const id = Number(body.id);
     const displayName = text(body.displayName, 80);
     const roleId = text(body.roleId, 80);
     const status = body.status === 'disabled' ? 'disabled' : 'active';
-    if (!Number.isFinite(id) || !displayName) return res.status(400).json({ ok: false, error: '用户信息不完整' });
-    if (!(await canManageTarget(actor, id)))
-      return res.status(403).json({ ok: false, error: '不能修改超出当前账号管理范围的用户' });
+    if (!Number.isFinite(id) || !displayName) return fail(res, 400, '用户信息不完整', 'displayName');
+    if (!(await canManageTarget(actor, id))) return fail(res, 403, '不能修改超出当前账号管理范围的用户');
     const existing = assertRows(
       await sql`SELECT role_id, status FROM app_users WHERE id=${id}`,
       isUserRoleStatusRow,
       'app_users',
     );
-    if (!existing[0]) return res.status(404).json({ ok: false, error: '用户不存在' });
+    if (!existing[0]) return fail(res, 404, '用户不存在');
     if (id === actor.id && (status !== 'active' || roleId !== actor.roleId))
-      return res.status(400).json({ ok: false, error: '不能停用自己或修改自己的角色' });
+      return fail(res, 400, '不能停用自己或修改自己的角色', 'status');
     if (status !== existing[0].status && !hasPermission(actor, 'user.disable'))
-      return res.status(403).json({ ok: false, error: '无权启用或停用用户' });
+      return fail(res, 403, '无权启用或停用用户', 'status');
     const role = await delegatedRole(actor, roleId);
-    if (!role) return res.status(403).json({ ok: false, error: '不能授予超出当前账号的角色权限' });
+    if (!role) return fail(res, 403, '不能授予超出当前账号的角色权限', 'roleId');
     const nextScopes =
       roleId === 'super_admin' ? [{ type: 'all' as const, gradeId: '', classId: '' }] : scopes(body.scopes);
     const scopeError = roleScopeError(roleId, nextScopes);
-    if (scopeError) return res.status(400).json({ ok: false, field: 'scopes', error: scopeError });
+    if (scopeError) return fail(res, 400, scopeError, 'scopes');
     const allScopeOnlyError = allScopeOnlyPermissionError(role.permissions, nextScopes);
-    if (allScopeOnlyError) return res.status(400).json({ ok: false, field: 'scopes', error: allScopeOnlyError });
-    if (!canDelegateScopes(actor, nextScopes))
-      return res.status(403).json({ ok: false, error: '不能授予超出当前账号的数据范围' });
+    if (allScopeOnlyError) return fail(res, 400, allScopeOnlyError, 'scopes');
+    if (!canDelegateScopes(actor, nextScopes)) return fail(res, 403, '不能授予超出当前账号的数据范围', 'scopes');
     if (!(await ensureNotLastSuperAdmin(id, roleId, status)))
-      return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
+      return fail(res, 400, '必须至少保留一个启用的超级管理员', 'roleId');
     await invalidateLegacySharedToken();
     const transactionResults = await sql.transaction((transaction) => [
       transaction`UPDATE app_users SET display_name=${displayName}, role_id=${roleId}, status=${status}, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id} RETURNING id`,
@@ -437,26 +452,24 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
       ),
     ]);
     const updated = assertRows(transactionResults[0] ?? [], isIdRow, 'app_users');
-    if (!updated.length) return res.status(404).json({ ok: false, error: '用户不存在' });
+    if (!updated.length) return fail(res, 404, '用户不存在');
     await writeAudit(actor, 'user.update', 'user', String(id), { roleId, status });
     return res.json({ ok: true, users: await listUsers(actor) });
   }
   if (action === 'reset-password') {
-    if (!hasPermission(actor, 'user.reset_password')) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (!hasPermission(actor, 'user.reset_password')) return fail(res, 403, '当前账号没有重置密码的权限');
     const id = Number(body.id);
     const password = String(body.password ?? '');
-    if (!Number.isFinite(id) || password.length < 8)
-      return res.status(400).json({ ok: false, error: '新密码至少需要 8 位' });
-    if (!(await canManageTarget(actor, id)))
-      return res.status(403).json({ ok: false, error: '不能重置超出当前账号管理范围的用户密码' });
+    if (!Number.isFinite(id) || password.length < 8) return fail(res, 400, '新密码至少需要 8 位', 'password');
+    if (!(await canManageTarget(actor, id))) return fail(res, 403, '不能重置超出当前账号管理范围的用户密码');
     const target = assertRows(
       await sql`SELECT r.permissions FROM app_users u JOIN app_roles r ON r.id=u.role_id WHERE u.id=${id}`,
       isPermissionsRow,
       'app_users',
     );
-    if (!target[0]) return res.status(404).json({ ok: false, error: '用户不存在' });
+    if (!target[0]) return fail(res, 404, '用户不存在');
     if (!canDelegatePermissions(actor, jsonPermissions(target[0].permissions)))
-      return res.status(403).json({ ok: false, error: '不能重置权限高于当前账号的用户密码' });
+      return fail(res, 403, '不能重置权限高于当前账号的用户密码');
     const { hash, salt } = await makePasswordHash(password);
     await invalidateLegacySharedToken();
     await sql`UPDATE app_users SET password_hash=${hash}, password_salt=${salt}, must_change_password=TRUE, token_version=token_version+1, updated_at=${Date.now()} WHERE id=${id}`;
@@ -464,26 +477,24 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     return res.json({ ok: true });
   }
   if (action === 'delete') {
-    if (!hasPermission(actor, 'user.delete')) return res.status(403).json({ ok: false, error: '无权删除用户' });
+    if (!hasPermission(actor, 'user.delete')) return fail(res, 403, '无权删除用户');
     const id = Number(body.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: '用户信息不完整' });
-    if (id === actor.id) return res.status(400).json({ ok: false, error: '不能删除当前登录账号' });
-    if (!(await canManageTarget(actor, id)))
-      return res.status(403).json({ ok: false, error: '不能删除超出当前账号管理范围的用户' });
+    if (!Number.isFinite(id)) return fail(res, 400, '用户信息不完整', 'id');
+    if (id === actor.id) return fail(res, 400, '不能删除当前登录账号', 'id');
+    if (!(await canManageTarget(actor, id))) return fail(res, 403, '不能删除超出当前账号管理范围的用户');
     const target = assertRows(
       await sql`SELECT username, role_id, status FROM app_users WHERE id=${id}`,
       isTargetInfoRow,
       'app_users',
     );
-    if (!target[0]) return res.status(404).json({ ok: false, error: '用户不存在' });
+    if (!target[0]) return fail(res, 404, '用户不存在');
     if (target[0].role_id === 'super_admin' && target[0].status === 'active') {
       const count = assertRows(
         await sql`SELECT COUNT(*)::int AS count FROM app_users WHERE role_id='super_admin' AND status='active'`,
         isCountRow,
         'app_users',
       );
-      if (Number(count[0]?.count) <= 1)
-        return res.status(400).json({ ok: false, error: '必须至少保留一个启用的超级管理员' });
+      if (Number(count[0]?.count) <= 1) return fail(res, 400, '必须至少保留一个启用的超级管理员', 'roleId');
     }
     await writeAudit(actor, 'user.delete', 'user', String(id), {
       username: target[0].username,
@@ -492,11 +503,11 @@ async function handleUsers(req: VercelRequest, res: VercelResponse, actor: Admin
     await sql`DELETE FROM app_users WHERE id=${id}`;
     return res.json({ ok: true, users: await listUsers(actor) });
   }
-  return res.status(400).json({ ok: false, error: '未知用户操作' });
+  return fail(res, 400, '未知用户操作');
 }
 
 async function handleRoles(req: VercelRequest, res: VercelResponse, actor: AdminActor) {
-  if (!hasPermission(actor, 'role.manage')) return res.status(403).json({ ok: false, error: 'Forbidden' });
+  if (!hasPermission(actor, 'role.manage')) return fail(res, 403, '当前账号没有管理角色的权限');
   const sql = authSql();
   const body = req.body ?? {};
   if (req.method === 'GET') return res.json({ ok: true, roles: await listRoles(), permissions: ALL_PERMISSIONS });
@@ -505,12 +516,17 @@ async function handleRoles(req: VercelRequest, res: VercelResponse, actor: Admin
     const rawId = text(body.id, 80);
     const name = text(body.name, 80);
     const permissions = jsonPermissions(body.permissions);
-    if (!name || !permissions.length) return res.status(400).json({ ok: false, error: '角色名称和权限不能为空' });
+    if (!name) return fail(res, 400, '请填写角色名称', 'name');
+    if (!permissions.length) return fail(res, 400, '至少选择一项权限', 'permissions');
     if (!canDelegatePermissions(actor, permissions))
-      return res.status(403).json({ ok: false, error: '不能创建权限高于当前账号的角色' });
+      return fail(res, 403, '不能创建权限高于当前账号的角色', 'permissions');
     const id = rawId || `role_${randomBytes(6).toString('hex')}`;
-    const existing = assertRows(await sql`SELECT built_in FROM app_roles WHERE id=${id}`, isBuiltInRow, 'app_roles');
-    if (existing[0]?.built_in) return res.status(400).json({ ok: false, error: '内置角色不可修改，请创建自定义角色' });
+    const existing = assertRows(
+      await sql`SELECT built_in, permissions FROM app_roles WHERE id=${id}`,
+      isBuiltInWithPermissionsRow,
+      'app_roles',
+    );
+    if (existing[0]?.built_in) return fail(res, 400, '内置角色不可修改，请创建自定义角色', 'id');
     const builtinRoleNames = new Set([
       '\u8d85\u7ea7\u7ba1\u7406\u5458',
       '\u5e74\u7ea7\u7ba1\u7406\u5458',
@@ -519,37 +535,61 @@ async function handleRoles(req: VercelRequest, res: VercelResponse, actor: Admin
     ]);
     const normalizedName = name.trim();
     if (builtinRoleNames.has(normalizedName)) {
-      return res.status(400).json({
-        ok: false,
-        error:
-          '\u201c' +
+      return fail(
+        res,
+        400,
+        '\u201c' +
           normalizedName +
           '\u201d\u4e3a\u7cfb\u7edf\u5185\u7f6e\u89d2\u8272\u540d\u79f0\uff0c\u8bf7\u4e3a\u81ea\u5b9a\u4e49\u89d2\u8272\u4f7f\u7528\u5176\u4ed6\u540d\u79f0\uff0c\u907f\u514d\u4e0e\u771f\u5b9e\u7ba1\u7406\u5458\u8eab\u4efd\u6df7\u6dc6',
-      });
+        'name',
+      );
     }
     const at = Date.now();
+    const before = jsonPermissions(existing[0]?.permissions);
     await sql`INSERT INTO app_roles (id, name, description, permissions, built_in, created_at, updated_at)
       VALUES (${id}, ${name}, ${text(body.description, 300)}, ${JSON.stringify(permissions)}::jsonb, FALSE, ${at}, ${at})
       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, permissions=EXCLUDED.permissions, updated_at=EXCLUDED.updated_at`;
-    await writeAudit(actor, rawId ? 'role.update' : 'role.create', 'role', id, { name, permissions });
-    return res.json({ ok: true, roles: await listRoles() });
+    /*
+     * 权限真的变了就让该角色的在线账号重新登录：客户端 `can()` 用的是登录时那一份权限缓存，
+     * 不失效会话就会出现「前端还按旧权限显示、服务端已经按新权限拦截」的错位。
+     * 只改名/改说明时不动会话。
+     */
+    const permissionsChanged =
+      existing.length > 0 &&
+      (before.length !== permissions.length || !before.every((permission) => permissions.includes(permission)));
+    let sessionsInvalidated = 0;
+    if (permissionsChanged) {
+      const affected = assertRows(
+        await sql`UPDATE app_users SET token_version = token_version + 1, updated_at = ${at}
+          WHERE role_id = ${id} RETURNING id`,
+        isIdRow,
+        'app_users',
+      );
+      sessionsInvalidated = affected.length;
+    }
+    await writeAudit(actor, rawId ? 'role.update' : 'role.create', 'role', id, {
+      name,
+      permissions,
+      ...(permissionsChanged ? { sessionsInvalidated } : {}),
+    });
+    return res.json({ ok: true, roles: await listRoles(), sessionsInvalidated });
   }
   if (action === 'delete') {
     const id = text(body.id, 80);
     const role = assertRows(await sql`SELECT built_in FROM app_roles WHERE id=${id}`, isBuiltInRow, 'app_roles');
-    if (!role.length) return res.status(404).json({ ok: false, error: '角色不存在' });
-    if (role[0].built_in) return res.status(400).json({ ok: false, error: '内置角色不可删除' });
+    if (!role.length) return fail(res, 404, '角色不存在', 'id');
+    if (role[0].built_in) return fail(res, 400, '内置角色不可删除', 'id');
     const used = assertRows(
       await sql`SELECT COUNT(*)::int AS count FROM app_users WHERE role_id=${id}`,
       isCountRow,
       'app_users',
     );
-    if (Number(used[0]?.count) > 0) return res.status(409).json({ ok: false, error: '该角色仍有用户，不能删除' });
+    if (Number(used[0]?.count) > 0) return fail(res, 409, '该角色仍有用户，不能删除', 'id');
     await sql`DELETE FROM app_roles WHERE id=${id}`;
     await writeAudit(actor, 'role.delete', 'role', id);
     return res.json({ ok: true, roles: await listRoles() });
   }
-  return res.status(400).json({ ok: false, error: '未知角色操作' });
+  return fail(res, 400, '未知角色操作');
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -572,7 +612,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (resource === 'roles') return await handleRoles(req, res, actor);
     if (resource === 'audit') {
       if (!hasPermission(actor, 'audit.read') || !canReadAuditLog(actor))
-        return res.status(403).json({ ok: false, error: 'Forbidden' });
+        return fail(res, 403, '当前账号没有查看操作日志的权限');
       const [logs, loginFailureAlerts] = await Promise.all([
         authSql()`SELECT id, user_id AS "userId", username, action, resource_type AS "resourceType", resource_id AS "resourceId", grade_id AS "gradeId", class_id AS "classId", detail, created_at AS "createdAt" FROM app_audit_logs ORDER BY created_at DESC LIMIT 300`,
         getRecentLoginFailureAlerts(),

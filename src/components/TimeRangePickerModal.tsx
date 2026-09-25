@@ -97,10 +97,8 @@ export default function TimeRangePickerModal({
   open,
   mode = 'time',
   title = '设置考试时间',
-  description = '开始和结束时间在此一次完成',
   startValue,
   endValue,
-  subject = '考试',
   contextLabel,
   presets = [45, 60, 75, 90, 120, 150],
   allowCrossDay = true,
@@ -124,6 +122,8 @@ export default function TimeRangePickerModal({
   const previewChangeRef = useRef(onPreviewChange);
   const previewReadyRef = useRef(false);
   const previewReadyFrameRef = useRef<number | null>(null);
+  const openValuesRef = useRef({ mode, startValue, endValue, initialCrossDay });
+  openValuesRef.current = { mode, startValue, endValue, initialCrossDay };
 
   useEffect(() => {
     previewChangeRef.current = onPreviewChange;
@@ -190,18 +190,22 @@ export default function TimeRangePickerModal({
       previewReadyRef.current = false;
       return;
     }
-    const start = startValue || (mode === 'time' ? '08:00' : `${today()}T08:00`);
-    const end = endValue || addMinutes(start, 60, mode);
+    // Snapshot values only when the dialog opens. Parent components echo preview
+    // changes back as new start/end props; reinitializing on those writes would
+    // discard the user's in-progress draft.
+    const openedValues = openValuesRef.current;
+    const start = openedValues.startValue || (openedValues.mode === 'time' ? '08:00' : `${today()}T08:00`);
+    const end = openedValues.endValue || addMinutes(start, 60, openedValues.mode);
     previewReadyRef.current = false;
-    initialRangeRef.current = { startValue: start, endValue: end, endNextDay: initialCrossDay };
+    initialRangeRef.current = { startValue: start, endValue: end, endNextDay: openedValues.initialCrossDay };
     setDraftStart(start);
     setDraftEnd(end);
-    setCrossDayEnabled(initialCrossDay);
+    setCrossDayEnabled(openedValues.initialCrossDay);
     setTarget('start');
     setStep('start');
     previewReadyFrameRef.current = window.requestAnimationFrame(() => {
       previewReadyRef.current = true;
-      previewChangeRef.current?.(start, end, initialCrossDay);
+      previewChangeRef.current?.(start, end, openedValues.initialCrossDay);
     });
     return () => {
       if (previewReadyFrameRef.current !== null) window.cancelAnimationFrame(previewReadyFrameRef.current);
@@ -300,6 +304,7 @@ export default function TimeRangePickerModal({
           <label className="time-range-date">
             <span>开始日期</span>
             <DateTimeField
+              className="admin-date-time-field"
               value={splitValue(draftStart, mode).date}
               onChange={updateDate}
               mode="date"
@@ -313,6 +318,7 @@ export default function TimeRangePickerModal({
           <label className="time-range-date">
             <span>结束日期</span>
             <DateTimeField
+              className="admin-date-time-field"
               value={splitValue(draftEnd, mode, startDate).date}
               onChange={updateDate}
               mode="date"

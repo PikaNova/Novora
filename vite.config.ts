@@ -6,6 +6,8 @@ import { execSync } from 'node:child_process';
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string };
 
 function commitSha(): string {
+  // 容器构建里没有 .git，必须靠构建参数注入；与 api/_buildInfo.ts 保持同一优先级。
+  if (process.env.COMMIT_SHA) return process.env.COMMIT_SHA.slice(0, 7);
   if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7);
   try {
     return execSync('git rev-parse --short HEAD').toString().trim();

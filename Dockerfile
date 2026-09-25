@@ -7,12 +7,17 @@ RUN npm ci --ignore-scripts --registry=${NPM_REGISTRY} --fetch-retries=5 --fetch
 COPY . .
 ARG VITE_SPEED_INSIGHTS=false
 ENV VITE_SPEED_INSIGHTS=$VITE_SPEED_INSIGHTS
+ARG COMMIT_SHA=
+ENV COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 RUN npm run serve:build
 
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
+# 健康检查自报构建 commit：部署后一眼能确认线上跑的是哪一版（容器里没有 .git）。
+ARG COMMIT_SHA=
+ENV COMMIT_SHA=$COMMIT_SHA
 COPY package.json package-lock.json ./
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN npm ci --omit=dev --ignore-scripts --registry=${NPM_REGISTRY} --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000

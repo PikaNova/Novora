@@ -7,7 +7,7 @@ import { handleDeviceBinding } from '../api/_exams/routes/deviceSelfRoutes.js';
 process.env.DATABASE_URL ??= 'postgresql://test:test@127.0.0.1:5432/novora_test';
 
 function makeRes() {
-  const calls: { statusCode?: number; body?: any } = {};
+  const calls: { statusCode?: number; body?: unknown } = {};
   const res: VercelResponse = {
     setHeader() {
       return res;

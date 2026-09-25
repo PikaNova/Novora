@@ -1,5 +1,6 @@
 import { lazy } from 'react';
 import type { DesignMeta } from './types';
+import type { DesignComponent } from './types';
 import { DESIGN_THUMBS } from './previews';
 const CommandDeck = lazy(() => import('./CommandDeck'));
 const CleanFocus = lazy(() => import('./CleanFocus'));
@@ -16,7 +17,13 @@ const NeonQuartz = lazy(() => import('./DarkDesigns').then((m) => ({ default: m.
 const CinemaRedline = lazy(() => import('./DarkDesigns').then((m) => ({ default: m.CinemaRedline })));
 /** 已针对手机端窄屏适配的设计（其余设计在手机端置灰并提示“电脑端最佳”）。 */
 export const MOBILE_READY_IDS = new Set(['clean-focus', 'palette-dashboard', 'command-deck', 'emergency']);
-const item = (id: string, name: string, description: string, theme: 'light' | 'dark', component: any): DesignMeta => ({
+const item = (
+  id: string,
+  name: string,
+  description: string,
+  theme: 'light' | 'dark',
+  component: DesignComponent,
+): DesignMeta => ({
   id,
   name,
   description,
