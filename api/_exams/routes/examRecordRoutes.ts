@@ -30,7 +30,6 @@ import { formatDateTimeInZone, parseZonedTime } from '../../../src/utils/zonedTi
 import { DEVICE_ONLINE_WINDOW_MS } from '../../../src/shared/deviceContracts.js';
 import {
   planExamOperation,
-  planStopRequest,
   type ExamOperationAction,
   type ExamOperationPatch,
 } from '../../../src/shared/examLifecycleOperations.js';
@@ -60,7 +59,6 @@ type RecordRow = {
   actual_end_at?: unknown;
   paused_at?: unknown;
   paused_ms?: unknown;
-  stop_requested_at?: unknown;
   published_at?: unknown;
   ended_at?: unknown;
   archived_at?: unknown;
@@ -74,9 +72,9 @@ type RecordRow = {
 
 type SnapshotRow = { majors?: unknown; active_major_id?: unknown; updated_at?: unknown };
 
-/** 路由层动作 = 状态机动作 + 只改时间字段的生命周期操作 + 停止申请/强制结束。 */
+/** 路由层动作 = 状态机动作 + 只改时间字段的生命周期操作。 */
 type RecordOperationAction = Extract<ExamOperationAction, 'pause' | 'resume' | 'extend'>;
-type RecordRouteAction = ExamRecordAction | RecordOperationAction | 'request_stop' | 'force_end';
+type RecordRouteAction = ExamRecordAction | RecordOperationAction;
 
 const OPERATION_ACTIONS: readonly string[] = ['pause', 'resume', 'extend'];
 
@@ -93,8 +91,6 @@ const ACTION_BY_NAME: Record<string, RecordRouteAction> = {
   'record-pause': 'pause',
   'record-resume': 'resume',
   'record-extend': 'extend',
-  'record-request-stop': 'request_stop',
-  'record-force-end': 'force_end',
 };
 
 function text(value: unknown): string {
@@ -130,14 +126,12 @@ function recordStatus(row: RecordRow): ExamRecordStatus | null {
 }
 
 function displayStatus(row: RecordRow, now: number): ExamRecordDisplayStatus {
-  // 派生规则收在 shared：按 actualStartAt 判断进行中（系统自动开考会写它），
-  // 申请停止后优先显示「停止中」。以前按计划时间窗判断，会出现
-  // 「界面显示进行中、但实际开考时间是空」的不一致。
+  // 派生规则收在 shared：按 actualStartAt 判断进行中（系统自动开考会写它）。
+  // 以前按计划时间窗判断，会出现「界面显示进行中、但实际开考时间是空」的不一致。
   return examRecordDisplayStatus(
     {
       status: recordStatus(row) ?? 'draft',
       actualStartAt: nullableNumber(row.actual_start_at),
-      stopRequestedAt: nullableNumber(row.stop_requested_at),
     },
     now,
   );
@@ -175,7 +169,6 @@ function recordJson(row: RecordRow, now: number): Record<string, unknown> {
     actualEndAt: nullableNumber(row.actual_end_at),
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: nullableNumber(row.paused_ms) ?? 0,
-    stopRequestedAt: nullableNumber(row.stop_requested_at),
     publishedAt: nullableNumber(row.published_at),
     endedAt: nullableNumber(row.ended_at),
     archivedAt: nullableNumber(row.archived_at),
@@ -215,7 +208,6 @@ function planInput(row: RecordRow) {
     endAt: nullableNumber(row.end_at),
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: number(row.paused_ms),
-    stopRequestedAt: nullableNumber(row.stop_requested_at),
   };
 }
 
@@ -327,7 +319,7 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
         COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(items) = 'array' THEN items ELSE '[]'::jsonb END), 0) AS item_count,
         target_grade_ids, target_class_ids, source, temporary, priority_over_schedule,
         config, created_by, created_at, updated_at, start_at, end_at,
-        actual_start_at, actual_end_at, paused_at, paused_ms, stop_requested_at, published_at, ended_at, archived_at,
+        actual_start_at, actual_end_at, paused_at, paused_ms, published_at, ended_at, archived_at,
         version, sort_order
         -- 创建人姓名用相关子查询取，不 JOIN app_users：那张表也有 created_at/updated_at/靠前的同名列，
         -- 一旦并进来，上面这些裸列名就会再次变成二义（42702）。
@@ -362,9 +354,8 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
           ))
         AND (${statusFilter}::text = '' OR (
           CASE
-            -- 与 examRecordDisplayStatus 保持同一口径：申请停止优先显示「停止中」，
-            -- 进行中看的是实际开考时间（系统自动开考会写它），不再按计划时间窗推断。
-            WHEN status = 'published' AND stop_requested_at IS NOT NULL THEN 'stopping'
+            -- 与 examRecordDisplayStatus 保持同一口径：进行中看的是实际开考时间
+            -- （系统自动开考会写它），不再按计划时间窗推断。
             WHEN status = 'published' AND actual_start_at IS NOT NULL THEN 'ongoing'
             ELSE status
           END = ${statusFilter}))
@@ -396,10 +387,9 @@ async function handleRecordList(req: VercelRequest, res: VercelResponse): Promis
           CASE ${presetFilter}::text
             WHEN 'current' THEN (
               status = 'published' AND (
-                -- 停止中（等系统判定）与已经开考（含暂停中）都算「当前」；
-                -- 开考看的是实际开考时间——系统按计划时间自动写，不再按计划窗口推断。
-                stop_requested_at IS NOT NULL
-                OR actual_start_at IS NOT NULL
+                -- 已经开考（含暂停中）都算「当前」；开考看的是实际开考时间——
+                -- 系统按计划时间自动写，不再按计划窗口推断。
+                actual_start_at IS NOT NULL
                 OR (start_at IS NOT NULL AND start_at >= ${now}::bigint AND start_at < ${todayEnd}::bigint)
                 OR (end_at IS NOT NULL AND end_at <= ${now}::bigint)
               )
@@ -642,8 +632,7 @@ function describeTimeChange(
     const nextEnd = before.endAt == null ? null : before.endAt + pausedMs;
     return `继续：累计暂停 ${Math.round(pausedMs / 60_000)} 分钟，结束 ${fmt(before.endAt)} → ${fmt(nextEnd)}`;
   }
-  if (action === 'end' || action === 'force_end') return `结束：实际结束 ${fmt(patch.actualEndAt ?? now)}`;
-  if (action === 'request_stop') return `申请停止：${formatDateTimeInZone(now)} 提交，等系统判定`;
+  if (action === 'end') return `结束：实际结束 ${fmt(patch.actualEndAt ?? now)}`;
   return '';
 }
 
@@ -1001,30 +990,6 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
           // start / pause / resume / extend 不改变持久状态，只改时间字段。
           nextStatus = currentStatus;
           patch = plan.patch;
-        } else if (action === 'request_stop') {
-          // 手动结束只留申请：真正落 ended 由系统判定（到点优先 → 全员回执 → 无设备宽限）。
-          const plan = planStopRequest(planInput(record), now);
-          if (!plan.ok) {
-            const message =
-              plan.reason === 'already-requested' ? '这场考试已经申请停止了，等系统判定即可' : '当前状态不能申请停止';
-            error(res, 409, 'ILLEGAL_STATE', message);
-            return;
-          }
-          nextStatus = currentStatus;
-          patch = plan.patch;
-        } else if (action === 'force_end') {
-          // 逃生门：停止申请迟迟没有被系统判定时，管理员可以强行结束。
-          if (currentStatus !== 'published') throw new Error('INVALID_STATUS_TRANSITION');
-          const pausedAtValue = nullableNumber(record.paused_at);
-          const pausedMsValue = number(record.paused_ms);
-          nextStatus = 'ended';
-          patch = {
-            status: 'ended',
-            actualEndAt: now,
-            pausedAt: null,
-            pausedMs: pausedAtValue == null ? pausedMsValue : pausedMsValue + Math.max(0, now - pausedAtValue),
-            stopRequestedAt: null,
-          };
         } else {
           // publish 幂等：新约定下考试创建即已发布，向导确认时再点一次「保存并发布」
           // 不应该因为「已经发布」而报错。

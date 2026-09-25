@@ -97,6 +97,7 @@ const ACTION_FAMILIES: Array<{
       resume: '继续考试',
       extend: '延长考试',
       end: '结束考试',
+      // 兼容历史审计：旧版本产生过这两个动作码，界面不再有它们。
       request_stop: '申请停止考试',
       force_end: '强制结束考试',
       archive: '归档考试',

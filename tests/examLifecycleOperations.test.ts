@@ -77,7 +77,8 @@ test('end：结算暂停时长并置为已结束', () => {
   const paused = { ...base, actualStartAt: AT - 600_000, pausedAt: AT - 60_000, pausedMs: 10_000 };
   assert.deepEqual(planExamOperation(paused, { action: 'end', at: AT }), {
     ok: true,
-    patch: { status: 'ended', actualEndAt: AT, pausedAt: null, pausedMs: 70_000 },
+    // 结束顺带清掉历史数据里「申请停止」留下的时间戳（那套流程已经下线）。
+    patch: { status: 'ended', actualEndAt: AT, pausedAt: null, pausedMs: 70_000, stopRequestedAt: null },
   });
   assert.equal(planExamOperation({ ...base, status: 'archived' as const }, { action: 'end', at: AT }).ok, false);
 });

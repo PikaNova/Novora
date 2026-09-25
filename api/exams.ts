@@ -76,9 +76,7 @@ const RECORD_ACTIONS = new Set([
   'record-resume',
   'record-extend',
   // 开考由系统按计划时间完成，所以没有 record-start；
-  // 手动结束是「申请停止」，另有逃生门 record-force-end。
-  'record-request-stop',
-  'record-force-end',
+  // 结束就是立即结束（record-end），不再有「申请停止 / 强制结束」那一层。
 ]);
 
 /** 公告相关的写操作（发送 / 撤回 / 正文图片上传与删除）。 */

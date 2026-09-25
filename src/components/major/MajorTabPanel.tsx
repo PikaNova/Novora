@@ -182,7 +182,14 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
                 className="admin-btn admin-btn--danger"
                 onClick={() => setDeleteMajorOpen(true)}
                 disabled={majors.length <= 1 || activeMajor?.archivedAt != null}
-                title={activeMajor?.archivedAt != null ? '已归档的考试需要先取消归档才能删除' : undefined}
+                title={
+                  // 禁用时要说清原因：以前只剩一场时按钮变灰但没有任何说明，看着像"删不掉"。
+                  majors.length <= 1
+                    ? '至少要保留一场大型考试：先新建一场，再删这一场'
+                    : activeMajor?.archivedAt != null
+                      ? '已归档的考试需要先取消归档才能删除'
+                      : undefined
+                }
               >
                 删除
               </button>

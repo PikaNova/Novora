@@ -535,10 +535,6 @@ test('考试生命周期：非法转移与非法参数一律拒绝，且不写�
   assert.equal(published.statusCode, 200);
 
   await systemStart('boundary');
-  assert.equal((await act(admin.token, 'record-request-stop', { id: 'boundary' })).statusCode, 200);
-  const stopTwice = await act(admin.token, 'record-request-stop', { id: 'boundary' });
-  assert.equal(stopTwice.statusCode, 409);
-  assert.equal(stopTwice.body.code, 'ILLEGAL_STATE');
 
   const resumeIdle = await act(admin.token, 'record-resume', { id: 'boundary' });
   assert.equal(resumeIdle.statusCode, 409);
@@ -571,7 +567,7 @@ test('考试生命周期：非法转移与非法参数一律拒绝，且不写�
   assert.equal(missingKey.statusCode, 400);
   assert.equal(missingKey.body.code, 'IDEMPOTENCY_KEY_REQUIRED');
 
-  const missingRecord = await act(admin.token, 'record-request-stop', { id: 'not-a-record' });
+  const missingRecord = await act(admin.token, 'record-end', { id: 'not-a-record' });
   assert.equal(missingRecord.statusCode, 404);
   assert.equal(missingRecord.body.code, 'RECORD_NOT_FOUND');
 
@@ -583,10 +579,25 @@ test('考试生命周期：非法转移与非法参数一律拒绝，且不写�
   const operations = await readOperations('boundary');
   assert.deepEqual(
     operations.map((operation) => operation.action).sort(),
-    // 开考由系统完成（auto_start），手动结束变成 request_stop。
-    ['auto_start', 'pause', 'publish', 'request_stop'],
+    // 开考由系统完成（auto_start）；被拒绝的动作一律不写日志。
+    ['auto_start', 'pause', 'publish'],
     '只有成功的动作才写操作日志',
   );
+});
+
+test('考试生命周期：申请停止与强制结束已下线，入口不再认这两个动作', async () => {
+  const endAt = Date.now() + 3_600_000;
+  await seedMajors([{ id: 'legacy-action', startAt: Date.now() - 1_000, endAt }]);
+  await act(admin.token, 'record-publish', { id: 'legacy-action' });
+
+  for (const action of ['record-request-stop', 'record-force-end']) {
+    const denied = await act(admin.token, action, { id: 'legacy-action' });
+    assert.equal(denied.statusCode, 400, `${action} 应当已经下线`);
+    assert.equal(denied.body.code, 'UNKNOWN_RECORD_ACTION');
+  }
+  const row = await readRecord('legacy-action');
+  assert.equal(row.status, 'published', '旧动作不能改动任何状态');
+  assert.equal(row.stop_requested_at, null);
 });
 
 test('考试生命周期：结束时间写回客户端快照，暂停状态不会被下一次投影冲掉', async () => {
@@ -666,22 +677,22 @@ test('考试生命周期：权限与作用域都按既有规则收紧', async ()
   const viewer = await createUser('lifecycle-viewer', 'viewer', [{ type: 'all' }]);
   const gradeAdmin = await createUser('lifecycle-grade', 'grade_admin', [{ type: 'grade', gradeId: 'g1' }]);
 
-  const denied = await act(viewer.token, 'record-request-stop', { id: 'scoped-g1' });
+  const denied = await act(viewer.token, 'record-end', { id: 'scoped-g1' });
   assert.equal(denied.statusCode, 403);
   assert.equal(denied.body.code, 'PERMISSION_DENIED');
 
-  const outOfScopeStart = await act(gradeAdmin.token, 'record-request-stop', { id: 'scoped-g2' });
-  assert.equal(outOfScopeStart.statusCode, 404);
-  assert.equal(outOfScopeStart.body.code, 'RECORD_NOT_FOUND');
+  const outOfScopeEnd = await act(gradeAdmin.token, 'record-end', { id: 'scoped-g2' });
+  assert.equal(outOfScopeEnd.statusCode, 404);
+  assert.equal(outOfScopeEnd.body.code, 'RECORD_NOT_FOUND');
 
   await act(admin.token, 'record-publish', { id: 'scoped-g1' });
 
   const outOfScopePublish = await act(gradeAdmin.token, 'record-pause', { id: 'scoped-g2' });
   assert.equal(outOfScopePublish.statusCode, 404);
 
-  const inScope = await act(gradeAdmin.token, 'record-request-stop', { id: 'scoped-g1' });
+  const inScope = await act(gradeAdmin.token, 'record-pause', { id: 'scoped-g1' });
   assert.equal(inScope.statusCode, 200);
-  assert.ok(Number(data(inScope).stopRequestedAt) > 0, '范围内的管理员可以申请停止');
+  assert.ok(Number(data(inScope).pausedAt) > 0, '范围内的管理员可以操作自己范围内的考试');
 
   const inScopeExtend = await act(
     gradeAdmin.token,
@@ -692,8 +703,8 @@ test('考试生命周期：权限与作用域都按既有规则收紧', async ()
   assert.equal(inScopeExtend.statusCode, 200);
 
   const operations = await readOperations('scoped-g1');
-  const requested = operations.find((operation) => operation.action === 'request_stop');
-  assert.equal(Number(requested?.actor_id), gradeAdmin.id, '操作日志要记录真实操作者');
+  const paused = operations.find((operation) => operation.action === 'pause');
+  assert.equal(Number(paused?.actor_id), gradeAdmin.id, '操作日志要记录真实操作者');
   const autoStart = operations.find((operation) => operation.action === 'auto_start');
   if (autoStart) assert.equal(autoStart.actor_id ?? null, null, '系统自动开考的日志没有操作者');
 });
@@ -769,10 +780,6 @@ test('考试生命周期：顶层 /api/exams 入口放行新动作', async () =>
   const published = await actThroughEntry(admin.token, 'record-publish', { id: 'route-record' });
   assert.equal(published.statusCode, 200);
 
-  const started = await actThroughEntry(admin.token, 'record-request-stop', { id: 'route-record' });
-  assert.equal(started.statusCode, 200);
-  assert.ok(Number(data(started).stopRequestedAt) > 0);
-
   const extended = await actThroughEntry(
     admin.token,
     'record-extend',
@@ -781,6 +788,10 @@ test('考试生命周期：顶层 /api/exams 入口放行新动作', async () =>
   );
   assert.equal(extended.statusCode, 200);
   assert.equal(Number(data(extended).endAt), endAt + 10 * 60_000);
+
+  const ended = await actThroughEntry(admin.token, 'record-end', { id: 'route-record' });
+  assert.equal(ended.statusCode, 200);
+  assert.equal(data(ended).status, 'ended');
 
   // 路由证明：新动作必须落到记录处理器（404 RECORD_NOT_FOUND），
   // 而不是被当成普通数据保存请求。
@@ -1270,7 +1281,7 @@ test('归档只读：已归档考试的修改与删除在服务端被冻结', as
   assert.equal(snapshot.find((major) => major.id === 'frozen')?.name, '取消归档后改名');
 });
 
-test('系统自动开考 + 申请停止 + 到点判定结束（新生命周期的端到端）', async () => {
+test('系统到点自动开考 + 到点自动收场（系统这一侧只剩这两件事）', async () => {
   const startedAt = Date.now() - 10 * 60_000;
   const endedAt = startedAt + 60 * 60_000; // 先给一段还在进行中的窗口，稍后再把它推到过去
   await seedMajors([{ id: 'auto-life', startAt: startedAt, endAt: endedAt }]);
@@ -1293,51 +1304,104 @@ test('系统自动开考 + 申请停止 + 到点判定结束（新生命周期�
     '系统自动开考要留下 auto_start 操作日志（actor 为空）',
   );
 
-  // 3) 手动结束 → 只是申请：状态仍是 published，但展示为「停止中」
-  const requested = await act(admin.token, 'record-request-stop', { id: 'auto-life' });
-  assert.equal(requested.statusCode, 200);
-  const pending = await readRecord('auto-life');
-  assert.equal(pending.status, 'published', '申请停止不直接改状态');
-  assert.ok(Number(pending.stop_requested_at) > 0);
-  const pendingList = await listRecords(admin.token, { preset: 'current' });
-  const pendingRow = (pendingList.body.data as Array<Record<string, unknown>>).find((item) => item.id === 'auto-life');
-  assert.equal(pendingRow?.displayStatus, 'stopping');
+  // 3) 到点前不收场：列表里仍然是进行中
+  const running = await readRecord('auto-life');
+  assert.equal(running.status, 'published', '没到结束时间就还在进行中');
+  assert.equal(running.actual_end_at, null);
 
-  // 4) 重复申请被拒（等系统判定即可）
-  assert.equal((await act(admin.token, 'record-request-stop', { id: 'auto-life' })).statusCode, 409);
-
-  // 5) 系统判定结束：到点优先，即便没有任何设备回执
+  // 4) 到点后由系统收场（惰性触发），按结束时间结算，并留下 auto_end 日志
   await database()`UPDATE exam_records SET end_at = ${Date.now() - 60_000} WHERE id = 'auto-life'`;
   await listRecords(admin.token, { preset: 'history' });
   const finished = await readRecord('auto-life');
   assert.equal(finished.status, 'ended');
   const expectedEndAt = Number(finished.end_at);
-  assert.equal(Number(finished.actual_end_at), expectedEndAt, '到点判定按结束时间结算');
+  assert.equal(Number(finished.actual_end_at), expectedEndAt, '到点收场按结束时间结算，而不是发现它的那一刻');
   assert.equal(finished.stop_requested_at, null);
   const endOps = await readOperations('auto-life');
   assert.ok(
     endOps.some((op) => op.action === 'auto_end' && String(op.reason ?? '').includes('到结束时间')),
-    '系统判定结束要留下 auto_end 操作日志并写明原因',
+    '系统收场要留下 auto_end 操作日志并写明原因',
   );
 });
 
-test('还没开考就申请停止 = 取消：立即结束，不用等到结束时间', async () => {
+test('手动结束：立即生效，不等系统判定，也不写停止申请', async () => {
+  const startAt = Date.now() - 10 * 60_000;
+  const endAt = Date.now() + 60 * 60_000;
+  await seedMajors([{ id: 'manual-end', startAt, endAt }]);
+  await systemStart('manual-end');
+  // 先暂停一会儿：结束要结算在途暂停时长（暂停期间不算进考试用时）。
+  await act(admin.token, 'record-pause', { id: 'manual-end' });
+  await sleep(120);
+
+  const at = Date.now();
+  const ended = await act(admin.token, 'record-end', { id: 'manual-end', reason: '考场突发事件' });
+  assert.equal(ended.statusCode, 200, '管理员必须能直接结束考试');
+  assert.equal(data(ended).status, 'ended');
+  assert.ok(Number(data(ended).actualEndAt) >= at - 1_000, '实际结束时间就是点下去的那一刻');
+  assert.ok(Number(data(ended).actualEndAt) <= Date.now(), '结束时间不能跑到未来');
+  assert.equal(data(ended).pausedAt, null);
+  assert.ok(Number(data(ended).pausedMs) >= 100, `结束要结算在途暂停时长，实际 ${data(ended).pausedMs}ms`);
+  assert.equal(Number(data(ended).endAt), endAt, '手动结束不动原定的结束时间');
+
+  const row = await readRecord('manual-end');
+  assert.equal(row.status, 'ended', '状态必须真的落库，而不是只出现在响应里');
+  assert.equal(row.stop_requested_at, null, '不再有「停止申请」这个东西');
+
+  // 教室端读的是快照：立刻带 endedAt，大屏不用等任何判定
+  const major = (await readSnapshotMajors()).find((item) => item.id === 'manual-end');
+  assert.ok(Number(major?.endedAt) > 0, '快照必须立刻写入 endedAt');
+
+  // 板块口径：立刻从「当前考试」消失、落进「历史」
+  const current = await listRecords(admin.token, { preset: 'current' });
+  assert.equal(listedIds(current).includes('manual-end'), false, '结束后不该还在当前板块');
+  const history = await listRecords(admin.token, { preset: 'history' });
+  assert.equal(listedIds(history).includes('manual-end'), true, '结束后应当出现在历史板块');
+
+  // 幂等边界：已经结束的再结束一次 409
+  const again = await act(admin.token, 'record-end', { id: 'manual-end' });
+  assert.equal(again.statusCode, 409);
+
+  // 人工结束记成人动作（end，带操作者），不是系统判定（auto_end）
+  const ops = await readOperations('manual-end');
+  assert.equal(
+    ops.some((op) => op.action === 'auto_end'),
+    false,
+    '手动结束不该被记成系统判定',
+  );
+  const endOp = ops.find((op) => op.action === 'end');
+  assert.equal(Number(endOp?.actor_id), admin.id);
+  assert.equal(String(endOp?.from_status), 'published');
+  assert.equal(String(endOp?.to_status), 'ended');
+  assert.ok(String(endOp?.reason).includes('突发事件'), '操作日志要保留操作者填的备注');
+  const audits = (await database()`
+    SELECT action FROM app_audit_logs
+    WHERE resource_type='exam_record' AND resource_id='manual-end'
+  `) as unknown as Array<{ action: string }>;
+  assert.ok(
+    audits.some((entry) => entry.action === 'exam.record.end'),
+    '审计日志要有结束动作',
+  );
+});
+
+test('手动结束：未开考的考试也能直接结束（= 取消这场考试）', async () => {
   const startAt = Date.now() + 6 * 60 * 60_000;
   await seedMajors([{ id: 'cancel-me', startAt, endAt: startAt + 60 * 60_000 }]);
   assert.equal((await readRecord('cancel-me')).status, 'published');
 
-  const cancelled = await act(admin.token, 'record-request-stop', { id: 'cancel-me' });
+  const cancelled = await act(admin.token, 'record-end', { id: 'cancel-me', reason: '取消这场考试' });
   assert.equal(cancelled.statusCode, 200);
-  await listRecords(admin.token, { preset: 'history' });
 
   const row = await readRecord('cancel-me');
-  assert.equal(row.status, 'ended', '未开考就申请停止应当直接取消');
+  assert.equal(row.status, 'ended', '未开考也能直接结束');
   assert.equal(row.actual_start_at, null, '没有真的开考过');
+  assert.equal(row.stop_requested_at, null);
   const ops = await readOperations('cancel-me');
-  assert.ok(
-    ops.some((op) => op.action === 'auto_end' && String(op.reason ?? '').includes('取消')),
-    '取消也要留下系统操作日志',
+  assert.equal(
+    ops.some((op) => op.action === 'auto_end'),
+    false,
+    '手动取消不是系统判定',
   );
+  assert.ok(ops.some((op) => op.action === 'end' && Number(op.actor_id) === admin.id));
 });
 
 /**

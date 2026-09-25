@@ -38,7 +38,6 @@ const RECORD = {
   actualEndAt: null,
   pausedAt: null,
   pausedMs: 0,
-  stopRequestedAt: null,
   publishedAt: null,
   endedAt: null,
   archivedAt: null,

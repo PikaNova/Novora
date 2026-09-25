@@ -4,11 +4,10 @@ import type { ExamItem } from '../types/index.js';
 export type ExamRecordStatus = 'draft' | 'published' | 'ended' | 'archived';
 
 /**
- * Status shown by management views. `ongoing` 与 `stopping` 都是派生的：
- * 前者表示已经开考（系统按计划时间自动写 actualStartAt），
- * 后者表示管理员已申请停止、等系统判定是否真正结束。
+ * Status shown by management views。`ongoing` 是派生的：已经开考
+ * （系统按计划时间自动写 actualStartAt）。
  */
-export type ExamRecordDisplayStatus = ExamRecordStatus | 'ongoing' | 'stopping';
+export type ExamRecordDisplayStatus = ExamRecordStatus | 'ongoing';
 export type ExamRecordAction = 'publish' | 'end' | 'archive' | 'unarchive' | 'copy';
 
 /**
@@ -19,9 +18,12 @@ export type ExamRecordOperationActionName = 'pause' | 'resume' | 'extend';
 
 /**
  * 管理界面可以对一场考试发起的全部动作。
- * `request_stop` = 手动结束（只留申请，等系统判定）；`force_end` = 停止判定不出来时的逃生门。
+ *
+ * 「结束」就是立即结束：不再有「申请停止 + 等系统判定」那一层，也不再有它的逃生门
+ * （2026-09-25 定稿）。历史操作日志里可能还留着 `request_stop` / `force_end`，
+ * 读侧（操作记录、时间线）仍然认得这两个字符串，但界面不再产生它们。
  */
-export type ExamRecordActionName = ExamRecordAction | ExamRecordOperationActionName | 'request_stop' | 'force_end';
+export type ExamRecordActionName = ExamRecordAction | ExamRecordOperationActionName;
 
 /**
  * 会改变「时间相关状态」的动作：延长 / 暂停 / 继续 / 结束 / 申请停止，以及系统自动开考与判定结束。
@@ -34,8 +36,6 @@ export const EXAM_RECORD_TIME_CHANGE_ACTIONS: readonly string[] = [
   'pause',
   'resume',
   'end',
-  'force_end',
-  'request_stop',
   'auto_start',
   'auto_end',
 ];
@@ -47,9 +47,6 @@ export const EXAM_RECORD_ACTION_PERMISSIONS = {
   resume: 'major.edit',
   extend: 'major.edit',
   end: 'major.edit',
-  request_stop: 'major.edit',
-  // 强制结束是逃生门：只有能删考试的人才给。
-  force_end: 'major.delete',
   unarchive: 'major.edit',
   archive: 'major.delete',
   copy: 'major.create',
@@ -79,12 +76,6 @@ export interface ExamRecord {
   actualEndAt: number | null;
   /** 暂停起始时刻；null 表示当前不在暂停中。 */
   pausedAt?: number | null;
-  /**
-   * 管理员申请停止的时刻；null 表示没有待判定的停止申请。
-   * 有了它，手动「结束」就变成「申请停止」——真正落 ended 由系统判定（到点优先，
-   * 其次全员回执，最后无在线设备的宽限兜底）。
-   */
-  stopRequestedAt?: number | null;
   /** 累计已暂停时长（毫秒）；倒计时按 endAt + pausedMs 计算。 */
   pausedMs?: number;
   publishedAt: number | null;
@@ -100,7 +91,6 @@ export const EXAM_RECORD_STATUS_LABELS: Record<ExamRecordDisplayStatus, string> 
   draft: '草稿',
   published: '待开始',
   ongoing: '进行中',
-  stopping: '停止中',
   ended: '已结束',
   archived: '历史归档',
 };
@@ -143,29 +133,26 @@ export function availableExamRecordActions(context: ExamRecordActionContext): Ex
   if (context.status === 'draft') return ['publish', 'copy'];
   if (context.status === 'ended') return ['archive', 'copy'];
   if (context.status === 'archived') return ['unarchive', 'copy'];
-  // 已申请停止：等系统判定，管理员只能强制结束（逃生门）或复制。
-  if (context.status === 'stopping') return ['force_end', 'copy'];
-  // 开考已经由系统按计划时间完成，所以这里不再有「开考」；手动结束一律变成「申请停止」。
+  // 开考已经由系统按计划时间完成，所以这里不再有「开考」。
   // 「暂停」不等人：自动开考是惰性的（靠读接口/设备心跳触发），到点前 actualStartAt 为空，
   // 若按它给按钮，管理员就只能干等系统的时间校验——所以暂停对所有进行中的考试都给，
   // 未开考的那次由服务端先补开考时间再暂停。
-  if (context.pausedAt != null) return ['resume', 'request_stop', 'copy'];
-  return ['pause', 'extend', 'request_stop', 'copy'];
+  // 「结束」也是立即生效（破坏性动作排在同组最后）。
+  if (context.pausedAt != null) return ['resume', 'end', 'copy'];
+  return ['pause', 'extend', 'end', 'copy'];
 }
 
 /**
- * 展示状态派生：管理界面「进行中 / 停止中」都由实际时间字段推出来，不落库。
+ * 展示状态派生：管理界面的「进行中」由实际时间字段推出来，不落库。
  *
- * 与旧实现的区别：以前用「计划时间窗是否覆盖 now」判断进行中，于是会出现
- * 「界面显示进行中、但实际开考时间是空」的不一致。现在改为看 actualStartAt——
- * 系统按计划时间自动开考会写它，没到点就是「待开始」；申请停止后优先显示「停止中」。
+ * 以前用「计划时间窗是否覆盖 now」判断进行中，会出现「界面显示进行中、但实际开考时间
+ * 是空」的不一致；现在看 actualStartAt——系统按计划时间自动开考会写它，没到点就是「待开始」。
  */
 export function examRecordDisplayStatus(
-  record: Pick<ExamRecord, 'status' | 'actualStartAt' | 'stopRequestedAt'>,
+  record: Pick<ExamRecord, 'status' | 'actualStartAt'>,
   _now: number,
 ): ExamRecordDisplayStatus {
   if (record.status !== 'published') return record.status;
-  if (record.stopRequestedAt != null) return 'stopping';
   if (record.actualStartAt != null) return 'ongoing';
   return 'published';
 }

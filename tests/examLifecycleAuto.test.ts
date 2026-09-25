@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { examRecordDisplayStatus } from '../src/shared/examRecordContracts.js';
-import { planAutoEnd, planAutoStart, planStopRequest } from '../src/shared/examLifecycleOperations.js';
+import { planAutoEnd, planAutoStart } from '../src/shared/examLifecycleOperations.js';
 
 const M = 60_000;
 const START = new Date('2026-09-19T09:00:00+08:00').getTime();
@@ -15,7 +15,6 @@ const base = {
   actualEndAt: null,
   pausedAt: null,
   pausedMs: 0,
-  stopRequestedAt: null,
 };
 
 test('planAutoStart: 到点由系统开考，写入的是计划时间而不是 now', () => {
@@ -39,32 +38,22 @@ test('planAutoStart: 未到点 / 已开考 / 非 published / 没有计划时间�
   assert.equal(planAutoStart({ ...base, actualStartAt: START }, START + M).ok, false);
 });
 
-test('planStopRequest: 手动结束只留申请，重复申请跳过', () => {
-  const at = START + 10 * M;
-  assert.deepEqual(planStopRequest(base, at), { ok: true, patch: { stopRequestedAt: at } });
-  assert.deepEqual(planStopRequest({ ...base, stopRequestedAt: at }, at + M), {
+// 「申请停止 → 等系统判定」已经去掉：手动结束由 planExamOperation('end') 直接落 ended，
+// 系统这边只剩下「到点收场」（见 examRecordLifecycle 集成用例）。
+
+test('planAutoEnd: 没开考就不收场（手动结束不在这里，到点才由系统收场）', () => {
+  assert.deepEqual(planAutoEnd(base, END + M), { ok: false, reason: 'not-started' });
+  assert.deepEqual(planAutoEnd({ ...base, status: 'draft' }, END + M), { ok: false, reason: 'not-live' });
+  assert.deepEqual(planAutoEnd({ ...base, actualStartAt: START, endAt: null }, END + M), {
     ok: false,
-    reason: 'already-requested',
+    reason: 'missing-time',
   });
-  assert.deepEqual(planStopRequest({ ...base, status: 'ended' }, at), { ok: false, reason: 'not-live' });
+  // 到点之前不收场，重复调用得到同样的跳过结果（幂等）。
+  assert.deepEqual(planAutoEnd({ ...base, actualStartAt: START }, END - 1), { ok: false, reason: 'not-due' });
 });
 
-test('planAutoEnd: 没申请停止就不判定', () => {
-  const plan = planAutoEnd(base, END + M, { allDevicesReported: true, noDeviceGraceExpired: true });
-  assert.deepEqual(plan, { ok: false, reason: 'no-stop-request' });
-});
-
-test('planAutoEnd: 还没开考就申请停止 = 取消，立即结束', () => {
-  const requested = { ...base, stopRequestedAt: START - 5 * M };
-  const plan = planAutoEnd(requested, START - 4 * M, { allDevicesReported: false, noDeviceGraceExpired: false });
-  assert.equal(plan.ok && plan.reason, 'cancelled');
-  assert.equal(plan.ok && plan.patch.status, 'ended');
-  assert.equal(plan.ok && plan.patch.actualEndAt, START - 4 * M);
-});
-
-test('planAutoEnd: 到点优先——设备没回执也结束，且按到点时刻结算', () => {
-  const requested = { ...base, actualStartAt: START, stopRequestedAt: START + 20 * M };
-  const plan = planAutoEnd(requested, END + 5 * M, { allDevicesReported: false, noDeviceGraceExpired: false });
+test('planAutoEnd: 到点收场，且按到点时刻结算', () => {
+  const plan = planAutoEnd({ ...base, actualStartAt: START }, END + 5 * M);
   assert.equal(plan.ok, true);
   assert.equal(plan.ok && plan.reason, 'timeup');
   assert.deepEqual(plan.ok && plan.patch, {
@@ -76,42 +65,28 @@ test('planAutoEnd: 到点优先——设备没回执也结束，且按到点时�
   });
 });
 
-test('planAutoEnd: 到点前先看全员回执，再看无人宽限', () => {
-  const requested = { ...base, actualStartAt: START, stopRequestedAt: START + 20 * M };
-  const early = END - 10 * M;
-  const byReceipts = planAutoEnd(requested, early, { allDevicesReported: true, noDeviceGraceExpired: false });
-  assert.equal(byReceipts.ok && byReceipts.reason, 'receipts');
-  assert.equal(byReceipts.ok && byReceipts.patch.actualEndAt, early);
-  const byTimeout = planAutoEnd(requested, early, { allDevicesReported: false, noDeviceGraceExpired: true });
-  assert.equal(byTimeout.ok && byTimeout.reason, 'no-device-timeout');
-  const notYet = planAutoEnd(requested, early, { allDevicesReported: false, noDeviceGraceExpired: false });
-  assert.deepEqual(notYet, { ok: false, reason: 'not-finished' });
-});
-
 test('planAutoEnd: 暂停过的考试按 endAt + pausedMs 判定，并结转暂停时长', () => {
   const pausedMs = 12 * M;
   const requested = {
     ...base,
     actualStartAt: START,
-    stopRequestedAt: START + 30 * M,
     pausedMs,
     pausedAt: END - 3 * M,
   };
-  const plan = planAutoEnd(requested, END + pausedMs + M, { allDevicesReported: false, noDeviceGraceExpired: false });
+  const plan = planAutoEnd(requested, END + pausedMs + M);
   assert.equal(plan.ok && plan.reason, 'timeup');
   assert.equal(plan.ok && plan.patch.actualEndAt, END + pausedMs);
-  // 暂停从 END-3 分钟一直持续到判定结束时刻 END+12 分钟，共 15 分钟：
+  // 暂停从 END-3 分钟一直持续到收场时刻 END+12 分钟，共 15 分钟：
   // 累计暂停 = 已结转的 12 分钟 + 本次 15 分钟 = 27 分钟。
   const pauseDuration = END + pausedMs - (END - 3 * M);
   assert.equal(plan.ok && plan.patch.pausedMs, pausedMs + pauseDuration);
   assert.equal(plan.ok && plan.patch.pausedMs, 27 * M);
 });
 
-test('examRecordDisplayStatus: 待开始 / 进行中 / 停止中 / 已结束 / 归档 / 草稿', () => {
+test('examRecordDisplayStatus: 待开始 / 进行中 / 已结束 / 归档 / 草稿', () => {
   const now = START + 5 * M;
   assert.equal(examRecordDisplayStatus({ ...base }, now), 'published');
   assert.equal(examRecordDisplayStatus({ ...base, actualStartAt: START }, now), 'ongoing');
-  assert.equal(examRecordDisplayStatus({ ...base, actualStartAt: START, stopRequestedAt: now }, now), 'stopping');
   assert.equal(examRecordDisplayStatus({ ...base, status: 'ended' }, now), 'ended');
   assert.equal(examRecordDisplayStatus({ ...base, status: 'archived' }, now), 'archived');
   assert.equal(examRecordDisplayStatus({ ...base, status: 'draft' }, now), 'draft');

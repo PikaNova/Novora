@@ -28,7 +28,7 @@ export const MAX_EXTEND_MINUTES = 600;
 
 type PlanInput = Pick<
   ExamRecord,
-  'status' | 'startAt' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt'
+  'status' | 'startAt' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs'
 >;
 
 export function planExamOperation(
@@ -81,6 +81,8 @@ export function planExamOperation(
           actualEndAt: at,
           pausedAt: null,
           pausedMs: pausedAt == null ? pausedMs : pausedMs + Math.max(0, at - pausedAt),
+          // 历史数据里可能还有「申请停止」留下的时间戳，结束就一并清掉。
+          stopRequestedAt: null,
         },
       };
   }
@@ -98,24 +100,20 @@ function illegal(error: string): ExamOperationPlan {
 
 /* ────────────────────────── 系统自动推进 ──────────────────────────
  * 生命周期约定（2026-09-19 定稿）：
- *   创建即发布 → 到点由系统自动开考 → 管理员只能「申请停止」→ 系统判定后才真正结束。
+ *   创建即发布 → 到点由系统自动开考 → 到点由系统自动结束；管理员随时可以手动结束。
+ *
+ * 2026-09-25 修订：去掉「申请停止 → 等系统判定」这一层。手动结束直接落 ended，
+ * 不再等设备回执，也不再等无设备宽限；留在系统这一侧的只有「到点收场」。
  * 下面三个规划器是纯函数，由读接口与设备心跳**惰性**调用（不依赖 Cron）：
  *   - 幂等：重复调用得到同样的跳过结果，不会重复写库、不会重复记审计；
  *   - 只算该写什么字段，权限/落库/审计仍在路由层。
  */
 
 /** 自动推进被跳过的原因（都是正常情况，不是错误）。 */
-export type ExamAutoSkipReason =
-  | 'not-live'
-  | 'missing-time'
-  | 'not-due'
-  | 'already-started'
-  | 'already-requested'
-  | 'no-stop-request'
-  | 'not-finished';
+export type ExamAutoSkipReason = 'not-live' | 'not-started' | 'missing-time' | 'not-due' | 'already-started';
 
 /** 系统真正结束一场考试的原因，落进操作日志便于事后解释。 */
-export type ExamAutoEndReason = 'timeup' | 'receipts' | 'no-device-timeout' | 'cancelled';
+export type ExamAutoEndReason = 'timeup';
 
 export type ExamAutoPlan =
   { ok: true; patch: ExamOperationPatch; reason?: ExamAutoEndReason } | { ok: false; reason: ExamAutoSkipReason };
@@ -136,37 +134,17 @@ export function planAutoStart(
 }
 
 /**
- * 申请停止：手动「结束」不再直接落 ended，只留一个待判定的申请。
- * 仍然要求考试是 published（draft/ended/archived 不能申请）。
- */
-export function planStopRequest(record: Pick<ExamRecord, 'status' | 'stopRequestedAt'>, at: number): ExamAutoPlan {
-  if (record.status !== 'published') return { ok: false, reason: 'not-live' };
-  if (record.stopRequestedAt != null) return { ok: false, reason: 'already-requested' };
-  return { ok: true, patch: { stopRequestedAt: at } };
-}
-
-export type ExamFinishSignals = {
-  /** 本场范围内的绑定设备是否都已回执「本场结束」。 */
-  allDevicesReported: boolean;
-  /** 没有在线设备、且已经超过宽限期（无人监考兜底）。 */
-  noDeviceGraceExpired: boolean;
-};
-
-/**
- * 系统判定结束：只在管理员申请停止之后才判定，优先级为
- *   ① 到点：now ≥ effectiveEndAt（end_at + paused_ms，暂停时间长出来的时间要补回来）
- *   ② 全员回执   ③ 无在线设备、宽限到期
- * 到点优先：即便还有设备没回执，时间到就结束。
+ * 系统收场：只有「已经开考且到点」才自动结束——下课的钟不需要人来敲。
+ *
+ * 结束同时结算暂停时长，避免把暂停算进实际用时（与手动 end 同一套口径）；
+ * 到点时刻结束（`dueAt`），而不是发现它的那一刻，晚开页面也不会把结束时间记晚。
  */
 export function planAutoEnd(
-  record: Pick<
-    ExamRecord,
-    'status' | 'actualStartAt' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt' | 'actualEndAt'
-  >,
+  record: Pick<ExamRecord, 'status' | 'actualStartAt' | 'endAt' | 'pausedAt' | 'pausedMs'>,
   at: number,
-  signals: ExamFinishSignals,
 ): ExamAutoPlan {
   if (record.status !== 'published') return { ok: false, reason: 'not-live' };
+  if (record.actualStartAt == null) return { ok: false, reason: 'not-started' };
   const pausedAt = record.pausedAt ?? null;
   const pausedMs = record.pausedMs ?? 0;
   // 结束同时结算暂停时长，避免把暂停算进实际用时（与手动 end 同一套口径）。
@@ -178,17 +156,7 @@ export function planAutoEnd(
     stopRequestedAt: null,
   });
   const dueAt = effectiveEndAt(record);
-  // 没有停止申请时：只有「已经开考且到点」才自动结束——下课的钟不需要人来敲。
-  if (record.stopRequestedAt == null) {
-    if (record.actualStartAt != null && dueAt != null && at >= dueAt) {
-      return { ok: true, patch: settle(dueAt), reason: 'timeup' };
-    }
-    return { ok: false, reason: 'no-stop-request' };
-  }
-  // 还没开考就申请停止 = 取消这场考试：没有任何在途的考试需要等，直接结束。
-  if (record.actualStartAt == null) return { ok: true, patch: settle(at), reason: 'cancelled' };
-  if (dueAt != null && at >= dueAt) return { ok: true, patch: settle(dueAt), reason: 'timeup' };
-  if (signals.allDevicesReported) return { ok: true, patch: settle(at), reason: 'receipts' };
-  if (signals.noDeviceGraceExpired) return { ok: true, patch: settle(at), reason: 'no-device-timeout' };
-  return { ok: false, reason: 'not-finished' };
+  if (dueAt == null) return { ok: false, reason: 'missing-time' };
+  if (at < dueAt) return { ok: false, reason: 'not-due' };
+  return { ok: true, patch: settle(dueAt), reason: 'timeup' };
 }

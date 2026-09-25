@@ -18,7 +18,7 @@ import type { ScheduleWindowKey } from './examListFilterMemory';
 
 export type ScheduleRowKind = 'major' | 'quick' | 'weekly' | 'draft';
 
-export type ScheduleRowStatus = 'draft' | 'scheduled' | 'imminent' | 'ongoing' | 'stopping' | 'ended' | 'suppressed';
+export type ScheduleRowStatus = 'draft' | 'scheduled' | 'imminent' | 'ongoing' | 'ended' | 'suppressed';
 
 export type ScheduleRow = {
   key: string;
@@ -118,7 +118,6 @@ export const SCHEDULE_ROW_STATUS_LABELS: Record<ScheduleRowStatus, string> = {
   scheduled: '待开始',
   imminent: '即将开始',
   ongoing: '进行中',
-  stopping: '停止中',
   ended: '已结束',
   suppressed: '已被大型考试暂停',
 };
@@ -207,7 +206,6 @@ function statusFromRecord(
   now: number,
 ): ScheduleRowStatus {
   if (displayStatus === 'draft') return 'draft';
-  if (displayStatus === 'stopping') return 'stopping';
   if (displayStatus === 'ongoing') return 'ongoing';
   if (displayStatus === 'ended' || displayStatus === 'archived') return 'ended';
   // published：再按时间细分出「即将开始」，让近场更醒目。

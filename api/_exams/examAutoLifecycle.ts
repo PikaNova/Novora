@@ -1,8 +1,8 @@
 /**
  * 考试生命周期的「系统自动推进」。
  *
- * 约定（2026-09-19 定稿）：创建即发布 → 到点由系统自动开考 → 管理员只能申请停止 →
- * 系统判定后才真正结束。
+ * 约定：创建即发布 → 到点由系统自动开考 → 到点由系统自动结束；管理员随时可以手动结束
+ * （手动结束直接落 ended，不走系统判定 —— 2026-09-25 去掉了「申请停止」那一层）。
  *
  * 执行方式是**惰性**的：挂在读接口与设备心跳上，不依赖 Cron（本地与 Vercel 都一样），
  * 与仓库里既有的做法一致（诊断日志列表顺带回收过期正文）。并发安全靠条件更新——
@@ -19,17 +19,9 @@ import { database } from './db.js';
 import { operationLogKey } from './operationLog.js';
 import { SCHEMA_MIGRATION_LOCK_ID } from '../_auth.js';
 import { asRecord } from '../../src/shared/typeGuards.js';
-import { DEVICE_ONLINE_WINDOW_MS } from '../../src/shared/deviceContracts.js';
-import {
-  planAutoEnd,
-  type ExamAutoEndReason,
-  type ExamOperationPatch,
-} from '../../src/shared/examLifecycleOperations.js';
+import { planAutoEnd, type ExamOperationPatch } from '../../src/shared/examLifecycleOperations.js';
 import { applyOperationPatchToMajor } from './examSnapshotPatch.js';
 import { formatDateTimeInZone } from '../../src/utils/zonedTime.js';
-
-/** 申请停止后，教室里一台在线设备都没有时，最多再等这么久就按「无人监考」收场。 */
-export const STOP_NO_DEVICE_GRACE_MS = 10 * 60_000;
 
 /**
  * 快速考试结束后多久自动归档（T-283-03「结束后归档或按配置保留」的默认口径）。
@@ -68,8 +60,8 @@ type SystemTransitionInput = {
   toStatus: string;
   reason: string;
   patch: ExamOperationPatch;
-  /** 守卫口径：开考 / 结束 / 归档（归档只针对已结束的快速考试）。 */
-  guard: 'start' | 'stop' | 'archive';
+  /** 守卫口径：开考 / 到点收场 / 归档（归档只针对已结束的快速考试）。 */
+  guard: 'start' | 'end' | 'archive';
   /** 归档守卫用：只有实际结束时间早于这个时刻的才归档。 */
   archiveCutoff?: number;
 };
@@ -123,10 +115,8 @@ async function commitSystemTransition(input: SystemTransitionInput): Promise<boo
         AND (
           (${guard === 'start'}::boolean AND status='published' AND actual_start_at IS NULL
             AND start_at IS NOT NULL AND start_at <= ${now})
-          OR (${guard === 'stop'}::boolean AND status='published' AND (
-            stop_requested_at IS NOT NULL
-            OR (actual_start_at IS NOT NULL AND end_at IS NOT NULL AND end_at + paused_ms <= ${now})
-          ))
+          OR (${guard === 'end'}::boolean AND status='published'
+            AND actual_start_at IS NOT NULL AND end_at IS NOT NULL AND end_at + paused_ms <= ${now})
           OR (${archived}::boolean AND status='ended' AND source='quick'
             AND actual_end_at IS NOT NULL AND actual_end_at <= ${archiveCutoff})
         )
@@ -188,58 +178,33 @@ export async function autoStartDueRecords(now: number = Date.now()): Promise<num
   return startedCount;
 }
 
-type PendingStopRow = {
+type DueEndRow = {
   id?: unknown;
-  name?: unknown;
   actual_start_at?: unknown;
   end_at?: unknown;
   paused_at?: unknown;
   paused_ms?: unknown;
-  stop_requested_at?: unknown;
-  target_grade_ids?: unknown;
-  target_class_ids?: unknown;
 };
-
-type OnlineDeviceRow = {
-  grade_id?: unknown;
-  class_id?: unknown;
-  current_exam?: unknown;
-};
-
-function idList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
 
 /**
- * 系统判定结束：只处理「已申请停止」的考试，判定优先级为
- *   ① 到点（now ≥ endAt + pausedMs）——时间到就结束，不管设备有没有回执；
- *   ② 全员回执——本场范围内的在线设备都不再报这场考试了；
- *   ③ 无设备宽限——范围内一台在线设备都没有，且申请停止已超过 10 分钟（无人监考兜底）。
+ * 系统「到点收场」：已经开考、且 now ≥ effectiveEndAt（end_at + paused_ms）的考试
+ * 由系统落 ended——下课的钟不需要人来敲，晚打开页面也不会把结束时间记晚。
  *
- * 回执信号取自设备心跳里已有的 `current_exam`（客户端上报的考试名）：
- * 只有「在线设备数 > 0 且没有任何一台还在报本场」才算全员回执，
- * 这样既不会在设备短暂离线时误判，也不会因为改名而永远等不到。
+ * 手动结束不在这里：管理员点「结束」直接落 ended（见 planExamOperation），
+ * 不等设备回执、不等宽限、不等这个惰性推进。
  */
 export async function autoEndRequestedRecords(now: number = Date.now()): Promise<number> {
   const sql = database();
-  const pending = (await sql`
-    SELECT id, name, actual_start_at, end_at, paused_at, paused_ms, stop_requested_at,
-      target_grade_ids, target_class_ids
+  const due = (await sql`
+    SELECT id, actual_start_at, end_at, paused_at, paused_ms
     FROM exam_records
     WHERE status = 'published'
-      AND (
-        stop_requested_at IS NOT NULL
-        -- 没有申请停止、但已经开考且到点：下课的钟不需要人来敲，系统直接收场。
-        OR (actual_start_at IS NOT NULL AND end_at IS NOT NULL AND end_at + paused_ms <= ${now})
-      )
+      AND actual_start_at IS NOT NULL
+      AND end_at IS NOT NULL
+      AND end_at + paused_ms <= ${now}
     LIMIT 200
-  `) as unknown as PendingStopRow[];
-  if (!pending.length) return 0;
-  const onlineDevices = (await sql`
-    SELECT grade_id, class_id, current_exam
-    FROM device_instances
-    WHERE last_seen_at >= ${now - DEVICE_ONLINE_WINDOW_MS}
-  `) as unknown as OnlineDeviceRow[];
+  `) as unknown as DueEndRow[];
+  if (!due.length) return 0;
 
   const snapshotRows = (await sql`SELECT majors, updated_at FROM exam_data WHERE id=1`) as unknown as SnapshotRow[];
   const snapshot = snapshotRows[0] ?? {};
@@ -247,19 +212,9 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
   let expectedVersion = number(snapshot.updated_at, 0);
 
   let endedCount = 0;
-  for (const row of pending) {
+  for (const row of due) {
     const recordId = text(row.id);
     if (!recordId) continue;
-    const gradeIds = idList(row.target_grade_ids);
-    const classIds = idList(row.target_class_ids);
-    const inScope = onlineDevices.filter(
-      (device) =>
-        (!gradeIds.length && !classIds.length) ||
-        gradeIds.includes(text(device.grade_id)) ||
-        classIds.includes(text(device.class_id)),
-    );
-    const examName = text(row.name);
-    const stopRequestedAt = number(row.stop_requested_at, now);
     const plan = planAutoEnd(
       {
         status: 'published',
@@ -267,14 +222,8 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
         endAt: row.end_at == null ? null : number(row.end_at, now),
         pausedAt: row.paused_at == null ? null : number(row.paused_at, now),
         pausedMs: number(row.paused_ms, 0),
-        stopRequestedAt,
-        actualEndAt: null,
       },
       now,
-      {
-        allDevicesReported: inScope.length > 0 && inScope.every((device) => text(device.current_exam) !== examName),
-        noDeviceGraceExpired: inScope.length === 0 && now - stopRequestedAt >= STOP_NO_DEVICE_GRACE_MS,
-      },
     );
     if (!plan.ok) continue;
     const index = majors.findIndex((major) => text(major.id) === recordId);
@@ -295,9 +244,10 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
       now,
       action: 'auto_end',
       toStatus: 'ended',
-      reason: `${autoEndReasonText(plan.reason)}（实际结束 ${formatDateTimeInZone(patch.actualEndAt ?? now)}）`,
+      // 系统收场现在只剩「到点」一种原因（手动结束不走这里）。
+      reason: `系统收场：已到结束时间（实际结束 ${formatDateTimeInZone(patch.actualEndAt ?? now)}）`,
       patch,
-      guard: 'stop',
+      guard: 'end',
     });
     if (!written) continue;
     majors = nextMajors;
@@ -360,18 +310,11 @@ export async function archiveFinishedQuickRecords(now: number = Date.now()): Pro
 }
 
 /**
- * 一次惰性推进：开考 → 判定结束 → 归档快速考试。
+ * 一次惰性推进：到点开考 → 到点收场 → 归档快速考试。
  * 读接口与设备心跳都调用这一个入口，避免以后加规则时漏掉某个触发点。
  */
 export async function advanceExamLifecycle(now: number = Date.now()): Promise<void> {
   await autoStartDueRecords(now);
   await autoEndRequestedRecords(now);
   await archiveFinishedQuickRecords(now);
-}
-
-function autoEndReasonText(reason: ExamAutoEndReason | undefined): string {
-  if (reason === 'timeup') return '系统判定：已到结束时间';
-  if (reason === 'receipts') return '系统判定：教室端已全部结束';
-  if (reason === 'no-device-timeout') return '系统判定：已无在线设备';
-  return '系统判定：考试未开考即取消';
 }
