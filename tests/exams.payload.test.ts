@@ -56,6 +56,7 @@ test('examPayload: maps every snake_case DB column to its camelCase API field wi
       ],
       updatedAt: 1700000000100,
     },
+    revisions: { major: 2, classes: 5 },
     updated_at: 1700000000000,
   };
   const payload = examPayload(row);
@@ -103,6 +104,7 @@ test('examPayload: maps every snake_case DB column to its camelCase API field wi
     updatedAt: 1700000000100,
   });
   assert.equal(payload.updatedAt, 1700000000000);
+  assert.deepEqual(payload.revisions, { major: 2, classes: 5 });
 });
 
 test('examPayload: fills in safe defaults for a bare/empty row', () => {
@@ -123,6 +125,7 @@ test('examPayload: fills in safe defaults for a bare/empty row', () => {
   assert.equal(payload.weeklyConflictPolicy, null);
   assert.deepEqual(payload.designPolicy, { rules: [], updatedAt: 0 });
   assert.deepEqual(payload.majorBatchPresets, { subjectGroups: [], timeGroups: [], updatedAt: 0 });
+  assert.deepEqual(payload.revisions, {});
   assert.equal(payload.updatedAt, 0);
 });
 

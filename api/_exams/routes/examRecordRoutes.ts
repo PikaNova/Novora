@@ -941,7 +941,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
           transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
           transaction`
             WITH updated AS (
-              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now}
+              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now},
+                revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object('major', COALESCE((revisions->>'major')::bigint, 0) + 1)
               WHERE id=1 AND updated_at=${expectedVersion}::BIGINT
               RETURNING id
             ), claimed AS (
@@ -1071,7 +1072,8 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
           transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
           transaction`
             WITH updated AS (
-              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now}
+              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now},
+                revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object('major', COALESCE((revisions->>'major')::bigint, 0) + 1)
               WHERE id=1 AND updated_at=${expectedVersion}::BIGINT
               RETURNING id
             ), logged AS (
