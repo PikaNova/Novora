@@ -55,30 +55,33 @@ export default function SchoolAnnouncementPublishDialog({
       <div className="admin-modal admin-modal--wide sann-publish" onClick={(event) => event.stopPropagation()}>
         <h2 className="admin-modal__title">发布前确认</h2>
         <p className="admin-modal__body">确认下面这份内容与投放范围；发出后教室大屏 1 分钟内更新。</p>
-        <dl className="sann-publish__facts">
-          <div>
-            <dt>样式</dt>
-            <dd>{ANNOUNCEMENT_STYLE_LABELS[draft.style]}</dd>
+        {/* 宽屏两栏：左边信息、右边预览各自滚动；窄屏回落单列。 */}
+        <div className="sann-publish__body">
+          <dl className="sann-publish__facts">
+            <div>
+              <dt>样式</dt>
+              <dd>{ANNOUNCEMENT_STYLE_LABELS[draft.style]}</dd>
+            </div>
+            <div>
+              <dt>级别</dt>
+              <dd>{draft.level === 'urgent' ? '紧急（置顶，不可关闭）' : '普通（可关闭）'}</dd>
+            </div>
+            <div>
+              <dt>范围</dt>
+              <dd>{audience}</dd>
+            </div>
+            <div>
+              <dt>有效期</dt>
+              <dd>{expiryLabel}</dd>
+            </div>
+            <div>
+              <dt>投放方式</dt>
+              <dd>{delivery}</dd>
+            </div>
+          </dl>
+          <div className="sann-publish__preview">
+            <SchoolAnnouncementCard item={draft} />
           </div>
-          <div>
-            <dt>级别</dt>
-            <dd>{draft.level === 'urgent' ? '紧急（置顶，不可关闭）' : '普通（可关闭）'}</dd>
-          </div>
-          <div>
-            <dt>范围</dt>
-            <dd>{audience}</dd>
-          </div>
-          <div>
-            <dt>有效期</dt>
-            <dd>{expiryLabel}</dd>
-          </div>
-          <div>
-            <dt>投放方式</dt>
-            <dd>{delivery}</dd>
-          </div>
-        </dl>
-        <div className="sann-publish__preview">
-          <SchoolAnnouncementCard item={draft} />
         </div>
         {error && <div className="admin-error">{error}</div>}
         <div className="admin-modal__actions">

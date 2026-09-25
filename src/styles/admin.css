@@ -987,7 +987,8 @@
 }
 .admin-modal {
   box-sizing: border-box;
-  max-height: calc(100dvh - 48px);
+  /* 普通弹窗统一封顶：内容再多也在窗内滚动，不让弹窗一路顶到屏幕上下边缘（观感太"长条"）。 */
+  max-height: min(88vh, 900px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
