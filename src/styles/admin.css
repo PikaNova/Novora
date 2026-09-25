@@ -6768,20 +6768,26 @@
 }
 .admin-subnav {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   margin: -2px 0 2px 18px;
-  padding-left: 10px;
+  padding-left: 12px;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 .admin-subnav__item {
-  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 12px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: rgba(240, 240, 240, 0.52);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition:
     background 0.15s,
@@ -6795,6 +6801,8 @@
   background: rgba(52, 152, 219, 0.16);
   color: #b9e3ff;
   font-weight: 600;
+  /* 父子同时亮时靠左侧竖条区分层级：主项是整块底色，子项多一条导轨色。 */
+  box-shadow: inset 2px 0 0 #3498db;
 }
 /*
  * 字体分区：后台外壳与教室大屏消费同一组区域变量（设置 → 字体里的导航/标题/正文/数字）。
