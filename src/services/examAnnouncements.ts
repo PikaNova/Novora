@@ -1,5 +1,8 @@
 import { apiErrorFromResponse, networkApiError } from './apiError';
 import {
+  ANNOUNCEMENT_LEVELS,
+  ANNOUNCEMENT_SCOPE_TYPES,
+  ANNOUNCEMENT_STATUSES,
   parseAnnouncementStyle,
   resolveAnnouncementStatus,
   type AnnouncementLevel,
@@ -7,6 +10,12 @@ import {
   type AnnouncementStatus,
   type AnnouncementStyle,
 } from '../shared/examAnnouncementContracts.js';
+import { logger } from '../utils/logger';
+
+/** 契约枚举的成员判断：取值列表来自共享契约，避免各处手抄后漂移。 */
+function isContractValue<T extends string>(allowed: readonly T[], value: unknown): value is T {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value);
+}
 
 /**
  * 学校侧考试公告（T-286-03 一期）。
@@ -82,19 +91,36 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
   const row = raw as Record<string, unknown>;
   const id = typeof row.id === 'string' ? row.id : '';
   if (!id) return null;
-  const scopeType = row.scopeType === 'grade' || row.scopeType === 'class' ? row.scopeType : 'all';
+  /**
+   * 范围是最不能"猜"的字段：以前用两个字面量判断，未知值一律当全校——
+   * 服务端以后加了新范围（例如楼栋），旧客户端会把定向公告当成全校广播发出去。
+   * 现在按契约取值判断，遇到不认识的值既保留可读兜底、也打一条 warn，让漂移看得见。
+   */
+  const scopeType = isContractValue(ANNOUNCEMENT_SCOPE_TYPES, row.scopeType) ? row.scopeType : 'all';
+  if (row.scopeType != null && row.scopeType !== '' && scopeType !== row.scopeType) {
+    logger.warn('[exam-announcements] 未知的公告范围，已按全校处理（客户端契约可能落后于服务端）', {
+      scopeType: String(row.scopeType),
+      announcementId: id,
+    });
+  }
+  const level = isContractValue(ANNOUNCEMENT_LEVELS, row.level) ? row.level : 'normal';
+  if (row.level != null && row.level !== '' && level !== row.level) {
+    logger.warn('[exam-announcements] 未知的公告级别，已按普通处理', {
+      level: String(row.level),
+      announcementId: id,
+    });
+  }
   const expiresAt = typeof row.expiresAt === 'number' ? row.expiresAt : null;
   return {
     id,
     title: typeof row.title === 'string' ? row.title : '',
     body: typeof row.body === 'string' ? row.body : '',
-    level: row.level === 'urgent' ? 'urgent' : 'normal',
+    level,
     style: parseAnnouncementStyle(row.style),
     // 服务端已经算好展示状态；旧实例没这一列时按 expiresAt 兜底，避免状态一直显示"生效中"。
-    status:
-      row.status === 'active' || row.status === 'expired' || row.status === 'revoked'
-        ? row.status
-        : resolveAnnouncementStatus({ status: 'sent', expiresAt }, Date.now()),
+    status: isContractValue(ANNOUNCEMENT_STATUSES, row.status)
+      ? row.status
+      : resolveAnnouncementStatus({ status: 'sent', expiresAt }, Date.now()),
     examId: typeof row.examId === 'string' && row.examId ? row.examId : null,
     scopeType,
     scopeIds: Array.isArray(row.scopeIds)

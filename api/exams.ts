@@ -29,7 +29,10 @@ import { handleDeviceBinding, handleDeviceHeartbeat } from './_exams/routes/devi
 import { handleDesignPolicy, handleMajorBatchPresets, handleResetData } from './_exams/routes/settingsRoutes.js';
 import { handleDashboard } from './_exams/routes/dashboardRoutes.js';
 import { EXAM_RECORD_GET_RESOURCES, handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
-import { handleExamAnnouncementRoute } from './_exams/routes/examAnnouncementRoutes.js';
+import {
+  EXAM_ANNOUNCEMENT_GET_RESOURCES,
+  handleExamAnnouncementRoute,
+} from './_exams/routes/examAnnouncementRoutes.js';
 
 type RouteHandler = (req: VercelRequest, res: VercelResponse, startedAt: number) => Promise<void>;
 
@@ -170,7 +173,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res);
         return;
       }
-      if (resource === 'announcements' || resource === 'device-announcements' || resource === 'announcement-image') {
+      // 同上：归属名单来自公告路由模块，入口不再手写。
+      if (EXAM_ANNOUNCEMENT_GET_RESOURCES.has(resource)) {
         await handleExamAnnouncementRoute(req, res);
         return;
       }

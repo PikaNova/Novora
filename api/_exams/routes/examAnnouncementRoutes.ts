@@ -366,6 +366,22 @@ async function handleAnnouncementImage(req: VercelRequest, res: VercelResponse):
   });
 }
 
+/**
+ * 公告路由负责的 GET resource → 处理函数。
+ * 与考试记录那条线同一个理由：入口（api/exams.ts）的分发直接读这张表导出的名单，
+ * 不在这里写一遍 if、入口再手抄一份——手抄就会漏，漏了请求会静默掉到快照接口。
+ */
+const ANNOUNCEMENT_GET_HANDLERS: Record<string, (req: VercelRequest, res: VercelResponse) => Promise<void>> = {
+  announcements: handleAnnouncementList,
+  'device-announcements': handleDeviceAnnouncements,
+};
+
+/** 入口分发用：这些 resource 归公告路由处理（含任意方法都归它的 announcement-image）。 */
+export const EXAM_ANNOUNCEMENT_GET_RESOURCES: ReadonlySet<string> = new Set([
+  ...Object.keys(ANNOUNCEMENT_GET_HANDLERS),
+  'announcement-image',
+]);
+
 export async function handleExamAnnouncementRoute(
   req: VercelRequest,
   res: VercelResponse,
@@ -380,13 +396,12 @@ export async function handleExamAnnouncementRoute(
     await handleAnnouncementImage(req, res);
     return;
   }
-  if (req.method === 'GET' && resource === 'device-announcements') {
-    await handleDeviceAnnouncements(req, res);
-    return;
-  }
-  if (req.method === 'GET' && resource === 'announcements') {
-    await handleAnnouncementList(req, res);
-    return;
+  if (req.method === 'GET') {
+    const getHandler = ANNOUNCEMENT_GET_HANDLERS[resource];
+    if (getHandler) {
+      await getHandler(req, res);
+      return;
+    }
   }
   if (actionName === 'announce-send' || text(req.body?.action) === 'announce-send') {
     await handleAnnouncementSend(req, res);
