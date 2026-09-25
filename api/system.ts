@@ -18,6 +18,7 @@ import { resolveSubRoute } from './_routeMatch.js';
 import { handleTime } from './_system/time.js';
 import { handleUpdateCheck } from './_system/updateCheck.js';
 import { handleRedeploy } from './_system/redeploy.js';
+import { resolveBuildCommit } from './_buildInfo.js';
 
 let cachedVersion: string | null = null;
 function readVersionFrom(url: URL): string | null {
@@ -148,6 +149,7 @@ async function handleHealth(req: VercelRequest, res: VercelResponse): Promise<vo
       ok: schemaOk,
       status: schemaOk ? 'ok' : 'degraded',
       version: appVersion(),
+      commit: resolveBuildCommit(),
       serverTime: new Date().toISOString(),
       latencyMs,
       schemaVersion: schemaState.version,
