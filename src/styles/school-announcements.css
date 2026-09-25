@@ -421,11 +421,52 @@
 }
 /* ===== 回执明细弹窗 ===== */
 .sann-receipts {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  /* 同时挂着 .admin-modal--wide（max-width: 620px）：不覆盖宽度的话两栏会挤成一团 */
+  width: min(1080px, calc(100vw - 48px));
+  max-width: min(1080px, calc(100vw - 48px));
+  max-height: min(88vh, 860px);
+  overflow: hidden;
+}
+/* 宽屏两栏：左栏统计/班级分组、右栏设备明细各自滚动；窄屏回落单列（整块滚动）。 */
+.sann-receipts__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+.sann-receipts__side,
+.sann-receipts__main {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-height: min(88vh, 900px);
-  overflow: hidden;
+  gap: 12px;
+  min-height: 0;
+}
+.sann-receipts__main {
+  gap: 10px;
+}
+@media (min-width: 980px) {
+  .sann-receipts__body {
+    grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+    overflow: hidden;
+  }
+  .sann-receipts__side {
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .sann-receipts__main {
+    overflow: hidden;
+  }
+  /* 侧栏只有 ~300px，四个统计块挤一行会折字，改成 2×2。 */
+  .sann-receipts__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sann-receipts__table {
+    flex: 1 1 auto;
+  }
 }
 .sann-receipts__head {
   display: flex;
@@ -563,11 +604,29 @@
   margin-top: 14px;
 }
 /* ===== 发布前确认窗 ===== */
+.sann-publish {
+  /* 同为公告类弹窗：宽屏两栏（左信息右预览），窄屏单列；给整窗一个高度上限，别一路往下拉长。 */
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  width: min(1040px, calc(100vw - 48px));
+  max-width: min(1040px, calc(100vw - 48px));
+  max-height: min(88vh, 820px);
+  overflow: hidden;
+}
+.sann-publish__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
 .sann-publish__facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
-  margin: 0 0 14px;
+  margin: 0;
+  align-content: start;
 }
 .sann-publish__facts > div {
   padding: 8px 12px;
@@ -598,6 +657,21 @@
 }
 .sann-publish__preview .sann-view.is-poster .sann-view__title {
   font-size: 32px;
+}
+@media (min-width: 980px) {
+  .sann-publish__body {
+    grid-template-columns: minmax(240px, 0.78fr) minmax(0, 1.22fr);
+    overflow: hidden;
+  }
+  /* 侧栏窄，信息卡竖排；预览区自己滚动。 */
+  .sann-publish__facts {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .sann-publish__preview {
+    max-height: none;
+    overflow: auto;
+  }
 }
 
 @media (max-width: 1000px) {

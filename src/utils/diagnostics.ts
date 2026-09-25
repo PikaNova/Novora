@@ -12,6 +12,7 @@
 import { getAppSettings } from './appSettings';
 import { getDiagnosticCaptureConfig, getLocalLogEntries } from './logger';
 import { getSyncQueueSnapshot, subscribeSyncQueue } from '../services/syncQueue';
+import { examSaveMetricsContext } from '../services/examSaveMetrics';
 import type { ErrorReportContext } from '../shared/errorReportContracts';
 
 export type DiagnosticLevel = 'info' | 'warn' | 'error';
@@ -251,6 +252,9 @@ export function collectSyncState(): ErrorReportContext | null {
       elapsedMs: snapshot.elapsedMs,
       waveTotal: snapshot.waveTotal,
       waveCompleted: snapshot.waveCompleted,
+      // 保存通道的累计指标（提交次数、字节分位、冲突域分布）：作者端据此判断提交瘦身与
+      // 域级版本在真实学校里的效果，不必再靠开发者控制台。
+      ...examSaveMetricsContext(),
     };
   } catch {
     return null;

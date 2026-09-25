@@ -206,91 +206,97 @@ export default function SchoolAnnouncementReceiptsDialog({ announcementId, title
             <p>没有读到回执。</p>
           </div>
         ) : (
-          <>
-            <div className="sann-receipts__stats">
-              <div>
-                <span>应达教室</span>
-                <strong>{summary?.target ?? 0}</strong>
+          // 宽屏两栏：左栏统计与班级分组，右栏设备明细各自滚动；
+          // 窄屏回落单列（整块滚动）。以前是 620px 窄柱一路往下排，页越长越难看。
+          <div className="sann-receipts__body">
+            <aside className="sann-receipts__side">
+              <div className="sann-receipts__stats">
+                <div>
+                  <span>应达教室</span>
+                  <strong>{summary?.target ?? 0}</strong>
+                </div>
+                <div>
+                  <span>已送达</span>
+                  <strong>{summary?.delivered ?? 0}</strong>
+                </div>
+                <div className="is-primary">
+                  <span>已读（≥3 秒）</span>
+                  <strong>
+                    {summary?.seen ?? 0}
+                    <small> · {rate}%</small>
+                  </strong>
+                </div>
+                <div>
+                  <span>还没看</span>
+                  <strong>{Math.max(0, (summary?.target ?? 0) - (summary?.seen ?? 0))}</strong>
+                </div>
               </div>
-              <div>
-                <span>已送达</span>
-                <strong>{summary?.delivered ?? 0}</strong>
+              <div className="sann-receipts__bar" role="img" aria-label={`已读 ${rate}%`}>
+                <span style={{ width: `${rate}%` }} />
               </div>
-              <div className="is-primary">
-                <span>已读（≥3 秒）</span>
-                <strong>
-                  {summary?.seen ?? 0}
-                  <small> · {rate}%</small>
-                </strong>
-              </div>
-              <div>
-                <span>还没看</span>
-                <strong>{Math.max(0, (summary?.target ?? 0) - (summary?.seen ?? 0))}</strong>
-              </div>
-            </div>
-            <div className="sann-receipts__bar" role="img" aria-label={`已读 ${rate}%`}>
-              <span style={{ width: `${rate}%` }} />
-            </div>
 
-            {groups.length > 0 && (
-              <div className="sann-receipts__groups">
-                {groups.map((group) => (
-                  <span key={group.label} className={group.seen >= group.target ? 'is-done' : undefined}>
-                    {group.label} {group.seen}/{group.target}
-                  </span>
-                ))}
+              {groups.length > 0 && (
+                <div className="sann-receipts__groups">
+                  {groups.map((group) => (
+                    <span key={group.label} className={group.seen >= group.target ? 'is-done' : undefined}>
+                      {group.label} {group.seen}/{group.target}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </aside>
+
+            <section className="sann-receipts__main">
+              <div className="sann-receipts__toolbar">
+                <InlineSelect value={view} ariaLabel="按回执状态筛选" onChange={setView} options={VIEW_OPTIONS} />
+                <span className="sann-note">
+                  共 {data.receipts.length} 台设备 · 当前筛选 {rows.length} 台
+                </span>
               </div>
-            )}
 
-            <div className="sann-receipts__toolbar">
-              <InlineSelect value={view} ariaLabel="按回执状态筛选" onChange={setView} options={VIEW_OPTIONS} />
-              <span className="sann-note">
-                共 {data.receipts.length} 台设备 · 当前筛选 {rows.length} 台
-              </span>
-            </div>
-
-            {rows.length === 0 ? (
-              <div className="sann-empty">这个筛选下没有设备。</div>
-            ) : (
-              <div className="sann-receipts__table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>教室</th>
-                      <th>状态</th>
-                      <th>首次已读</th>
-                      <th>累计时长</th>
-                      <th>次数</th>
-                      <th>设备</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((item) => (
-                      <tr key={item.instanceId} className={item.state === 'seen' ? 'is-seen' : undefined}>
-                        <td>{item.label}</td>
-                        <td>
-                          <span
-                            className={`sann-badge${
-                              item.state === 'seen' ? ' is-active' : item.state === 'delivered' ? '' : ' is-warn'
-                            }`}
-                          >
-                            {item.state === 'seen' ? '已读' : item.state === 'delivered' ? '已送达未看' : '未送达'}
-                          </span>
-                        </td>
-                        <td>{item.firstSeenAt ? formatDateTimeInZone(item.firstSeenAt) : '—'}</td>
-                        <td>{durationText(item.seenMs)}</td>
-                        <td>{item.seenCount || '—'}</td>
-                        <td className="sann-receipts__device">
-                          <code>{item.instanceId}</code>
-                          {item.clientVersion && <small>{item.clientVersion}</small>}
-                        </td>
+              {rows.length === 0 ? (
+                <div className="sann-empty">这个筛选下没有设备。</div>
+              ) : (
+                <div className="sann-receipts__table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>教室</th>
+                        <th>状态</th>
+                        <th>首次已读</th>
+                        <th>累计时长</th>
+                        <th>次数</th>
+                        <th>设备</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
+                    </thead>
+                    <tbody>
+                      {rows.map((item) => (
+                        <tr key={item.instanceId} className={item.state === 'seen' ? 'is-seen' : undefined}>
+                          <td>{item.label}</td>
+                          <td>
+                            <span
+                              className={`sann-badge${
+                                item.state === 'seen' ? ' is-active' : item.state === 'delivered' ? '' : ' is-warn'
+                              }`}
+                            >
+                              {item.state === 'seen' ? '已读' : item.state === 'delivered' ? '已送达未看' : '未送达'}
+                            </span>
+                          </td>
+                          <td>{item.firstSeenAt ? formatDateTimeInZone(item.firstSeenAt) : '—'}</td>
+                          <td>{durationText(item.seenMs)}</td>
+                          <td>{item.seenCount || '—'}</td>
+                          <td className="sann-receipts__device">
+                            <code>{item.instanceId}</code>
+                            {item.clientVersion && <small>{item.clientVersion}</small>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
         )}
       </div>
     </AdminModalPortal>

@@ -3,11 +3,8 @@ import test from 'node:test';
 // 先装浏览器常量/存储，再引服务（ESM 按 import 顺序求值）。
 import './helpers/browserGlobals.js';
 
-const {
-  ANNOUNCEMENT_LEVELS,
-  ANNOUNCEMENT_SCOPE_TYPES,
-  ANNOUNCEMENT_STATUSES,
-} = await import('../src/shared/examAnnouncementContracts.js');
+const { ANNOUNCEMENT_LEVELS, ANNOUNCEMENT_SCOPE_TYPES, ANNOUNCEMENT_STATUSES } =
+  await import('../src/shared/examAnnouncementContracts.js');
 const { fetchDeviceExamAnnouncements } = await import('../src/services/examAnnouncements.js');
 
 /**
@@ -55,7 +52,12 @@ async function parseAll(rows: Array<Record<string, unknown>>) {
 
 test('公告范围：契约里的每种范围都原样解析，不会被改写成全校', async () => {
   const rows = ANNOUNCEMENT_SCOPE_TYPES.map((scopeType, index) =>
-    announcementRow({ id: `ann-${scopeType}`, scopeType, scopeIds: scopeType === 'all' ? [] : ['g1'], sortOrder: index }),
+    announcementRow({
+      id: `ann-${scopeType}`,
+      scopeType,
+      scopeIds: scopeType === 'all' ? [] : ['g1'],
+      sortOrder: index,
+    }),
   );
   const parsed = await parseAll(rows);
   assert.deepEqual(
@@ -67,7 +69,9 @@ test('公告范围：契约里的每种范围都原样解析，不会被改写�
 
 test('公告级别与状态：契约里的每种取值都原样解析', async () => {
   const rows = [
-    ...ANNOUNCEMENT_LEVELS.map((level, index) => announcementRow({ id: `ann-level-${level}`, level, sortOrder: index })),
+    ...ANNOUNCEMENT_LEVELS.map((level, index) =>
+      announcementRow({ id: `ann-level-${level}`, level, sortOrder: index }),
+    ),
     ...ANNOUNCEMENT_STATUSES.map((status, index) =>
       announcementRow({ id: `ann-status-${status}`, status, sortOrder: 10 + index }),
     ),

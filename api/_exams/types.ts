@@ -19,6 +19,8 @@ export type ExamRow = {
   major_batch_presets?: unknown;
   exam_metadata?: unknown;
   lifecycle?: unknown;
+  /** 域级修订号（v2.8.8）：`{ major: 3, weekly: 7, ... }`，用于按域判定并发冲突。 */
+  revisions?: unknown;
   updated_at?: number | string | null;
   bound_grade_id?: string | null;
   bound_class_id?: string | null;
@@ -26,7 +28,7 @@ export type ExamRow = {
   binding_is_management?: boolean | null;
 };
 
-export type UpdatedRow = { updated_at: number | string };
+export type UpdatedRow = { updated_at: number | string; revisions?: unknown };
 
 export type PluginInstanceRow = {
   plugin_instance_id: string;

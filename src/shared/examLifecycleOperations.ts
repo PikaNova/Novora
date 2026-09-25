@@ -28,7 +28,7 @@ export const MAX_EXTEND_MINUTES = 600;
 
 type PlanInput = Pick<
   ExamRecord,
-  'status' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt'
+  'status' | 'startAt' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs' | 'stopRequestedAt'
 >;
 
 export function planExamOperation(
@@ -41,11 +41,24 @@ export function planExamOperation(
   const at = input.at;
 
   switch (input.action) {
-    case 'pause':
+    case 'pause': {
       if (!live) return illegal('只有进行中的考试可以暂停');
-      if (record.actualStartAt == null) return illegal('考试还未开考');
       if (pausedAt != null) return illegal('考试已在暂停中');
-      return { ok: true, patch: { pausedAt: at } };
+      /**
+       * 手动暂停**不等系统的到点校验**：管理员按下暂停就该停。
+       *
+       * 自动开考（planAutoStart）是惰性的——靠读接口 / 设备心跳触发，没人打开页面时
+       * `actualStartAt` 会一直是空，于是「暂停」按钮根本不出现、接口也报「考试还未开考」。
+       * 处理方式：没开考就先补开考时间，保持「暂停中必然已开考」这条不变量成立：
+       *   - 计划开始时间已过 → 补记计划时间（等于把漏掉的自动开考补上，开考时间仍然准）；
+       *   - 还没到点 → 记此刻（提前开考，随后立即暂停）。
+       */
+      const patch: ExamOperationPatch = { pausedAt: at };
+      if (record.actualStartAt == null) {
+        patch.actualStartAt = record.startAt != null && record.startAt <= at ? record.startAt : at;
+      }
+      return { ok: true, patch };
+    }
     case 'resume':
       if (!live) return illegal('只有进行中的考试可以继续');
       if (pausedAt == null) return illegal('考试当前不在暂停中');

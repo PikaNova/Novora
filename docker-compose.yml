@@ -37,6 +37,8 @@
       context: .
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        # 部署时把当前 commit 传进来（update-local 会自动注入），健康检查据此自报版本。
+        COMMIT_SHA: ${COMMIT_SHA:-}
     restart: unless-stopped
     ports:
       - '${PORT:-3000}:3000'
@@ -44,6 +46,7 @@
       # 容器内固定监听 3000（覆盖 .env 里的 PORT，避免与端口映射错位）；
       # 宿主机端口仍由 .env 的 PORT 控制。
       PORT: 3000
+      COMMIT_SHA: ${COMMIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-novora}:${POSTGRES_PASSWORD:-novora}@db:5432/${POSTGRES_DB:-novora}
     env_file:
       - .env

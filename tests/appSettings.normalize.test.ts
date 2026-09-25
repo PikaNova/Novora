@@ -16,6 +16,48 @@ import {
 import { normalizeDesignPolicy } from '../src/utils/settings/design.js';
 import { normalizeMajorBatchSettings } from '../src/utils/settings/majorBatch.js';
 
+test('normalizeExam: 不丢服务端写入的生命周期字段（暂停/延长/归档/发布…）', () => {
+  const normalized = normalizeExam({
+    majors: [
+      {
+        id: 'major-1',
+        name: '大型考试',
+        items: [],
+        order: 0,
+        startAt: 1000,
+        endAt: 2000,
+        actualStartAt: 1500,
+        pausedAt: 1600,
+        pausedMs: 5000,
+        publishedAt: 900,
+        endedAt: 2100,
+        archivedAt: 2200,
+        draft: true,
+        somethingNewFromServer: 'keep-me',
+      },
+    ],
+    activeMajorId: 'major-1',
+  });
+  const major = normalized.majors[0] as unknown as Record<string, unknown>;
+  assert.equal(major.startAt, 1000);
+  assert.equal(major.endAt, 2000, '延长/窗口字段不能在加载时被丢掉');
+  assert.equal(major.actualStartAt, 1500);
+  assert.equal(major.pausedAt, 1600, '暂停状态丢了教室端就冻结不了倒计时');
+  assert.equal(major.pausedMs, 5000);
+  assert.equal(major.publishedAt, 900);
+  assert.equal(major.endedAt, 2100);
+  assert.equal(major.archivedAt, 2200, '归档标记丢了还会反复弹「已归档：修改没有生效」');
+  assert.equal(major.draft, true);
+  assert.equal(major.somethingNewFromServer, 'keep-me', '未知字段也不该被静默截断');
+});
+
+test('normalizeExam: 缺失的时间字段不会被补成 null（保持"没有"）', () => {
+  const normalized = normalizeExam({ majors: [{ id: 'm', name: 'x', items: [], order: 0 }], activeMajorId: 'm' });
+  const major = normalized.majors[0] as unknown as Record<string, unknown>;
+  assert.equal(major.startAt, undefined);
+  assert.equal(major.archivedAt, undefined);
+  assert.equal(major.publishedAt, undefined);
+});
 // ---------- normalizeAlerts ----------
 
 test('normalizeAlerts: fills in every default when raw is missing', () => {
