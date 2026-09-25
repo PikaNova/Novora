@@ -226,17 +226,29 @@ export async function changeOwnCredentials(
   return String(data.username || username);
 }
 
+export type SaveManagedRoleResult = {
+  roles: ManagedRole[];
+  /** 权限真的变了时，服务端会让该角色的在线账号重新登录；这是受影响的账号数。 */
+  sessionsInvalidated: number;
+};
+
 export async function saveManagedRole(input: {
   id?: string;
   name: string;
   description: string;
   permissions: string[];
-}): Promise<ManagedRole[]> {
+}): Promise<SaveManagedRoleResult> {
   const data = await request('/api/users', {
     method: 'POST',
     body: JSON.stringify({ resource: 'roles', action: 'save', ...input }),
   });
-  return parseList(data.roles, parseManagedRole);
+  return {
+    roles: parseList(data.roles, parseManagedRole),
+    sessionsInvalidated:
+      typeof data.sessionsInvalidated === 'number' && Number.isFinite(data.sessionsInvalidated)
+        ? data.sessionsInvalidated
+        : 0,
+  };
 }
 
 export async function deleteManagedRole(id: string): Promise<ManagedRole[]> {

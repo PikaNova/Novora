@@ -554,6 +554,56 @@ test('database users route: role changes invalidate the old token', async () => 
   assert.equal(await getActor(target.token), null);
 });
 
+test('database roles route: 权限变化让该角色的账号重新登录，只改说明不动会话', async () => {
+  const roleName = `权限探针角色-${Date.now().toString(36)}`;
+  const created = await postUser(admin.token, {
+    resource: 'roles',
+    action: 'save',
+    name: roleName,
+    description: 'integration probe',
+    permissions: ['overview.read'],
+  });
+  assert.equal(created.statusCode, 200);
+  const roleId = (created.body?.roles as Array<{ id: string; name: string }>).find(
+    (role) => role.name === roleName,
+  )?.id;
+  assert.ok(roleId, '新建的角色必须出现在返回列表里');
+
+  const member = await createUser('role-perm-member', roleId, [{ type: 'grade', gradeId: 'g1' }]);
+  assert.ok(await getActor(member.token), '改权限之前该账号的令牌可用');
+
+  // 只改说明：不动会话
+  const renamed = await postUser(admin.token, {
+    resource: 'roles',
+    action: 'save',
+    id: roleId,
+    name: roleName,
+    description: 'integration probe v2',
+    permissions: ['overview.read'],
+  });
+  assert.equal(renamed.statusCode, 200);
+  assert.equal(Number(renamed.body?.sessionsInvalidated ?? -1), 0, '只改说明不该踢人');
+  assert.ok(await getActor(member.token), '只改说明时令牌仍然可用');
+
+  // 改权限：该角色的账号必须重新登录（客户端权限是登录时缓存的，不失效就会前端后端不一致）
+  const changed = await postUser(admin.token, {
+    resource: 'roles',
+    action: 'save',
+    id: roleId,
+    name: roleName,
+    description: 'integration probe v2',
+    permissions: ['overview.read', 'major.read'],
+  });
+  assert.equal(changed.statusCode, 200);
+  assert.equal(Number(changed.body?.sessionsInvalidated), 1, '应当报告 1 个会话被失效');
+  assert.equal(await getActor(member.token), null, '旧令牌必须失效');
+
+  const versions = (await authSql()`SELECT token_version FROM app_users WHERE id=${member.id}`) as unknown as Array<{
+    token_version: number;
+  }>;
+  assert.equal(Number(versions[0]?.token_version), 2, 'token_version 应当 +1');
+});
+
 test('database audit route: an all-scope administrator receives recent login failure alerts', async () => {
   const now = Date.now();
   for (const offset of [0, 1_000, 2_000]) {

@@ -16,7 +16,6 @@ import {
   type AuditLog,
   type ManagedRole,
   type ManagedUser,
-  AdminApiError,
 } from '../services/adminUsers';
 import type { ClassPickerOption } from './ClassMultiPicker';
 import AuditSection from './user-management/AuditSection';
@@ -33,14 +32,18 @@ import UserListSection from './user-management/UserListSection';
 import {
   generateTemporaryPassword,
   draftScopes,
+  routeAdminApiError,
   validateUserDraftFields,
   validateUserScopes,
 } from './user-management/helpers';
 import type { UserDraft, RoleDraft, PasswordDraft, BatchUserDraft, BatchCredential } from './user-management/types';
 import AccountEmailBinding from './AccountEmailBinding';
 import { confirmDialog } from '../services/appDialog';
+import { notify } from '../services/notify';
 import { ROLE_MODULES, PERMISSION_GROUPS, type RoleLevel } from '../constants/permissions';
 import {
+  canGrantModuleLevel,
+  computeDelegablePermissionSet,
   computeUserManagementPermissionFlags,
   computeUserManagementScopeAccess,
 } from '../services/userManagementAccess';
@@ -67,6 +70,14 @@ export default function UserManagementPanel({
   const current = currentUser ?? getAdminUser();
   const { canReadUsers, canCreateUser, canEditUser, canResetPassword, canDeleteUser, canManageRoles, canReadAudit } =
     computeUserManagementPermissionFlags(current);
+  /**
+   * 统一的失败出口：面板横幅 + toast。
+   * 弹窗打开时横幅被遮罩盖住，只有 toast 能保证用户一定看得到"为什么没保存"。
+   */
+  const announceFailure = useCallback((title: string, message: string) => {
+    setMessage(message);
+    notify('error', message, title);
+  }, []);
   const [section, setSection] = useState<Section>('users');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roles, setRoles] = useState<ManagedRole[]>([]);
@@ -81,6 +92,8 @@ export default function UserManagementPanel({
   const [batchUserWizardStep, setBatchUserWizardStep] = useState(0);
   const [batchCredentials, setBatchCredentials] = useState<BatchCredential[] | null>(null);
   const [userErrors, setUserErrors] = useState<Record<string, string>>({});
+  /** 用户向导的表单级错误：只写面板横幅会被弹窗遮罩盖住，所以单独留一个弹窗内的位置。 */
+  const [userFormError, setUserFormError] = useState('');
   const [roleError, setRoleError] = useState('');
   const [batchUserError, setBatchUserError] = useState('');
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
@@ -180,6 +193,16 @@ export default function UserManagementPanel({
     grades,
     classes,
   );
+  /**
+   * 当前账号能授出的权限集合（`*` → null 表示全部）。
+   * 与服务端 `canDelegatePermissions` 同一口径：前端不该让人勾出服务端必然拒绝的组合。
+   */
+  const delegablePermissions = useMemo(() => computeDelegablePermissionSet(current), [current]);
+  const canGrantLevel = useCallback(
+    (module: (typeof ROLE_MODULES)[number], level: RoleLevel) =>
+      canGrantModuleLevel(delegablePermissions, module, level),
+    [delegablePermissions],
+  );
   const classPickerOptions = useMemo<ClassPickerOption[]>(
     () =>
       visibleClasses.map((item) => ({
@@ -192,6 +215,7 @@ export default function UserManagementPanel({
   );
   const beginCreateUser = () => {
     setUserErrors({});
+    setUserFormError('');
     setUserDraft({
       username: '',
       displayName: '',
@@ -205,6 +229,7 @@ export default function UserManagementPanel({
   };
   const beginEditUser = (user: ManagedUser) => {
     setUserErrors({});
+    setUserFormError('');
     setUserDraft({
       id: user.id,
       username: user.username,
@@ -225,11 +250,13 @@ export default function UserManagementPanel({
     if (scopeError) errors.scopes = scopeError;
     if (Object.keys(errors).length) {
       setUserErrors(errors);
+      setUserFormError('');
       if (errors.scopes) setUserWizardStep(1);
       return;
     }
     setBusy(true);
     setMessage('');
+    setUserFormError('');
     try {
       const next = await saveManagedUser({
         action: userDraft.id ? 'update' : 'create',
@@ -245,10 +272,15 @@ export default function UserManagementPanel({
       setUserDraft(null);
       setMessage(userDraft.id ? '用户权限已更新，原登录会话已失效。' : '用户已创建，首次登录必须修改密码。');
     } catch (error) {
-      if (error instanceof AdminApiError && error.field) {
-        setUserErrors({ [error.field]: error.message });
-        if (error.field === 'scopes') setUserWizardStep(1);
-      } else setMessage(error instanceof Error ? error.message : '保存失败');
+      const routed = routeAdminApiError(error, '保存失败');
+      if (routed.formLevel) {
+        // 没有具体字段的错误显示在弹窗顶部，并补一条 toast：横幅在弹窗后面看不见。
+        setUserFormError(routed.message);
+        announceFailure('保存管理员失败', routed.message);
+      } else {
+        setUserErrors({ [routed.field]: routed.message });
+        if (routed.field === 'scopes') setUserWizardStep(1);
+      }
     } finally {
       setBusy(false);
     }
@@ -272,6 +304,7 @@ export default function UserManagementPanel({
     }
     setBusy(true);
     setMessage('');
+    setBatchUserError('');
     let completed = 0;
     let latest = users;
     const created: BatchCredential[] = [];
@@ -307,7 +340,10 @@ export default function UserManagementPanel({
       setMessage(`已创建 ${completed} 个班级管理员账号，首次登录均需设置自己的用户名和新密码。`);
     } catch (error) {
       setUsers(latest);
-      setMessage(`已创建 ${completed} 个账号，随后停止：${error instanceof Error ? error.message : '创建失败'}`);
+      const message = `已创建 ${completed} 个账号，随后停止：${error instanceof Error ? error.message : '创建失败'}`;
+      // 向导这时还开着，提示必须留在向导里（顺带补一条 toast）。
+      setBatchUserError(message);
+      announceFailure('批量创建未完成', message);
     } finally {
       setBusy(false);
     }
@@ -340,12 +376,28 @@ export default function UserManagementPanel({
     if (!roleDraft) return;
     setBusy(true);
     setMessage('');
+    setRoleError('');
     try {
-      setRoles(await saveManagedRole(roleDraft));
+      const { roles: nextRoles, sessionsInvalidated } = await saveManagedRole(roleDraft);
+      setRoles(nextRoles);
       setRoleDraft(null);
-      setMessage('角色权限已保存。');
+      setMessage(
+        sessionsInvalidated > 0
+          ? `角色权限已保存。该角色的 ${sessionsInvalidated} 个账号需要重新登录才能拿到新权限。`
+          : '角色权限已保存。',
+      );
+      if (sessionsInvalidated > 0) {
+        notify(
+          'warning',
+          `该角色下有 ${sessionsInvalidated} 个账号的登录已失效，重新登录后按新权限生效。`,
+          '角色权限已更新',
+        );
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '角色保存失败');
+      // 写进弹窗自己的错误位：面板横幅被弹窗遮罩挡着，用户看不到任何提示。
+      const message = routeAdminApiError(error, '角色保存失败').message;
+      setRoleError(message);
+      announceFailure('角色保存失败', message);
     } finally {
       setBusy(false);
     }
@@ -403,7 +455,7 @@ export default function UserManagementPanel({
     setBusy(true);
     setMessage('');
     try {
-      const next = await saveManagedRole(matrixDraft);
+      const { roles: next, sessionsInvalidated } = await saveManagedRole(matrixDraft);
       setRoles(next);
       const saved = next.find((role) => role.id === matrixDraft.id);
       setMatrixDraft(
@@ -416,9 +468,21 @@ export default function UserManagementPanel({
             }
           : null,
       );
-      setMessage('角色权限已保存。');
+      setMessage(
+        sessionsInvalidated > 0
+          ? `角色权限已保存。该角色的 ${sessionsInvalidated} 个账号需要重新登录才能拿到新权限。`
+          : '角色权限已保存。',
+      );
+      if (sessionsInvalidated > 0) {
+        notify(
+          'warning',
+          `该角色下有 ${sessionsInvalidated} 个账号的登录已失效，重新登录后按新权限生效。`,
+          '角色权限已更新',
+        );
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '角色保存失败');
+      // 矩阵在面板里，横幅可见；仍然补 toast 以免页面滚动到别处时漏看。
+      announceFailure('角色保存失败', routeAdminApiError(error, '角色保存失败').message);
     } finally {
       setBusy(false);
     }
@@ -789,6 +853,7 @@ export default function UserManagementPanel({
           setRoleError={setRoleError}
           setRoleDraft={setRoleDraft}
           rolePermissionGroups={rolePermissionGroups}
+          canGrantLevel={canGrantLevel}
         />
       ) : (
         <AuditSection logs={logs} />
@@ -874,6 +939,8 @@ export default function UserManagementPanel({
           setUserWizardStep={setUserWizardStep}
           userErrors={userErrors}
           setUserErrors={setUserErrors}
+          formError={userFormError}
+          setFormError={setUserFormError}
           busy={busy}
           classPickerOptions={classPickerOptions}
           visibleGrades={visibleGrades}
@@ -894,6 +961,7 @@ export default function UserManagementPanel({
           setRoleModuleLevel={setRoleModuleLevel}
           submitRole={submitRole}
           busy={busy}
+          canGrantLevel={canGrantLevel}
         />
       )}
       {resetTarget && (

@@ -1,7 +1,28 @@
 import type { SchoolClass, SchoolGrade } from '../../types/school';
 import type { AdminScope } from '../../services/examService';
 import type { ManagedUser } from '../../services/adminUsers';
+import { AdminApiError } from '../../services/adminUsers';
 import type { UserDraft } from './types';
+
+export type RoutedAdminError = {
+  /** 落到哪个字段；`_form` 表示表单级（弹窗顶部）。 */
+  field: string;
+  message: string;
+  formLevel: boolean;
+};
+
+/**
+ * 把接口错误路由到该显示的位置。
+ *
+ * 以前只有 `error.field` 存在时才显示在弹窗里，其余全部写进面板横幅——而横幅被弹窗遮罩
+ * 盖着，等于用户什么也看不到（"保存没反应、库里也没变"）。现在没有字段的错误统一按
+ * `_form` 处理，由弹窗自己在顶部显示。
+ */
+export function routeAdminApiError(error: unknown, fallback = '保存失败'): RoutedAdminError {
+  const message = error instanceof Error && error.message ? error.message : fallback;
+  const field = error instanceof AdminApiError && error.field ? error.field : '_form';
+  return { field, message, formLevel: field === '_form' };
+}
 
 export const fmt = (value?: number | null) =>
   value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12: false }) : '从未登录';
