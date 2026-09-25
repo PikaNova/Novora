@@ -4,7 +4,7 @@ import ExamRecordDetailDrawer from '../ExamRecordDetailDrawer';
 import { fetchExamRecords, type ExamRecordListEntry } from '../../services/examRecords';
 import { fetchDeviceBindings } from '../../services/classBinding';
 import { formatApiError } from '../../services/apiError';
-import { DEVICE_ONLINE_WINDOW_MS } from '../../shared/deviceContracts';
+import { DEVICE_ONLINE_WINDOW_MS, isDeviceInExam } from '../../shared/deviceContracts';
 import type { MajorExam } from '../../types';
 import type { ScheduleMode, WeeklyConflictPolicy, WeeklyPlan } from '../../types/exam';
 import type { SchoolClass, SchoolGrade } from '../../types/school';
@@ -318,7 +318,7 @@ export default function CurrentExamPanel({
       setDevices({
         online: active.filter((item) => stamp - item.lastSeenAt <= DEVICE_ONLINE_WINDOW_MS).length,
         total: active.length,
-        inExam: active.filter((item) => item.status === 'exam-running').length,
+        inExam: active.filter((item) => isDeviceInExam(item.status)).length,
       });
       setDevicesStale(false);
     } catch {

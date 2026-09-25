@@ -52,10 +52,17 @@ import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
 import TemporaryExamLauncher from '../components/TemporaryExamLauncher';
 import ExamQuickMenu from '../components/ExamQuickMenu';
-import { TEMPORARY_EXAM_EVENT } from '../services/temporaryExam';
+import { TEMPORARY_EXAM_EVENT, getTemporaryExam } from '../services/temporaryExam';
 import { getResolvedSchedule } from '../utils/appSchedule';
 import { arrowLine, placeBubble, ringRect, type Point, type Rect } from '../utils/fullscreenGuide';
-import { AlertTriangle, Expand, LogOut, School, X } from 'lucide-react';
+import { AlertTriangle, Expand, LogOut, PauseCircle, School, X } from 'lucide-react';
+import { notify } from '../services/notify';
+import {
+  classroomSnapshotOf,
+  reconcileClassroomNotices,
+  stickyClassroomNotice,
+  type ClassroomExamSnapshot,
+} from '../utils/classroomNotices';
 
 interface RawState {
   currentExam: ExamItem | null;
@@ -509,6 +516,35 @@ function BoundExamPage() {
   // 确保两者在同一时刻跳变，消除偶发的 1 秒时差。
   const nowTick = Math.floor(now / 1000) * 1000;
   const raw = useMemo(() => computeRawState(items, nowTick), [items, nowTick]);
+  /*
+   * 教室端的「后台动作提示」：把上一轮与本轮看到的考试状态做差。
+   * 暂停/已申请停止是常驻横幅，继续/延长/改时间/结束/归档/删除是 toast——
+   * 以前这些动作在教室里只表现为"倒计时冻结"或"整场消失"，等于没有反馈。
+   */
+  const classroomSnapshot = useMemo(
+    () =>
+      classroomSnapshotOf({
+        items,
+        majors: getAppSettings().exam.majors,
+        temporaryExam: getTemporaryExam(),
+        now: nowTick,
+      }),
+    [items, nowTick],
+  );
+  const stickyNotice = useMemo(() => stickyClassroomNotice(classroomSnapshot), [classroomSnapshot]);
+  const previousSnapshotRef = useRef<ClassroomExamSnapshot | null>(null);
+  const [earlyEndedName, setEarlyEndedName] = useState<string | null>(null);
+  useEffect(() => {
+    const previous = previousSnapshotRef.current;
+    previousSnapshotRef.current = classroomSnapshot;
+    if (!previous) return;
+    const notices = reconcileClassroomNotices(previous, classroomSnapshot, {
+      majors: getAppSettings().exam.majors,
+      temporaryExam: getTemporaryExam(),
+    });
+    for (const notice of notices) notify(notice.tone, notice.message, notice.title);
+    if (notices.some((notice) => notice.kind === 'ended')) setEarlyEndedName(previous.name);
+  }, [classroomSnapshot]);
   const currentKind = raw.currentExam && (raw.currentExam as { kind?: string }).kind;
   const displayMasterTitle =
     currentKind === 'weekly'
@@ -607,10 +643,18 @@ function BoundExamPage() {
   const isMobile = useIsMobile();
   const [mobileNoticeDismissed, setMobileNoticeDismissed] = useState(false);
   // 退出全屏入口仅在“考试结束后 15 分钟内”弹出，超时自动隐藏。
+  // 后台提前结束（强制结束/结束）时这场考试会直接从时间线消失，raw.phase 不会变成 ended，
+  // 所以这里把"刚才还在考、现在被后台结束"也算进来（earlyEndedName 由提示层给出）。
   const showEndedExit =
-    raw.phase === 'ended' &&
-    raw.currentExam != null &&
-    nowTick - parseZonedTime(raw.currentExam.endTime) <= 15 * 60 * 1000;
+    (raw.phase === 'ended' &&
+      raw.currentExam != null &&
+      nowTick - parseZonedTime(raw.currentExam.endTime) <= 15 * 60 * 1000) ||
+    earlyEndedName != null;
+  useEffect(() => {
+    if (earlyEndedName == null) return;
+    const timer = window.setTimeout(() => setEarlyEndedName(null), 15 * 60 * 1000);
+    return () => window.clearTimeout(timer);
+  }, [earlyEndedName]);
 
   // 静置提示：不再自动进入全屏（浏览器也会因缺少用户手势拒绝），改为静置 1 分钟后
   // 弹出非阻塞提示条，由用户点击完成手势授权；「不再提示」永久静默，「稍后」静默 10 分钟。
@@ -943,6 +987,16 @@ function BoundExamPage() {
         masterTitle={title}
         timeSynced={isTimeSyncReady()}
       />
+      {/* 后台动作的常驻提示：暂停中 / 已申请停止（教室端必须看得见） */}
+      {stickyNotice && (
+        <div className={`exam-pause-hint is-${stickyNotice.kind}`} role="status">
+          <PauseCircle aria-hidden="true" />
+          <div className="exam-pause-hint__body">
+            <strong>{stickyNotice.title}</strong>
+            <span>{stickyNotice.message}</span>
+          </div>
+        </div>
+      )}
       {/* 考试结束 + 仍全屏：第一层中央高对比弹窗，自动聚焦退出按钮 */}
       {isFullscreen && showEndedExit && endExitStage === 'dialog' && (
         <div

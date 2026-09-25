@@ -456,6 +456,57 @@
 }
 
 /*
+ * 后台动作的常驻提示条（暂停中 / 已申请停止）：顶栏下方居中，任何设计都能看到。
+ * 以前后台暂停只让倒计时冻结、结束只让考试消失，教室端没有任何文字说明。
+ */
+.exam-pause-hint {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(560px, calc(100vw - 28px));
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid rgba(241, 196, 95, 0.65);
+  border-radius: 10px;
+  background: rgba(43, 34, 20, 0.96);
+  color: #fff0c5;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  animation: exam-fs-hint-in 0.24s ease both;
+}
+.exam-pause-hint > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: #f1c45f;
+}
+.exam-pause-hint__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.exam-pause-hint__body strong {
+  font:
+    600 14px/1.4 system-ui,
+    sans-serif;
+}
+.exam-pause-hint__body span {
+  color: #f3dcae;
+  font:
+    500 12.5px/1.45 system-ui,
+    sans-serif;
+}
+@media (prefers-reduced-motion: reduce) {
+  .exam-pause-hint {
+    animation: none;
+  }
+}
+
+/*
  * 右下角还停着临时考试按钮（.temp-exam-fab，right/bottom 18px、高 44px、z-index 68）：
  * 它和这条提示条原来都钉在同一个角上，同时出现时互相压住。
  * 按钮在的宽度档（<701px 时它 display:none）把提示条抬到按钮之上，

@@ -332,10 +332,14 @@ export function buildOnlineDevices(
     if (lastSeen <= 0 || now - lastSeen > onlineWindowMs) continue;
     const schoolClass = device.class_id ? classById.get(device.class_id) : undefined;
     const inExam = Boolean(device.current_exam);
+    // 暂停中也算"在考试里"，但状态文案要说清楚是暂停，别和正在倒计时混在一起。
+    const paused = device.status === 'exam-paused' || device.status === 'temporary-paused';
     rows.push({
       instanceId: device.instance_id,
       scopeLabel: schoolClass?.name || '未绑定班级',
-      statusLabel: inExam ? `考试中${device.current_exam ? ' · ' + device.current_exam : ''}` : '空闲',
+      statusLabel: inExam
+        ? `${paused ? '已暂停' : '考试中'}${device.current_exam ? ' · ' + device.current_exam : ''}`
+        : '空闲',
       inExam,
       lastSeenAt: lastSeen,
     });

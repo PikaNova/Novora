@@ -52,7 +52,13 @@ function harness(outcomes: Array<HeartbeatOutcome | Error>) {
       if (next instanceof Error) throw next;
       return { ...next, version: next.version };
     },
-    buildInput: (state) => ({ page: state.page, acknowledgedCommandId: state.acknowledgedCommandId }),
+    buildInput: (state) => ({
+      page: state.page,
+      acknowledgedCommandId: state.acknowledgedCommandId,
+      ...(state.failedCommandId
+        ? { failedCommandId: state.failedCommandId, commandFailureReason: state.commandFailureReason }
+        : {}),
+    }),
     intervalMsFor: () => 60_000,
     now: () => now,
     setTimer: (callback, delayMs) => {
@@ -148,6 +154,22 @@ test('a failing heartbeat keeps the loop alive', async () => {
   h.transport.start(h.handlers);
   await h.flush();
   assert.equal(h.timers.length, 1, 'the transport reschedules after a failure');
+  h.transport.stop(h.handlers);
+});
+
+test('执行失败的命令带原因回执（后台不再把 no-op 当成功）', async () => {
+  const command: DeviceCommand = { id: 'cmd_fail', action: 'pause', createdAt: 1_000 };
+  const h = harness([{ ...idle, command }, idle, idle]);
+  h.transport.start(h.handlers);
+  await h.flush();
+  assert.ok(h.events.includes('command:cmd_fail'));
+  // 组件执行命令失败时的时序：登记失败原因，下一次心跳带上。
+  h.transport.noteCommandFailed(command.id, '本机没有临时考试');
+  await h.runDueTimers();
+  const last = h.sent[h.sent.length - 1];
+  assert.equal(last.failedCommandId, 'cmd_fail');
+  assert.equal(last.commandFailureReason, '本机没有临时考试');
+  assert.equal(last.acknowledgedCommandId, '', '失败的命令不能同时被当成已执行');
   h.transport.stop(h.handlers);
 });
 

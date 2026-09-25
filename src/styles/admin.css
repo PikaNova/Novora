@@ -2961,6 +2961,23 @@
   background: rgba(190, 56, 48, 0.14);
   color: #ffaaa3;
 }
+/* 设备列表里的「最近一条指令」：说清是待认领、已执行、还是过期/失败。 */
+.device-status__command {
+  flex-basis: 100%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+  font-size: 11.5px;
+}
+.device-status__command.is-ok {
+  background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
+  color: var(--adm-success, #4cbe8c);
+}
+.device-status__command.is-warn {
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+}
 .admin-field-error {
   display: block;
   margin-top: 5px;

@@ -365,7 +365,12 @@ export async function sendDeviceCommand(
   instanceId: string,
   commandAction: DeviceCommand['action'],
   minutes?: number,
-): Promise<void> {
+): Promise<{
+  /** 目标设备当时是否在线；离线时指令会保留到设备上线（最多 24 小时）。 */
+  deviceOnline: boolean;
+  /** 离线时的说明文案（由服务端给出）。 */
+  deliveryHint: string;
+}> {
   const { response, data } = await sendWithRateLimitRetry(() =>
     runQueued(
       () =>
@@ -390,6 +395,10 @@ export async function sendDeviceCommand(
           ? '当前账号无权管理此设备'
           : errorMessage(source, '临时考试指令发送失败'),
     );
+  return {
+    deviceOnline: source.deviceOnline !== false,
+    deliveryHint: typeof source.deliveryHint === 'string' ? source.deliveryHint : '',
+  };
 }
 
 export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<{

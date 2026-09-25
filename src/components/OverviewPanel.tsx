@@ -32,7 +32,7 @@ import type { LoginFailureAlert } from '../shared/authContracts';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import { getQuickMajorDisplayStatus } from '../utils/majorDisplayStatus';
-import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts';
+import { DEVICE_ONLINE_WINDOW_MS, isDeviceExamPaused, isDeviceInExam } from '../shared/deviceContracts';
 import '../styles/admin-design.css';
 
 const ONLINE_MS = DEVICE_ONLINE_WINDOW_MS;
@@ -246,7 +246,7 @@ export default function OverviewPanel({
   );
   const scopedPlans = liveWeeklyPlans.filter((plan) => scope.classIds.has(plan.classId));
   const onlineDevices = devices.filter((item) => !item.revoked && now - item.lastSeenAt <= ONLINE_MS);
-  const runningDevices = onlineDevices.filter((item) => item.status === 'exam-running');
+  const runningDevices = onlineDevices.filter((item) => isDeviceInExam(item.status));
   const majorConflicts = findMajorConflicts(activeMajors);
   const syncHealthLabel =
     !online || syncState === 'offline'
@@ -612,8 +612,8 @@ export default function OverviewPanel({
                     <article key={device.instanceId}>
                       <strong>{liveClasses.find((item) => item.id === device.classId)?.name || '未绑定班级'}</strong>
                       <span>
-                        {device.status === 'exam-running'
-                          ? `${device.currentExam} · ${device.currentSubject}`
+                        {isDeviceInExam(device.status)
+                          ? `${isDeviceExamPaused(device.status) ? '已暂停 · ' : ''}${device.currentExam} · ${device.currentSubject}`
                           : '在线待命'}
                       </span>
                       <code title={device.instanceId}>{device.instanceId}</code>

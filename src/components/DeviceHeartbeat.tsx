@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getClassBindingInstanceId } from '../services/classBinding';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
-import { endTemporaryExam, extendTemporaryExam, setTemporaryExamPaused } from '../services/temporaryExam';
+import { applyTemporaryExamCommand } from '../services/temporaryExam';
 import { notify } from '../services/notify';
 import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
 import { CLOUD_VERSION_EVENT, logoutAdmin } from '../services/examService';
@@ -61,10 +61,13 @@ export default function DeviceHeartbeat() {
       onCommand: (command) => {
         const receipt = resolveDeviceCommandReceipt(command, '');
         if (!receipt) return;
-        if (command.action === 'pause') setTemporaryExamPaused(true);
-        if (command.action === 'resume') setTemporaryExamPaused(false);
-        if (command.action === 'extend') extendTemporaryExam(command.minutes || 5);
-        if (command.action === 'end') endTemporaryExam();
+        const outcome = applyTemporaryExamCommand(command);
+        if (!outcome.ok) {
+          // 没执行就如实报失败：后台会显示「失败：原因」，不再把 no-op 当成功。
+          transport.noteCommandFailed(command.id, outcome.reason);
+          notify('warning', `后台指令未执行：${outcome.reason}`, '临时考试指令');
+          return;
+        }
         // 登记回执：传输层会在下一轮心跳里带上，并在执行后补发一次快速回执。
         transport.noteCommandAcknowledged(command.id);
         notify(receipt.tone, receipt.message);

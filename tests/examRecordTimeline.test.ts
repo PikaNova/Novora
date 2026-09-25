@@ -78,3 +78,20 @@ test('暂停/继续按发生顺序展开成独立阶段，并带上操作者', (
     ],
   );
 });
+
+test('申请停止：还在等系统判定时，时间线上标出来并说明判据', () => {
+  const stages = buildExamRecordTimeline(record({ stopRequestedAt: 1_789_744_000_000 }), [
+    { action: 'request_stop', createdAt: 1_789_744_000_000, actorName: '超级管理员' },
+  ]);
+  const stopping = stages.find((stage) => stage.key === 'stop-requested');
+  assert.equal(stopping?.label, '申请停止');
+  assert.equal(stopping?.at, 1_789_744_000_000);
+  assert.match(String(stopping?.note), /等待系统判定/);
+
+  // 没有申请停止时不要凭空多一段
+  const plain = buildExamRecordTimeline(record(), []);
+  assert.equal(
+    plain.some((stage) => stage.key === 'stop-requested'),
+    false,
+  );
+});

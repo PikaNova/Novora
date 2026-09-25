@@ -449,6 +449,18 @@ function ExamRecordDetailBody({
                   {effectiveEndAt ? `（顺延至 ${formatDateTime(effectiveEndAt)}）` : ''}
                 </dd>
               </div>
+              {/* 「申请停止」不是立刻停：教室里照常显示，等系统判定后才会结束，这里要说清楚。 */}
+              {record.stopRequestedAt != null && (
+                <div>
+                  <dt>停止申请</dt>
+                  <dd>
+                    {formatDateTime(record.stopRequestedAt)}
+                    <em className="exam-record-detail__time-note">
+                      等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
+                    </em>
+                  </dd>
+                </div>
+              )}
             </dl>
           </section>
 

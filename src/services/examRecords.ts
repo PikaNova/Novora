@@ -83,6 +83,8 @@ export type ExamRecordListEntry = {
   actualEndAt: number | null;
   pausedAt: number | null;
   pausedMs: number;
+  /** 已提交停止申请、等待系统判定的时刻；null 表示没有在申请中。 */
+  stopRequestedAt: number | null;
   publishedAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;
@@ -176,6 +178,7 @@ function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
     actualEndAt: numberOrNull(row.actualEndAt),
     pausedAt: numberOrNull(row.pausedAt),
     pausedMs: numberOrNull(row.pausedMs) ?? 0,
+    stopRequestedAt: numberOrNull(row.stopRequestedAt),
     publishedAt: numberOrNull(row.publishedAt),
     endedAt: numberOrNull(row.endedAt),
     archivedAt: numberOrNull(row.archivedAt),

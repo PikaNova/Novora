@@ -45,13 +45,20 @@ export interface SyncTransport {
   tick(): void;
   /** 命令执行完后登记回执，随下一次心跳上报。 */
   noteCommandAcknowledged(commandId: string): void;
+  /** 命令执行失败：登记原因，随下一次心跳上报（后台据此显示"失败：xxx"而不是"已执行"）。 */
+  noteCommandFailed(commandId: string, reason: string): void;
   /** 单独发一次心跳并返回结果。 */
   heartbeat(): Promise<HeartbeatOutcome>;
 }
 
 export type HttpPollTransportDeps = {
   sendHeartbeat: (input: DeviceHeartbeatInput) => Promise<HeartbeatOutcome>;
-  buildInput: (state: { page: string; acknowledgedCommandId: string }) => DeviceHeartbeatInput;
+  buildInput: (state: {
+    page: string;
+    acknowledgedCommandId: string;
+    failedCommandId?: string;
+    commandFailureReason?: string;
+  }) => DeviceHeartbeatInput;
   intervalMsFor: (state: { temporaryActive: boolean; hasCurrentExam: boolean }) => number;
   now: () => number;
   setTimer: (callback: () => void, delayMs: number) => number;
@@ -69,6 +76,8 @@ const COMMAND_ACK_FOLLOW_UP_MS = 250;
 export function buildDeviceHeartbeatInput(state: {
   page: string;
   acknowledgedCommandId: string;
+  failedCommandId?: string;
+  commandFailureReason?: string;
 }): DeviceHeartbeatInput {
   const now = nowMs();
   const items = getResolvedExamItems(now);
@@ -91,19 +100,26 @@ export function buildDeviceHeartbeatInput(state: {
   return {
     page: state.page,
     clientVersion: APP_VERSION,
+    // 状态按"哪种考试 + 是否暂停"区分：后台不再靠考试名里有没有「临时考试」来猜。
     status:
       temporaryActive && temporary.status === 'paused'
         ? 'temporary-paused'
-        : current
-          ? 'exam-running'
-          : next
-            ? 'waiting'
-            : 'idle',
+        : temporaryActive
+          ? 'temporary-running'
+          : current
+            ? (current as { pausedAt?: number | null }).pausedAt != null
+              ? 'exam-paused'
+              : 'exam-running'
+            : next
+              ? 'waiting'
+              : 'idle',
     currentExam: reportedExamName,
     currentSubject: reportedExam?.name ?? '',
     examStart: reportedExam?.startTime ?? '',
     examEnd: reportedExam?.endTime ?? '',
     acknowledgedCommandId: state.acknowledgedCommandId,
+    ...(state.failedCommandId ? { failedCommandId: state.failedCommandId } : {}),
+    ...(state.commandFailureReason ? { commandFailureReason: state.commandFailureReason } : {}),
   };
 }
 
@@ -120,6 +136,9 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
   let timer: number | null = null;
   let inFlight = false;
   let acknowledgedCommandId = '';
+  // 最近一次执行失败的命令与原因：随每轮心跳回执（服务端只会对 pending/claimed 生效一次）。
+  let failedCommandId = '';
+  let commandFailureReason = '';
   let edgeCapabilityMarked = false;
 
   const clearScheduled = () => {
@@ -149,7 +168,11 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
     const listeners = [...handlers];
     try {
       for (const listener of listeners) listener.onTick?.();
-      const input = deps.buildInput({ page: currentPage(), acknowledgedCommandId });
+      const input = deps.buildInput({
+        page: currentPage(),
+        acknowledgedCommandId,
+        ...(failedCommandId ? { failedCommandId, commandFailureReason } : {}),
+      });
       let outcome: HeartbeatOutcome;
       try {
         outcome = await deps.sendHeartbeat(input);
@@ -203,9 +226,19 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
     noteCommandAcknowledged(commandId) {
       acknowledgedCommandId = commandId;
     },
+    noteCommandFailed(commandId, reason) {
+      failedCommandId = commandId;
+      commandFailureReason = reason.slice(0, 500);
+    },
     async heartbeat() {
       try {
-        return await deps.sendHeartbeat(deps.buildInput({ page: currentPage(), acknowledgedCommandId }));
+        return await deps.sendHeartbeat(
+          deps.buildInput({
+            page: currentPage(),
+            acknowledgedCommandId,
+            ...(failedCommandId ? { failedCommandId, commandFailureReason } : {}),
+          }),
+        );
       } catch {
         return EMPTY_OUTCOME;
       }

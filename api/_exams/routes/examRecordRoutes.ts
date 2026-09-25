@@ -59,6 +59,7 @@ type RecordRow = {
   actual_end_at?: unknown;
   paused_at?: unknown;
   paused_ms?: unknown;
+  stop_requested_at?: unknown;
   published_at?: unknown;
   ended_at?: unknown;
   archived_at?: unknown;
@@ -169,6 +170,8 @@ function recordJson(row: RecordRow, now: number): Record<string, unknown> {
     actualEndAt: nullableNumber(row.actual_end_at),
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: nullableNumber(row.paused_ms) ?? 0,
+    // 「申请停止」的等待态：教室端照常显示，后台详情/时间线要说明"等系统判定"。
+    stopRequestedAt: nullableNumber(row.stop_requested_at),
     publishedAt: nullableNumber(row.published_at),
     endedAt: nullableNumber(row.ended_at),
     archivedAt: nullableNumber(row.archived_at),
