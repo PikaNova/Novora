@@ -886,6 +886,13 @@ test('database write: 同一个域被并发修改时仍然 409，并只列出冲
   assert.equal(stale.statusCode, 409);
   assert.deepEqual(stale.body.conflicts, ['classes'], '409 只应报出真正冲突的域');
   assert.equal(revisionsOf(stale.body).classes, 1, '409 也要回传当前修订号，供客户端更新基线');
+  // 带 baseRevisions 的客户端只收冲突域：其余域按定义与它的基线一致，由客户端自己补全。
+  assert.equal(stale.body.remotePartial, true);
+  assert.deepEqual(Object.keys(stale.body.remote as Record<string, unknown>).sort(), [
+    'classes',
+    'revisions',
+    'updatedAt',
+  ]);
   assert.equal((await readPayload()).classes[0]?.name, 'First write', '冲突方不得写入');
 });
 
@@ -900,5 +907,7 @@ test('database write: 不带 baseRevisions 的老客户端仍按整行版本判�
   const legacy = await post(admin.token, bodyFrom(stale, { scheduleMode: 'weekly-only' }));
   assert.equal(legacy.statusCode, 409);
   assert.deepEqual(legacy.body.conflicts, [], '老客户端拿不到域级冲突信息');
+  assert.equal(legacy.body.remotePartial, undefined, '老客户端仍然拿整份 remote');
+  assert.ok((legacy.body.remote as Record<string, unknown>).majors !== undefined, '整份 remote 必须含非冲突域');
   assert.equal((await readPayload()).scheduleMode, 'major-only');
 });

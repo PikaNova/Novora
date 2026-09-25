@@ -6,6 +6,7 @@ import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
 import { runQueued } from './syncQueue';
+import { recordExamSave, recordExamSaveConflict } from './examSaveMetrics';
 import {
   canAccessClass as sharedCanAccessClass,
   canAccessGrade as sharedCanAccessGrade,
@@ -357,6 +358,26 @@ function clearConflictBase(): void {
   }
 }
 
+/**
+ * 重建 409 的完整 remote。
+ *
+ * 客户端带了 baseRevisions 时服务端只回冲突域（`remotePartial: true`）；其余域与客户端手里的
+ * 基线一致，叠加即可还原完整快照。必须用**原始 JSON** 叠加后再解析——若把部分载荷直接交给
+ * parseExamPayload，缺席字段会被填成默认值（空数组/null），反而覆盖掉基线里的真实内容。
+ * 没有可用基线时返回 null，由调用方按「冲突数据不完整」处理（不静默丢字段）。
+ */
+function rebuildConflictRemote(data: unknown, base: ExamPayload | null): ExamPayload | null {
+  const envelope = (data ?? {}) as { remote?: unknown; remotePartial?: unknown };
+  const source = envelope.remote;
+  if (!source || typeof source !== 'object') return null;
+  if (envelope.remotePartial !== true) return parseExamPayload(source);
+  if (!base) return null;
+  return parseExamPayload({
+    ...(base as unknown as Record<string, unknown>),
+    ...(source as Record<string, unknown>),
+  });
+}
+
 function toSaveSnapshot(input: SaveExamsInput): ExamSaveSnapshot {
   return {
     items: input.items,
@@ -390,6 +411,7 @@ export function getLastExamSaveSummary(): ExamSaveSummary | null {
 
 function recordSaveSummary(domains: readonly ExamSaveDomain[], bytes: number, skipped: boolean): void {
   lastSaveSummary = { domains: [...domains], bytes, skipped };
+  recordExamSave({ domains, bytes, skipped });
   console.info(
     skipped
       ? '[examService] save skipped: 与服务端基线一致，未发起请求'
@@ -437,7 +459,8 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     if (res.status === 409) {
       const data = await res.json().catch(() => null);
       if (data?.code === 'DATA_CONFLICT' || data?.remote) {
-        const remote = data?.remote ? parseExamPayload(data.remote) : null;
+        recordExamSaveConflict(Array.isArray(data?.conflicts) ? data.conflicts.map(String) : []);
+        const remote = rebuildConflictRemote(data, base);
         // 记下服务端版本：调用方的三方合并会用 remote.updatedAt 重试，那时只有这份快照配得上该版本号。
         if (remote) rememberConflictBase(remote);
         return { kind: 'conflict', remote };

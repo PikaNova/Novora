@@ -163,6 +163,24 @@ export async function handleExamDataGet(req: VercelRequest, res: VercelResponse,
   return;
 }
 
+/**
+ * 409 时只回冲突域的载荷：按修订域取出对应的保存域字段，再附上修订号与文档版本。
+ * 客户端用自己手里的基线补全其余字段（其余域按定义与基线一致），所以服务端不必回整份快照。
+ */
+function scopedConflictRemote(
+  payload: ReturnType<typeof examPayload>,
+  domains: readonly ExamRevisionDomain[],
+): Record<string, unknown> {
+  const record = payload as unknown as Record<string, unknown>;
+  const scoped: Record<string, unknown> = {};
+  for (const domain of domains) {
+    for (const field of EXAM_REVISION_DOMAIN_FIELDS[domain]) scoped[field] = record[field];
+  }
+  scoped.revisions = payload.revisions ?? {};
+  scoped.updatedAt = payload.updatedAt;
+  return scoped;
+}
+
 export async function handleExamDataPost(req: VercelRequest, res: VercelResponse, startedAt: number): Promise<void> {
   const sql = database();
   let actor: AdminActor | null = null;
@@ -446,13 +464,17 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     const conflicts = guardedRevisionDomains.filter(
       (domain) => (currentPayload.revisions?.[domain] ?? 0) !== (baseRevisions[domain] ?? 0),
     );
+    // 客户端带了 baseRevisions 时只回冲突域：其余域按定义与它的基线一致，客户端拿手里的基线补全即可。
+    // 老客户端（不带 baseRevisions）拿不到域级信息，仍然回整份 remote，行为与改动前一致。
+    const scopedRemote = usesRevisions && conflicts.length ? scopedConflictRemote(currentPayload, conflicts) : null;
     res.status(409).json({
       ok: false,
       code: 'DATA_CONFLICT',
       error: '云端数据已发生变化',
       conflicts,
       revisions: currentPayload.revisions ?? {},
-      remote,
+      remote: scopedRemote ?? remote,
+      ...(scopedRemote ? { remotePartial: true } : {}),
       requestId: res.getHeader('X-Request-Id'),
     });
     return;

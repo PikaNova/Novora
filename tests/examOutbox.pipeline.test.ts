@@ -152,6 +152,94 @@ test('continuous edits keep the latest payload, then network recovery merges the
   }
 });
 
+// 服务端在客户端带 baseRevisions 时只回冲突域（remotePartial）。客户端必须用手里的基线补全，
+// 否则 parseExamPayload 会把缺席字段填成默认值，把基线里的真实内容盖掉。
+test('partial conflict remote is rebuilt from the local baseline', async () => {
+  __resetSyncQueueForTests();
+  testGlobals.localStorage?.clear();
+  setTestOwner();
+
+  const schoolClass = (name: string) => ({ id: 'class-1', gradeId: 'grade-1', name, order: 0, enabled: true });
+  const weeklyPlan = (name: string) => ({
+    id: 'weekly-1',
+    name,
+    enabled: true,
+    timezone: 'Asia/Shanghai' as const,
+    activeFrom: '2026-08-30',
+    activeUntil: null,
+    repeatEveryWeeks: 1,
+    anchorDate: '2026-08-30',
+    items: [],
+    excludedDates: [],
+    overrides: [],
+    order: 0,
+    gradeId: 'grade-1',
+    classId: 'class-1',
+  });
+
+  const header = {
+    items: [],
+    title: '期中考试',
+    majors: [{ id: 'major-1', name: '期中考试', items: [], order: 0 }],
+    activeMajorId: 'major-1',
+    alerts: null,
+    classes: [schoolClass('1 班')],
+  };
+  const baseSnapshot = {
+    ...header,
+    weeklyPlans: [weeklyPlan('第 1 周')],
+    revisions: { classes: 4, weekly: 7 },
+    updatedAt: 100,
+  };
+  const local = { ...header, classes: [schoolClass('1 班（改）')] };
+
+  // 本机已经拉过云端快照：这是服务端敢只回冲突域的前提（客户端手里有补全用的基线）。
+  testGlobals.localStorage?.setItem('exam_cloud_snapshot', JSON.stringify(baseSnapshot));
+  queuePendingExamSync(pending(local, baseSnapshot, 1000));
+
+  const requests: Array<Record<string, unknown>> = [];
+  const responses = [
+    new Response(
+      JSON.stringify({
+        ok: true,
+        code: 'DATA_CONFLICT',
+        conflicts: ['weekly'],
+        remotePartial: true,
+        revisions: { classes: 4, weekly: 8 },
+        // 只回冲突域：周测。其余字段要由客户端用基线补全。
+        remote: {
+          weeklyPlans: [weeklyPlan('第 1 周（远端改）')],
+          revisions: { classes: 4, weekly: 8 },
+          updatedAt: 150,
+        },
+      }),
+      { status: 409 },
+    ),
+    new Response(JSON.stringify({ ok: true, updatedAt: 200, revisions: { classes: 5, weekly: 8 } })),
+  ];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    requests.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+    return responses.shift()!;
+  };
+
+  try {
+    const result = await flushPendingExamSync();
+    assert.equal(result.kind, 'saved');
+    if (result.kind === 'saved') {
+      // 合并结果保留服务端的周测：说明部分 remote 被补成了完整快照，而不是被默认值盖掉。
+      assert.equal((result.payload.weeklyPlans as Array<{ name: string }>)?.[0]?.name, '第 1 周（远端改）');
+      assert.equal((result.payload.classes as Array<{ name: string }>)?.[0]?.name, '1 班（改）');
+    }
+    assert.deepEqual(Object.keys(requests[1] ?? {}).sort(), ['baseRevisions', 'baseUpdatedAt', 'classes']);
+    assert.deepEqual(requests[1]?.baseRevisions, { classes: 4, weekly: 8 });
+    assert.equal(getPendingExamSync(), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    testGlobals.localStorage?.clear();
+  }
+});
+
 // 冲突重试的基线：409 回传的 remote 必须被记下来，否则重试会退回「整份提交」，
 // 把 A 段省下来的字节又还回去（改动前就是这样）。
 test('conflict retry keeps submitting only the changed domain', async () => {

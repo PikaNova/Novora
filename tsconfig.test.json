@@ -31,6 +31,7 @@
     "src/shared/jsonCompare.ts",
     "src/shared/examSaveDiff.ts",
     "src/services/examOutbox.ts",
+    "src/services/examSaveMetrics.ts",
     "api/_auth.ts",
     "api/login.ts",
     "api/_emailAuth.ts",
