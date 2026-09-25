@@ -713,7 +713,9 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                   ]}
                 />
               </label>
-              <p className="sann-note sann-note--inline">普通公告在 22:00–06:00 不会自动弹出，紧急公告不受影响。</p>
+              <p className="sann-note sann-note--inline">
+                自动弹出：教室大屏在下次轮询（≤60 秒）立刻弹出，考试进行中、夜间同样弹。
+              </p>
             </div>
             <div className="sann-style-picker">
               <span className="sann-scope-picker__title">大屏样式</span>
@@ -917,13 +919,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
           draft={{ title: draft.title.trim(), body: draft.body.trim(), level: draft.level, style: draft.style }}
           audience={scopeSummary}
           expiryLabel={draft.expiry === '0' ? '不过期（需要手动撤回）' : `展示 ${expiryLabel}`}
-          delivery={
-            draft.silent
-              ? '只进公告列表，不自动弹出'
-              : draft.level === 'urgent'
-                ? '自动弹出（紧急公告随时弹，不受夜间静默限制）'
-                : '自动弹出（普通公告 22:00–06:00 不弹）'
-          }
+          delivery={draft.silent ? '只进公告列表，不自动弹出' : '自动弹出（教室大屏立刻弹出，考试进行中、夜间同样弹）'}
           busy={sending}
           error={draftError}
           onConfirm={() => void publish()}

@@ -11,8 +11,10 @@
   --sann-overlay-pad: clamp(16px, 3vw, 52px);
   position: fixed;
   inset: 0;
-  /* 压在系统公告窗口（z-index 3000）与提醒浮层之上：学校公告优先。 */
-  z-index: 3200;
+  /* 压在系统公告窗口（3000）、考试提醒浮层（.eao 4000）、结束提醒条/弹窗（4200/4300）之上：
+     公告"随时随地都要弹"，就不能被这几层盖住（2026-09-26 修正，原来 3200 反而在提醒浮层下面）。
+     仍在全屏退出提示（10020）与提醒层（--z-reminder 20000）之下。 */
+  z-index: 4400;
   display: flex;
   align-items: center;
   justify-content: center;

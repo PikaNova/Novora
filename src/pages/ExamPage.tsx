@@ -37,16 +37,12 @@ import {
   markAnnouncementsShown,
   markAnnouncementsSeenLocally,
   markRemindersHandled,
-  pickUnshownAnnouncements,
+  pickAutoOpenAnnouncements,
   readLocallySeenIds,
   readReminderMarks,
   readShownAnnouncementIds,
 } from '../utils/schoolAnnouncementState';
-import {
-  pickRemindableAnnouncements,
-  shouldAutoOpenAnnouncement,
-  type AnnouncementSeenItem,
-} from '../shared/examAnnouncementContracts.js';
+import type { AnnouncementSeenItem } from '../shared/examAnnouncementContracts.js';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
@@ -99,30 +95,19 @@ function isFsHintSuppressed(): boolean {
 }
 
 /**
- * 决定这次轮询是否要自动弹学校公告窗口（用户口径 2026-09-25 二期）。
+ * 决定这次轮询是否要自动弹学校公告窗口（用户口径 2026-09-26：公告随时随地都要弹）。
  *
- * 候选有两类：本机没弹过的新公告，以及管理端在回执里发的"未读强提醒"（提醒时间比本地记录新，
- * 且（scope=unseen 时）本机还没上报过已读）。之后按展示策略过滤：
- * - 显式静默（发布时选了"只进列表"）→ 直接标记掉，不再等；
- * - 夜间静默（22:00–06:00）只挡普通公告，不标记，等过了时段再弹；紧急公告照弹。
+ * 规则本体在 `pickAutoOpenAnnouncements`（纯函数，可单测）；这里只做两件事：
+ * 把本机标记喂进去、"只进列表"的公告记一笔账免得每轮重复评估。
  */
 function pickAutoOpenSchoolAnnouncements(list: SchoolExamAnnouncement[]): SchoolExamAnnouncement[] {
-  const shown = readShownAnnouncementIds();
-  const seenLocally = readLocallySeenIds();
-  const reminders = pickRemindableAnnouncements(list, readReminderMarks()).filter(
-    (item) => item.remindScope === 'all' || !seenLocally.has(item.id),
-  );
-  const candidates: SchoolExamAnnouncement[] = [];
-  const seen = new Set<string>();
-  for (const item of [...reminders, ...pickUnshownAnnouncements(list, shown)]) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    candidates.push(item);
-  }
-  const silent = candidates.filter((item) => item.silent);
+  const { autoOpen, silent } = pickAutoOpenAnnouncements(list, {
+    shown: readShownAnnouncementIds(),
+    seenLocally: readLocallySeenIds(),
+    reminderMarks: readReminderMarks(),
+  });
   if (silent.length) markAnnouncementsShown(silent.map((item) => item.id));
-  const now = new Date();
-  return candidates.filter((item) => shouldAutoOpenAnnouncement(item, now));
+  return autoOpen;
 }
 
 function announcementVersion(list: Announcement[]): string {
@@ -291,9 +276,6 @@ function BoundExamPage() {
   const [schoolAnnouncementHistory, setSchoolAnnouncementHistory] = useState<SchoolExamAnnouncement[]>([]);
   const [schoolHistoryLoading, setSchoolHistoryLoading] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
-  const examLiveRef = useRef(false);
-  /** 考试期间不打断考场：待弹的公告先记下来，考完再弹。 */
-  const deferredSchoolAnnouncementsRef = useRef<SchoolExamAnnouncement[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const examSyncInterval = useMemo(() => examSyncIntervalMs(items, nowMs()), [items]);
 
@@ -348,8 +330,8 @@ function BoundExamPage() {
       try {
         if (window.localStorage.getItem(ANNOUNCEMENT_SEEN_KEY) !== version) {
           window.localStorage.setItem(ANNOUNCEMENT_SEEN_KEY, version);
-          if (examLiveRef.current) window.localStorage.setItem('exam_board_deferred_announcement', version);
-          else setAnnouncementsOpen(true);
+          // 作者端公告同样不再因考试让路：拿到新版本就地弹出（用户口径 2026-09-26）。
+          setAnnouncementsOpen(true);
         }
       } catch {
         // 存储不可用时仍展示公告，避免隐私模式/受限浏览器漏掉更新。
@@ -451,9 +433,12 @@ function BoundExamPage() {
   /**
    * 学校侧公告轮询：拉本机（按绑定班级）能收到的公告，并做三件事：
    * 1. 紧急公告立刻弹出（窗口自身禁止关闭），公告全部过期/撤回后自动收起空窗口；
-   * 2. 普通公告**发布后自动弹一次**（每台设备只弹一次，靠本地标记去重），
-   *    正在考试时先记下来、等考试结束再弹，避免打断考场；
+   * 2. 普通公告**发布后自动弹一次**（每台设备只弹一次，靠本地标记去重）；
    * 3. 顺手把本地缓冲的"看过"回执发出去（离线时留到下次）。
+   *
+   * 口径（2026-09-26）：公告**随时随地都要弹**——考试进行中、夜间都不再压后，
+   * 轮询拿到就弹。曾经"考试中先压后弹"的做法会让回执长期停在"已送达未看"，
+   * 也会把紧急通知耽误到考试结束。
    */
   useEffect(() => {
     let alive = true;
@@ -470,11 +455,6 @@ function BoundExamPage() {
       }
       const candidates = pickAutoOpenSchoolAnnouncements(list);
       if (!candidates.length) return;
-      if (examLiveRef.current) {
-        // 考试进行中：记下待弹的公告，等考试结束（下面的 raw.phase 副作用）再弹。
-        deferredSchoolAnnouncementsRef.current = candidates;
-        return;
-      }
       markAnnouncementsShown(candidates.map((item) => item.id));
       markRemindersHandled(
         candidates.filter((item) => item.remindAt).map((item) => ({ id: item.id, remindAt: item.remindAt as number })),
@@ -552,28 +532,6 @@ function BoundExamPage() {
       : currentKind === 'temporary'
         ? `${raw.currentExam?.name} - 临时考试`
         : raw.currentExam?.majorName || title || 'Novora';
-  examLiveRef.current = raw.phase === 'live';
-  useEffect(() => {
-    if (raw.phase === 'live') return;
-    // 学校公告：考试期间压下的新公告，考完（或考前空闲）补弹一次。
-    const deferredSchool = deferredSchoolAnnouncementsRef.current;
-    if (deferredSchool.length) {
-      deferredSchoolAnnouncementsRef.current = [];
-      markAnnouncementsShown(deferredSchool.map((item) => item.id));
-      markRemindersHandled(
-        deferredSchool
-          .filter((item) => item.remindAt)
-          .map((item) => ({ id: item.id, remindAt: item.remindAt as number })),
-      );
-      window.setTimeout(() => setSchoolAnnouncementsOpen(true), raw.phase === 'ended' ? 9500 : 0);
-    }
-    const deferred = window.localStorage.getItem('exam_board_deferred_announcement');
-    if (deferred) {
-      window.localStorage.removeItem('exam_board_deferred_announcement');
-      // 考试结束后展示考试期间收到的最新公告；结束提醒仍由最高层提醒浮层优先显示。
-      window.setTimeout(() => setAnnouncementsOpen(true), raw.phase === 'ended' ? 8500 : 0);
-    }
-  }, [raw.phase]);
   const { notification, dismiss } = useExamNotify(raw.currentExam);
 
   // 全屏提醒浮层：将通知事件与自定义提醒映射为对应设计风格的浮层

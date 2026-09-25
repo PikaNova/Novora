@@ -10,7 +10,6 @@ import {
   ANNOUNCEMENT_STYLES,
   ANNOUNCEMENT_STYLE_LABELS,
   isAnnouncementImageType,
-  isWithinQuietHours,
   mergeSeenItems,
   normalizeSeenItems,
   parseAnnouncementRemindScope,
@@ -147,28 +146,18 @@ test('mergeSeenItems accumulates pending durations for offline replay', () => {
   assert.equal(capped.ann_a, ANNOUNCEMENT_SEEN_MAX_MS);
 });
 
-// 静默时段（二期口径）：22:00–06:00 只挡普通公告，紧急公告照弹；发布时选"静默"的永不自动弹。
-test('quiet hours cover the night window across midnight', () => {
-  const at = (hour: number) => new Date(2026, 8, 25, hour, 30, 0);
-  assert.equal(isWithinQuietHours(at(22)), true);
-  assert.equal(isWithinQuietHours(at(23)), true);
-  assert.equal(isWithinQuietHours(at(3)), true);
-  assert.equal(isWithinQuietHours(at(5)), true);
-  assert.equal(isWithinQuietHours(at(6)), false);
-  assert.equal(isWithinQuietHours(at(12)), false);
-  assert.equal(isWithinQuietHours(at(21)), false);
-  // 起止相同的窗口视为"没有静默时段"。
-  assert.equal(isWithinQuietHours(at(3), { startHour: 0, endHour: 0 }), false);
-});
-
-test('shouldAutoOpenAnnouncement: silent wins, night only blocks normal ones', () => {
+// 自动弹出（2026-09-26 口径）：只有"发布时选了只进列表"不弹，时间与考试状态都不再拦。
+// 这条是回归：曾经按 22:00–06:00 夜间静默挡普通公告，管理端就会显示"已送达未看"。
+test('shouldAutoOpenAnnouncement: only an explicit silent publish suppresses the popup', () => {
   const night = new Date(2026, 8, 25, 23, 0, 0);
+  const beforeDawn = new Date(2026, 8, 26, 3, 0, 0);
   const day = new Date(2026, 8, 25, 10, 0, 0);
-  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, day), true);
-  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, night), false);
-  assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent' }, night), true);
-  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal', silent: true }, day), false);
-  assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent', silent: true }, day), false);
+  for (const at of [day, night, beforeDawn]) {
+    assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, at), true);
+    assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent' }, at), true);
+    assert.equal(shouldAutoOpenAnnouncement({ level: 'normal', silent: true }, at), false);
+    assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent', silent: true }, at), false);
+  }
 });
 
 test('remind scope defaults to unseen and reminders only fire when newer', () => {

@@ -305,7 +305,8 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
   }
   const level = text(req.body?.level) === 'urgent' ? 'urgent' : 'normal';
   const style = parseAnnouncementStyle(req.body?.style);
-  // 静默发布：只进公告列表，不自动弹（夜间静默由客户端按时间判断，这里是管理员显式选择）。
+  // 静默发布：只进公告列表、不自动弹（这是管理员显式选择；客户端只在时间/考试状态上叠加展示时机，
+  // 2026-09-26 起不再按夜间或考试进行中拦截自动弹出）。
   const silent = bool(req.body?.silent);
   const scopeType = ['all', 'grade', 'class'].includes(text(req.body?.scopeType)) ? text(req.body?.scopeType) : 'all';
   const scopeIds = scopeType === 'all' ? [] : idList(req.body?.scopeIds).slice(0, ANNOUNCEMENT_SCOPE_ID_MAX);
