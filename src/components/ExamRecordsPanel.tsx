@@ -1122,48 +1122,55 @@ export default function ExamRecordsPanel({
         </section>
       )}
 
-      <footer className="exam-records-pagination">
-        <span>共 {total} 场</span>
-        <label className="exam-records-pagination__size">
-          <span>每页</span>
-          <InlineSelect
-            value={String(pageSize)}
-            onChange={(value) => {
-              setPageSize(Number(value));
-              setPage(1);
-            }}
-            options={[
-              { value: '12', label: '12 条' },
-              { value: '25', label: '25 条' },
-              { value: '50', label: '50 条' },
-            ]}
-            ariaLabel="每页条数"
-          />
-        </label>
-        <div>
-          <button
-            className="admin-btn admin-btn--ghost"
-            type="button"
-            onClick={() => setPage((value) => Math.max(1, value - 1))}
-            disabled={page <= 1 || loading}
-            aria-label="上一页"
-            title="上一页"
-          >
-            <ChevronLeft size={16} aria-hidden="true" />
-          </button>
-          <strong>{totalPages ? `${page} / ${totalPages}` : '1 / 1'}</strong>
-          <button
-            className="admin-btn admin-btn--ghost"
-            type="button"
-            onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
-            disabled={!totalPages || page >= totalPages || loading}
-            aria-label="下一页"
-            title="下一页"
-          >
-            <ChevronRight size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </footer>
+      {/*
+        日程轴一次取整个时间窗、窗口内不再分页，所以这块脚注不适用：
+        它的「共 N 场」数的是记录条数（走 preset=schedule，今天之内的场次归「当前考试」），
+        和看板上按快照展开的场次不是一套口径，翻页控件也不会生效。
+      */}
+      {!boardActive && (
+        <footer className="exam-records-pagination">
+          <span>共 {total} 场</span>
+          <label className="exam-records-pagination__size">
+            <span>每页</span>
+            <InlineSelect
+              value={String(pageSize)}
+              onChange={(value) => {
+                setPageSize(Number(value));
+                setPage(1);
+              }}
+              options={[
+                { value: '12', label: '12 条' },
+                { value: '25', label: '25 条' },
+                { value: '50', label: '50 条' },
+              ]}
+              ariaLabel="每页条数"
+            />
+          </label>
+          <div>
+            <button
+              className="admin-btn admin-btn--ghost"
+              type="button"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={page <= 1 || loading}
+              aria-label="上一页"
+              title="上一页"
+            >
+              <ChevronLeft size={16} aria-hidden="true" />
+            </button>
+            <strong>{totalPages ? `${page} / ${totalPages}` : '1 / 1'}</strong>
+            <button
+              className="admin-btn admin-btn--ghost"
+              type="button"
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              disabled={!totalPages || page >= totalPages || loading}
+              aria-label="下一页"
+              title="下一页"
+            >
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </footer>
+      )}
 
       {detailId && (
         <ExamRecordDetailDrawer
