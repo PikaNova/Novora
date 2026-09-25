@@ -28,7 +28,7 @@ import {
 import { handleDeviceBinding, handleDeviceHeartbeat } from './_exams/routes/deviceSelfRoutes.js';
 import { handleDesignPolicy, handleMajorBatchPresets, handleResetData } from './_exams/routes/settingsRoutes.js';
 import { handleDashboard } from './_exams/routes/dashboardRoutes.js';
-import { handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
+import { EXAM_RECORD_GET_RESOURCES, handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
 import { handleExamAnnouncementRoute } from './_exams/routes/examAnnouncementRoutes.js';
 
 type RouteHandler = (req: VercelRequest, res: VercelResponse, startedAt: number) => Promise<void>;
@@ -164,12 +164,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       const resource = String(req.query?.resource ?? '');
-      if (
-        resource === 'records' ||
-        resource === 'record-operations' ||
-        resource === 'record-precheck' ||
-        resource === 'record-consistency'
-      ) {
+      // 归属列表来自记录路由模块本身（EXAM_RECORD_GET_RESOURCES）：这里再也不手写白名单——
+      // record-precheck / record-consistency / record 都各因为漏写而静默掉到快照接口过。
+      if (EXAM_RECORD_GET_RESOURCES.has(resource)) {
         await handleExamRecordRoute(req, res);
         return;
       }

@@ -1152,26 +1152,32 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
   res.status(200).json({ ok: true, data: result.record, idempotent: result.idempotent === true });
 }
 
+/**
+ * 本模块负责的 GET resource → 处理函数。
+ *
+ * 这张表是「哪些 resource 属于记录路由」的唯一来源：`api/exams.ts` 的入口分发直接用它判断，
+ * 不再是入口手写一份白名单、这里再写一遍 if。手写白名单已经漏过三次
+ * （`record-precheck`、`record-consistency`、`record`）——漏掉时请求会静默掉到快照接口，
+ * 拿回一整份快照，前端解析成「考试详情数据不完整」，而且列表/详情都查不出原因。
+ */
+const RECORD_GET_HANDLERS: Record<string, (req: VercelRequest, res: VercelResponse) => Promise<void>> = {
+  records: handleRecordList,
+  record: handleRecordGet,
+  'record-operations': handleRecordOperations,
+  'record-precheck': handleRecordPrecheck,
+  'record-consistency': handleRecordConsistency,
+};
+
+/** 入口分发用：这些 GET resource 归考试记录路由处理。 */
+export const EXAM_RECORD_GET_RESOURCES: ReadonlySet<string> = new Set(Object.keys(RECORD_GET_HANDLERS));
+
 export async function handleExamRecordRoute(req: VercelRequest, res: VercelResponse, actionName = ''): Promise<void> {
-  if (req.method === 'GET' && text(req.query?.resource) === 'records') {
-    await handleRecordList(req, res);
-    return;
-  }
-  if (req.method === 'GET' && text(req.query?.resource) === 'record-operations') {
-    await handleRecordOperations(req, res);
-    return;
-  }
-  if (req.method === 'GET' && text(req.query?.resource) === 'record') {
-    await handleRecordGet(req, res);
-    return;
-  }
-  if (req.method === 'GET' && text(req.query?.resource) === 'record-precheck') {
-    await handleRecordPrecheck(req, res);
-    return;
-  }
-  if (req.method === 'GET' && text(req.query?.resource) === 'record-consistency') {
-    await handleRecordConsistency(req, res);
-    return;
+  if (req.method === 'GET') {
+    const getHandler = RECORD_GET_HANDLERS[text(req.query?.resource)];
+    if (getHandler) {
+      await getHandler(req, res);
+      return;
+    }
   }
   const action = ACTION_BY_NAME[actionName || text(req.body?.action)];
   if (!action) {
