@@ -1,7 +1,10 @@
 // api/_auth/session.ts
 // 凭据 → 对话主体（AdminActor）的解析，以及服务端路由的统一守卫 requireActor。
-// 目前支持「管理员令牌」「访客令牌」「v1.29.1 及更早的共享令牌」三种；
-// 未来新增设备密钥/SSO 时，应在这里引入解析器登记表，而不是继续堆 if 分支。
+//
+// getActor 不再自己堆 if 分支，而是查一张**凭据解析器登记表**：每种令牌格式注册一个
+// 「match + resolve」单元，注册顺序即匹配顺序。现有三种（管理员令牌、访客令牌、
+// v1.29.1 及更早的共享令牌）都在本文件注册；未来加设备密钥或 SSO 只需 registerCredentialResolver，
+// 不必再动 getActor。
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { hasPermission, type Permission } from '../../src/shared/permissionRules.js';
@@ -9,7 +12,7 @@ import { assertRows } from '../_validation.js';
 import { authSql, config } from './db.js';
 import { actorFromUserRow, userById } from './identities.js';
 import { parsePermissions } from './roles.js';
-import { isGuestDeviceRow, isGuestRoleRow, isUserIdRow, type AdminActor } from './shapes.js';
+import { isGuestDeviceRow, isGuestRoleRow, isUserIdRow, type AdminActor, type AuthRow } from './shapes.js';
 import {
   extractBearer,
   guestSignature,
@@ -19,12 +22,50 @@ import {
   signature,
 } from './tokens.js';
 
+/** 一种令牌格式的解析单元：先 match 判断「这串凭据是不是我的」，命中后再 resolve。 */
+type CredentialResolver = {
+  id: string;
+  match(parts: string[]): boolean;
+  resolve(parts: string[], auth: AuthRow): Promise<AdminActor | null>;
+};
+
+const credentialResolvers = new Map<string, CredentialResolver>();
+
+/** 注册一种凭据解析器。重复 id 直接抛错：两种格式互相遮蔽会静默放过无效令牌。 */
+export function registerCredentialResolver(resolver: CredentialResolver): void {
+  if (credentialResolvers.has(resolver.id)) throw new Error(`credential resolver already registered: ${resolver.id}`);
+  credentialResolvers.set(resolver.id, resolver);
+}
+
+/** 当前生效的解析器 id，按匹配顺序返回（供排错与用例使用）。 */
+export function listCredentialResolvers(): string[] {
+  return [...credentialResolvers.keys()];
+}
+
 export async function getActor(token: string | undefined): Promise<AdminActor | null> {
   if (!token) return null;
   const auth = await config();
   if (!auth) return null;
   const parts = Buffer.from(token, 'base64url').toString().split('.');
-  if (parts.length === 7 && parts[0] === 'g') {
+  for (const resolver of credentialResolvers.values()) {
+    if (!resolver.match(parts)) continue;
+    return resolver.resolve(parts, auth);
+  }
+  return null;
+}
+
+/** 用户令牌通过签名校验后的统一收尾：读账号、比版本、确认在用。 */
+async function resolveUserActor(userId: number, version: number | null): Promise<AdminActor | null> {
+  const row = await userById(userId);
+  if (version !== null && !isUserTokenVersionCurrent(row, version)) return null;
+  if (!row || row.status !== 'active') return null;
+  return actorFromUserRow(row);
+}
+
+const guestCredential: CredentialResolver = {
+  id: 'guest',
+  match: (parts) => parts.length === 7 && parts[0] === 'g',
+  resolve: async (parts, auth) => {
     const guestInstanceId = parts[1];
     const guestGradeId = parts[2];
     const guestClassId = parts[3];
@@ -72,25 +113,33 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
       scopes: [{ type: 'class', gradeId: guestGradeId, classId: guestClassId }],
       mustChangePassword: false,
     };
-  }
-  let userId: number;
-  let expiresAt: number;
-  let version: number;
-  let received: string;
-  if (parts.length === 4) {
-    [userId, expiresAt, version] = parts.slice(0, 3).map(Number);
-    received = parts[3];
+  },
+};
+
+const userTokenCredential: CredentialResolver = {
+  id: 'admin',
+  match: (parts) => parts.length === 4,
+  resolve: async (parts, auth) => {
+    const [userId, expiresAt, version] = parts.slice(0, 3).map(Number);
+    const received = parts[3];
     if (!Number.isFinite(userId) || !Number.isFinite(version) || !isTokenNotExpired(expiresAt, Date.now())) return null;
     const expected = signature(userId, expiresAt, version, auth.token_secret);
     const a = Buffer.from(received || '');
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  } else if (parts.length === 3) {
+    return resolveUserActor(userId, version);
+  },
+};
+
+const legacySharedTokenCredential: CredentialResolver = {
+  id: 'legacy-shared',
+  match: (parts) => parts.length === 3,
+  resolve: async (parts, auth) => {
     // v1.29.1 and earlier shared admin tokens map to the default admin account.
     // Their version is global, so security-sensitive user changes invalidate
     // every legacy shared token through invalidateLegacySharedToken().
-    [expiresAt, version] = parts.slice(0, 2).map(Number);
-    received = parts[2];
+    const [expiresAt, version] = parts.slice(0, 2).map(Number);
+    const received = parts[2];
     if (!isTokenNotExpired(expiresAt, Date.now()) || !isLegacySharedTokenVersionCurrent(version, auth.token_version))
       return null;
     const legacyExpected = createHmac('sha256', auth.token_secret)
@@ -104,12 +153,13 @@ export async function getActor(token: string | undefined): Promise<AdminActor | 
       isUserIdRow,
       'app_users',
     );
-    userId = Number(adminRows[0]?.id);
-  } else return null;
-  const row = await userById(userId);
-  if (parts.length === 4 && !isUserTokenVersionCurrent(row, version)) return null;
-  if (!row || row.status !== 'active') return null;
-  return actorFromUserRow(row);
+    return resolveUserActor(Number(adminRows[0]?.id), null);
+  },
+};
+
+// 注册顺序即匹配顺序：访客 → 管理员 → 旧共享令牌，与拆分前的分支顺序一致。
+for (const resolver of [guestCredential, userTokenCredential, legacySharedTokenCredential]) {
+  registerCredentialResolver(resolver);
 }
 
 export async function requireActor(
