@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveEffectiveSchedule } from '../src/utils/scheduleConflict.js';
+import { parseZonedTime } from '../src/utils/zonedTime.js';
 
 /**
  * 教室端（大屏 / 首页 / 提醒 / 13 套设计）统一消费 `resolveEffectiveSchedule().activeItems`。
@@ -41,7 +42,9 @@ function resolve(majors: unknown[], nowIso = '2026-08-01T08:00') {
       weeklyPlans: [],
       majors: majors as never,
     },
-    new Date(nowIso).getTime(),
+    // 用展示时区（Asia/Shanghai）构造，别用运行机器的本地时区：
+    // CI runner 是 UTC，本地时区会让这些断言整体偏 8 小时。
+    parseZonedTime(nowIso),
   );
 }
 
@@ -58,7 +61,7 @@ test('教室端：延长考试把"结束最晚的那一科"顺延到新的结束
   );
 
   // 后台延长 30 分钟：endAt 从 16:00 变成 16:30（真实结束时刻 = endAt + pausedMs）
-  const extended = resolve([major(twoSubjects, { endAt: new Date('2026-08-01T16:30').getTime(), pausedMs: 0 })]);
+  const extended = resolve([major(twoSubjects, { endAt: parseZonedTime('2026-08-01T16:30'), pausedMs: 0 })]);
   assert.deepEqual(
     extended.activeItems.map((item) => `${item.name}:${item.endTime}`),
     ['数学:2026-08-01T11:00', '语文:2026-08-01T16:30'],
@@ -68,16 +71,14 @@ test('教室端：延长考试把"结束最晚的那一科"顺延到新的结束
 
 test('教室端：暂停顺延（endAt + pausedMs）照样顺延最后一科', () => {
   const pausedThenResumed = resolve([
-    major(twoSubjects, { endAt: new Date('2026-08-01T16:00').getTime(), pausedMs: 25 * 60_000 }),
+    major(twoSubjects, { endAt: parseZonedTime('2026-08-01T16:00'), pausedMs: 25 * 60_000 }),
   ]);
   assert.equal(pausedThenResumed.activeItems[1]?.endTime, '2026-08-01T16:25');
 });
 
 test('教室端：暂停中的考试带上 pausedAt/pausedMs，供大屏冻结倒计时', () => {
-  const pausedAt = new Date('2026-08-01T15:00').getTime();
-  const paused = resolve([
-    major(twoSubjects, { endAt: new Date('2026-08-01T16:00').getTime(), pausedAt, pausedMs: 0 }),
-  ]);
+  const pausedAt = parseZonedTime('2026-08-01T15:00');
+  const paused = resolve([major(twoSubjects, { endAt: parseZonedTime('2026-08-01T16:00'), pausedAt, pausedMs: 0 })]);
   const current = paused.activeItems[1] as { pausedAt?: number | null; pausedMs?: number };
   assert.equal(current.pausedAt, pausedAt);
   assert.equal(current.pausedMs, 0);
