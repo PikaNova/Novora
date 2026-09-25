@@ -108,8 +108,8 @@ export function useWeeklyScheduleSync(params: {
         pendingRef.current = true;
         setSync('offline');
         const queued = getPendingExamSync();
-        const basePayload =
-          queued?.payload ?? buildPayloadRef.current(stateRef.current.majors, stateRef.current.activeMajorId);
+        // payload 一律现场构造：待同步队列里的旧快照会吞掉之后的本地改动（例如刚删掉的考试）。
+        const basePayload = buildPayloadRef.current(stateRef.current.majors, stateRef.current.activeMajorId);
         queuePendingExamSync({
           payload: { ...basePayload, ...weekly },
           baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),
@@ -121,7 +121,8 @@ export function useWeeklyScheduleSync(params: {
       const ms = stateRef.current.majors;
       const activeId = stateRef.current.activeMajorId;
       const queued = getPendingExamSync();
-      const base = queued?.payload ?? buildPayloadRef.current(ms, activeId);
+      // 同上：调用方给的 ms 是最新状态，别被队列里的旧 payload 盖掉。
+      const base = buildPayloadRef.current(ms, activeId);
       const queuedBaseSnapshot = queued?.baseSnapshot;
       const liveBaseSnapshot = getCloudSnapshot();
       const baseSnapshot =
@@ -265,8 +266,8 @@ export function useWeeklyScheduleSync(params: {
       const now = Date.now();
       updateExamSettings({ ...next, updatedAt: now });
       const queued = getPendingExamSync();
-      const basePayload =
-        queued?.payload ?? buildPayloadRef.current(stateRef.current.majors, stateRef.current.activeMajorId);
+      // 同上：payload 现场构造，队列只提供 baseSnapshot / savedAt。
+      const basePayload = buildPayloadRef.current(stateRef.current.majors, stateRef.current.activeMajorId);
       queuePendingExamSync({
         payload: { ...basePayload, ...next },
         baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),

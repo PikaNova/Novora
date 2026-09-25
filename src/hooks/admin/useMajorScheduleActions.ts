@@ -271,7 +271,15 @@ export function useMajorScheduleActions(params: {
       }
       setSync('saving');
       const queued = getPendingExamSync();
-      const payload = queued?.payload ?? buildPayload(ms, activeId);
+      /**
+       * 一律用调用方现场构造的这份 payload。
+       *
+       * 以前这里是 `queued?.payload ?? buildPayload(ms, activeId)`：上一次失败留在待同步队列里的
+       * 旧快照会盖掉之后的本地改动——最典型的是「删掉一场考试，推送里还带着它」，
+       * 于是服务端一直是 8 场、界面删了又回来，用户看到的现象就是「删不掉」。
+       * 队列仍然有用：它提供 baseSnapshot 与 savedAt（三方合并与重试节流），只是不再提供 payload。
+       */
+      const payload = buildPayload(ms, activeId);
       const baseSnapshot = getCloudSnapshot();
       const baseUpdatedAt = Math.max(queued?.baseSnapshot?.updatedAt ?? 0, baseSnapshot?.updatedAt ?? 0);
       let expectedSavedAt = queued?.savedAt;
@@ -501,9 +509,11 @@ export function useMajorScheduleActions(params: {
     setMajorError('');
     if (continueToImport) onContinueToImport();
   };
-  const removeMajor = () => {
+  /** 删除当前大型考试：等服务端确认后再报成功（与「删除草稿」同口径）。 */
+  const removeMajor = async () => {
     if (majors.length <= 1) return;
     const removedId = activeMajor.id;
+    const removedName = activeMajor.name || removedId;
     const ms = majors.filter((m) => m.id !== removedId).map((m, i) => ({ ...m, order: i }));
     const nextActiveId = removedId === activeMajorId ? ms[0].id : activeMajorId;
     const nextEditing = ms.find((major) => majorAppliesToGrade(major, selectedGradeId)) ?? ms[0];
@@ -514,8 +524,19 @@ export function useMajorScheduleActions(params: {
       if (selectedGradeId) next[selectedGradeId] = nextEditing.id;
       return next;
     });
-    commit(ms, nextActiveId, true, `删除大型考试「${activeMajor.name}」`);
     setDeleteMajorOpen(false);
+    const pushed = commit(ms, nextActiveId, true, `删除大型考试「${removedName}」`);
+    if (pushed) await pushed;
+    // 已归档的考试会被服务端冻结并回灌，那条路径由 hook 的「改动没有生效」提示说明原因。
+    if (getAppSettings().exam.majors.some((item) => item.id === removedId)) return;
+    const stillPending = Boolean(getPendingExamSync());
+    notify(
+      stillPending ? 'warning' : 'success',
+      stillPending
+        ? `「${removedName}」已从本机移除，但还没同步到服务器（离线或网络不稳）；联网后会自动同步。`
+        : `已删除「${removedName}」。教室端会在下一次同步时移除它。`,
+      stillPending ? '待同步' : '考试已删除',
+    );
   };
   /** 按 id 删掉一场考试（草稿、临时考试都走这里），并推送快照。 */
   const removeMajorById = (major: MajorExam, syncLabel: string): Promise<void> | void => {
@@ -533,9 +554,21 @@ export function useMajorScheduleActions(params: {
     });
     return commit(ms, nextActiveId, true, syncLabel);
   };
-  const removeQuickMajor = (major: MajorExam) => {
-    removeMajorById(major, `删除临时考试「${major.name}」`);
+  /** 删除临时统一考试：同样等服务端确认后再报成功。 */
+  const removeQuickMajor = async (major: MajorExam) => {
+    const name = major.name || major.id;
     setQuickMajorDeleteTarget(null);
+    const pushed = removeMajorById(major, `删除临时考试「${name}」`);
+    if (pushed) await pushed;
+    if (getAppSettings().exam.majors.some((item) => item.id === major.id)) return;
+    const stillPending = Boolean(getPendingExamSync());
+    notify(
+      stillPending ? 'warning' : 'success',
+      stillPending
+        ? `「${name}」已从本机移除，但还没同步到服务器（离线或网络不稳）；联网后会自动同步。`
+        : `已删除临时考试「${name}」。`,
+      stillPending ? '待同步' : '临时考试已删除',
+    );
   };
   /** 关闭创建向导时丢弃空草稿（A 方案：只删还没填科目的那一场）。 */
   const discardDraftMajor = (major: MajorExam): Promise<void> | void =>
