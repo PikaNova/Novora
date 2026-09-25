@@ -1007,6 +1007,54 @@ test('记录层是快照的投影：已删除的考试在任何板块都不展�
   assert.match(String(live.headers['Server-Timing'] ?? ''), /^app;dur=\d+$/);
 });
 
+/**
+ * 回归：教室端（大屏 / 插件 / 心跳）读的是权威快照 `exam_data.majors`，
+ * 而后台动作写的运行期字段（延长/暂停/发布/结束/归档…）客户端本地副本里没有 ——
+ * 以前任意一次普通保存都会把它们整份覆盖掉，表现为「后台改了、教室端毫无变化」。
+ */
+test('后台动作写进快照的运行期字段，不会被客户端的陈旧整份保存冲掉', async () => {
+  const startAt = Date.now() - 60_000;
+  await seedMajors([{ id: 'lifecycle-probe', name: '延长期中考试', startAt, endAt: startAt + 3_600_000 }]);
+  const beforeMajor = (await readSnapshotMajors()).find((major) => major.id === 'lifecycle-probe');
+  assert.ok(beforeMajor, '种子快照里应该有这场考试');
+
+  // 1) 后台延长 15 分钟（不传 baseUpdatedAt：路由按当前版本执行）
+  const extend = await act(
+    admin.token,
+    'record-extend',
+    { id: 'lifecycle-probe', minutes: 15 },
+    { 'idempotency-key': `extend-${Date.now()}` },
+  );
+  assert.equal(extend.statusCode, 200);
+  const extendedMajor = (await readSnapshotMajors()).find((major) => major.id === 'lifecycle-probe');
+  assert.ok(Number(extendedMajor?.endAt) > Number(beforeMajor.endAt), '延长必须写进权威快照');
+  assert.equal(
+    Number((await readRecord('lifecycle-probe')).end_at),
+    Number(extendedMajor?.endAt),
+    '记录层窗口跟着快照走',
+  );
+
+  // 2) 客户端拿着"动作之前"的整份快照再保存一次（模拟本地副本陈旧）
+  const saved = await saveExamData(admin.token, [beforeMajor], 'lifecycle-probe');
+  assert.equal(saved.statusCode, 200);
+  const afterSave = (await readSnapshotMajors()).find((major) => major.id === 'lifecycle-probe');
+  assert.equal(
+    Number(afterSave?.endAt),
+    Number(extendedMajor?.endAt),
+    '陈旧整份保存不能把延长冲掉（否则教室端读快照就看不到）',
+  );
+
+  // 3) 发布动作写进快照的 publishedAt 同样不能被抹掉
+  const publish = await act(admin.token, 'record-publish', { id: 'lifecycle-probe' });
+  assert.equal(publish.statusCode, 200);
+  const publishedMajor = (await readSnapshotMajors()).find((major) => major.id === 'lifecycle-probe');
+  assert.ok(Number(publishedMajor?.publishedAt) > 0, '发布要写进快照');
+  await saveExamData(admin.token, [{ ...beforeMajor, name: '改个名字' }], 'lifecycle-probe');
+  const afterRename = (await readSnapshotMajors()).find((major) => major.id === 'lifecycle-probe');
+  assert.equal(afterRename?.name, '改个名字', '普通字段仍然可以改');
+  assert.equal(Number(afterRename?.publishedAt), Number(publishedMajor?.publishedAt), 'publishedAt 不能被冲掉');
+});
+
 test('复制考试：结果强制进草稿，重新投影不会被自动发布，发布后才转正式', async () => {
   const now = Date.now();
   // 源考试科目时间齐全，按「创建即发布」本该是 published。

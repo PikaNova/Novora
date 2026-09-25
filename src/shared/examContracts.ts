@@ -44,6 +44,30 @@ export function examEtag(updatedAt: unknown): string {
   return `"exam-${Number.isFinite(value) ? value : 0}"`;
 }
 
+/**
+ * `If-None-Match` 是否命中当前 ETag（用于 304 协商）。
+ *
+ * 必须按 RFC 9110 的弱比较语义处理，不能严格相等：
+ * 反代（openresty / nginx）在 gzip 之后会把响应的强 ETag 改写成弱 ETag
+ * （`"exam-1"` → `W/"exam-1"`），客户端随后把带 `W/` 的值原样回传，
+ * 而应用侧比较的是自己生成的强 ETag —— 严格相等永远不命中，表现就是
+ * 「每次轮询都重新传整份快照」（dev 上实测每次 137 KB）。
+ *
+ * 同时支持逗号分隔的列表与 `*`（多代理链路上都合法）。
+ */
+export function matchesIfNoneMatch(header: unknown, etag: string): boolean {
+  const raw = Array.isArray(header) ? header.join(',') : typeof header === 'string' ? header : '';
+  if (!raw.trim()) return false;
+  const strip = (value: string) => value.trim().replace(/^W\//i, '');
+  const target = strip(etag);
+  return raw.split(',').some((part) => {
+    const value = part.trim();
+    if (!value) return false;
+    if (value === '*') return true;
+    return strip(value) === target;
+  });
+}
+
 /** 快照版本号转成整数，非法值一律归零。 */
 export function parseExamVersion(value: unknown): number {
   const parsed = Number(value);

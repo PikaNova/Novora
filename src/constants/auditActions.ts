@@ -56,6 +56,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'exam-data.update': '修改考试数据',
   'exam.announcement.send': '发送考试公告',
   'exam.announcement.revoke': '撤回考试公告',
+  'exam.announcement.remind': '提醒未读教室',
+  'exam.announcement.template_save': '把公告存为模板',
   'settings.design-policy': '保存表格显示规则',
   'settings.major-batch-presets': '保存批量考试预设',
 
@@ -126,6 +128,7 @@ export const AUDIT_RESOURCE_LABEL: Record<string, string> = {
   exam_data: '考试数据',
   exam_record: '考试记录',
   exam_announcement: '考试公告',
+  exam_announcement_template: '公告模板',
   diagnostics: '诊断日志',
   settings: '系统设置',
   deployment: '部署与更新',

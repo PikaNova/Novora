@@ -10,7 +10,7 @@ import {
   updatedAtIntegerOverflow,
 } from '../db.js';
 import { examPayload } from '../payload.js';
-import { examEtag, isCurrentSnapshotRequest } from '../../../src/shared/examContracts.js';
+import { examEtag, isCurrentSnapshotRequest, matchesIfNoneMatch } from '../../../src/shared/examContracts.js';
 import { isEdgeDeployment } from '../../_deployTarget.js';
 import {
   freezeArchivedMajors,
@@ -19,6 +19,7 @@ import {
   validateMutation,
 } from '../permissions.js';
 import { computeRemovedScopeIds } from '../scopeCleanup.js';
+import { preserveServerLifecycleFields } from '../examSnapshotPatch.js';
 import { projectCurrentExamRecords } from '../examRecordProjection.js';
 import { quickMajorTransitions } from '../quickMajorTransitions.js';
 import { operationLogKey } from '../operationLog.js';
@@ -118,7 +119,9 @@ export async function handleExamDataGet(req: VercelRequest, res: VercelResponse,
     if (edgeDeployment && snapshotRequest) res.setHeader('Cache-Control', 'private, no-store');
     const etag = examEtag(currentVersion);
     res.setHeader('ETag', etag);
-    if (req.headers['if-none-match'] === etag) {
+    // 用弱比较：反代 gzip 后会把强 ETag 改写成 W/ 形式，严格相等会让 304 永远不命中。
+    // 兼容大小写：真实 Node 请求头是小写，个别适配器/测试会传原样的大小写。
+    if (matchesIfNoneMatch(req.headers['if-none-match'] ?? req.headers['If-None-Match'], etag)) {
       res.status(304).end();
       return;
     }
@@ -226,8 +229,8 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       );
       frozenArchivedIds = archived.frozenIds;
       frozenArchivedMajors = archived.frozenMajors;
-      req.body = sanitizeStaleSnapshot(actor, currentPayload, archived.body);
-      const permission = validateMutation(actor, currentPayload, req.body ?? {});
+      const sanitized = sanitizeStaleSnapshot(actor, currentPayload, archived.body);
+      const permission = validateMutation(actor, currentPayload, sanitized);
       if (!permission.ok) {
         res.status(403).json({
           ...permission,
@@ -236,6 +239,12 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
         });
         return;
       }
+      // 运行期字段（暂停/延长/发布/结束/归档…）是服务端后台动作写的，客户端整份保存不能覆盖：
+      // 否则一次普通编辑就会把它们抹掉，教室端（读权威快照）永远看不到这些更改。
+      // 放在权限校验之后：权限判定看的是客户端意图，不该被这次存储层修正影响。
+      req.body = Array.isArray(sanitized.majors)
+        ? { ...sanitized, majors: preserveServerLifecycleFields(currentPayload.majors, sanitized.majors) }
+        : sanitized;
     }
   }
   const {

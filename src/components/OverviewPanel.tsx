@@ -226,7 +226,9 @@ export default function OverviewPanel({
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 10_000);
+    // 10 秒一轮对概览太密：快照即使命中 304 也要占一个请求，设备列表则是实打实的 14 KB。
+    // 30 秒与仪表盘（DashboardPanel）同档；写操作后仍由事件触发即时刷新。
+    const timer = window.setInterval(() => void refresh(), 30_000);
     return () => {
       alive = false;
       window.clearInterval(timer);
@@ -319,7 +321,7 @@ export default function OverviewPanel({
   useEffect(() => {
     if (!canReadAudit) return;
     void loadAuditLogs();
-    const timer = window.setInterval(() => void loadAuditLogs(), 10_000);
+    const timer = window.setInterval(() => void loadAuditLogs(), 30_000);
     return () => window.clearInterval(timer);
   }, [canReadAudit, loadAuditLogs]);
 

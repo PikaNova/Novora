@@ -1,9 +1,9 @@
 // 后台主导航栏：只负责主功能切换。运行模式/年级/班级等页面状态由页面内的
 // AdminContextBar 承载，导航栏不再挂页面控件。
-import { ADMIN_NAV } from '../../hooks/admin/adminRoutes';
+import { ADMIN_NAV } from '../../hooks/admin/adminRoutes.js';
 import type { AdminTab, ExamCenterView } from '../../types/exam';
-import { EXAM_CENTER_NAV_ITEMS } from '../exam-center/ExamCenterNav';
-import ModuleIcon from '../ModuleIcon';
+import { EXAM_CENTER_NAV_ITEMS } from '../exam-center/ExamCenterNav.js';
+import ModuleIcon from '../ModuleIcon.js';
 
 export type AdminTabBarProps = {
   adminTab: AdminTab;
@@ -31,7 +31,11 @@ export function AdminTabBar({ adminTab, can, selectAdminTab, examView, onSelectE
               {item.label}
             </button>
             {item.id === 'exam' && onSelectExamView && (
-              <ExamSubNav view={examView} can={can} onSelect={onSelectExamView} />
+              /*
+               * 子项的选中态只在「考试中心」板块内成立：别的板块下 adminTab !== 'exam'，
+               * 这时即使上层把回落视图（当前考试）传进来，也不该有子项亮着。
+               */
+              <ExamSubNav view={adminTab === 'exam' ? examView : undefined} can={can} onSelect={onSelectExamView} />
             )}
           </div>
         ))}

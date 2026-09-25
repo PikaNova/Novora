@@ -7,6 +7,7 @@ import {
 } from '../shared/examRecordContracts.js';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { logger } from '../utils/logger';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
@@ -209,7 +210,9 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
 
   let response: Response;
   try {
-    response = await fetch(`/api/exams?${params.toString()}`, {
+    // 走统一封装：同一个查询在一屏里被多处分头拉取时只发一次网络请求
+    // （高延迟链路上每条请求都是几百毫秒，合并后等待时间只付一次）。
+    response = await fetchWithTimeout(`/api/exams?${params.toString()}`, {
       headers: authHeaders(),
       cache: 'no-store',
     });
@@ -264,7 +267,7 @@ export async function fetchExamRecord(recordId: string): Promise<ExamRecordListE
   const params = new URLSearchParams({ resource: 'record', recordId });
   let response: Response;
   try {
-    response = await fetch(`/api/exams?${params.toString()}`, {
+    response = await fetchWithTimeout(`/api/exams?${params.toString()}`, {
       headers: authHeaders(),
       cache: 'no-store',
     });
@@ -304,7 +307,10 @@ export async function fetchExamRecordPrecheck(recordId: string): Promise<ExamRec
   const params = new URLSearchParams({ resource: 'record-precheck', id: recordId });
   let response: Response;
   try {
-    response = await fetch(`/api/exams?${params.toString()}`, { headers: authHeaders(), cache: 'no-store' });
+    response = await fetchWithTimeout(`/api/exams?${params.toString()}`, {
+      headers: authHeaders(),
+      cache: 'no-store',
+    });
   } catch {
     throw networkApiError();
   }
@@ -438,7 +444,7 @@ export async function fetchExamRecordOperations(recordId: string): Promise<ExamR
   const params = new URLSearchParams({ resource: 'record-operations', recordId });
   let response: Response;
   try {
-    response = await fetch(`/api/exams?${params.toString()}`, {
+    response = await fetchWithTimeout(`/api/exams?${params.toString()}`, {
       headers: authHeaders(),
       cache: 'no-store',
     });

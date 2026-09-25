@@ -161,6 +161,41 @@ export function ensureTableOnce(): Promise<void> {
           created_at BIGINT NOT NULL
         )`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_images_created ON exam_announcement_images(created_at DESC)`,
+          // 7：公告回执（哪台设备拉到过、哪台设备真正看过以及看了多久）。
+          // 一台设备一条公告只有一行：重复上报走 upsert，只累加时长与次数，不写流水。
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcement_receipts (
+          announcement_id TEXT NOT NULL,
+          instance_id TEXT NOT NULL,
+          grade_id TEXT NOT NULL DEFAULT '',
+          class_id TEXT NOT NULL DEFAULT '',
+          delivered_at BIGINT,
+          first_seen_at BIGINT,
+          last_seen_at BIGINT,
+          seen_count INTEGER NOT NULL DEFAULT 0,
+          seen_ms BIGINT NOT NULL DEFAULT 0,
+          client_version TEXT NOT NULL DEFAULT '',
+          updated_at BIGINT NOT NULL,
+          PRIMARY KEY (announcement_id, instance_id)
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_receipts_announcement ON exam_announcement_receipts(announcement_id, first_seen_at)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_receipts_instance ON exam_announcement_receipts(instance_id, updated_at DESC)`,
+          // 8：公告的运营字段与模板。
+          // - silent：发布时选择"只进列表、不自动弹"（静默时段/免打扰）；
+          // - remind_at + remind_scope：管理端"提醒未读教室"一次，大屏据此重新弹一次。
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS silent BOOLEAN NOT NULL DEFAULT FALSE`,
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS remind_at BIGINT`,
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS remind_scope TEXT NOT NULL DEFAULT 'unseen'`,
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcement_templates (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          style TEXT NOT NULL DEFAULT 'card',
+          level TEXT NOT NULL DEFAULT 'normal',
+          created_by BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_templates_updated ON exam_announcement_templates(updated_at DESC)`,
           transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
           grade_id TEXT NOT NULL DEFAULT '',
@@ -303,16 +338,16 @@ export function ensureTableOnce(): Promise<void> {
         await sql.transaction((transaction) => [projectCurrentExamRecords(transaction)]);
         await recordSchemaMigration(sql, {
           component: 'exams',
-          version: 6,
+          version: 8,
           description:
-            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images',
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles, images, read receipts, quiet mode and templates',
           startedAt: migrationStartedAt,
         });
       } catch (error) {
         await recordSchemaMigration(sql, {
           component: 'exams',
           description:
-            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images',
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles, images, read receipts, quiet mode and templates',
           startedAt: migrationStartedAt,
           error,
         }).catch(() => undefined);

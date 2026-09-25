@@ -27,10 +27,18 @@ test('入口分发名单：记录路由的五种 resource 都在', () => {
   assert.equal(EXAM_RECORD_GET_RESOURCES.size, 5, '新增 resource 时请同步这条断言与处理函数映射表');
 });
 
-test('入口分发名单：公告路由的三种 resource 都在', () => {
-  for (const resource of ['announcements', 'device-announcements', 'announcement-image']) {
+test('入口分发名单：公告路由的每种 resource 都在', () => {
+  for (const resource of [
+    'announcements',
+    'device-announcements',
+    'announcement-image',
+    'announcement-receipts',
+    'announcement-stats',
+    'announcement-templates',
+  ]) {
     assert.ok(EXAM_ANNOUNCEMENT_GET_RESOURCES.has(resource), `公告路由应认领 ${resource}`);
   }
+  assert.equal(EXAM_ANNOUNCEMENT_GET_RESOURCES.size, 6, '新增 resource 时请同步这条断言与处理函数映射表');
 });
 
 test('入口分发：api/exams.ts 用模块导出的名单，不再手写 resource 判断', () => {

@@ -11,6 +11,7 @@ import type {
 } from '../types/exam.js';
 import { DEFAULT_WEEKLY_CONFLICT_POLICY } from '../types/exam.js';
 import { parseZonedTime } from './zonedTime.js';
+import { getZonedParts } from './zonedTime.js';
 import { sortExamItemsByTime } from './examSchedule.js';
 import { getShanghaiDateKey, resolveWeeklyOccurrences } from './weeklySchedule.js';
 import type { ResolveWeeklyOptions } from './weeklySchedule.js';
@@ -23,6 +24,13 @@ import type { ResolveWeeklyOptions } from './weeklySchedule.js';
  */
 
 const MINUTE_MS = 60_000;
+
+/** 毫秒 → 展示时区（Asia/Shanghai）的 `YYYY-MM-DDTHH:mm`，与科目时间的字符串契约一致。 */
+function toZonedDateTimeInput(ms: number): string {
+  const parts = getZonedParts(ms);
+  const pad2 = (value: number) => String(value).padStart(2, '0');
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}`;
+}
 
 /** 左闭右开区间 [start, end) 的时间重叠判断（毫秒）。 */
 export function isTimeOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
@@ -184,6 +192,19 @@ export interface ResolveScheduleInput {
     targetClassIds?: string[];
     temporary?: boolean;
     priorityOverSchedule?: boolean;
+    /**
+     * 生命周期字段（后台动作写进权威快照，教室端据此生效）：
+     * - `endAt` + `pausedMs` = 真实结束时刻（延长、暂停顺延）；
+     * - `pausedAt` 非空 = 正在暂停，倒计时冻结；
+     * - `endedAt` / `archivedAt` 非空 = 立刻从时间线消失（结束 / 归档）。
+     */
+    endAt?: number | null;
+    pausedAt?: number | null;
+    pausedMs?: number;
+    endedAt?: number | null;
+    archivedAt?: number | null;
+    /** 复制出来的考试会在快照上带 `draft: true`（投影据此强制留在草稿），教室端不该展示。 */
+    draft?: boolean;
   }>;
   weeklyPlans: Array<Parameters<typeof resolveWeeklyOccurrences>[0]>;
   activeWeeklyPlanIdByClassId?: Record<string, string | null>;
@@ -208,6 +229,12 @@ export function resolveEffectiveSchedule(
   const selectedClassTrack = Array.isArray(data.selectedClassTrack) ? data.selectedClassTrack : [];
   const subjectTrackModeEnabled = data.subjectTrackModeEnabled === true;
   const applicableMajors = data.majors.filter((major) => {
+    // 后台「结束 / 归档」必须立刻在教室端生效：已结束、已归档的考试不再进入时间线
+    // （以前只看科目时间，结束早于计划时间时大屏会继续显示到原定结束时刻）。
+    if (major.endedAt != null || major.archivedAt != null) return false;
+    // 「复制考试」出来的是草稿（快照上带 draft:true，投影也强制留在草稿）：
+    // 它时间与源考试相同，若不过滤，教室端会凭空多出一场考试。
+    if (major.draft === true) return false;
     const gradeApplies =
       !major.targetGradeIds?.length || (!!selectedGradeId && major.targetGradeIds.includes(selectedGradeId));
     const classApplies =
@@ -233,9 +260,38 @@ export function resolveEffectiveSchedule(
     const scopePriority = major.targetClassIds?.length ? 2 : major.targetGradeIds?.length ? 1 : 0;
     const temporaryRank = major.temporary ? (major.priorityOverSchedule ? 100 : -100) : 0;
     const priorityRank = scopePriority + temporaryRank;
-    return major.items
-      .filter((item) => item.enabled && itemAppliesToScope(item))
-      .map((item) => ({ ...item, kind: 'major' as const, majorExamId: major.id, majorName: major.name, priorityRank }));
+    const scopedItems = major.items.filter((item) => item.enabled && itemAppliesToScope(item));
+    /**
+     * 后台「延长考试」改的是考试级窗口 `endAt`，「暂停/继续」把累计暂停时长记在 `pausedMs`
+     * （真实结束时刻 = endAt + pausedMs，见 examLifecycleOperations.effectiveEndAt）。
+     * 而教室端的时间线完全由科目时间驱动，所以要把这段差值顺延到"原本结束得最晚的那一科"上，
+     * 否则延长/暂停顺延在教室里永远看不到。
+     */
+    const lastItemEnd = scopedItems.reduce((max, item) => {
+      const end = parseZonedTime(item.endTime);
+      return Number.isFinite(end) && end > max ? end : max;
+    }, 0);
+    const declaredEnd = typeof major.endAt === 'number' && Number.isFinite(major.endAt) ? major.endAt : 0;
+    const effectiveEnd = declaredEnd > 0 ? declaredEnd + Math.max(0, major.pausedMs ?? 0) : 0;
+    const shiftMs = effectiveEnd > lastItemEnd ? effectiveEnd - lastItemEnd : 0;
+    return scopedItems.map((item) => {
+      const end = parseZonedTime(item.endTime);
+      const endTime =
+        shiftMs > 0 && Number.isFinite(end) && Math.abs(end - lastItemEnd) < 1000
+          ? toZonedDateTimeInput(end + shiftMs)
+          : item.endTime;
+      return {
+        ...item,
+        endTime,
+        kind: 'major' as const,
+        majorExamId: major.id,
+        majorName: major.name,
+        priorityRank,
+        // 教室端据此冻结倒计时（暂停期间不倒计时），并可在需要时提示"已暂停"。
+        pausedAt: major.pausedAt ?? null,
+        pausedMs: Math.max(0, major.pausedMs ?? 0),
+      };
+    });
   });
   // 同时存在全校、年级和班级安排时，仅在实际时间重叠处使用更具体的安排；
   // 临时统一考试默认低于正式大型考试；只有明确勾选优先覆盖时才在重叠时段覆盖正式考试。

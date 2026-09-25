@@ -32,6 +32,21 @@ import LoadingState from '../components/LoadingState';
 import { fetchAnnouncements } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import { fetchDeviceExamAnnouncements, type SchoolExamAnnouncement } from '../services/examAnnouncements';
+import { flushAnnouncementAcks, queueAnnouncementSeen } from '../services/announcementAcks';
+import {
+  markAnnouncementsShown,
+  markAnnouncementsSeenLocally,
+  markRemindersHandled,
+  pickUnshownAnnouncements,
+  readLocallySeenIds,
+  readReminderMarks,
+  readShownAnnouncementIds,
+} from '../utils/schoolAnnouncementState';
+import {
+  pickRemindableAnnouncements,
+  shouldAutoOpenAnnouncement,
+  type AnnouncementSeenItem,
+} from '../shared/examAnnouncementContracts.js';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
@@ -76,6 +91,33 @@ function isFsHintSuppressed(): boolean {
   }
 }
 
+/**
+ * 决定这次轮询是否要自动弹学校公告窗口（用户口径 2026-09-25 二期）。
+ *
+ * 候选有两类：本机没弹过的新公告，以及管理端在回执里发的"未读强提醒"（提醒时间比本地记录新，
+ * 且（scope=unseen 时）本机还没上报过已读）。之后按展示策略过滤：
+ * - 显式静默（发布时选了"只进列表"）→ 直接标记掉，不再等；
+ * - 夜间静默（22:00–06:00）只挡普通公告，不标记，等过了时段再弹；紧急公告照弹。
+ */
+function pickAutoOpenSchoolAnnouncements(list: SchoolExamAnnouncement[]): SchoolExamAnnouncement[] {
+  const shown = readShownAnnouncementIds();
+  const seenLocally = readLocallySeenIds();
+  const reminders = pickRemindableAnnouncements(list, readReminderMarks()).filter(
+    (item) => item.remindScope === 'all' || !seenLocally.has(item.id),
+  );
+  const candidates: SchoolExamAnnouncement[] = [];
+  const seen = new Set<string>();
+  for (const item of [...reminders, ...pickUnshownAnnouncements(list, shown)]) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    candidates.push(item);
+  }
+  const silent = candidates.filter((item) => item.silent);
+  if (silent.length) markAnnouncementsShown(silent.map((item) => item.id));
+  const now = new Date();
+  return candidates.filter((item) => shouldAutoOpenAnnouncement(item, now));
+}
+
 function announcementVersion(list: Announcement[]): string {
   // updated_at 随编辑/置顶状态变更而更新；仅保存版本标识，不保存公告正文。
   return list.map((item) => `${item.id}:${item.updated_at}:${item.pinned ? 1 : 0}`).join('|');
@@ -87,6 +129,12 @@ function getActiveExams(items: ExamItem[]): ExamItem[] {
 
 function computeRawState(items: ExamItem[], nowTs: number): RawState {
   const active = getActiveExams(items);
+  // 后台「暂停考试」要立刻在教室端生效：暂停期间把"现在"钉在暂停那一刻，
+  // 倒计时/用时因此冻结（继续考试时后台会把 endAt 顺延、并把 pausedMs 记进快照）。
+  const pausedAt = active
+    .map((exam) => (exam as ExamItem & { pausedAt?: number | null }).pausedAt)
+    .find((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (pausedAt != null && pausedAt < nowTs) nowTs = pausedAt;
   if (active.length === 0) {
     return {
       currentExam: null,
@@ -234,6 +282,8 @@ function BoundExamPage() {
   const [schoolAnnouncementsOpen, setSchoolAnnouncementsOpen] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
   const examLiveRef = useRef(false);
+  /** 考试期间不打断考场：待弹的公告先记下来，考完再弹。 */
+  const deferredSchoolAnnouncementsRef = useRef<SchoolExamAnnouncement[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const examSyncInterval = useMemo(() => examSyncIntervalMs(items, nowMs()), [items]);
 
@@ -316,6 +366,8 @@ function BoundExamPage() {
       void fetchDeviceExamAnnouncements(instanceId).then((list) => {
         setSchoolAnnouncements(list);
         if (list.length > 0) {
+          // 手动打开也算"弹过"：不然下一次轮询还会把它当成新公告再弹一次。
+          markAnnouncementsShown(list.map((item) => item.id));
           setSchoolAnnouncementsOpen(true);
           return;
         }
@@ -335,8 +387,23 @@ function BoundExamPage() {
   }, []);
 
   /**
-   * 学校侧公告轮询：拉本机（按绑定班级）能收到的公告。
-   * 出现紧急公告时立刻弹出，且由窗口自身禁止关闭；公告全部过期/撤回后自动收起空窗口。
+   * 学校公告"看满 3 秒"的回执入口：先进本地缓冲，再立刻尝试发一次；
+   * 失败（断网/429）会留在缓冲里，由每分钟的轮询补发。
+   */
+  const handleSchoolAnnouncementSeen = useCallback((item: AnnouncementSeenItem) => {
+    queueAnnouncementSeen([item]);
+    // 记在本机：管理端发强提醒时，已经看过的教室不再被打扰。
+    markAnnouncementsSeenLocally([item.id]);
+    const instanceId = getClassBindingInstanceId();
+    if (instanceId) void flushAnnouncementAcks(instanceId);
+  }, []);
+
+  /**
+   * 学校侧公告轮询：拉本机（按绑定班级）能收到的公告，并做三件事：
+   * 1. 紧急公告立刻弹出（窗口自身禁止关闭），公告全部过期/撤回后自动收起空窗口；
+   * 2. 普通公告**发布后自动弹一次**（每台设备只弹一次，靠本地标记去重），
+   *    正在考试时先记下来、等考试结束再弹，避免打断考场；
+   * 3. 顺手把本地缓冲的"看过"回执发出去（离线时留到下次）。
    */
   useEffect(() => {
     let alive = true;
@@ -346,8 +413,23 @@ function BoundExamPage() {
       const list = await fetchDeviceExamAnnouncements(instanceId);
       if (!alive) return;
       setSchoolAnnouncements(list);
-      if (list.some((item) => item.level === 'urgent')) setSchoolAnnouncementsOpen(true);
-      else if (list.length === 0) setSchoolAnnouncementsOpen(false);
+      void flushAnnouncementAcks(instanceId);
+      if (list.length === 0) {
+        setSchoolAnnouncementsOpen(false);
+        return;
+      }
+      const candidates = pickAutoOpenSchoolAnnouncements(list);
+      if (!candidates.length) return;
+      if (examLiveRef.current) {
+        // 考试进行中：记下待弹的公告，等考试结束（下面的 raw.phase 副作用）再弹。
+        deferredSchoolAnnouncementsRef.current = candidates;
+        return;
+      }
+      markAnnouncementsShown(candidates.map((item) => item.id));
+      markRemindersHandled(
+        candidates.filter((item) => item.remindAt).map((item) => ({ id: item.id, remindAt: item.remindAt as number })),
+      );
+      setSchoolAnnouncementsOpen(true);
     };
     void refreshSchoolAnnouncements();
     const intervalId = window.setInterval(() => {
@@ -394,6 +476,18 @@ function BoundExamPage() {
   examLiveRef.current = raw.phase === 'live';
   useEffect(() => {
     if (raw.phase === 'live') return;
+    // 学校公告：考试期间压下的新公告，考完（或考前空闲）补弹一次。
+    const deferredSchool = deferredSchoolAnnouncementsRef.current;
+    if (deferredSchool.length) {
+      deferredSchoolAnnouncementsRef.current = [];
+      markAnnouncementsShown(deferredSchool.map((item) => item.id));
+      markRemindersHandled(
+        deferredSchool
+          .filter((item) => item.remindAt)
+          .map((item) => ({ id: item.id, remindAt: item.remindAt as number })),
+      );
+      window.setTimeout(() => setSchoolAnnouncementsOpen(true), raw.phase === 'ended' ? 9500 : 0);
+    }
     const deferred = window.localStorage.getItem('exam_board_deferred_announcement');
     if (deferred) {
       window.localStorage.removeItem('exam_board_deferred_announcement');
@@ -777,6 +871,7 @@ function BoundExamPage() {
         open={schoolAnnouncementsOpen}
         announcements={schoolAnnouncements}
         schoolName={schoolName}
+        onSeen={handleSchoolAnnouncementSeen}
         onClose={() => setSchoolAnnouncementsOpen(false)}
       />
       {/* 设计切换窗由各设计顶栏按钮触发，避免悬浮按钮遮挡大屏元素。 */}

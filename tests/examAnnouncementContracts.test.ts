@@ -3,16 +3,24 @@ import test from 'node:test';
 import {
   ANNOUNCEMENT_EXPIRY_OPTIONS,
   ANNOUNCEMENT_IMAGE_MAX_BYTES,
+  ANNOUNCEMENT_SEEN_MAX_MS,
+  ANNOUNCEMENT_SEEN_MIN_MS,
   ANNOUNCEMENT_SCOPE_LABELS,
   ANNOUNCEMENT_STATUS_LABELS,
   ANNOUNCEMENT_STYLES,
   ANNOUNCEMENT_STYLE_LABELS,
   isAnnouncementImageType,
+  isWithinQuietHours,
+  mergeSeenItems,
+  normalizeSeenItems,
+  parseAnnouncementRemindScope,
   parseAnnouncementLevelFilter,
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
   parseAnnouncementStyle,
+  pickRemindableAnnouncements,
   resolveAnnouncementStatus,
+  shouldAutoOpenAnnouncement,
 } from '../src/shared/examAnnouncementContracts.js';
 
 // 学校侧公告的展示状态是"数据库 status + expires_at"现算出来的：
@@ -101,4 +109,83 @@ test('image constraints match what the server accepts', () => {
     assert.equal(isAnnouncementImageType(mimeType), false);
   }
   assert.equal(ANNOUNCEMENT_IMAGE_MAX_BYTES, 2 * 1024 * 1024);
+});
+
+// 回执口径（2026-09-25 定稿）：设备把公告展示满 3 秒才算已读，时长累计上报。
+test('seen threshold and per-report cap are the agreed values', () => {
+  assert.equal(ANNOUNCEMENT_SEEN_MIN_MS, 3000);
+  assert.equal(ANNOUNCEMENT_SEEN_MAX_MS, 60 * 60 * 1000);
+});
+
+test('normalizeSeenItems drops junk, clamps duration and keeps the larger duplicate', () => {
+  const cleaned = normalizeSeenItems([
+    { id: 'ann_a', seenMs: 3000 },
+    { id: 'ann_a', seenMs: 8000 },
+    { id: '', seenMs: 5000 },
+    { id: 'ann_b', seenMs: -20 },
+    { id: 'ann_c', seenMs: ANNOUNCEMENT_SEEN_MAX_MS * 10 },
+    'nope',
+    null,
+  ]);
+  assert.deepEqual(Object.fromEntries(cleaned.map((item) => [item.id, item.seenMs])), {
+    ann_a: 8000,
+    ann_b: 0,
+    ann_c: ANNOUNCEMENT_SEEN_MAX_MS,
+  });
+  assert.deepEqual(normalizeSeenItems('not-an-array'), []);
+  assert.deepEqual(normalizeSeenItems([{ id: 'ann_a', seenMs: 1000 }], 0), [{ id: 'ann_a', seenMs: 1000 }]);
+});
+
+test('mergeSeenItems accumulates pending durations for offline replay', () => {
+  const pending = mergeSeenItems({ ann_a: 3000 }, [
+    { id: 'ann_a', seenMs: 2000 },
+    { id: 'ann_b', seenMs: 4000 },
+  ]);
+  assert.deepEqual(pending, { ann_a: 5000, ann_b: 4000 });
+  // 累计时长有上限，设备时钟异常也不会把统计撑坏。
+  const capped = mergeSeenItems({ ann_a: ANNOUNCEMENT_SEEN_MAX_MS }, [{ id: 'ann_a', seenMs: 5000 }]);
+  assert.equal(capped.ann_a, ANNOUNCEMENT_SEEN_MAX_MS);
+});
+
+// 静默时段（二期口径）：22:00–06:00 只挡普通公告，紧急公告照弹；发布时选"静默"的永不自动弹。
+test('quiet hours cover the night window across midnight', () => {
+  const at = (hour: number) => new Date(2026, 8, 25, hour, 30, 0);
+  assert.equal(isWithinQuietHours(at(22)), true);
+  assert.equal(isWithinQuietHours(at(23)), true);
+  assert.equal(isWithinQuietHours(at(3)), true);
+  assert.equal(isWithinQuietHours(at(5)), true);
+  assert.equal(isWithinQuietHours(at(6)), false);
+  assert.equal(isWithinQuietHours(at(12)), false);
+  assert.equal(isWithinQuietHours(at(21)), false);
+  // 起止相同的窗口视为"没有静默时段"。
+  assert.equal(isWithinQuietHours(at(3), { startHour: 0, endHour: 0 }), false);
+});
+
+test('shouldAutoOpenAnnouncement: silent wins, night only blocks normal ones', () => {
+  const night = new Date(2026, 8, 25, 23, 0, 0);
+  const day = new Date(2026, 8, 25, 10, 0, 0);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, day), true);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, night), false);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent' }, night), true);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal', silent: true }, day), false);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent', silent: true }, day), false);
+});
+
+test('remind scope defaults to unseen and reminders only fire when newer', () => {
+  assert.equal(parseAnnouncementRemindScope('all'), 'all');
+  assert.equal(parseAnnouncementRemindScope('unseen'), 'unseen');
+  assert.equal(parseAnnouncementRemindScope('weird'), 'unseen');
+  assert.equal(parseAnnouncementRemindScope(undefined), 'unseen');
+
+  const list = [
+    { id: 'ann_new', remindAt: 200 },
+    { id: 'ann_old', remindAt: 100 },
+    { id: 'ann_none', remindAt: null },
+  ];
+  const pending = pickRemindableAnnouncements(list, { ann_old: 100, ann_none: 50 });
+  assert.deepEqual(
+    pending.map((item) => item.id),
+    ['ann_new'],
+  );
+  assert.deepEqual(pickRemindableAnnouncements(list, { ann_new: 200, ann_old: 100 }), []);
 });

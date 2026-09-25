@@ -32,6 +32,80 @@ export const ANNOUNCEMENT_DEFAULT_EXPIRES_MINUTES = 120;
 export const ANNOUNCEMENT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const ANNOUNCEMENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 export const ANNOUNCEMENT_DEFAULT_STYLE: AnnouncementStyle = 'card';
+/**
+ * 大屏上"看过"的门槛：累计展示满 3 秒才算已读（回执口径，2026-09-25 定稿）。
+ * 不足门槛的停留不记已读，只累加时长——避免滚动路过被算成已读。
+ */
+export const ANNOUNCEMENT_SEEN_MIN_MS = 3_000;
+/** 一次 ack 最多上报多少条公告（超出的留到下次，避免单请求过大）。 */
+export const ANNOUNCEMENT_ACK_BATCH_MAX = 50;
+/** 单条公告单次上报的时长上限（1 小时），防止设备时钟异常把统计撑坏。 */
+export const ANNOUNCEMENT_SEEN_MAX_MS = 60 * 60 * 1000;
+
+/** 设备上报的"看过"项：公告 id + 本次累计展示时长。 */
+export type AnnouncementSeenItem = { id: string; seenMs: number };
+
+/** 未读强提醒的投放口径。 */
+export type AnnouncementRemindScope = 'unseen' | 'all';
+
+/**
+ * 夜间静默时段（按大屏本地时间判断）：普通公告不自动弹，紧急公告照弹。
+ * 时段本身写死在这一版（22:00–06:00），要改先改这里——发布确认窗会把当前是否处于
+ * 静默时段提示给管理员，避免"发了却没弹"的困惑。
+ */
+export const ANNOUNCEMENT_QUIET_HOURS: { startHour: number; endHour: number } = { startHour: 22, endHour: 6 };
+
+/** 常用模板（发布时一键套用）。 */
+export type AnnouncementTemplate = {
+  id: string;
+  title: string;
+  body: string;
+  style: AnnouncementStyle;
+  level: AnnouncementLevel;
+  createdBy: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** 跨公告统计（近 N 天）。 */
+export type AnnouncementStats = {
+  days: number;
+  announcements: number;
+  /** 所有公告的应达设备数之和（同一条公告的多台设备各算一次）。 */
+  target: number;
+  delivered: number;
+  seen: number;
+  /** 近 N 天有回执的不同设备数（去重后的覆盖面）。 */
+  devices: number;
+  daily: Array<{ date: string; announcements: number; target: number; seen: number }>;
+  /** 回执率最低的几条（用来决定"再提醒谁"）。 */
+  lowest: Array<{ id: string; title: string; target: number; seen: number }>;
+};
+
+/** 单条公告在一台设备上的回执（管理端查看）。 */
+export type AnnouncementReceipt = {
+  instanceId: string;
+  gradeId: string;
+  classId: string;
+  /** 设备拉到过这条公告的时间（送达）。 */
+  deliveredAt: number | null;
+  /** 首次真正展示满门槛的时间（已读）。 */
+  firstSeenAt: number | null;
+  lastSeenAt: number | null;
+  seenCount: number;
+  seenMs: number;
+  clientVersion: string;
+  lastSeenOnlineAt: number;
+};
+
+export type AnnouncementReceiptSummary = {
+  /** 按发布时的范围算出的应达设备数。 */
+  target: number;
+  /** 拉到过公告的设备数。 */
+  delivered: number;
+  /** 真正看过（≥3 秒）的设备数。 */
+  seen: number;
+};
 
 /** 发送时的有效期选项（分钟，0 = 不过期）。发送弹窗与公告管理页共用一份。 */
 export const ANNOUNCEMENT_EXPIRY_OPTIONS: Array<{ value: string; label: string }> = [
@@ -113,4 +187,82 @@ export function parseAnnouncementStyle(
 
 export function isAnnouncementImageType(mimeType: unknown): boolean {
   return (ANNOUNCEMENT_IMAGE_TYPES as readonly string[]).includes(String(mimeType ?? ''));
+}
+
+/**
+ * 归一化设备上报的"看过"列表：丢掉非法项、按时长上限截断、同一公告取较大值、限制条数。
+ * 服务端与客户端共用，避免两边对脏数据的容忍度不一致。
+ */
+export function normalizeSeenItems(raw: unknown, limit = ANNOUNCEMENT_ACK_BATCH_MAX): AnnouncementSeenItem[] {
+  if (!Array.isArray(raw)) return [];
+  const merged = new Map<string, number>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const id = String(row.id ?? '')
+      .trim()
+      .slice(0, 128);
+    if (!id) continue;
+    const seenMs = Math.max(0, Math.min(ANNOUNCEMENT_SEEN_MAX_MS, Math.trunc(Number(row.seenMs) || 0)));
+    // 同一批里出现两次（例如列表和弹窗都报了）取较大值，避免重复累加。
+    merged.set(id, Math.max(merged.get(id) ?? 0, seenMs));
+  }
+  return [...merged.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, Math.max(1, limit))
+    .map(([id, seenMs]) => ({ id, seenMs }));
+}
+
+/** 把新上报的时长并入本地待发送缓冲（同 id 累加，供离线补报）。 */
+export function mergeSeenItems(
+  pending: Record<string, number>,
+  incoming: readonly AnnouncementSeenItem[],
+): Record<string, number> {
+  const next: Record<string, number> = { ...pending };
+  for (const item of normalizeSeenItems(incoming)) {
+    next[item.id] = Math.min(ANNOUNCEMENT_SEEN_MAX_MS, (next[item.id] ?? 0) + item.seenMs);
+  }
+  return next;
+}
+
+/** 当前是否落在夜间静默时段（跨零点也成立，例如 22:00–06:00）。 */
+export function isWithinQuietHours(
+  at: Date,
+  window: { startHour: number; endHour: number } = ANNOUNCEMENT_QUIET_HOURS,
+): boolean {
+  const hour = at.getHours();
+  const { startHour, endHour } = window;
+  if (startHour === endHour) return false;
+  // 跨零点（start > end）时，落在 start 之后或 end 之前都算静默。
+  return startHour > endHour ? hour >= startHour || hour < endHour : hour >= startHour && hour < endHour;
+}
+
+/**
+ * 这条公告此刻要不要在大屏上自动弹：
+ * - 静默发布（silent）永远不自动弹，只进列表；
+ * - 夜间静默只挡普通公告，紧急公告照弹（应急通知不能被时段挡住）。
+ */
+export function shouldAutoOpenAnnouncement(
+  input: { level: AnnouncementLevel; silent?: boolean },
+  at: Date = new Date(),
+): boolean {
+  if (input.silent) return false;
+  if (input.level === 'urgent') return true;
+  return !isWithinQuietHours(at);
+}
+
+/** 提醒口径：未知值按"只提醒没看过的教室"处理（更克制）。 */
+export function parseAnnouncementRemindScope(value: unknown): AnnouncementRemindScope {
+  return String(value ?? '').trim() === 'all' ? 'all' : 'unseen';
+}
+
+/** 大屏遇到比本地记录更新的提醒时要再弹一次。 */
+export function pickRemindableAnnouncements<T extends { id: string; remindAt: number | null }>(
+  list: readonly T[],
+  handledRemindAt: Record<string, number>,
+): T[] {
+  return list.filter((item) => {
+    const remindAt = item.remindAt ?? 0;
+    return remindAt > 0 && remindAt > (handledRemindAt[item.id] ?? 0);
+  });
 }
