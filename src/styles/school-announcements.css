@@ -38,6 +38,89 @@
   color: rgba(255, 255, 255, 0.55);
   font-size: 0.78rem;
 }
+/* 概览卡里的行内说明：与下拉框并排时不占一整行。 */
+.sann-note--inline {
+  align-self: end;
+  padding-bottom: 6px;
+}
+/* ===== 近 N 天概览 ===== */
+.sann-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.sann-stats > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.sann-stats span {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.75rem;
+}
+.sann-stats strong {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.sann-stats small {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.7rem;
+}
+.sann-stats > div.is-primary {
+  border-color: rgba(52, 152, 219, 0.5);
+  background: rgba(52, 152, 219, 0.14);
+}
+.sann-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 44px;
+  margin: 12px 0 4px;
+}
+.sann-spark > span {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 255, 255, 0.12);
+}
+.sann-spark > span.is-active {
+  background: linear-gradient(180deg, #5cc8a1, #3498db);
+}
+.sann-lowest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.sann-lowest button {
+  padding: 3px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.sann-lowest button:hover {
+  border-color: rgba(52, 152, 219, 0.6);
+}
+.sann-template {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sann-search {
+  min-width: 180px;
+  max-width: 240px;
+}
 .sann-compose {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
@@ -531,6 +614,9 @@
     flex-direction: column;
   }
   .sann-receipts__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sann-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

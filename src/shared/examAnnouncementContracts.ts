@@ -36,6 +36,43 @@ export const ANNOUNCEMENT_SEEN_MAX_MS = 60 * 60 * 1000;
 /** 设备上报的"看过"项：公告 id + 本次累计展示时长。 */
 export type AnnouncementSeenItem = { id: string; seenMs: number };
 
+/** 未读强提醒的投放口径。 */
+export type AnnouncementRemindScope = 'unseen' | 'all';
+
+/**
+ * 夜间静默时段（按大屏本地时间判断）：普通公告不自动弹，紧急公告照弹。
+ * 时段本身写死在这一版（22:00–06:00），要改先改这里——发布确认窗会把当前是否处于
+ * 静默时段提示给管理员，避免"发了却没弹"的困惑。
+ */
+export const ANNOUNCEMENT_QUIET_HOURS: { startHour: number; endHour: number } = { startHour: 22, endHour: 6 };
+
+/** 常用模板（发布时一键套用）。 */
+export type AnnouncementTemplate = {
+  id: string;
+  title: string;
+  body: string;
+  style: AnnouncementStyle;
+  level: AnnouncementLevel;
+  createdBy: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** 跨公告统计（近 N 天）。 */
+export type AnnouncementStats = {
+  days: number;
+  announcements: number;
+  /** 所有公告的应达设备数之和（同一条公告的多台设备各算一次）。 */
+  target: number;
+  delivered: number;
+  seen: number;
+  /** 近 N 天有回执的不同设备数（去重后的覆盖面）。 */
+  devices: number;
+  daily: Array<{ date: string; announcements: number; target: number; seen: number }>;
+  /** 回执率最低的几条（用来决定"再提醒谁"）。 */
+  lowest: Array<{ id: string; title: string; target: number; seen: number }>;
+};
+
 /** 单条公告在一台设备上的回执（管理端查看）。 */
 export type AnnouncementReceipt = {
   instanceId: string;
@@ -177,4 +214,46 @@ export function mergeSeenItems(
     next[item.id] = Math.min(ANNOUNCEMENT_SEEN_MAX_MS, (next[item.id] ?? 0) + item.seenMs);
   }
   return next;
+}
+
+/** 当前是否落在夜间静默时段（跨零点也成立，例如 22:00–06:00）。 */
+export function isWithinQuietHours(
+  at: Date,
+  window: { startHour: number; endHour: number } = ANNOUNCEMENT_QUIET_HOURS,
+): boolean {
+  const hour = at.getHours();
+  const { startHour, endHour } = window;
+  if (startHour === endHour) return false;
+  // 跨零点（start > end）时，落在 start 之后或 end 之前都算静默。
+  return startHour > endHour ? hour >= startHour || hour < endHour : hour >= startHour && hour < endHour;
+}
+
+/**
+ * 这条公告此刻要不要在大屏上自动弹：
+ * - 静默发布（silent）永远不自动弹，只进列表；
+ * - 夜间静默只挡普通公告，紧急公告照弹（应急通知不能被时段挡住）。
+ */
+export function shouldAutoOpenAnnouncement(
+  input: { level: AnnouncementLevel; silent?: boolean },
+  at: Date = new Date(),
+): boolean {
+  if (input.silent) return false;
+  if (input.level === 'urgent') return true;
+  return !isWithinQuietHours(at);
+}
+
+/** 提醒口径：未知值按"只提醒没看过的教室"处理（更克制）。 */
+export function parseAnnouncementRemindScope(value: unknown): AnnouncementRemindScope {
+  return String(value ?? '').trim() === 'all' ? 'all' : 'unseen';
+}
+
+/** 大屏遇到比本地记录更新的提醒时要再弹一次。 */
+export function pickRemindableAnnouncements<T extends { id: string; remindAt: number | null }>(
+  list: readonly T[],
+  handledRemindAt: Record<string, number>,
+): T[] {
+  return list.filter((item) => {
+    const remindAt = item.remindAt ?? 0;
+    return remindAt > 0 && remindAt > (handledRemindAt[item.id] ?? 0);
+  });
 }

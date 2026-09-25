@@ -135,6 +135,41 @@ async function receipts(token: string, id: string) {
   return calls;
 }
 
+/** 管理端：提醒未读教室。 */
+async function remind(token: string, id: string, scope: 'unseen' | 'all' = 'unseen') {
+  const { res, calls } = makeRes();
+  await handleExamAnnouncementRoute(
+    makeReq('POST', { token, body: { action: 'announce-remind', id, scope } }),
+    res,
+    'announce-remind',
+  );
+  return calls;
+}
+
+/** 管理端：近 N 天统计。 */
+async function fetchStats(token: string, days = 7) {
+  const { res, calls } = makeRes();
+  await handleExamAnnouncementRoute(
+    makeReq('GET', { token, query: { resource: 'announcement-stats', days: String(days) } }),
+    res,
+  );
+  return calls;
+}
+
+/** 管理端：模板列表。 */
+async function listTemplates(token: string) {
+  const { res, calls } = makeRes();
+  await handleExamAnnouncementRoute(makeReq('GET', { token, query: { resource: 'announcement-templates' } }), res);
+  return calls;
+}
+
+/** 管理端：模板保存 / 删除。 */
+async function templateAction(token: string, action: string, body: Record<string, unknown>) {
+  const { res, calls } = makeRes();
+  await handleExamAnnouncementRoute(makeReq('POST', { token, body: { action, ...body } }), res, action);
+  return calls;
+}
+
 async function bindDevice(instanceId: string, gradeId: string, classId: string, revoked = false) {
   await database()`
     INSERT INTO device_instances (instance_id, grade_id, class_id, revoked, is_management, client_version, last_seen_at, updated_at)
@@ -465,3 +500,118 @@ async function createScopedUser(
   assert.ok(login, 'scoped user must authenticate through the real auth path');
   return { id, token: login.token };
 }
+
+// ===== 二期：搜索、模板、未读强提醒、跨公告统计 =====
+
+test('搜索：关键字命中标题或正文，% 不会被当成通配符', async () => {
+  await send(admin.token, { title: '期末考试延长', body: '请留意', scopeType: 'all', expiresInMinutes: 0 });
+  await send(admin.token, { title: '其它通知', body: '期末考试当天停课', scopeType: 'all', expiresInMinutes: 0 });
+  await send(admin.token, { title: '100% 完成', body: '百分号测试', scopeType: 'all', expiresInMinutes: 0 });
+
+  const byTitle = await list(admin.token, { status: 'all', q: '延长' });
+  assert.equal(rows(byTitle).length, 1);
+  assert.equal(rows(byTitle)[0].title, '期末考试延长');
+
+  const byBody = await list(admin.token, { status: 'all', q: '停课' });
+  assert.equal(rows(byBody).length, 1);
+  assert.equal(rows(byBody)[0].title, '其它通知');
+
+  // `%` 被转义：只命中真的含百分号的那条，而不是把所有公告都匹配出来。
+  const byPercent = await list(admin.token, { status: 'all', q: '%' });
+  assert.equal(rows(byPercent).length, 1);
+  assert.equal(rows(byPercent)[0].title, '100% 完成');
+});
+
+test('模板：保存后能列出、能被删除，空模板被拒绝', async () => {
+  const saved = await templateAction(admin.token, 'announce-template-save', {
+    title: '考试延时',
+    body: '## 延时\n\n- 延长 15 分钟',
+    style: 'poster',
+    level: 'urgent',
+  });
+  assert.equal(saved.statusCode, 200);
+  const templateId = String((saved.body.data as Record<string, unknown>).id);
+  assert.ok(templateId.startsWith('tpl_'));
+
+  const listed = await listTemplates(admin.token);
+  assert.equal(listed.statusCode, 200);
+  const templateRows = listed.body.data as Array<Record<string, unknown>>;
+  assert.equal(templateRows.length, 1);
+  assert.equal(templateRows[0].title, '考试延时');
+  assert.equal(templateRows[0].style, 'poster');
+  assert.equal(templateRows[0].level, 'urgent');
+
+  const empty = await templateAction(admin.token, 'announce-template-save', { title: '', body: '' });
+  assert.equal(empty.statusCode, 400);
+  assert.equal(empty.body.code, 'EMPTY_TEMPLATE');
+
+  const removed = await templateAction(admin.token, 'announce-template-delete', { id: templateId });
+  assert.equal(removed.statusCode, 200);
+  const afterDelete = await listTemplates(admin.token);
+  assert.equal((afterDelete.body.data as unknown[]).length, 0);
+});
+
+test('未读强提醒：写入 remindAt 并同步到教室端，撤回后不再允许提醒', async () => {
+  await bindDevice('remind-dev-1', 'g1', 'c1');
+  const sent = await send(admin.token, {
+    title: '再提醒一次',
+    body: '只进列表',
+    scopeType: 'class',
+    scopeIds: ['c1'],
+    silent: true,
+    expiresInMinutes: 0,
+  });
+  const id = String(objectOf(sent).id);
+  assert.equal(objectOf(sent).silent, true, '静默发布要落库');
+
+  const before = await deviceList('remind-dev-1');
+  assert.equal(rows(before)[0].silent, true);
+  assert.equal(rows(before)[0].remindAt, null);
+
+  const reminded = await remind(admin.token, id, 'unseen');
+  assert.equal(reminded.statusCode, 200);
+  const after = await deviceList('remind-dev-1');
+  assert.ok(Number(rows(after)[0].remindAt) > 0, '教室端要能看到新的提醒时间');
+  assert.equal(rows(after)[0].remindScope, 'unseen');
+
+  await send(admin.token, { id }, 'announce-revoke');
+  const denied = await remind(admin.token, id);
+  assert.equal(denied.statusCode, 404);
+});
+
+test('统计：汇总应达/送达/已读、覆盖设备与回执率最低的公告', async () => {
+  await seedSchoolStructure();
+  await bindDevice('stat-dev-1', 'g1', 'c1');
+  await bindDevice('stat-dev-2', 'g1', 'c2');
+  const sent = await send(admin.token, {
+    title: '统计用公告',
+    body: '两台设备应达',
+    scopeType: 'grade',
+    scopeIds: ['g1'],
+    expiresInMinutes: 0,
+  });
+  const id = String(objectOf(sent).id);
+
+  await deviceList('stat-dev-1');
+  await deviceList('stat-dev-2');
+  await ack('stat-dev-1', [{ id, seenMs: 4000 }]);
+
+  const stats = (await fetchStats(admin.token, 7)).body.stats as Record<string, unknown>;
+  assert.equal(stats.days, 7);
+  assert.equal(stats.announcements, 1);
+  assert.equal(stats.target, 2);
+  assert.equal(stats.delivered, 2);
+  assert.equal(stats.seen, 1);
+  assert.equal(stats.devices, 2);
+  const daily = stats.daily as Array<Record<string, unknown>>;
+  assert.equal(daily.length, 7, '每天都应有一格（没有公告的那天是 0）');
+  assert.equal(
+    daily.reduce((sum, day) => sum + Number(day.announcements), 0),
+    1,
+  );
+  const lowest = stats.lowest as Array<Record<string, unknown>>;
+  assert.equal(lowest.length, 1);
+  assert.equal(lowest[0].id, id);
+  assert.equal(lowest[0].target, 2);
+  assert.equal(lowest[0].seen, 1);
+});

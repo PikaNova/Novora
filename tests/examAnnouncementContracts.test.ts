@@ -10,13 +10,17 @@ import {
   ANNOUNCEMENT_STYLES,
   ANNOUNCEMENT_STYLE_LABELS,
   isAnnouncementImageType,
+  isWithinQuietHours,
   mergeSeenItems,
   normalizeSeenItems,
+  parseAnnouncementRemindScope,
   parseAnnouncementLevelFilter,
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
   parseAnnouncementStyle,
+  pickRemindableAnnouncements,
   resolveAnnouncementStatus,
+  shouldAutoOpenAnnouncement,
 } from '../src/shared/examAnnouncementContracts.js';
 
 // 学校侧公告的展示状态是"数据库 status + expires_at"现算出来的：
@@ -141,4 +145,47 @@ test('mergeSeenItems accumulates pending durations for offline replay', () => {
   // 累计时长有上限，设备时钟异常也不会把统计撑坏。
   const capped = mergeSeenItems({ ann_a: ANNOUNCEMENT_SEEN_MAX_MS }, [{ id: 'ann_a', seenMs: 5000 }]);
   assert.equal(capped.ann_a, ANNOUNCEMENT_SEEN_MAX_MS);
+});
+
+// 静默时段（二期口径）：22:00–06:00 只挡普通公告，紧急公告照弹；发布时选"静默"的永不自动弹。
+test('quiet hours cover the night window across midnight', () => {
+  const at = (hour: number) => new Date(2026, 8, 25, hour, 30, 0);
+  assert.equal(isWithinQuietHours(at(22)), true);
+  assert.equal(isWithinQuietHours(at(23)), true);
+  assert.equal(isWithinQuietHours(at(3)), true);
+  assert.equal(isWithinQuietHours(at(5)), true);
+  assert.equal(isWithinQuietHours(at(6)), false);
+  assert.equal(isWithinQuietHours(at(12)), false);
+  assert.equal(isWithinQuietHours(at(21)), false);
+  // 起止相同的窗口视为"没有静默时段"。
+  assert.equal(isWithinQuietHours(at(3), { startHour: 0, endHour: 0 }), false);
+});
+
+test('shouldAutoOpenAnnouncement: silent wins, night only blocks normal ones', () => {
+  const night = new Date(2026, 8, 25, 23, 0, 0);
+  const day = new Date(2026, 8, 25, 10, 0, 0);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, day), true);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal' }, night), false);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent' }, night), true);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'normal', silent: true }, day), false);
+  assert.equal(shouldAutoOpenAnnouncement({ level: 'urgent', silent: true }, day), false);
+});
+
+test('remind scope defaults to unseen and reminders only fire when newer', () => {
+  assert.equal(parseAnnouncementRemindScope('all'), 'all');
+  assert.equal(parseAnnouncementRemindScope('unseen'), 'unseen');
+  assert.equal(parseAnnouncementRemindScope('weird'), 'unseen');
+  assert.equal(parseAnnouncementRemindScope(undefined), 'unseen');
+
+  const list = [
+    { id: 'ann_new', remindAt: 200 },
+    { id: 'ann_old', remindAt: 100 },
+    { id: 'ann_none', remindAt: null },
+  ];
+  const pending = pickRemindableAnnouncements(list, { ann_old: 100, ann_none: 50 });
+  assert.deepEqual(
+    pending.map((item) => item.id),
+    ['ann_new'],
+  );
+  assert.deepEqual(pickRemindableAnnouncements(list, { ann_new: 200, ann_old: 100 }), []);
 });

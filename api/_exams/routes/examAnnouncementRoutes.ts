@@ -17,6 +17,7 @@ import {
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
   parseAnnouncementStyle,
+  parseAnnouncementRemindScope,
   resolveAnnouncementStatus,
 } from '../../../src/shared/examAnnouncementContracts.js';
 
@@ -45,6 +46,14 @@ function number(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** 只认真正的布尔/字符串真值，缺省为 false（静默发布这种开关不能"字符串非空就算真"）。 */
+function bool(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true' || value === '1';
+  if (typeof value === 'number') return value === 1;
+  return false;
+}
+
 function idList(value: unknown): string[] {
   if (typeof value === 'string') return value ? [value] : [];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -64,6 +73,11 @@ function announcementJson(row: Row, now: number): Record<string, unknown> {
     // 展示状态（active / expired / revoked）：数据库里的 'sent' 不再向上暴露。
     status: resolveAnnouncementStatus({ status: row.status, expiresAt }, now),
     style: parseAnnouncementStyle(row.style),
+    /** 静默发布：只进列表，不自动弹。 */
+    silent: row.silent === true,
+    /** 管理端最近一次"提醒未读教室"的时间（大屏据此决定是否再弹）。 */
+    remindAt: row.remind_at == null ? null : number(row.remind_at),
+    remindScope: parseAnnouncementRemindScope(row.remind_scope),
     examId: text(row.exam_id) || null,
     scopeType: text(row.scope_type) || 'all',
     scopeIds: idList(row.scope_ids),
@@ -71,6 +85,27 @@ function announcementJson(row: Row, now: number): Record<string, unknown> {
     createdAt: number(row.created_at),
     expiresAt,
   };
+}
+
+/** 搜索框里的关键字：转义 LIKE 通配符，避免 `%` 变成"匹配所有"。 */
+function likePattern(raw: unknown): string {
+  const value = text(raw).trim().slice(0, 60);
+  if (!value) return '';
+  return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
+/** 近 N 天的统计按上海日期分桶（与大屏/审计里的日期口径一致）。 */
+function shanghaiDateKey(ms: number): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
 }
 
 /**
@@ -122,11 +157,12 @@ async function handleAnnouncementList(req: VercelRequest, res: VercelResponse): 
   const status = parseAnnouncementStatusFilter(req.query?.status);
   const level = parseAnnouncementLevelFilter(req.query?.level);
   const scope = parseAnnouncementScopeFilter(req.query?.scope);
+  const pattern = likePattern(req.query?.q);
   const now = Date.now();
   const classGradeIds = await loadClassGradeIds(sql, actor);
   const rows = (await sql`
-    SELECT a.id, a.title, a.body, a.level, a.style, a.exam_id, a.scope_type, a.scope_ids,
-      a.created_by, a.created_at, a.expires_at, a.status,
+    SELECT a.id, a.title, a.body, a.level, a.style, a.silent, a.remind_at, a.remind_scope,
+      a.exam_id, a.scope_type, a.scope_ids, a.created_by, a.created_at, a.expires_at, a.status,
       -- 回执计数：一台设备一行，delivered=拉到过，seen=真正看过（≥3 秒）
       (SELECT COUNT(*) FROM exam_announcement_receipts r WHERE r.announcement_id = a.id) AS delivered_count,
       (SELECT COUNT(*) FROM exam_announcement_receipts r
@@ -146,6 +182,7 @@ async function handleAnnouncementList(req: VercelRequest, res: VercelResponse): 
       )
       AND (${level} = 'all' OR a.level = ${level})
       AND (${scope} = 'any' OR a.scope_type = ${scope})
+      AND (${pattern} = '' OR a.title ILIKE ${pattern} OR a.body ILIKE ${pattern})
     ORDER BY a.created_at DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `) as unknown as Row[];
@@ -192,7 +229,8 @@ async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse
   const classId = text(device.class_id);
   const now = Date.now();
   const rows = (await sql`
-    SELECT id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status
+    SELECT id, title, body, level, style, silent, remind_at, remind_scope,
+      exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status
     FROM exam_announcements
     WHERE status = 'sent'
       AND (expires_at IS NULL OR expires_at > ${now})
@@ -237,6 +275,8 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
   }
   const level = text(req.body?.level) === 'urgent' ? 'urgent' : 'normal';
   const style = parseAnnouncementStyle(req.body?.style);
+  // 静默发布：只进公告列表，不自动弹（夜间静默由客户端按时间判断，这里是管理员显式选择）。
+  const silent = bool(req.body?.silent);
   const scopeType = ['all', 'grade', 'class'].includes(text(req.body?.scopeType)) ? text(req.body?.scopeType) : 'all';
   const scopeIds = scopeType === 'all' ? [] : idList(req.body?.scopeIds).slice(0, ANNOUNCEMENT_SCOPE_ID_MAX);
   if (scopeType !== 'all' && !scopeIds.length) {
@@ -253,8 +293,8 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
   const sql = database();
   try {
     await sql`
-      INSERT INTO exam_announcements (id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status)
-      VALUES (${id}, ${title}, ${body}, ${level}, ${style}, ${examId}, ${scopeType}, ${JSON.stringify(scopeIds)}::jsonb, ${actor.id}, ${now}, ${expiresAt}, 'sent')
+      INSERT INTO exam_announcements (id, title, body, level, style, silent, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status)
+      VALUES (${id}, ${title}, ${body}, ${level}, ${style}, ${silent}, ${examId}, ${scopeType}, ${JSON.stringify(scopeIds)}::jsonb, ${actor.id}, ${now}, ${expiresAt}, 'sent')
     `;
   } catch (caught) {
     if (missingRelation(caught)) {
@@ -267,6 +307,7 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
   await writeAudit(actor, 'exam.announcement.send', 'exam_announcement', id, {
     level,
     style,
+    silent,
     scopeType,
     scopeIds,
     ...(examId ? { examId } : {}),
@@ -281,6 +322,9 @@ async function handleAnnouncementSend(req: VercelRequest, res: VercelResponse): 
       body,
       level,
       style,
+      silent,
+      remindAt: null,
+      remindScope: 'unseen',
       status: 'active',
       examId,
       scopeType,
@@ -324,6 +368,189 @@ async function handleAnnouncementRevoke(req: VercelRequest, res: VercelResponse)
     title: text(rows[0].title).slice(0, 80),
   });
   res.status(200).json({ ok: true, data: announcementJson(rows[0], now) });
+}
+
+/**
+ * 未读强提醒（`action=announce-remind`，权限 major.edit）。
+ *
+ * 写一个比之前更大的 remind_at，教室大屏下次轮询（≤60 秒）发现"提醒时间比本地记录新"
+ * 就会把公告重新弹一次；scope='unseen' 时，已经上报过已读的教室不再被打扰。
+ */
+async function handleAnnouncementRemind(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'POST') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const actor = await requireActor(req, res, 'major.edit');
+  if (!actor) return;
+  const id = text(req.body?.id).trim().slice(0, 128);
+  if (!id) {
+    error(res, 400, 'INVALID_ANNOUNCEMENT', 'id is required');
+    return;
+  }
+  const scope = parseAnnouncementRemindScope(req.body?.scope);
+  await ensureTableOnce();
+  const sql = database();
+  const now = Date.now();
+  const rows = (await sql`
+    UPDATE exam_announcements SET remind_at = ${now}, remind_scope = ${scope}
+    WHERE id = ${id} AND status = 'sent'
+    RETURNING id, title, remind_at AS "remindAt", remind_scope AS "remindScope"
+  `) as unknown as Row[];
+  if (!rows.length) {
+    error(res, 404, 'ANNOUNCEMENT_NOT_FOUND', '公告不存在或已撤回');
+    return;
+  }
+  await writeAudit(actor, 'exam.announcement.remind', 'exam_announcement', id, {
+    scope,
+    title: text(rows[0].title).slice(0, 80),
+  });
+  res.status(200).json({
+    ok: true,
+    data: { id, remindAt: now, remindScope: scope },
+  });
+}
+
+/**
+ * 跨公告统计（`?resource=announcement-stats&days=7`，权限 major.read）。
+ *
+ * 口径与回执明细一致（应达按范围现算）；这里按"每条公告算一遍再汇总"实现，
+ * 数据量是公告条数级别的（近 N 天），比在 SQL 里堆子查询更易读。
+ */
+async function handleAnnouncementStats(req: VercelRequest, res: VercelResponse): Promise<void> {
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  const days = Math.min(90, Math.max(1, Math.trunc(number(req.query?.days, 7))));
+  await ensureTableOnce();
+  const sql = database();
+  const now = Date.now();
+  const since = now - days * 86_400_000;
+  const classGradeIds = await loadClassGradeIds(sql, actor);
+  const rows = (await sql`
+    SELECT a.id, a.title, a.created_at, a.scope_type, a.scope_ids,
+      (SELECT COUNT(*) FROM exam_announcement_receipts r WHERE r.announcement_id = a.id) AS delivered_count,
+      (SELECT COUNT(*) FROM exam_announcement_receipts r
+        WHERE r.announcement_id = a.id AND r.first_seen_at IS NOT NULL) AS seen_count,
+      (SELECT COUNT(*) FROM device_instances d
+        WHERE d.revoked = FALSE AND d.is_management = FALSE
+          AND (a.scope_type = 'all'
+            OR (a.scope_type = 'grade' AND d.grade_id IN (SELECT jsonb_array_elements_text(a.scope_ids)))
+            OR (a.scope_type = 'class' AND d.class_id IN (SELECT jsonb_array_elements_text(a.scope_ids))))) AS target_count
+    FROM exam_announcements a
+    WHERE a.created_at >= ${since}
+    ORDER BY a.created_at DESC
+    LIMIT 500
+  `) as unknown as Row[];
+  const visible = rows.filter((row) => actorSeesAnnouncement(actor, row, classGradeIds));
+  const deviceRows = (await sql`
+    SELECT COUNT(DISTINCT instance_id)::int AS count FROM exam_announcement_receipts WHERE updated_at >= ${since}
+  `) as unknown as Row[];
+
+  const daily = new Map<string, { date: string; announcements: number; target: number; seen: number }>();
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const key = shanghaiDateKey(now - offset * 86_400_000);
+    daily.set(key, { date: key, announcements: 0, target: 0, seen: 0 });
+  }
+  let target = 0;
+  let delivered = 0;
+  let seen = 0;
+  const lowest: Array<{ id: string; title: string; target: number; seen: number }> = [];
+  for (const row of visible) {
+    const rowTarget = number(row.target_count, 0);
+    const rowSeen = number(row.seen_count, 0);
+    target += rowTarget;
+    delivered += number(row.delivered_count, 0);
+    seen += rowSeen;
+    const bucket = daily.get(shanghaiDateKey(number(row.created_at)));
+    if (bucket) {
+      bucket.announcements += 1;
+      bucket.target += rowTarget;
+      bucket.seen += rowSeen;
+    }
+    if (rowTarget > 0) lowest.push({ id: text(row.id), title: text(row.title), target: rowTarget, seen: rowSeen });
+  }
+  lowest.sort((left, right) => left.seen / left.target - right.seen / right.target || right.target - left.target);
+  res.status(200).json({
+    ok: true,
+    stats: {
+      days,
+      announcements: visible.length,
+      target,
+      delivered,
+      seen,
+      devices: number(deviceRows[0]?.count, 0),
+      daily: [...daily.values()],
+      lowest: lowest.slice(0, 5),
+    },
+    serverTime: now,
+  });
+}
+
+/** 常用模板：列表（major.read）/ 保存（major.edit）/ 删除（major.edit）。 */
+async function handleAnnouncementTemplates(req: VercelRequest, res: VercelResponse): Promise<void> {
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  await ensureTableOnce();
+  const sql = database();
+  if (req.method === 'GET') {
+    const rows = (await sql`
+      SELECT id, title, body, style, level, created_by, created_at, updated_at
+      FROM exam_announcement_templates ORDER BY updated_at DESC LIMIT 50
+    `) as unknown as Row[];
+    res.status(200).json({
+      ok: true,
+      data: rows.map((row) => ({
+        id: text(row.id),
+        title: text(row.title),
+        body: text(row.body),
+        style: parseAnnouncementStyle(row.style),
+        level: text(row.level) === 'urgent' ? 'urgent' : 'normal',
+        createdBy: row.created_by == null ? null : number(row.created_by, 0),
+        createdAt: number(row.created_at),
+        updatedAt: number(row.updated_at),
+      })),
+    });
+    return;
+  }
+  if (req.method !== 'POST') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const action = text(req.body?.action);
+  if (action !== 'announce-template-save' && action !== 'announce-template-delete') {
+    error(res, 400, 'UNKNOWN_ANNOUNCEMENT_ACTION', '未知的模板操作');
+    return;
+  }
+  const editor = await requireActor(req, res, 'major.edit');
+  if (!editor) return;
+  if (action === 'announce-template-delete') {
+    const id = text(req.body?.id).trim().slice(0, 128);
+    if (!id) {
+      error(res, 400, 'INVALID_TEMPLATE', 'id is required');
+      return;
+    }
+    await sql`DELETE FROM exam_announcement_templates WHERE id = ${id}`;
+    res.status(200).json({ ok: true });
+    return;
+  }
+  const title = text(req.body?.title).trim().slice(0, ANNOUNCEMENT_TITLE_MAX);
+  const body = text(req.body?.body).trim().slice(0, ANNOUNCEMENT_BODY_MAX);
+  if (!title && !body) {
+    error(res, 400, 'EMPTY_TEMPLATE', '模板标题或内容至少填一项');
+    return;
+  }
+  const style = parseAnnouncementStyle(req.body?.style);
+  const level = text(req.body?.level) === 'urgent' ? 'urgent' : 'normal';
+  const now = Date.now();
+  const rows = (await sql`
+    INSERT INTO exam_announcement_templates (id, title, body, style, level, created_by, created_at, updated_at)
+    VALUES (${`tpl_${randomUUID().replace(/-/g, '').slice(0, 20)}`}, ${title}, ${body}, ${style}, ${level}, ${editor.id}, ${now}, ${now})
+    RETURNING id
+  `) as unknown as Row[];
+  await writeAudit(editor, 'exam.announcement.template_save', 'exam_announcement_template', text(rows[0]?.id), {
+    title: title.slice(0, 80),
+  });
+  res.status(200).json({ ok: true, data: { id: text(rows[0]?.id), title, body, style, level, updatedAt: now } });
 }
 
 /** 公告正文图片的同源地址（后台编辑器插入、教室大屏加载都用它）。 */
@@ -568,8 +795,20 @@ export async function handleExamAnnouncementRoute(
     await handleAnnouncementReceipts(req, res);
     return;
   }
+  if (req.method === 'GET' && resource === 'announcement-stats') {
+    await handleAnnouncementStats(req, res);
+    return;
+  }
+  if (resource === 'announcement-templates' || actionName.startsWith('announce-template-')) {
+    await handleAnnouncementTemplates(req, res);
+    return;
+  }
   if (req.method === 'GET' && resource === 'announcements') {
     await handleAnnouncementList(req, res);
+    return;
+  }
+  if (actionName === 'announce-remind' || text(req.body?.action) === 'announce-remind') {
+    await handleAnnouncementRemind(req, res);
     return;
   }
   if (actionName === 'announce-ack' || text(req.body?.action) === 'announce-ack') {

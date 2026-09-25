@@ -1,14 +1,18 @@
 import { apiErrorFromResponse, networkApiError } from './apiError';
 import {
   parseAnnouncementStyle,
+  parseAnnouncementRemindScope,
   resolveAnnouncementStatus,
   type AnnouncementLevel,
   type AnnouncementReceipt,
   type AnnouncementReceiptSummary,
+  type AnnouncementRemindScope,
   type AnnouncementScopeType,
   type AnnouncementSeenItem,
+  type AnnouncementStats,
   type AnnouncementStatus,
   type AnnouncementStyle,
+  type AnnouncementTemplate,
 } from '../shared/examAnnouncementContracts.js';
 
 /**
@@ -25,6 +29,11 @@ export type SchoolExamAnnouncement = {
   status: AnnouncementStatus;
   /** 大屏展示样式：标准卡片 / 大字海报 / 公告栏。 */
   style: AnnouncementStyle;
+  /** 静默发布：只进公告列表，不自动弹。 */
+  silent: boolean;
+  /** 管理端最近一次"提醒未读教室"的时间。 */
+  remindAt: number | null;
+  remindScope: AnnouncementRemindScope;
   examId: string | null;
   scopeType: AnnouncementScopeType;
   scopeIds: string[];
@@ -43,6 +52,8 @@ export type SendExamAnnouncementInput = {
   level: AnnouncementLevel;
   /** 大屏展示样式；不传按标准卡片处理。 */
   style?: AnnouncementStyle;
+  /** 静默发布（只进列表、不自动弹）。 */
+  silent?: boolean;
   scopeType: AnnouncementScopeType;
   scopeIds?: string[];
   examId?: string;
@@ -55,6 +66,8 @@ export type SchoolAnnouncementQuery = {
   status?: AnnouncementStatus | 'all';
   level?: AnnouncementLevel | 'all';
   scope?: AnnouncementScopeType | 'any';
+  /** 关键字（标题/正文模糊匹配）。 */
+  q?: string;
   limit?: number;
   offset?: number;
 };
@@ -114,6 +127,9 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
     body: typeof row.body === 'string' ? row.body : '',
     level: row.level === 'urgent' ? 'urgent' : 'normal',
     style: parseAnnouncementStyle(row.style),
+    silent: row.silent === true,
+    remindAt: typeof row.remindAt === 'number' && row.remindAt > 0 ? row.remindAt : null,
+    remindScope: parseAnnouncementRemindScope(row.remindScope),
     // 服务端已经算好展示状态；旧实例没这一列时按 expiresAt 兜底，避免状态一直显示"生效中"。
     status:
       row.status === 'active' || row.status === 'expired' || row.status === 'revoked'
@@ -158,6 +174,7 @@ export async function fetchSchoolAnnouncements(query: SchoolAnnouncementQuery = 
   if (query.status && query.status !== 'all') params.set('status', query.status);
   if (query.level && query.level !== 'all') params.set('level', query.level);
   if (query.scope && query.scope !== 'any') params.set('scope', query.scope);
+  if (query.q) params.set('q', query.q);
   if (query.limit) params.set('limit', String(query.limit));
   if (query.offset) params.set('offset', String(query.offset));
   let response: Response;
@@ -361,4 +378,140 @@ function parseReceipt(raw: unknown): AnnouncementReceipt | null {
     clientVersion: typeof row.clientVersion === 'string' ? row.clientVersion : '',
     lastSeenOnlineAt: Number(row.lastSeenOnlineAt) || 0,
   };
+}
+
+/** 未读强提醒（权限：major.edit）：让还没看过的教室大屏再弹一次（scope='all' 时全弹）。 */
+export async function remindSchoolAnnouncement(
+  id: string,
+  scope: AnnouncementRemindScope = 'unseen',
+): Promise<{ remindAt: number; remindScope: AnnouncementRemindScope }> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'announce-remind', id, scope }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '提醒发送失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
+  const data = (payload?.data ?? {}) as Record<string, unknown>;
+  if (!payload?.ok) throw await apiErrorFromResponse(response, '提醒发送失败');
+  return {
+    remindAt: Number(data.remindAt) || Date.now(),
+    remindScope: parseAnnouncementRemindScope(data.remindScope),
+  };
+}
+
+/** 管理端：近 N 天的跨公告统计（权限：major.read）。 */
+export async function fetchAnnouncementStats(days = 7): Promise<AnnouncementStats> {
+  const params = new URLSearchParams({ resource: 'announcement-stats', days: String(days) });
+  let response: Response;
+  try {
+    response = await fetch(`/api/exams?${params.toString()}`, { headers: authHeaders(), cache: 'no-store' });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '统计读取失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; stats?: unknown } | null;
+  if (!payload?.ok || !payload.stats) throw await apiErrorFromResponse(response, '统计读取失败');
+  const stats = payload.stats as Record<string, unknown>;
+  const list = <T>(value: unknown, parse: (raw: unknown) => T | null): T[] =>
+    Array.isArray(value) ? value.map(parse).filter((item): item is T => item !== null) : [];
+  return {
+    days: Number(stats.days) || days,
+    announcements: Number(stats.announcements) || 0,
+    target: Number(stats.target) || 0,
+    delivered: Number(stats.delivered) || 0,
+    seen: Number(stats.seen) || 0,
+    devices: Number(stats.devices) || 0,
+    daily: list(stats.daily, (raw) => {
+      const row = (raw ?? {}) as Record<string, unknown>;
+      const date = typeof row.date === 'string' ? row.date : '';
+      if (!date) return null;
+      return {
+        date,
+        announcements: Number(row.announcements) || 0,
+        target: Number(row.target) || 0,
+        seen: Number(row.seen) || 0,
+      };
+    }),
+    lowest: list(stats.lowest, (raw) => {
+      const row = (raw ?? {}) as Record<string, unknown>;
+      const id = typeof row.id === 'string' ? row.id : '';
+      if (!id) return null;
+      return {
+        id,
+        title: typeof row.title === 'string' ? row.title : '',
+        target: Number(row.target) || 0,
+        seen: Number(row.seen) || 0,
+      };
+    }),
+  };
+}
+
+/** 管理端：常用模板列表（权限：major.read）。 */
+export async function fetchAnnouncementTemplates(): Promise<AnnouncementTemplate[]> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams?resource=announcement-templates', {
+      headers: authHeaders(),
+      cache: 'no-store',
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '模板读取失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; data?: unknown } | null;
+  if (!payload?.ok || !Array.isArray(payload.data)) throw await apiErrorFromResponse(response, '模板读取失败');
+  return payload.data.map((raw) => {
+    const row = (raw ?? {}) as Record<string, unknown>;
+    return {
+      id: String(row.id ?? ''),
+      title: typeof row.title === 'string' ? row.title : '',
+      body: typeof row.body === 'string' ? row.body : '',
+      style: parseAnnouncementStyle(row.style),
+      level: row.level === 'urgent' ? ('urgent' as const) : ('normal' as const),
+      createdBy: typeof row.createdBy === 'number' ? row.createdBy : null,
+      createdAt: Number(row.createdAt) || 0,
+      updatedAt: Number(row.updatedAt) || 0,
+    };
+  });
+}
+
+/** 管理端：把当前草稿存成模板（权限：major.edit）。 */
+export async function saveAnnouncementTemplate(input: {
+  title: string;
+  body: string;
+  style: AnnouncementStyle;
+  level: AnnouncementLevel;
+}): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'announce-template-save', ...input }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '模板保存失败');
+}
+
+/** 管理端：删除模板（权限：major.edit）。 */
+export async function deleteAnnouncementTemplate(id: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch('/api/exams', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'announce-template-delete', id }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '模板删除失败');
 }

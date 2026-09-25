@@ -18,8 +18,12 @@ import { renderMarkdown } from '../utils/renderMarkdown';
 import { formatDateTimeInZone } from '../utils/timeSource';
 import {
   fetchSchoolAnnouncements,
+  fetchAnnouncementStats,
+  fetchAnnouncementTemplates,
   revokeSchoolAnnouncement,
+  saveAnnouncementTemplate,
   sendExamAnnouncement,
+  deleteAnnouncementTemplate,
   uploadSchoolAnnouncementImage,
   type SchoolAnnouncementQuery,
   type SchoolExamAnnouncement,
@@ -35,10 +39,12 @@ import {
   ANNOUNCEMENT_STYLE_LABELS,
   ANNOUNCEMENT_TITLE_MAX,
   isAnnouncementImageType,
+  type AnnouncementStats,
   type AnnouncementLevel,
   type AnnouncementScopeType,
   type AnnouncementStatus,
   type AnnouncementStyle,
+  type AnnouncementTemplate,
 } from '../shared/examAnnouncementContracts.js';
 import '../styles/school-announcements.css';
 
@@ -49,6 +55,8 @@ type Draft = {
   body: string;
   level: AnnouncementLevel;
   style: AnnouncementStyle;
+  /** 静默发布：只进公告列表，不自动弹（免打扰）。 */
+  silent: boolean;
   scope: AnnouncementScopeType;
   gradeIds: string[];
   classIds: string[];
@@ -60,6 +68,7 @@ const emptyDraft = (): Draft => ({
   body: '',
   level: 'normal',
   style: 'card',
+  silent: false,
   scope: 'all',
   gradeIds: [],
   classIds: [],
@@ -148,6 +157,12 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
     level: AnnouncementLevel | 'all';
     scope: AnnouncementScopeType | 'any';
   }>({ status: 'active', level: 'all', scope: 'any' });
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [stats, setStats] = useState<AnnouncementStats | null>(null);
+  const [statsDays, setStatsDays] = useState(7);
+  const [templates, setTemplates] = useState<AnnouncementTemplate[]>([]);
+  const [templateId, setTemplateId] = useState('');
   const [items, setItems] = useState<SchoolExamAnnouncement[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [listLoading, setListLoading] = useState(true);
@@ -156,8 +171,8 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
   const [receiptsFor, setReceiptsFor] = useState<SchoolExamAnnouncement | null>(null);
 
   const query: SchoolAnnouncementQuery = useMemo(
-    () => ({ status: filters.status, level: filters.level, scope: filters.scope, limit: PAGE_SIZE }),
-    [filters],
+    () => ({ status: filters.status, level: filters.level, scope: filters.scope, q: search, limit: PAGE_SIZE }),
+    [filters, search],
   );
 
   const load = useCallback(
@@ -180,6 +195,35 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 搜索框打字防抖：400ms 后才真正查库，避免每敲一个字都打一次接口。
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 400);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  /** 近 N 天概览（跨公告统计）：进页面、切天数、发完公告后刷新。 */
+  const loadStats = useCallback(
+    async (days = statsDays) => {
+      try {
+        setStats(await fetchAnnouncementStats(days));
+      } catch {
+        // 统计是辅助信息，读不到就不显示，不打扰主流程。
+        setStats(null);
+      }
+    },
+    [statsDays],
+  );
+
+  useEffect(() => {
+    void loadStats(statsDays);
+  }, [loadStats, statsDays]);
+
+  useEffect(() => {
+    void fetchAnnouncementTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, []);
 
   const loadMore = async () => {
     setListLoading(true);
@@ -287,6 +331,59 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
     setConfirmOpen(true);
   };
 
+  /** 套用常用模板：只带标题/正文/样式/级别，范围与有效期保持当前设置。 */
+  const applyTemplate = (id: string) => {
+    setTemplateId(id);
+    const template = templates.find((item) => item.id === id);
+    if (!template) return;
+    setDraft((current) => ({
+      ...current,
+      title: template.title,
+      body: template.body,
+      style: template.style,
+      level: template.level,
+    }));
+    setDraftError('');
+  };
+
+  const saveTemplate = async () => {
+    if (!draft.title.trim() && !draft.body.trim()) {
+      setDraftError('先把标题或内容写好，再存成模板。');
+      return;
+    }
+    try {
+      await saveAnnouncementTemplate({
+        title: draft.title.trim() || '未命名模板',
+        body: draft.body.trim(),
+        style: draft.style,
+        level: draft.level,
+      });
+      setTemplates(await fetchAnnouncementTemplates());
+      notify('success', '已存为常用模板，下次发布可以直接套用。', '模板已保存');
+    } catch (cause) {
+      setDraftError(formatApiError(cause, '模板保存失败'));
+    }
+  };
+
+  const removeTemplate = async () => {
+    if (!templateId) return;
+    const confirmed = await confirmDialog({
+      title: '删除模板',
+      message: '删除后不影响已经发出去的公告。',
+      tone: 'warning',
+      confirmLabel: '删除',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteAnnouncementTemplate(templateId);
+      setTemplates(await fetchAnnouncementTemplates());
+      setTemplateId('');
+      notify('success', '模板已删除。', '已删除');
+    } catch (cause) {
+      setDraftError(formatApiError(cause, '模板删除失败'));
+    }
+  };
+
   const publish = async () => {
     setSending(true);
     setDraftError('');
@@ -296,6 +393,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
         body: draft.body.trim(),
         level: draft.level,
         style: draft.style,
+        silent: draft.silent,
         scopeType: draft.scope,
         scopeIds: draft.scope === 'all' ? [] : scopeIdsForSend,
         expiresInMinutes: Number(draft.expiry),
@@ -307,6 +405,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
       );
       setConfirmOpen(false);
       resetDraft();
+      void loadStats();
       // 新公告一定是"生效中"，发完把筛选切回生效中才能立刻看到它。
       if (filters.status === 'active' && filters.level === 'all' && filters.scope === 'any') {
         await load(true);
@@ -372,11 +471,115 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
 
       <section className="sann-card">
         <header className="sann-card__head">
+          <h3>公告概览</h3>
+          <div className="sann-filters">
+            <InlineSelect
+              value={String(statsDays)}
+              ariaLabel="统计区间"
+              onChange={(value) => setStatsDays(value === '30' ? 30 : 7)}
+              options={[
+                { value: '7', label: '近 7 天' },
+                { value: '30', label: '近 30 天' },
+              ]}
+            />
+          </div>
+        </header>
+        {!stats ? (
+          <div className="sann-empty">统计加载中…</div>
+        ) : (
+          <>
+            <div className="sann-stats">
+              <div>
+                <span>公告</span>
+                <strong>{stats.announcements}</strong>
+                <small>条</small>
+              </div>
+              <div className="is-primary">
+                <span>平均回执率</span>
+                <strong>{stats.target > 0 ? Math.round((stats.seen / stats.target) * 100) : 0}</strong>
+                <small>%</small>
+              </div>
+              <div>
+                <span>已送达</span>
+                <strong>{stats.delivered}</strong>
+                <small>台次</small>
+              </div>
+              <div>
+                <span>覆盖教室</span>
+                <strong>{stats.devices}</strong>
+                <small>台</small>
+              </div>
+            </div>
+            {stats.daily.some((day) => day.announcements > 0) && (
+              <div className="sann-spark" role="img" aria-label={`近 ${stats.days} 天每天发布的公告数`}>
+                {stats.daily.map((day) => {
+                  const peak = Math.max(...stats.daily.map((item) => item.announcements), 1);
+                  const rate = day.target > 0 ? Math.round((day.seen / day.target) * 100) : 0;
+                  return (
+                    <span
+                      key={day.date}
+                      title={`${day.date}：${day.announcements} 条 · 回执率 ${rate}%`}
+                      style={{ height: `${Math.max(6, (day.announcements / peak) * 100)}%` }}
+                      className={day.announcements > 0 ? 'is-active' : undefined}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            {stats.lowest.filter((item) => item.seen < item.target).length > 0 && (
+              <div className="sann-lowest">
+                <span className="sann-note">回执率最低：</span>
+                {stats.lowest
+                  .filter((item) => item.seen < item.target)
+                  .slice(0, 3)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        const target = items.find((row) => row.id === item.id);
+                        if (target) setReceiptsFor(target);
+                      }}
+                      title="查看这条公告的回执明细"
+                    >
+                      {item.title || '无标题'} {item.seen}/{item.target}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="sann-card">
+        <header className="sann-card__head">
           <h3>
             <Megaphone aria-hidden="true" />
             发布公告
           </h3>
-          {!canSend && <span className="sann-note">当前账号只能查看，发送需要「编辑大型考试」权限。</span>}
+          {canSend ? (
+            <div className="sann-template">
+              <InlineSelect
+                value={templateId}
+                ariaLabel="套用常用模板"
+                onChange={applyTemplate}
+                options={[
+                  { value: '', label: '套用模板…' },
+                  ...templates.map((item) => ({ value: item.id, label: item.title || '未命名模板' })),
+                ]}
+              />
+              <button className="admin-btn admin-btn--ghost" type="button" onClick={() => void saveTemplate()}>
+                存为模板
+              </button>
+              {templateId && (
+                <button className="admin-btn admin-btn--ghost" type="button" onClick={() => void removeTemplate()}>
+                  删除模板
+                </button>
+              )}
+            </div>
+          ) : (
+            <span className="sann-note">当前账号只能查看，发送需要「编辑大型考试」权限。</span>
+          )}
         </header>
         <div className="sann-compose">
           <div className="sann-compose__fields">
@@ -497,6 +700,21 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                 />
               </label>
             </div>
+            <div className="sann-compose__row">
+              <label className="admin-label">
+                弹出方式
+                <InlineSelect
+                  value={draft.silent ? 'silent' : 'auto'}
+                  disabled={!canSend || sending}
+                  onChange={(value) => setDraft({ ...draft, silent: value === 'silent' })}
+                  options={[
+                    { value: 'auto', label: '自动弹出（推荐）' },
+                    { value: 'silent', label: '只进列表（不打扰）' },
+                  ]}
+                />
+              </label>
+              <p className="sann-note sann-note--inline">普通公告在 22:00–06:00 不会自动弹出，紧急公告不受影响。</p>
+            </div>
             <div className="sann-style-picker">
               <span className="sann-scope-picker__title">大屏样式</span>
               <div className="sann-style-list">
@@ -593,6 +811,13 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
         <header className="sann-card__head">
           <h3>公告记录</h3>
           <div className="sann-filters">
+            <input
+              className="admin-input sann-search"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="搜索标题或内容"
+              aria-label="搜索公告"
+            />
             <InlineSelect
               value={filters.status}
               ariaLabel="按状态筛选"
@@ -692,6 +917,13 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
           draft={{ title: draft.title.trim(), body: draft.body.trim(), level: draft.level, style: draft.style }}
           audience={scopeSummary}
           expiryLabel={draft.expiry === '0' ? '不过期（需要手动撤回）' : `展示 ${expiryLabel}`}
+          delivery={
+            draft.silent
+              ? '只进公告列表，不自动弹出'
+              : draft.level === 'urgent'
+                ? '自动弹出（紧急公告随时弹，不受夜间静默限制）'
+                : '自动弹出（普通公告 22:00–06:00 不弹）'
+          }
           busy={sending}
           error={draftError}
           onConfirm={() => void publish()}
@@ -706,6 +938,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
         <SchoolAnnouncementReceiptsDialog
           announcementId={receiptsFor.id}
           title={receiptsFor.title}
+          canRemind={canSend}
           onClose={() => setReceiptsFor(null)}
         />
       )}

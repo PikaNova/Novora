@@ -20,6 +20,8 @@ type Props = {
   audience: string;
   /** 有效期文案（30 分钟 / 不过期 …）。 */
   expiryLabel: string;
+  /** 投放方式文案（自动弹出 / 只进列表，及夜间静默说明）。 */
+  delivery: string;
   busy: boolean;
   error: string;
   onConfirm: () => void;
@@ -34,6 +36,7 @@ export default function SchoolAnnouncementPublishDialog({
   draft,
   audience,
   expiryLabel,
+  delivery,
   busy,
   error,
   onConfirm,
@@ -68,6 +71,10 @@ export default function SchoolAnnouncementPublishDialog({
           <div>
             <dt>有效期</dt>
             <dd>{expiryLabel}</dd>
+          </div>
+          <div>
+            <dt>投放方式</dt>
+            <dd>{delivery}</dd>
           </div>
         </dl>
         <div className="sann-publish__preview">

@@ -6,14 +6,21 @@ import Mascot from '../Mascot';
 import RefreshButton from './RefreshButton';
 import { getAppSettings } from '../../utils/appSettings';
 import { formatApiError } from '../../services/apiError';
+import { notify } from '../../services/notify';
 import { formatDateTimeInZone } from '../../utils/timeSource';
-import { fetchAnnouncementReceipts, type SchoolAnnouncementReceipts } from '../../services/examAnnouncements';
+import {
+  fetchAnnouncementReceipts,
+  remindSchoolAnnouncement,
+  type SchoolAnnouncementReceipts,
+} from '../../services/examAnnouncements';
 import { ANNOUNCEMENT_STYLE_LABELS } from '../../shared/examAnnouncementContracts.js';
 
 type Props = {
   announcementId: string;
   /** 列表里那行的标题，加载完成前先顶上，避免弹窗空着。 */
   title: string;
+  /** 有没有发送提醒的权限（major.edit）。 */
+  canRemind?: boolean;
   onClose: () => void;
 };
 
@@ -36,12 +43,13 @@ function durationText(ms: number): string {
  * 「已读」= 这台教室大屏把公告真正展示满 3 秒；「送达」= 设备拉到过这条公告。
  * 应达设备数按发布范围现算：设备换绑后历史公告的应达数会跟着变，这是有意的。
  */
-export default function SchoolAnnouncementReceiptsDialog({ announcementId, title, onClose }: Props) {
+export default function SchoolAnnouncementReceiptsDialog({ announcementId, title, canRemind = false, onClose }: Props) {
   const { grades, classes } = getAppSettings().exam;
   const [data, setData] = useState<SchoolAnnouncementReceipts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [view, setView] = useState('all');
+  const [reminding, setReminding] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -123,6 +131,24 @@ export default function SchoolAnnouncementReceiptsDialog({ announcementId, title
 
   const summary = data?.summary;
   const rate = summary && summary.target > 0 ? Math.round((summary.seen / summary.target) * 100) : 0;
+  const unseen = Math.max(0, (summary?.target ?? 0) - (summary?.seen ?? 0));
+
+  /**
+   * 提醒未读教室：写一个新的 remind_at，教室大屏下次轮询（≤60 秒）会把公告再弹一次。
+   * 已经上报过已读的教室不会被打扰（scope='unseen'）。
+   */
+  const remind = async () => {
+    setReminding(true);
+    try {
+      await remindSchoolAnnouncement(announcementId, 'unseen');
+      notify('success', '已发出提醒：还没看过的教室会在 1 分钟内再弹一次。', '提醒已发送');
+      await load();
+    } catch (cause) {
+      notify('error', formatApiError(cause, '提醒发送失败'), '提醒失败');
+    } finally {
+      setReminding(false);
+    }
+  };
 
   return (
     <AdminModalPortal
@@ -145,6 +171,17 @@ export default function SchoolAnnouncementReceiptsDialog({ announcementId, title
           </div>
           <div className="sann-receipts__actions">
             <RefreshButton className="admin-btn admin-btn--ghost" busy={loading} onRefresh={() => void load()} />
+            {canRemind && (
+              <button
+                className="admin-btn admin-btn--primary"
+                type="button"
+                disabled={reminding || !data || unseen === 0}
+                title={unseen === 0 ? '所有教室都看过这条公告了' : `给还没看过的 ${unseen} 间教室再弹一次`}
+                onClick={() => void remind()}
+              >
+                {reminding ? '发送中…' : `提醒未读教室${unseen > 0 ? `（${unseen}）` : ''}`}
+              </button>
+            )}
             <button
               className="admin-btn admin-btn--ghost"
               type="button"

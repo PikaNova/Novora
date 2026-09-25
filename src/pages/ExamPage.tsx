@@ -35,10 +35,18 @@ import { fetchDeviceExamAnnouncements, type SchoolExamAnnouncement } from '../se
 import { flushAnnouncementAcks, queueAnnouncementSeen } from '../services/announcementAcks';
 import {
   markAnnouncementsShown,
+  markAnnouncementsSeenLocally,
+  markRemindersHandled,
   pickUnshownAnnouncements,
+  readLocallySeenIds,
+  readReminderMarks,
   readShownAnnouncementIds,
 } from '../utils/schoolAnnouncementState';
-import type { AnnouncementSeenItem } from '../shared/examAnnouncementContracts.js';
+import {
+  pickRemindableAnnouncements,
+  shouldAutoOpenAnnouncement,
+  type AnnouncementSeenItem,
+} from '../shared/examAnnouncementContracts.js';
 import type { ExamViewModel, ExamPhaseVM, Urgency } from '../designs/types';
 import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
@@ -81,6 +89,33 @@ function isFsHintSuppressed(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * 决定这次轮询是否要自动弹学校公告窗口（用户口径 2026-09-25 二期）。
+ *
+ * 候选有两类：本机没弹过的新公告，以及管理端在回执里发的"未读强提醒"（提醒时间比本地记录新，
+ * 且（scope=unseen 时）本机还没上报过已读）。之后按展示策略过滤：
+ * - 显式静默（发布时选了"只进列表"）→ 直接标记掉，不再等；
+ * - 夜间静默（22:00–06:00）只挡普通公告，不标记，等过了时段再弹；紧急公告照弹。
+ */
+function pickAutoOpenSchoolAnnouncements(list: SchoolExamAnnouncement[]): SchoolExamAnnouncement[] {
+  const shown = readShownAnnouncementIds();
+  const seenLocally = readLocallySeenIds();
+  const reminders = pickRemindableAnnouncements(list, readReminderMarks()).filter(
+    (item) => item.remindScope === 'all' || !seenLocally.has(item.id),
+  );
+  const candidates: SchoolExamAnnouncement[] = [];
+  const seen = new Set<string>();
+  for (const item of [...reminders, ...pickUnshownAnnouncements(list, shown)]) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    candidates.push(item);
+  }
+  const silent = candidates.filter((item) => item.silent);
+  if (silent.length) markAnnouncementsShown(silent.map((item) => item.id));
+  const now = new Date();
+  return candidates.filter((item) => shouldAutoOpenAnnouncement(item, now));
 }
 
 function announcementVersion(list: Announcement[]): string {
@@ -241,8 +276,8 @@ function BoundExamPage() {
   const [schoolAnnouncementsOpen, setSchoolAnnouncementsOpen] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
   const examLiveRef = useRef(false);
-  /** 考试期间不打断考场：新公告先记 id，考完再弹（存 id 不存内容，避免额外状态）。 */
-  const deferredSchoolAnnouncementsRef = useRef<string[]>([]);
+  /** 考试期间不打断考场：待弹的公告先记下来，考完再弹。 */
+  const deferredSchoolAnnouncementsRef = useRef<SchoolExamAnnouncement[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const examSyncInterval = useMemo(() => examSyncIntervalMs(items, nowMs()), [items]);
 
@@ -351,6 +386,8 @@ function BoundExamPage() {
    */
   const handleSchoolAnnouncementSeen = useCallback((item: AnnouncementSeenItem) => {
     queueAnnouncementSeen([item]);
+    // 记在本机：管理端发强提醒时，已经看过的教室不再被打扰。
+    markAnnouncementsSeenLocally([item.id]);
     const instanceId = getClassBindingInstanceId();
     if (instanceId) void flushAnnouncementAcks(instanceId);
   }, []);
@@ -375,20 +412,17 @@ function BoundExamPage() {
         setSchoolAnnouncementsOpen(false);
         return;
       }
-      const hasUrgent = list.some((item) => item.level === 'urgent');
-      if (hasUrgent) {
-        markAnnouncementsShown(list.map((item) => item.id));
-        setSchoolAnnouncementsOpen(true);
-        return;
-      }
-      const fresh = pickUnshownAnnouncements(list, readShownAnnouncementIds());
-      if (!fresh.length) return;
+      const candidates = pickAutoOpenSchoolAnnouncements(list);
+      if (!candidates.length) return;
       if (examLiveRef.current) {
         // 考试进行中：记下待弹的公告，等考试结束（下面的 raw.phase 副作用）再弹。
-        deferredSchoolAnnouncementsRef.current = fresh.map((item) => item.id);
+        deferredSchoolAnnouncementsRef.current = candidates;
         return;
       }
-      markAnnouncementsShown(fresh.map((item) => item.id));
+      markAnnouncementsShown(candidates.map((item) => item.id));
+      markRemindersHandled(
+        candidates.filter((item) => item.remindAt).map((item) => ({ id: item.id, remindAt: item.remindAt as number })),
+      );
       setSchoolAnnouncementsOpen(true);
     };
     void refreshSchoolAnnouncements();
@@ -440,7 +474,12 @@ function BoundExamPage() {
     const deferredSchool = deferredSchoolAnnouncementsRef.current;
     if (deferredSchool.length) {
       deferredSchoolAnnouncementsRef.current = [];
-      markAnnouncementsShown(deferredSchool);
+      markAnnouncementsShown(deferredSchool.map((item) => item.id));
+      markRemindersHandled(
+        deferredSchool
+          .filter((item) => item.remindAt)
+          .map((item) => ({ id: item.id, remindAt: item.remindAt as number })),
+      );
       window.setTimeout(() => setSchoolAnnouncementsOpen(true), raw.phase === 'ended' ? 9500 : 0);
     }
     const deferred = window.localStorage.getItem('exam_board_deferred_announcement');
