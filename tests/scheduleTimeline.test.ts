@@ -130,8 +130,10 @@ test('状态：记录层状态优先于时间推断', () => {
   const board = buildScheduleBoard({
     sessions,
     records: [
-      record({ id: 'm1', displayStatus: 'stopping', startAt: at('10:00'), endAt: at('11:00') }),
-      record({ id: 'm2', displayStatus: 'ongoing', startAt: at('12:00'), endAt: at('13:00') }),
+      // m1：按时间已经结束（now 12:30 > 11:00），记录层说还在进行中 → 记录层优先。
+      record({ id: 'm1', displayStatus: 'ongoing', startAt: at('10:00'), endAt: at('11:00') }),
+      // m2：按时间正在进行（12:00–13:00），记录层说已结束 → 同样以记录层为准。
+      record({ id: 'm2', displayStatus: 'ended', startAt: at('12:00'), endAt: at('13:00') }),
       record({ id: 'm3', displayStatus: 'ended', startAt: at('15:00'), endAt: at('16:00') }),
     ],
     grades,
@@ -140,7 +142,7 @@ test('状态：记录层状态优先于时间推断', () => {
   });
   assert.deepEqual(
     board.rows.map((row) => row.status),
-    ['stopping', 'ongoing', 'ended'],
+    ['ongoing', 'ended', 'ended'],
   );
 });
 

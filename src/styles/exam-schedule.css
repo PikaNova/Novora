@@ -235,10 +235,6 @@
   background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
   color: #9fd0f2;
 }
-.exam-schedule__status.is-stopping {
-  border-color: rgba(223, 167, 47, 0.5);
-  color: #f0d08a;
-}
 .exam-schedule__status.is-suppressed,
 .exam-schedule__status.is-ended {
   color: var(--adm-text-3, #879caf);

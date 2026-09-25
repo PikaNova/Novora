@@ -17,6 +17,8 @@ export const SERVER_OWNED_MAJOR_FIELDS = [
   'actualStartAt',
   'pausedAt',
   'pausedMs',
+  // 遗留字段：旧的「申请停止」已经下线（2026-09-25），这里保留是为了让结束动作
+  // 能把它清干净、并且不让陈旧客户端再把它加回来。
   'stopRequestedAt',
 ] as const;
 

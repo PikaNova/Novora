@@ -17,8 +17,6 @@ export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
   resume: 'record-resume',
   extend: 'record-extend',
   end: 'record-end',
-  request_stop: 'record-request-stop',
-  force_end: 'record-force-end',
   archive: 'record-archive',
   unarchive: 'record-unarchive',
   copy: 'record-copy',
@@ -30,8 +28,6 @@ export const EXAM_RECORD_ACTION_LABELS: Record<ExamRecordActionName, string> = {
   resume: '继续',
   extend: '延长',
   end: '结束',
-  request_stop: '申请停止',
-  force_end: '强制结束',
   archive: '归档',
   unarchive: '取消归档',
   copy: '复制',
@@ -86,8 +82,6 @@ export type ExamRecordListEntry = {
   actualEndAt: number | null;
   pausedAt: number | null;
   pausedMs: number;
-  /** 管理员申请停止的时刻；非空表示「停止中」，等系统判定是否真正结束。 */
-  stopRequestedAt: number | null;
   publishedAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;
@@ -132,9 +126,7 @@ export type ExamRecordListPage = {
  * 「考试详情数据不完整」。现在两种状态都从契约里取，加状态不会再漏。
  */
 const RECORD_STATUSES: readonly ExamRecordStatus[] = EXAM_RECORD_STATUSES;
-const DISPLAY_STATUSES: readonly ExamRecordDisplayStatus[] = Object.keys(
-  EXAM_RECORD_STATUS_LABELS,
-) as ExamRecordDisplayStatus[];
+const DISPLAY_STATUSES = new Set<string>(Object.keys(EXAM_RECORD_STATUS_LABELS));
 
 function textValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -156,13 +148,19 @@ function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
   const displayStatus = row.displayStatus;
   if (!id) return null;
   if (typeof status !== 'string' || !RECORD_STATUSES.includes(status as ExamRecordStatus)) return null;
-  if (typeof displayStatus !== 'string' || !DISPLAY_STATUSES.includes(displayStatus as ExamRecordDisplayStatus))
-    return null;
+  /**
+   * 展示状态只决定标签，**认不出来也不能把整条记录丢掉**：以前这里写死一份列表，
+   * 服务端加了派生状态就出现「列表少行、详情报数据不完整」。现在退回持久状态。
+   */
+  const resolvedDisplayStatus: ExamRecordDisplayStatus =
+    typeof displayStatus === 'string' && DISPLAY_STATUSES.has(displayStatus)
+      ? (displayStatus as ExamRecordDisplayStatus)
+      : (status as ExamRecordStatus);
   return {
     id,
     name: textValue(row.name),
     status: status as ExamRecordStatus,
-    displayStatus: displayStatus as ExamRecordDisplayStatus,
+    displayStatus: resolvedDisplayStatus,
     targetGradeIds: stringList(row.targetGradeIds),
     targetClassIds: stringList(row.targetClassIds),
     source: row.source === 'quick' ? 'quick' : 'regular',
@@ -177,7 +175,6 @@ function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
     actualEndAt: numberOrNull(row.actualEndAt),
     pausedAt: numberOrNull(row.pausedAt),
     pausedMs: numberOrNull(row.pausedMs) ?? 0,
-    stopRequestedAt: numberOrNull(row.stopRequestedAt),
     publishedAt: numberOrNull(row.publishedAt),
     endedAt: numberOrNull(row.endedAt),
     archivedAt: numberOrNull(row.archivedAt),

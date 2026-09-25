@@ -9,9 +9,10 @@ const { fetchExamRecord, fetchExamRecords } = await import('../src/services/exam
 /**
  * 客户端状态白名单必须跟共享契约一致。
  *
- * 踩过的坑：服务端给 `published + stopRequestedAt` 的记录返回派生的 `displayStatus: 'stopping'`，
- * 而客户端白名单里只抄了 `['draft','published','ended','archived','ongoing']`——
+ * 踩过的坑：服务端加了一个客户端白名单里没有的派生状态（历史上是 `stopping`），
  * 于是这类记录在列表里被静默丢掉、详情页直接报「考试详情数据不完整」。
+ * 现在的口径：**认不出来的展示状态只回退成持久状态，绝不丢记录**——
+ * 服务端将来再加派生状态（或读缓存里留着旧值）也不会重演这个事故。
  */
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -43,7 +44,6 @@ function recordRow(overrides: Record<string, unknown>): Record<string, unknown> 
     actualEndAt: null,
     pausedAt: null,
     pausedMs: 0,
-    stopRequestedAt: null,
     publishedAt: now,
     endedAt: null,
     archivedAt: null,
@@ -73,17 +73,17 @@ test('考试列表：契约里的每种展示状态都要能解析，一种都�
   }
 });
 
-test('考试详情：停止中（stopping）的记录必须能解析，不能报「数据不完整」', async () => {
+test('考试详情：认不出的展示状态（如旧服务端的 stopping）回退成持久状态，不能报「数据不完整」', async () => {
   globalThis.fetch = (async () =>
     jsonResponse({
       ok: true,
-      data: recordRow({ id: 'stopping-record', displayStatus: 'stopping', stopRequestedAt: Date.now() }),
+      data: recordRow({ id: 'legacy-record', displayStatus: 'stopping' }),
     })) as typeof fetch;
   try {
-    const record = await fetchExamRecord('stopping-record');
-    assert.equal(record.id, 'stopping-record');
-    assert.equal(record.displayStatus, 'stopping');
-    assert.ok(Number(record.stopRequestedAt) > 0);
+    const record = await fetchExamRecord('legacy-record');
+    assert.equal(record.id, 'legacy-record');
+    assert.equal(record.displayStatus, 'published', '认不出来就回退成持久状态');
+    assert.equal(record.status, 'published');
   } finally {
     globalThis.fetch = originalFetch;
   }
