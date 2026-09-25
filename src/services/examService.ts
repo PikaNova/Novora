@@ -13,6 +13,16 @@ import {
   type PermissionScope,
 } from '../shared/permissionRules';
 import { examSnapshotQuery, parseExamPayload, parseExamVersion, type ExamPayload } from '../shared/examContracts';
+import {
+  changedExamDomains,
+  fullExamSaveBody,
+  mergeExamRevisions,
+  presentExamSaveDomains,
+  revisionDomainsFor,
+  EXAM_REVISION_DOMAINS,
+  type ExamSaveDomain,
+  type ExamSaveSnapshot,
+} from '../shared/examSaveDiff';
 
 export type { ExamPayload };
 
@@ -112,7 +122,32 @@ function classifyFetchError(err: unknown): ApiError {
   });
 }
 
+/**
+ * 并发单飞：同一时刻只保留一次快照读取（包含 304 之后的完整回读）。
+ *
+ * 之前每个调用方各发一条：条件请求拿到 304、本地又没有缓存快照时，每个调用方都会
+ * 各自再发一次完整快照——一屏能叠出 6 条 /api/exams，而且它们是顺序发生的，
+ * 请求合并层（只管同时在途）拦不住。管理端开机、总览、设计规则、批量预设、
+ * 大屏轮询都调这里，收敛成一次就能砍掉大半。
+ */
+let snapshotFlight: Promise<ExamPayload | null> | null = null;
+
+/** 仅供测试：清掉正在共享的那次读取。 */
+export function __resetSnapshotFlightForTests(): void {
+  snapshotFlight = null;
+}
+
 export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
+  // bootstrap 带设备身份、URL 也不同，单独走，不与普通快照合并。
+  if (bootstrapInstanceId) return fetchExamsOnce(bootstrapInstanceId);
+  if (snapshotFlight) return snapshotFlight;
+  snapshotFlight = fetchExamsOnce().finally(() => {
+    snapshotFlight = null;
+  });
+  return snapshotFlight;
+}
+
+async function fetchExamsOnce(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
   try {
     const headers: Record<string, string> = {};
     const isBootstrap = !!bootstrapInstanceId;
@@ -239,29 +274,85 @@ export function applyFrozenArchivedMajors(majors: MajorExam[], frozen: MajorExam
   return [...kept, ...restored];
 }
 
+/**
+ * 与服务端基线对齐的「已保存快照」：只有版本号与快照一致时才可用于逐域比对。
+ * 版本对不上（例如刚发生过 409、或快照属于更早的版本）时返回 null，调用方退回整份提交。
+ */
+function saveBaseSnapshot(baseUpdatedAt: number): ExamPayload | null {
+  if (!(baseUpdatedAt > 0)) return null;
+  const snapshot = getCloudSnapshot();
+  return snapshot && snapshot.updatedAt === baseUpdatedAt ? snapshot : null;
+}
+
+function toSaveSnapshot(input: SaveExamsInput): ExamSaveSnapshot {
+  return {
+    items: input.items,
+    title: input.title ?? '',
+    majors: input.majors ?? [],
+    activeMajorId: input.activeMajorId ?? '',
+    alerts: input.alerts,
+    scheduleMode: input.scheduleMode,
+    weeklyPlans: input.weeklyPlans,
+    activeWeeklyPlanId: input.activeWeeklyPlanId,
+    activeWeeklyPlanIdByClassId: input.activeWeeklyPlanIdByClassId,
+    grades: input.grades,
+    classes: input.classes,
+    initialization: input.initialization,
+    weeklyConflictPolicy: input.weeklyConflictPolicy,
+  };
+}
+
+/** 最近一次保存提交了哪些域、多少字节；供「提交瘦身」观测与测试断言。 */
+export interface ExamSaveSummary {
+  domains: ExamSaveDomain[];
+  bytes: number;
+  skipped: boolean;
+}
+
+let lastSaveSummary: ExamSaveSummary | null = null;
+
+export function getLastExamSaveSummary(): ExamSaveSummary | null {
+  return lastSaveSummary;
+}
+
+function recordSaveSummary(domains: readonly ExamSaveDomain[], bytes: number, skipped: boolean): void {
+  lastSaveSummary = { domains: [...domains], bytes, skipped };
+  console.info(
+    skipped
+      ? '[examService] save skipped: 与服务端基线一致，未发起请求'
+      : `[examService] save domains=${domains.join('+') || 'none'} bytes=${bytes}`,
+  );
+}
+
 async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
+    const baseUpdatedAt = input.baseUpdatedAt ?? Number(localStorage.getItem(CLOUD_VERSION_KEY) ?? 0);
+    // 只提交改动的域：先与服务端基线快照逐域比对。拿不到可比基线（版本对不上或没有快照）
+    // 时退回整份提交，行为与改动前完全一致。
+    const base = saveBaseSnapshot(baseUpdatedAt);
+    const diff = base && !input.action ? changedExamDomains(toSaveSnapshot(input), base) : null;
+    if (diff && diff.domains.length === 0) {
+      // 本地状态与服务端基线逐域一致：不发请求，直接按已保存处理，省掉一次全局写槽。
+      recordSaveSummary([], 0, true);
+      return baseUpdatedAt;
+    }
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = localStorage.getItem(TOKEN_KEY);
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const requestBody: Record<string, unknown> = {
-      items: input.items,
-      title: input.title ?? '',
-      majors: input.majors ?? [],
-      activeMajorId: input.activeMajorId ?? '',
-      alerts: input.alerts ?? null,
-      baseUpdatedAt: input.baseUpdatedAt ?? Number(localStorage.getItem(CLOUD_VERSION_KEY) ?? 0),
+      ...(diff ? diff.body : fullExamSaveBody(toSaveSnapshot(input))),
+      baseUpdatedAt,
     };
+    // 有可比基线时同时给出域级修订号：服务端据此只校验「本次要写的域」，
+    // 改不同域的两台设备不再互相 409。老服务端会忽略该字段，退回整行版本比较。
+    const baseRevisions = base?.revisions;
+    if (diff && baseRevisions !== undefined) requestBody.baseRevisions = baseRevisions;
     if (input.action) requestBody.action = input.action;
-    if (input.scheduleMode !== undefined) requestBody.scheduleMode = input.scheduleMode;
-    if (input.weeklyPlans !== undefined) requestBody.weeklyPlans = input.weeklyPlans;
-    if (input.activeWeeklyPlanId !== undefined) requestBody.activeWeeklyPlanId = input.activeWeeklyPlanId;
-    if (input.activeWeeklyPlanIdByClassId !== undefined)
-      requestBody.activeWeeklyPlanIdByClassId = input.activeWeeklyPlanIdByClassId;
-    if (input.grades !== undefined) requestBody.grades = input.grades;
-    if (input.classes !== undefined) requestBody.classes = input.classes;
-    if (input.initialization !== undefined) requestBody.initialization = input.initialization;
-    if (input.weeklyConflictPolicy !== undefined) requestBody.weeklyConflictPolicy = input.weeklyConflictPolicy;
+    recordSaveSummary(
+      diff ? diff.domains : presentExamSaveDomains(requestBody),
+      JSON.stringify(requestBody).length,
+      false,
+    );
 
     const res = await fetchWithTimeout(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) }, 20_000);
 
@@ -297,12 +388,22 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     const submittedMajors = input.majors ?? [];
     const majorsForBase = applyFrozenArchivedMajors(submittedMajors, frozen);
     const previousSnapshot = getCloudSnapshot();
+    // 修订号基线：只采信「本次真正提交过」的域，其余域保留旧修订号——
+    // 它们的本地内容仍基于旧版本，跟着换新号会变成静默覆盖别人改动。
+    const submittedRevisionDomains = diff ? revisionDomainsFor(diff.domains) : EXAM_REVISION_DOMAINS;
+    const mergedRevisions = mergeExamRevisions(
+      previousSnapshot?.revisions ?? base?.revisions,
+      data.revisions,
+      submittedRevisionDomains,
+    );
+    const revisionsKnown = previousSnapshot?.revisions !== undefined || data.revisions !== undefined;
     rememberCloudSnapshot({
       items: input.items,
       title: input.title ?? '',
       majors: majorsForBase,
       activeMajorId: input.activeMajorId ?? '',
       alerts: input.alerts ?? null,
+      ...(revisionsKnown ? { revisions: mergedRevisions } : {}),
       scheduleMode: input.scheduleMode ?? previousSnapshot?.scheduleMode,
       weeklyPlans: input.weeklyPlans ?? previousSnapshot?.weeklyPlans,
       activeWeeklyPlanId: input.activeWeeklyPlanId ?? previousSnapshot?.activeWeeklyPlanId,

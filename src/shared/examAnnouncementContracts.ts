@@ -16,6 +16,15 @@ export type AnnouncementStyle = 'card' | 'poster' | 'bulletin';
 /** 展示状态：active = 未撤回且未过期。 */
 export type AnnouncementStatus = 'active' | 'expired' | 'revoked';
 
+/**
+ * 契约枚举的规范值列表：客户端解析、服务端筛选、界面选项都从这里取。
+ * 以前各处手抄成员判断（`row.scopeType === 'grade' || row.scopeType === 'class' ? … : 'all'`），
+ * 服务端一旦加值，客户端会把它**静默改写成另一个语义**——范围写错会把公告发给错的班级。
+ */
+export const ANNOUNCEMENT_LEVELS: readonly AnnouncementLevel[] = ['normal', 'urgent'];
+export const ANNOUNCEMENT_SCOPE_TYPES: readonly AnnouncementScopeType[] = ['all', 'grade', 'class'];
+export const ANNOUNCEMENT_STATUSES: readonly AnnouncementStatus[] = ['active', 'expired', 'revoked'];
+
 export const ANNOUNCEMENT_TITLE_MAX = 120;
 export const ANNOUNCEMENT_BODY_MAX = 4000;
 export const ANNOUNCEMENT_SCOPE_ID_MAX = 200;

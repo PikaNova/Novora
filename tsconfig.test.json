@@ -29,6 +29,7 @@
     "src/shared/permissionRules.ts",
     "src/constants/auditActions.ts",
     "src/shared/jsonCompare.ts",
+    "src/shared/examSaveDiff.ts",
     "src/services/examOutbox.ts",
     "api/_auth.ts",
     "api/login.ts",

@@ -3,6 +3,7 @@
 
 import type { ExamRow } from './types.js';
 import { parseExamPayload, type ExamPayload as SharedExamPayload } from '../../src/shared/examContracts.js';
+import { parseExamRevisions } from '../../src/shared/examSaveDiff.js';
 
 export const arrayValue = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 export const objectValue = (value: unknown): Record<string, unknown> =>
@@ -31,6 +32,7 @@ export function examPayload(row: ExamRow): ApiExamPayload {
     majorBatchPresets: row.major_batch_presets,
     metadata: row.exam_metadata,
     lifecycle: row.lifecycle,
+    revisions: parseExamRevisions(row.revisions),
     updatedAt: Number(row.updated_at ?? 0),
   });
   return {
@@ -39,6 +41,7 @@ export function examPayload(row: ExamRow): ApiExamPayload {
     weeklyPlans: payload.weeklyPlans ?? [],
     grades: payload.grades ?? [],
     classes: payload.classes ?? [],
+    revisions: payload.revisions ?? {},
     majorBatchPresets: payload.majorBatchPresets ?? { subjectGroups: [], timeGroups: [], updatedAt: 0 },
   };
 }

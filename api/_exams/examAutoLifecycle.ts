@@ -91,7 +91,10 @@ async function commitSystemTransition(input: SystemTransitionInput): Promise<boo
     transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
     transaction`
       WITH updated AS (
-        UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now}
+        UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now},
+          -- 生命周期写回快照的 majors 时同步推进 major 修订号：否则携带 baseRevisions 的客户端
+          -- 会拿着「暂停前」的修订号通过并发校验，把自动开考/结束的结果覆盖掉。
+          revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object('major', COALESCE((revisions->>'major')::bigint, 0) + 1)
         WHERE id=1 AND updated_at=${expectedVersion}::BIGINT
         RETURNING id
       ), logged AS (

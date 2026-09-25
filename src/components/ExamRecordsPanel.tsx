@@ -203,15 +203,27 @@ export default function ExamRecordsPanel({
    * 用户看到的就是「页面自己在刷新、元素消失又回来」。这里改用内容签名做依赖，
    * 班级列表通过 ref 读取最新值（不参与依赖）。
    */
+  /**
+   * 班级列表的内容签名：父级每次渲染都会给新的 `classes` 数组引用，直接把它当依赖会让
+   * 下面的 Map 每次重建、`loadRecords` 重建、列表每 10 秒自己重拉一次。
+   * 签名是字符串，内容不变时值相等——用它当"内容没变"的判据，复用同一个 Map。
+   */
+  const classSignature = classes.map((item) => `${item.id}:${item.gradeId}`).join(',');
+  const classIdsCache = useRef<{ signature: string; map: Map<string, string[]> }>({
+    signature: '',
+    map: new Map<string, string[]>(),
+  });
   const classIdsByGrade = useMemo(() => {
+    if (classIdsCache.current.signature === classSignature) return classIdsCache.current.map;
     const map = new Map<string, string[]>();
     for (const item of classes) {
       const list = map.get(item.gradeId);
       if (list) list.push(item.id);
       else map.set(item.gradeId, [item.id]);
     }
+    classIdsCache.current = { signature: classSignature, map };
     return map;
-  }, [classes]);
+  }, [classes, classSignature]);
 
   // 「考试安排」的时间窗：今天 / 明天 / 本周 / 未来两周 / 全部。
   const window = useMemo(
@@ -223,7 +235,14 @@ export default function ExamRecordsPanel({
   const boardActive = preset === 'schedule' && viewMode !== 'exam';
   const boardTimeline = preset === 'schedule' && viewMode === 'timeline';
 
+  /**
+   * 请求序号：筛选/窗口变化会连续触发多次取数，只有最后一次的结果可以落到界面。
+   * 没有它就会出现「先发的慢响应后到，把新结果覆盖回去」。
+   */
+  const requestSeqRef = useRef(0);
+
   const loadRecords = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     setError('');
     try {
@@ -242,14 +261,16 @@ export default function ExamRecordsPanel({
           ? { from: window.from, to: window.to, includeUnscheduled: true }
           : {}),
       });
+      if (seq !== requestSeqRef.current) return;
       setRecords(result.data);
       setTotal(result.total);
       setTotalPages(result.totalPages);
     } catch (caught) {
+      if (seq !== requestSeqRef.current) return;
       // 刷新失败保留上一批数据：清空会让整张列表消失再回来（列表与文案都由这些状态驱动）。
       setError(formatApiError(caught, '考试列表读取失败'));
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [
     boardActive,

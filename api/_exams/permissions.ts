@@ -398,9 +398,14 @@ export function validateMutation(
   };
   const nextMajors = (Array.isArray(body.majors) ? body.majors : current.majors) as Array<{ id?: unknown }>;
   const nextClasses: readonly unknown[] = Array.isArray(body.classes) ? body.classes : current.classes;
+  // 省略安全：客户端现在只提交改动的域，未携带的域一律按服务器当前值参与比对。
+  // 否则「只发周测」会被 recordDiff 当成「把大型考试全删了」，触发无谓的权限拒绝。
+  const nextItems = (Array.isArray(body.items) ? body.items : current.items) as Array<{ id?: unknown }>;
+  const nextTitle = typeof body.title === 'string' ? body.title : current.title;
+  const nextActiveMajorId = typeof body.activeMajorId === 'string' ? body.activeMajorId : current.activeMajorId;
 
   const majorDiff = recordDiff(current.majors, nextMajors);
-  const itemDiff = recordDiff(current.items, (body.items as Array<{ id?: unknown }> | undefined) ?? []);
+  const itemDiff = recordDiff(current.items, nextItems);
   const majorChanged =
     majorDiff.added.length > 0 ||
     majorDiff.removed.length > 0 ||
@@ -408,15 +413,14 @@ export function validateMutation(
     itemDiff.added.length > 0 ||
     itemDiff.removed.length > 0 ||
     itemDiff.updated.length > 0 ||
-    current.title !== String(body.title ?? '') ||
-    current.activeMajorId !== String(body.activeMajorId ?? '');
+    current.title !== nextTitle ||
+    current.activeMajorId !== nextActiveMajorId;
   if (majorChanged) {
     const currentMajorsById = new Map(current.majors.map((major) => [String(major?.id ?? ''), major]));
-    const nextMajorId = String(body.activeMajorId ?? current.activeMajorId ?? '');
+    const nextMajorId = String(nextActiveMajorId ?? '');
     const nextActiveMajor = nextMajors.map(asRecord).find((major) => String(major.id ?? '') === nextMajorId);
     const payloadMatchesNextActiveMajor =
-      sameJson(body.items ?? [], nextActiveMajor?.items ?? []) &&
-      String(body.title ?? '') === String(nextActiveMajor?.name ?? '');
+      sameJson(nextItems, nextActiveMajor?.items ?? []) && nextTitle === String(nextActiveMajor?.name ?? '');
     const onlyOwnedQuickTemporaryChanges =
       majorDiff.added.every((major: unknown) => isOwnedQuickTemporaryMajor(actor, major)) &&
       majorDiff.removed.every((major: unknown) => isOwnedQuickTemporaryMajor(actor, major)) &&
@@ -464,8 +468,8 @@ export function validateMutation(
       majorDiff.updated.length ||
       itemDiff.added.length ||
       itemDiff.updated.length ||
-      current.title !== String(body.title ?? '') ||
-      current.activeMajorId !== String(body.activeMajorId ?? '')
+      current.title !== nextTitle ||
+      current.activeMajorId !== nextActiveMajorId
     ) {
       const denied = needEither(
         'major.edit',

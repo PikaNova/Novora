@@ -803,6 +803,28 @@ async function handleAnnouncementImage(req: VercelRequest, res: VercelResponse):
   });
 }
 
+/**
+ * 公告路由负责的 GET resource → 处理函数。
+ * 与考试记录那条线同一个理由：入口（api/exams.ts）的分发直接读这张表导出的名单，
+ * 不在这里写一遍 if、入口再手抄一份——手抄就会漏，漏了请求会静默掉到快照接口。
+ */
+const ANNOUNCEMENT_GET_HANDLERS: Record<string, (req: VercelRequest, res: VercelResponse) => Promise<void>> = {
+  announcements: handleAnnouncementList,
+  'device-announcements': handleDeviceAnnouncements,
+  'announcement-receipts': handleAnnouncementReceipts,
+  'announcement-stats': handleAnnouncementStats,
+};
+
+/**
+ * 入口分发用：这些 resource 归公告路由处理。
+ * `announcement-image` 与 `announcement-templates` 是任意方法都归它，所以不在 GET 映射表里。
+ */
+export const EXAM_ANNOUNCEMENT_GET_RESOURCES: ReadonlySet<string> = new Set([
+  ...Object.keys(ANNOUNCEMENT_GET_HANDLERS),
+  'announcement-image',
+  'announcement-templates',
+]);
+
 export async function handleExamAnnouncementRoute(
   req: VercelRequest,
   res: VercelResponse,
@@ -817,24 +839,16 @@ export async function handleExamAnnouncementRoute(
     await handleAnnouncementImage(req, res);
     return;
   }
-  if (req.method === 'GET' && resource === 'device-announcements') {
-    await handleDeviceAnnouncements(req, res);
-    return;
+  if (req.method === 'GET') {
+    const getHandler = ANNOUNCEMENT_GET_HANDLERS[resource];
+    if (getHandler) {
+      await getHandler(req, res);
+      return;
+    }
   }
-  if (req.method === 'GET' && resource === 'announcement-receipts') {
-    await handleAnnouncementReceipts(req, res);
-    return;
-  }
-  if (req.method === 'GET' && resource === 'announcement-stats') {
-    await handleAnnouncementStats(req, res);
-    return;
-  }
+  // 模板：任意方法 + actionName 前缀都归它（与 announcement-image 同一类）。
   if (resource === 'announcement-templates' || actionName.startsWith('announce-template-')) {
     await handleAnnouncementTemplates(req, res);
-    return;
-  }
-  if (req.method === 'GET' && resource === 'announcements') {
-    await handleAnnouncementList(req, res);
     return;
   }
   if (actionName === 'announce-remind' || text(req.body?.action) === 'announce-remind') {
