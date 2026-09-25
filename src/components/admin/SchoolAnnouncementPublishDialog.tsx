@@ -20,7 +20,7 @@ type Props = {
   audience: string;
   /** 有效期文案（30 分钟 / 不过期 …）。 */
   expiryLabel: string;
-  /** 投放方式文案（自动弹出 / 只进列表，及夜间静默说明）。 */
+  /** 投放方式文案（自动弹出 / 只进列表）。 */
   delivery: string;
   busy: boolean;
   error: string;

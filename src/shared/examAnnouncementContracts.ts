@@ -48,13 +48,6 @@ export type AnnouncementSeenItem = { id: string; seenMs: number };
 /** 未读强提醒的投放口径。 */
 export type AnnouncementRemindScope = 'unseen' | 'all';
 
-/**
- * 夜间静默时段（按大屏本地时间判断）：普通公告不自动弹，紧急公告照弹。
- * 时段本身写死在这一版（22:00–06:00），要改先改这里——发布确认窗会把当前是否处于
- * 静默时段提示给管理员，避免"发了却没弹"的困惑。
- */
-export const ANNOUNCEMENT_QUIET_HOURS: { startHour: number; endHour: number } = { startHour: 22, endHour: 6 };
-
 /** 常用模板（发布时一键套用）。 */
 export type AnnouncementTemplate = {
   id: string;
@@ -225,30 +218,19 @@ export function mergeSeenItems(
   return next;
 }
 
-/** 当前是否落在夜间静默时段（跨零点也成立，例如 22:00–06:00）。 */
-export function isWithinQuietHours(
-  at: Date,
-  window: { startHour: number; endHour: number } = ANNOUNCEMENT_QUIET_HOURS,
-): boolean {
-  const hour = at.getHours();
-  const { startHour, endHour } = window;
-  if (startHour === endHour) return false;
-  // 跨零点（start > end）时，落在 start 之后或 end 之前都算静默。
-  return startHour > endHour ? hour >= startHour || hour < endHour : hour >= startHour && hour < endHour;
-}
-
 /**
- * 这条公告此刻要不要在大屏上自动弹：
- * - 静默发布（silent）永远不自动弹，只进列表；
- * - 夜间静默只挡普通公告，紧急公告照弹（应急通知不能被时段挡住）。
+ * 这条公告此刻要不要在大屏上自动弹。
+ *
+ * 口径（2026-09-26）：**只看发布时选的"只进列表"**——除此之外一律弹。
+ * 曾经按 22:00–06:00 夜间静默挡普通公告、按考试进行中压后弹，都会让学校
+ * 发出去的公告在管理端显示成"已送达未看"，也会耽误紧急通知，所以都取消了。
+ * 时间参数保留在签名里：调用方仍在用同一个"当前时刻"调用它。
  */
 export function shouldAutoOpenAnnouncement(
   input: { level: AnnouncementLevel; silent?: boolean },
-  at: Date = new Date(),
+  _at: Date = new Date(),
 ): boolean {
-  if (input.silent) return false;
-  if (input.level === 'urgent') return true;
-  return !isWithinQuietHours(at);
+  return !input.silent;
 }
 
 /** 提醒口径：未知值按"只提醒没看过的教室"处理（更克制）。 */
