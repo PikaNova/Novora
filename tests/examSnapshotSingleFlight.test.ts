@@ -35,7 +35,12 @@ Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, config
 testGlobals.__APP_VERSION__ = 'test';
 testGlobals.__COMMIT_SHA__ = 'test';
 
-const { fetchExamsFromServer, __resetSnapshotFlightForTests } = await import('../src/services/examService.js');
+const {
+  fetchExamsFromServer,
+  invalidateExamSnapshotReuse,
+  __resetSnapshotFlightForTests,
+  __setSnapshotReuseWindowForTests,
+} = await import('../src/services/examService.js');
 
 type RecordedCall = { url: string; init?: RequestInit };
 
@@ -118,6 +123,7 @@ test('快照单飞：bootstrap 带设备身份，不与普通快照合并', asyn
 test('快照单飞：共享的是「在途」而不是缓存，结束后的新调用照常发', async () => {
   testGlobals.localStorage?.clear();
   __resetSnapshotFlightForTests();
+  __setSnapshotReuseWindowForTests(0);
   const { calls, restore } = installFetch(async () => snapshotResponse('快照'));
   try {
     await fetchExamsFromServer();
@@ -125,5 +131,44 @@ test('快照单飞：共享的是「在途」而不是缓存，结束后的新�
     assert.equal(calls.length, 2, '单飞不能变成缓存，后续调用必须重新取');
   } finally {
     restore();
+    __setSnapshotReuseWindowForTests(1_000);
+  }
+});
+
+test('快照复用窗口：窗口内的错峰调用不再发条件请求', async () => {
+  testGlobals.localStorage?.clear();
+  __resetSnapshotFlightForTests();
+  __setSnapshotReuseWindowForTests(500);
+  const { calls, restore } = installFetch(async () => snapshotResponse('窗口快照'));
+  try {
+    const first = await fetchExamsFromServer();
+    const second = await fetchExamsFromServer();
+    assert.equal(calls.length, 1, '窗口内应该复用刚取到的快照');
+    assert.equal(first?.title, '窗口快照');
+    assert.equal(second?.title, '窗口快照');
+  } finally {
+    restore();
+    __setSnapshotReuseWindowForTests(1_000);
+  }
+});
+
+test('快照复用窗口：窗口过期照常重取，写入会立刻作废窗口', async () => {
+  testGlobals.localStorage?.clear();
+  __resetSnapshotFlightForTests();
+  __setSnapshotReuseWindowForTests(60);
+  const { calls, restore } = installFetch(async () => snapshotResponse('快照'));
+  try {
+    await fetchExamsFromServer();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await fetchExamsFromServer();
+    assert.equal(calls.length, 2, '窗口过期后必须重新取');
+
+    // 写入路径会调用它；作废之后即使还在窗口内也要重新取。
+    invalidateExamSnapshotReuse();
+    await fetchExamsFromServer();
+    assert.equal(calls.length, 3, '写入后不能复用写之前的快照');
+  } finally {
+    restore();
+    __setSnapshotReuseWindowForTests(1_000);
   }
 });

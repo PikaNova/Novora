@@ -132,18 +132,51 @@ function classifyFetchError(err: unknown): ApiError {
  */
 let snapshotFlight: Promise<ExamPayload | null> | null = null;
 
-/** 仅供测试：清掉正在共享的那次读取。 */
-export function __resetSnapshotFlightForTests(): void {
-  snapshotFlight = null;
+/**
+ * 结果窗口：刚取到的快照在这段时间内直接被复用，不再发条件请求。
+ *
+ * 单飞只能合并"同时在途"的调用；开机首轮里 `useExamSync` / `useAdminSyncEngine` /
+ * 总览 / 设计规则 / 批量预设是错峰发起的（相隔几百毫秒），单飞拦不住，一屏仍会叠出 5 条。
+ * 快照本身有 ETag 与本地缓存兜底，1 秒内的复用不会带来可感知的数据滞后；
+ * 任何一次写操作都会立刻作废这个窗口（见 saveExamsToServer）。
+ */
+let snapshotReuseWindowMs = 1_000;
+let lastSnapshot: { at: number; payload: ExamPayload | null } | null = null;
+
+/** 写操作后调用：保证紧接着的读取不会拿到写完之前的快照。 */
+export function invalidateExamSnapshotReuse(): void {
+  lastSnapshot = null;
 }
 
-export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
+/** 仅供测试：清掉正在共享的那次读取与结果窗口。 */
+export function __resetSnapshotFlightForTests(): void {
+  snapshotFlight = null;
+  lastSnapshot = null;
+}
+
+/** 仅供测试：把结果窗口调短，避免用例真的等 1 秒。 */
+export function __setSnapshotReuseWindowForTests(ms: number): void {
+  snapshotReuseWindowMs = Math.max(0, ms);
+}
+
+export async function fetchExamsFromServer(
+  bootstrapInstanceId?: string,
+  options: { fresh?: boolean } = {},
+): Promise<ExamPayload | null> {
   // bootstrap 带设备身份、URL 也不同，单独走，不与普通快照合并。
   if (bootstrapInstanceId) return fetchExamsOnce(bootstrapInstanceId);
+  if (!options.fresh && lastSnapshot && Date.now() - lastSnapshot.at < snapshotReuseWindowMs) {
+    return lastSnapshot.payload;
+  }
   if (snapshotFlight) return snapshotFlight;
-  snapshotFlight = fetchExamsOnce().finally(() => {
-    snapshotFlight = null;
-  });
+  snapshotFlight = fetchExamsOnce()
+    .then((payload) => {
+      lastSnapshot = { at: Date.now(), payload };
+      return payload;
+    })
+    .finally(() => {
+      snapshotFlight = null;
+    });
   return snapshotFlight;
 }
 
@@ -431,6 +464,8 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
 
 /** 经全局 syncQueue 排队（高优先级）：与设备写入共享同一最小请求间隔，避免并发打爆 Neon 免费额度。 */
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
+  // 有写入就作废快照复用窗口：否则紧接着的读取可能拿回写之前的快照。
+  invalidateExamSnapshotReuse();
   return runQueued(() => saveExamsToServerNow(input), {
     priority: 'high',
     key: input.clientQueueKey,
