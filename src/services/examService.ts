@@ -112,7 +112,32 @@ function classifyFetchError(err: unknown): ApiError {
   });
 }
 
+/**
+ * 并发单飞：同一时刻只保留一次快照读取（包含 304 之后的完整回读）。
+ *
+ * 之前每个调用方各发一条：条件请求拿到 304、本地又没有缓存快照时，每个调用方都会
+ * 各自再发一次完整快照——一屏能叠出 6 条 /api/exams，而且它们是顺序发生的，
+ * 请求合并层（只管同时在途）拦不住。管理端开机、总览、设计规则、批量预设、
+ * 大屏轮询都调这里，收敛成一次就能砍掉大半。
+ */
+let snapshotFlight: Promise<ExamPayload | null> | null = null;
+
+/** 仅供测试：清掉正在共享的那次读取。 */
+export function __resetSnapshotFlightForTests(): void {
+  snapshotFlight = null;
+}
+
 export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
+  // bootstrap 带设备身份、URL 也不同，单独走，不与普通快照合并。
+  if (bootstrapInstanceId) return fetchExamsOnce(bootstrapInstanceId);
+  if (snapshotFlight) return snapshotFlight;
+  snapshotFlight = fetchExamsOnce().finally(() => {
+    snapshotFlight = null;
+  });
+  return snapshotFlight;
+}
+
+async function fetchExamsOnce(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
   try {
     const headers: Record<string, string> = {};
     const isBootstrap = !!bootstrapInstanceId;
