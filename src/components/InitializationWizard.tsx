@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ImagePlus } from 'lucide-react';
 import type { ScheduleMode, WeeklyWeekMode } from '../types/exam';
 import { getShanghaiDateKey } from '../utils/weeklySchedule';
 import { buildInitializationData, type InitializationResult, type SchoolDraftRow } from '../utils/initializationData';
@@ -44,9 +45,9 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
   const [documents, setDocuments] = useState<Announcement[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState('');
-  const [documentGateEntered, setDocumentGateEntered] = useState(false);
+  const [_documentGateEntered, setDocumentGateEntered] = useState(false);
   const [readingStartedAt, setReadingStartedAt] = useState<number | null>(null);
-  const [readingRemaining, setReadingRemaining] = useState(10);
+  const [_readingRemaining, setReadingRemaining] = useState(10);
   const [documentRead, setDocumentRead] = useState(false);
   const [passwordDraft, setPasswordDraft] = useState({ current: '', next: '', confirm: '' });
   const [passwordError, setPasswordError] = useState('');
@@ -83,7 +84,6 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
     reader.readAsDataURL(file);
   };
   const validDocuments = useMemo(() => documents.filter((item) => safeDocumentUrl(item.url)), [documents]);
-  const embedUrl = validDocuments[0] ? safeDocumentUrl(validDocuments[0].url) : '';
   const canDismiss = false;
 
   useEffect(() => {
@@ -201,10 +201,7 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
     }
     opened.opener = null;
     setDocumentsError('');
-    if (!readingStartedAt) {
-      setReadingStartedAt(Date.now());
-      setReadingRemaining(10);
-    }
+    startReading();
   };
   const copyRecoveryKey = async () => {
     try {
@@ -296,11 +293,20 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
                     {logoDataUrl ? (
                       <img className="init-logo-preview" src={logoDataUrl} alt="学校图标" />
                     ) : (
-                      <span className="init-logo-empty">未上传</span>
+                      <>
+                        <span className="init-logo-empty" aria-hidden="true">
+                          <ImagePlus size={18} />
+                        </span>
+                        <span className="init-logo-empty-text">未上传</span>
+                      </>
                     )}
-                    <input type="file" accept="image/*" onChange={(event) => onLogoFile(event.target.files?.[0])} />
+                    <label className="init-logo-upload">
+                      <input type="file" accept="image/*" onChange={(event) => onLogoFile(event.target.files?.[0])} />
+                      <ImagePlus size={14} aria-hidden="true" />
+                      上传图标
+                    </label>
                     {logoDataUrl && (
-                      <button type="button" onClick={() => setLogoDataUrl('')}>
+                      <button type="button" className="init-logo-remove" onClick={() => setLogoDataUrl('')}>
                         移除
                       </button>
                     )}
@@ -504,9 +510,6 @@ export default function InitializationWizard({ open, onClose, onComplete, onFina
                   <div className="init-documents__state">正在加载文档…</div>
                 ) : validDocuments.length ? (
                   <>
-                    {embedUrl && (
-                      <iframe className="init-documents__frame" src={embedUrl} title="使用文档" onLoad={startReading} />
-                    )}
                     <div className="init-documents__list">
                       {validDocuments.map((document) => (
                         <article key={document.id}>

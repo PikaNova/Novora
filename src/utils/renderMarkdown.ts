@@ -38,6 +38,7 @@ function inline(raw: string): string {
       `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`,
   );
   // 代码片段占位符使用 \u0000 控制字符，避免与用户原文冲突（no-control-regex 有意保留）
+  // eslint-disable-next-line no-control-regex -- \u0000 markers are internal sentinels, not user input
   s = s.replace(/\u0000C(\d+)\u0000/g, (_m, i: string) => `<code>${codes[Number(i)]}</code>`);
   return s;
 }

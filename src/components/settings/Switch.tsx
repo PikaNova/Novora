@@ -10,7 +10,6 @@ export function Switch({
   return (
     <label className="set-switch">
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span />
     </label>
   );
 }

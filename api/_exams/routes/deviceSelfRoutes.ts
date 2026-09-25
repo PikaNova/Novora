@@ -2,6 +2,23 @@
 // 从 api/exams.ts 拆分而来，逻辑与对外行为保持不变。
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { acquireWriteSlotOrReject, database, ensureTableOnce, missingRelation } from '../db.js';
+import { archiveFinishedQuickRecords, autoEndRequestedRecords, autoStartDueRecords } from '../examAutoLifecycle.js';
+import {
+  DEVICE_HEARTBEAT_REFRESH_MS,
+  DEVICE_ONLINE_WINDOW_MS,
+  parseDeviceCommand,
+} from '../../../src/shared/deviceContracts.js';
+import { parseExamVersion } from '../../../src/shared/examContracts.js';
+import { isEdgeDeployment } from '../../_deployTarget.js';
+
+type DeviceHeartbeatRow = {
+  grade_id: string;
+  class_id: string;
+  revoked: boolean;
+  is_management: boolean;
+  temporary_command?: unknown;
+  exam_version?: unknown;
+};
 
 export async function handleDeviceBinding(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = database();
@@ -60,7 +77,7 @@ export async function handleDeviceBinding(req: VercelRequest, res: VercelRespons
           existing: {
             instanceId: occupied[0].instance_id,
             lastSeenAt,
-            online: Date.now() - lastSeenAt <= 90_000,
+            online: Date.now() - lastSeenAt <= DEVICE_ONLINE_WINDOW_MS,
           },
         });
         return;
@@ -124,22 +141,80 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
       .trim()
       .slice(0, max);
   const run = async () => {
+    // 设备这一侧是天然的「每分钟一次」触发器：教室端空着（还没拉任何一场考试）时，
+    // 顺手推进「到点自动开考」与「申请停止后的结束判定」；已经在考的教室不必重复做前一件事。
+    // 设备心跳也顺手推进生命周期：上报"本机没有考试"时才补开考（保持原有语义），
+    // 判定结束与快速考试归档每次都跑。
+    if (!value('currentExam')) await autoStartDueRecords(now);
+    await autoEndRequestedRecords(now);
+    await archiveFinishedQuickRecords(now);
     const acknowledgedCommandId = value('acknowledgedCommandId', 128);
-    if (acknowledgedCommandId)
+    const failedCommandId = value('failedCommandId', 128);
+    const commandFailureReason = value('commandFailureReason', 500);
+    if (acknowledgedCommandId) {
+      await sql`UPDATE device_commands SET status='acknowledged', acknowledged_at=${now}, failure_reason='' WHERE id=${acknowledgedCommandId} AND instance_id=${instanceId} AND status IN ('pending','claimed')`;
       await sql`UPDATE device_instances SET temporary_command=NULL WHERE instance_id=${instanceId} AND temporary_command->>'id'=${acknowledgedCommandId}`;
-    await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
+    }
+    if (failedCommandId) {
+      await sql`UPDATE device_commands SET status='failed', failure_reason=${commandFailureReason || '设备执行失败'} WHERE id=${failedCommandId} AND instance_id=${instanceId} AND status IN ('pending','claimed')`;
+      await sql`UPDATE device_instances SET temporary_command=NULL WHERE instance_id=${instanceId} AND temporary_command->>'id'=${failedCommandId}`;
+    }
+    // 心跳写入合并成一条语句：内容没变且 60 秒内已经刷新过 last_seen_at 时，DO UPDATE 的
+    // WHERE 不成立就不会真正写行（省掉一次 UPDATE 的 WAL 与死元组）；命中写入时用 RETURNING
+    // 直接取回绑定与命令状态，省掉原来紧跟其后的那次 SELECT。
+    const writtenRows =
+      (await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
       VALUES (${instanceId}, ${value('page')}, ${value('clientVersion', 40)}, ${value('status', 40)}, ${value('currentExam')}, ${value('currentSubject')}, ${value('examStart', 40)}, ${value('examEnd', 40)}, ${now}, ${now})
-      ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at, updated_at=EXCLUDED.updated_at`;
-    const rows =
-      (await sql`SELECT grade_id, class_id, revoked, is_management, temporary_command FROM device_instances WHERE instance_id=${instanceId}`) as unknown as Array<{
-        grade_id: string;
-        class_id: string;
-        revoked: boolean;
-        is_management: boolean;
-        temporary_command?: unknown;
-      }>;
-    const device = rows[0];
+      ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at, updated_at=EXCLUDED.updated_at
+      WHERE device_instances.last_seen_at <= EXCLUDED.last_seen_at - ${DEVICE_HEARTBEAT_REFRESH_MS}
+        OR device_instances.page IS DISTINCT FROM EXCLUDED.page
+        OR device_instances.client_version IS DISTINCT FROM EXCLUDED.client_version
+        OR device_instances.status IS DISTINCT FROM EXCLUDED.status
+        OR device_instances.current_exam IS DISTINCT FROM EXCLUDED.current_exam
+        OR device_instances.current_subject IS DISTINCT FROM EXCLUDED.current_subject
+        OR device_instances.exam_start IS DISTINCT FROM EXCLUDED.exam_start
+        OR device_instances.exam_end IS DISTINCT FROM EXCLUDED.exam_end
+      RETURNING grade_id, class_id, revoked, is_management, temporary_command, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version`) as unknown as DeviceHeartbeatRow[];
+    // 跳过写入时拿不到 RETURNING 行；把这个补读并进下面同一个事务，避免多一次往返。
+    const needsRowFallback = writtenRows.length === 0;
+    const commandResults = await sql.transaction((transaction) => [
+      ...(needsRowFallback
+        ? [
+            transaction`SELECT grade_id, class_id, revoked, is_management, temporary_command, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version FROM device_instances WHERE instance_id=${instanceId}`,
+          ]
+        : []),
+      transaction`UPDATE device_commands SET status='expired', failure_reason='命令已过期' WHERE instance_id=${instanceId} AND status IN ('pending','claimed') AND expires_at IS NOT NULL AND expires_at <= ${now}`,
+      transaction`UPDATE device_commands SET status='claimed', claimed_at=${now}
+        WHERE id = (
+          SELECT id FROM device_commands
+          WHERE instance_id=${instanceId} AND status='pending' AND (expires_at IS NULL OR expires_at > ${now})
+          ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
+        )
+        RETURNING id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason`,
+    ]);
+    const device = (needsRowFallback ? commandResults[0] : writtenRows)[0] as DeviceHeartbeatRow | undefined;
+    const pending = commandResults[commandResults.length - 1] as unknown as Array<Record<string, unknown>>;
+    const claimed = pending[0];
+    // BIGINT 列在两种驱动下都可能以字符串返回，统一转成数字后再交给 parseDeviceCommand
+    //（与 deviceAdminRoutes 的读数口径一致），否则刚认领的命令会因为类型不符被丢弃。
+    const queued = claimed
+      ? parseDeviceCommand({
+          id: claimed.id,
+          action: claimed.action,
+          minutes: claimed.minutes == null ? undefined : Number(claimed.minutes),
+          createdAt: Number(claimed.created_at),
+          status: claimed.status,
+          idempotencyKey: claimed.idempotency_key,
+          expiresAt: claimed.expires_at == null ? undefined : Number(claimed.expires_at),
+          claimedAt: claimed.claimed_at == null ? undefined : Number(claimed.claimed_at),
+          acknowledgedAt: claimed.acknowledged_at == null ? undefined : Number(claimed.acknowledged_at),
+          failureReason: claimed.failure_reason,
+        })
+      : null;
     const hasBinding = !!device && (device.revoked === true || device.is_management === true || !!device.class_id);
+    // 仅 Vercel：把当前快照版本号随心跳带回，设备据此决定要不要再拉一次快照，
+    // 这样常规轮询只剩心跳这一条请求；本地部署后续走 WSS 推送，不带这个字段。
+    const examVersion = parseExamVersion(device?.exam_version);
     res.status(200).json({
       ok: true,
       revoked: device?.revoked === true,
@@ -151,7 +226,8 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
             isManagement: device.is_management === true,
           }
         : null,
-      command: device?.temporary_command ?? null,
+      command: queued ?? parseDeviceCommand(device?.temporary_command) ?? null,
+      ...(isEdgeDeployment() ? { version: examVersion } : {}),
     });
   };
   try {

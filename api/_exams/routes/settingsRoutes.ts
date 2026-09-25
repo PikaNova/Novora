@@ -15,7 +15,10 @@ export type DesignPolicyRule = {
 export function sanitizeDesignPolicyRules(rawRules: unknown): DesignPolicyRule[] {
   const rules = Array.isArray(rawRules) ? rawRules : [];
   const allowedScopes = new Set(['school', 'grade', 'class', 'device']);
-  const parsedRules = rules.slice(0, 500).flatMap((rule: any, index: number) => {
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const parsedRules = rules.slice(0, 500).flatMap((rawRule: unknown, index: number) => {
+    const rule = asRecord(rawRule);
     const scope = String(rule?.scope ?? '');
     const scopeId = String(rule?.scopeId ?? '')
       .trim()
@@ -161,6 +164,17 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
     schedule_mode=CASE WHEN ${resetSettings} THEN 'major-only' ELSE schedule_mode END,
     weekly_conflict_policy=CASE WHEN ${resetSettings} THEN NULL ELSE weekly_conflict_policy END,
     design_policy=CASE WHEN ${resetSettings} THEN '{"rules":[],"updatedAt":0}'::jsonb ELSE design_policy END,
+      -- 重置会改掉整片数据，必须推进对应域的修订号：否则携带 baseRevisions 的客户端
+      -- 会拿着重置前的修订号通过并发校验，把刚清掉的数据又写回来。
+      revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object(
+        'major', COALESCE((revisions->>'major')::bigint, 0) + CASE WHEN ${resetMajor} THEN 1 ELSE 0 END,
+        'weekly', COALESCE((revisions->>'weekly')::bigint, 0) + CASE WHEN ${resetWeekly || resetSchool} THEN 1 ELSE 0 END,
+        'schedule', COALESCE((revisions->>'schedule')::bigint, 0) + CASE WHEN ${resetSettings} THEN 1 ELSE 0 END,
+        'alerts', COALESCE((revisions->>'alerts')::bigint, 0) + CASE WHEN ${resetSettings} THEN 1 ELSE 0 END,
+        'grades', COALESCE((revisions->>'grades')::bigint, 0) + CASE WHEN ${resetSchool} THEN 1 ELSE 0 END,
+        'classes', COALESCE((revisions->>'classes')::bigint, 0) + CASE WHEN ${resetSchool} THEN 1 ELSE 0 END,
+        'initialization', COALESCE((revisions->>'initialization')::bigint, 0) + CASE WHEN ${resetSchool} THEN 1 ELSE 0 END
+      ),
       updated_at=${at} WHERE id=1`,
     ...(resetDevices
       ? [transaction`DELETE FROM device_instances`, transaction`DELETE FROM classisland_plugin_instances`]

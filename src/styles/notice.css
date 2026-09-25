@@ -1,6 +1,7 @@
 .notice-host {
   position: fixed;
-  z-index: 10000;
+  /* 提醒层永远最高（见 admin-design.css 的 --z-reminder）。 */
+  z-index: var(--z-reminder, 20000);
   right: max(18px, env(safe-area-inset-right));
   bottom: max(18px, env(safe-area-inset-bottom));
   display: grid;
@@ -185,6 +186,12 @@
     max-width: calc(100vw - 16px);
   }
 
+  /* 手机端大屏的 toast 会被挪到顶部整幅，先让开「本设计未适配手机」提示条
+     （它也在 top 10、整幅宽，实测高 53px，文案换行后约 72px）。 */
+  body:has(.exam-mobile-notice) .notice-host {
+    top: calc(max(10px, env(safe-area-inset-top)) + 74px);
+  }
+
   .notice-toast {
     box-sizing: border-box;
     max-width: 100%;
@@ -199,6 +206,21 @@
 
   .notice-toast strong {
     overflow-wrap: anywhere;
+  }
+}
+
+/*
+ * 右下角有常驻浮层时，toast 换到左下：它 z-index 10000，会整个压在这些东西上面 ——
+ * 大屏的「快速开始考试 / 管理临时考试」（right/bottom 18px）、管理端的「草稿还没填完」
+ * （16px/16px）与「初始化未完成」（18px/18px）。这三处的按钮被盖住就没法点，
+ * 而这两类页面的左下角都是空的。
+ */
+@media (min-width: 701px) {
+  body:has(.exam-root) .notice-host,
+  body:has(.admin-draft-hint) .notice-host,
+  body:has(.admin-incomplete-prompt) .notice-host {
+    right: auto;
+    left: max(18px, env(safe-area-inset-left));
   }
 }
 

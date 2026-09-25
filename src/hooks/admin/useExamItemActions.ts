@@ -68,27 +68,24 @@ export function useExamItemActions(params: {
     setMajorTimeFlowOpen(false);
   };
 
-  const commitEdit = async () => {
-    if (!editing) return;
-    if (!editing.name.trim()) {
-      setEditError('请输入考试名称');
-      return;
-    }
-    if (!editing.startTime || !editing.endTime) {
-      setEditError('请输入开始与结束时间');
-      return;
-    }
-    if (new Date(editing.startTime) >= new Date(editing.endTime)) {
-      setEditError('结束时间必须晚于开始时间');
-      return;
-    }
+  /**
+   * 保存一个科目（新增或修改）。编辑器表单与「新建考试」向导共用这一处实现，
+   * 校验（重叠确认、>6 小时跨天确认、科目名归一化、选科联动）不会两边漂移。
+   */
+  const saveItem = async (
+    draft: EditItem,
+    options?: { longDurationConfirmed?: boolean },
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (!draft.name.trim()) return { ok: false, error: '请输入考试名称' };
+    if (!draft.startTime || !draft.endTime) return { ok: false, error: '请输入开始与结束时间' };
+    if (new Date(draft.startTime) >= new Date(draft.endTime)) return { ok: false, error: '结束时间必须晚于开始时间' };
     const overlaps = items.some(
       (x) =>
-        x.id !== editing.id &&
+        x.id !== draft.id &&
         x.enabled &&
-        editing.enabled &&
-        new Date(editing.startTime) < new Date(x.endTime) &&
-        new Date(editing.endTime) > new Date(x.startTime),
+        draft.enabled &&
+        new Date(draft.startTime) < new Date(x.endTime) &&
+        new Date(draft.endTime) > new Date(x.startTime),
     );
     if (
       overlaps &&
@@ -99,20 +96,19 @@ export function useExamItemActions(params: {
         confirmLabel: '仍然保存',
       }))
     )
-      return;
+      return { ok: false, error: '' };
     if (
-      new Date(editing.endTime).getTime() - new Date(editing.startTime).getTime() > 6 * 60 * 60 * 1000 &&
-      !longDurationConfirmed
+      new Date(draft.endTime).getTime() - new Date(draft.startTime).getTime() > 6 * 60 * 60 * 1000 &&
+      !options?.longDurationConfirmed
     ) {
-      setEditError('本场时长超过 6 小时，请确认这是跨天或特殊安排。');
-      return;
+      return { ok: false, error: '本场时长超过 6 小时，请确认这是跨天或特殊安排。' };
     }
-    const normalizedName = normalizeSubjectName(editing.name.trim());
+    const normalizedName = normalizeSubjectName(draft.name.trim());
     const targetClassIds = autoTrackClassIdsForMajorItem(activeMajor, normalizedName);
     let next: ExamItem[];
-    if (editing.id)
+    if (draft.id)
       next = items.map((x) =>
-        x.id === editing.id ? { ...x, ...editing, name: normalizedName, targetClassIds, id: x.id, order: x.order } : x,
+        x.id === draft.id ? { ...x, ...draft, name: normalizedName, targetClassIds, id: x.id, order: x.order } : x,
       );
     else
       next = [
@@ -121,14 +117,23 @@ export function useExamItemActions(params: {
           id: makeId(),
           order: items.length ? Math.max(...items.map((x) => x.order)) + 1 : 0,
           name: normalizedName,
-          startTime: toISO(editing.startTime),
-          endTime: toISO(editing.endTime),
-          enabled: editing.enabled,
+          startTime: toISO(draft.startTime),
+          endTime: toISO(draft.endTime),
+          enabled: draft.enabled,
           targetClassIds,
         },
       ];
-    next = normalizeExamItems(next);
-    commitItems(next, editing.id ? `编辑「${normalizedName}」` : `新增「${normalizedName}」`);
+    commitItems(normalizeExamItems(next), draft.id ? `编辑「${normalizedName}」` : `新增「${normalizedName}」`);
+    return { ok: true };
+  };
+
+  const commitEdit = async () => {
+    if (!editing) return;
+    const result = await saveItem(editing, { longDurationConfirmed });
+    if (!result.ok) {
+      if (result.error) setEditError(result.error);
+      return;
+    }
     setEditing(null);
     setEditError('');
     setLongDurationConfirmed(false);
@@ -199,6 +204,7 @@ export function useExamItemActions(params: {
     openMajorStartTimeFlow,
     cancelMajorTimeFlow,
     commitEdit,
+    saveItem,
     setExamEnabled,
     remove,
     removeItems,

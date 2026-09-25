@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { ApiErrorResponse } from '../src/shared/apiErrorContract.js';
 
 export type DatabaseOperation = 'connect' | 'read' | 'write' | 'transaction' | 'schema';
 
@@ -122,24 +123,27 @@ export function sendDatabaseError(
   const id = requestId(req, res);
   const classified = classifyDatabaseError(error, operation);
   console.error(`[${id}] ${classified.code} (${operation})`, error);
-  res.status(classified.status).json({
+  const body: ApiErrorResponse = {
     ok: false,
     code: classified.code,
     error: classified.message,
     operation,
     retryable: classified.retryable,
     requestId: id,
-  });
+  };
+  res.status(classified.status).json(body);
 }
 
 export function sendRateLimited(req: VercelRequest, res: VercelResponse, retryAfterSeconds = 1): void {
   const id = requestId(req, res);
   res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfterSeconds))));
-  res.status(429).json({
+  const body: ApiErrorResponse = {
     ok: false,
     code: 'RATE_LIMITED',
-    error: '其他设备正在保存数据，系统将很快自动重试。',
+    // 别再说「其他设备」：写槽只有一个，用户自己那个页面连着写两次也会被挡（保存并发布）。
+    error: '数据正在同步，系统将很快自动重试。',
     retryable: true,
     requestId: id,
-  });
+  };
+  res.status(429).json(body);
 }

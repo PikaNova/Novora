@@ -72,7 +72,7 @@ const PHASE_TO_STATE: Record<NotifyPhase, AlertState> = {
 const COUNTDOWN_STATES: AlertState[] = ['15min', '5min', 'end15'];
 
 export function useAlertOverlay(input: DriverInput): AlertOverlayItem | null {
-  const { notification, currentExam, nextExam, settings, masterTitle } = input;
+  const { notification, nextExam, settings } = input;
   const [current, setCurrent] = useState<AlertOverlayItem | null>(null);
   // pump: 递增计数器，用于在入队时强制重新运行调度器 effect（current 不变时也能触发）
   const [pump, setPump] = useState(0);
@@ -180,7 +180,7 @@ export function useAlertOverlay(input: DriverInput): AlertOverlayItem | null {
       items.push(makeBuiltIn('next', notification.exam, notification.id));
     }
     enqueue(items);
-  }, [notification?.id, settings.enabled, makeBuiltIn, enqueue, nextExam]);
+  }, [notification, settings.enabled, makeBuiltIn, enqueue, nextExam]);
 
   // 自定义提醒：基于当前科目的开考/结束时刻扫描触发（单独的 1s 扫描，不影响看板）
   useEffect(() => {

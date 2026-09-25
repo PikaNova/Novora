@@ -1,4 +1,6 @@
 import { reportError } from './errorReport';
+import type { ApiErrorResponse } from '../shared/apiErrorContract.js';
+import type { ErrorReportSource } from '../shared/errorReportContracts.js';
 
 export type ApiErrorDetail = {
   status: number;
@@ -53,7 +55,8 @@ const DEFAULT_MESSAGES: Record<string, string> = {
   DATABASE_TRANSACTION_FAILED: '数据库操作未完成，服务端变更已回滚。',
   DATABASE_POOL_EXHAUSTED: '服务器连接繁忙，请稍后重试。',
   DATABASE_CONFLICT: '操作遇到并发冲突，已自动回滚，请重试。',
-  RATE_LIMITED: '其他设备正在保存数据，系统将很快自动重试。',
+  // 写槽是全局单个：用户自己那个页面连着写两次（保存并发布）也会被挡，别说成「其他设备」。
+  RATE_LIMITED: '数据正在同步，系统将很快自动重试。',
 
   // 验证 / 权限 / 会话
   ALREADY_INITIALIZED: '云端已经完成初始化，请在年级与班级页面调整学校结构。',
@@ -115,12 +118,27 @@ function isStabilityIssue(status: number, code: string): boolean {
   );
 }
 
+/**
+ * 只上报能确定的归因；不确定时留空，由作者端按错误码推断，避免把猜测写进聚合口径。
+ */
+function sourceForError(error: ApiError): ErrorReportSource | undefined {
+  if (error.status === 0 || error.code.startsWith('NETWORK_')) return 'network';
+  if (error.code.startsWith('DATABASE_')) return 'database';
+  if (error.code.startsWith('SYNC_')) return 'sync';
+  return undefined;
+}
+
 function reportIfStabilityIssue(error: ApiError, apiEndpoint?: string): void {
   if (!isStabilityIssue(error.status, error.code)) return;
   void reportError({
     message: error.message,
     errorName: error.code,
+    type: error.status === 0 ? 'network' : error.code.startsWith('DATABASE_') ? 'database' : 'api',
     level: 'error',
+    errorCode: error.code,
+    errorSource: sourceForError(error),
+    retryable: error.retryable,
+    requestId: error.requestId,
     apiEndpoint,
     httpStatus: error.status,
     context: { requestId: error.requestId, operation: error.operation },
@@ -128,7 +146,7 @@ function reportIfStabilityIssue(error: ApiError, apiEndpoint?: string): void {
 }
 
 export async function apiErrorFromResponse(response: Response, fallback: string): Promise<ApiError> {
-  const data = await response.json().catch(() => null);
+  const data = (await response.json().catch(() => null)) as ApiErrorResponse | null;
   const code =
     typeof data?.code === 'string'
       ? data.code
@@ -220,6 +238,6 @@ export function getSyncNotifyTitle(code?: string): string {
   if (code === 'DATA_CONFLICT') return '数据冲突';
   if (code === 'CLASS_DEVICE_EXISTS') return '设备冲突';
   if (code === 'ALREADY_INITIALIZED') return '已初始化';
-  if (code === 'RATE_LIMITED') return '多设备同步繁忙';
+  if (code === 'RATE_LIMITED') return '同步繁忙';
   return '同步失败';
 }

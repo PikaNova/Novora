@@ -46,7 +46,9 @@ export default function DesignPolicyManager({
     else if (scope === 'grade') setScopeId(grades[0]?.id || '');
     else if (scope === 'class') setScopeId(classes[0]?.id || '');
     else setScopeId(devices[0]?.instanceId || '');
-  }, [scope]); // 只在切换范围类型时初始化，避免同步重渲染（classes 引用变化）把已选对象弹回第一个
+    // 只在切换范围类型时初始化，避免同步重渲染（classes 引用变化）把已选对象弹回第一个
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- roster arrays intentionally excluded; see comment above
+  }, [scope]);
 
   const targets = useMemo(
     () =>

@@ -6,8 +6,6 @@ import {
   type QuickMajorLike,
 } from '../src/utils/majorOwnership.js';
 
-const classes = [{ id: 'c1' }];
-const grades = [{ id: 'g1' }];
 const quickMajor = (overrides: Partial<QuickMajorLike> = {}): QuickMajorLike => ({
   source: 'quick',
   temporary: true,

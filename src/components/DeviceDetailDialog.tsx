@@ -14,8 +14,9 @@ import {
 } from '../services/classBinding';
 import { notify } from '../services/notify';
 import ClassMultiPicker from './ClassMultiPicker';
+import { DEVICE_ONLINE_WINDOW_MS, isDeviceExamPaused } from '../shared/deviceContracts';
 
-const ONLINE_MS = 90_000;
+const ONLINE_MS = DEVICE_ONLINE_WINDOW_MS;
 
 export type DeviceDetailTarget = {
   key: string;
@@ -235,7 +236,13 @@ export default function DeviceDetailDialog({
               <dd>{dashboard?.page || '未知'}</dd>
             </div>
             <div>
-              <dt>{dashboard?.status === 'waiting' ? '下一场考试' : '当前考试'}</dt>
+              <dt>
+                {dashboard?.status === 'waiting'
+                  ? '下一场考试'
+                  : isDeviceExamPaused(dashboard?.status)
+                    ? '当前考试（已暂停）'
+                    : '当前考试'}
+              </dt>
               <dd>
                 {dashboard?.currentSubject
                   ? `${dashboard.currentExam} · ${dashboard.currentSubject}`

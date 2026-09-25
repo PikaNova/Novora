@@ -15,6 +15,7 @@ import {
 } from '../services/examService';
 import { getCachedDeviceBinding, getClassBindingInstanceId } from '../services/classBinding';
 import { getAppSettings } from '../utils/appSettings';
+import { recordUserAction } from '../utils/diagnostics';
 import {
   bindEmailConfirm,
   bindEmailRequest,
@@ -195,6 +196,7 @@ export default function LoginPage() {
       setEmailError('请输入邮箱和验证码');
       return;
     }
+    recordUserAction('邮箱验证码登录');
     setEmailLoading(true);
     setEmailError('');
     try {
@@ -287,6 +289,7 @@ export default function LoginPage() {
       setError('请输入用户名和密码');
       return;
     }
+    recordUserAction('账号密码登录');
     setLoading(true);
     setError('');
     const session = await loginAdmin(username.trim(), password);

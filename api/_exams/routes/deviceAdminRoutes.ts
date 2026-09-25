@@ -6,7 +6,29 @@ import { examPayload } from '../payload.js';
 import { allScope } from '../permissions.js';
 import { actorScopeLabel } from '../plugin.js';
 import type { ExamRow } from '../types.js';
+import {
+  DEVICE_ONLINE_WINDOW_MS,
+  parseDeviceLastCommand,
+  type DeviceCommandAction,
+  type DeviceCommand,
+  type DeviceCommandRow,
+  type DeviceInstanceRow,
+  type DeviceLastCommand,
+  type PluginInstanceRow,
+} from '../../../src/shared/deviceContracts.js';
 import { type AdminActor, canAccessClass, isPasswordRequired, requireActor, writeAudit } from '../../_auth.js';
+
+/** 设备列表里那条"最近指令"的对外形状。 */
+function commandJson(row: DeviceCommandRow): DeviceLastCommand | null {
+  return parseDeviceLastCommand({
+    id: String(row.id ?? ''),
+    action: row.action,
+    status: row.status,
+    createdAt: Number(row.created_at),
+    ...(row.expires_at == null ? {} : { expiresAt: Number(row.expires_at) }),
+    ...(String(row.failure_reason ?? '') ? { failureReason: String(row.failure_reason) } : {}),
+  });
+}
 
 export async function handleDeviceBindings(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = database();
@@ -24,14 +46,18 @@ export async function handleDeviceBindings(req: VercelRequest, res: VercelRespon
     if (!deviceActor) return;
   }
   await ensureTableOnce();
-  const [deviceRows, pluginRows] = await Promise.all([
-    sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<
-      Array<Record<string, any>>
-    >,
+  const [deviceRows, pluginRows, commandRows] = await Promise.all([
+    sql`SELECT * FROM device_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<DeviceInstanceRow[]>,
     sql`SELECT plugin_instance_id, grade_id, class_id, viewer_instance_id, paired, viewer_last_seen_at, updated_at FROM classisland_plugin_instances ORDER BY updated_at DESC LIMIT 2001` as unknown as Promise<
-      Array<Record<string, any>>
+      PluginInstanceRow[]
     >,
+    // 每台设备最近一条指令：后台据此显示"待认领 / 已执行 / 已过期 / 失败：原因"，
+    // 而不是发完只看到一句"已发送"就再也无从得知到底执行了没有。
+    sql`SELECT DISTINCT ON (instance_id) instance_id, id, action, status, created_at, expires_at, failure_reason
+      FROM device_commands ORDER BY instance_id, created_at DESC` as unknown as Promise<DeviceCommandRow[]>,
   ]);
+  const commandByInstance = new Map<string, DeviceCommandRow>();
+  for (const row of commandRows ?? []) commandByInstance.set(String(row.instance_id ?? ''), row);
   const currentManagement =
     deviceActor &&
     deviceRows.find((row) => String(row.instance_id ?? '') === currentInstanceId && row.is_management === true);
@@ -67,24 +93,29 @@ export async function handleDeviceBindings(req: VercelRequest, res: VercelRespon
   const truncated = rows.length > 500 || visiblePluginRows.length > 500;
   res.status(200).json({
     ok: true,
-    bindings: rows.slice(0, 500).map((row) => ({
-      instanceId: row.instance_id,
-      gradeId: row.grade_id,
-      classId: row.class_id,
-      revoked: row.revoked === true,
-      isManagement: row.is_management === true,
-      managementRoleName: row.management_role_name ?? '',
-      managementScopeLabel: row.management_scope_label ?? '',
-      page: row.page,
-      clientVersion: row.client_version,
-      status: row.status,
-      currentExam: row.current_exam,
-      currentSubject: row.current_subject,
-      examStart: row.exam_start,
-      examEnd: row.exam_end,
-      lastSeenAt: Number(row.last_seen_at),
-      updatedAt: Number(row.updated_at),
-    })),
+    bindings: rows.slice(0, 500).map((row) => {
+      const stored = commandByInstance.get(String(row.instance_id ?? ''));
+      const lastCommand = stored ? commandJson(stored) : null;
+      return {
+        instanceId: row.instance_id,
+        gradeId: row.grade_id,
+        classId: row.class_id,
+        revoked: row.revoked === true,
+        isManagement: row.is_management === true,
+        managementRoleName: row.management_role_name ?? '',
+        managementScopeLabel: row.management_scope_label ?? '',
+        page: row.page,
+        clientVersion: row.client_version,
+        status: row.status,
+        currentExam: row.current_exam,
+        currentSubject: row.current_subject,
+        examStart: row.exam_start,
+        examEnd: row.exam_end,
+        lastSeenAt: Number(row.last_seen_at),
+        updatedAt: Number(row.updated_at),
+        ...(lastCommand ? { lastCommand } : {}),
+      };
+    }),
     plugins: visiblePluginRows.slice(0, 500).map((row) => ({
       pluginInstanceId: row.plugin_instance_id,
       viewerInstanceId: row.viewer_instance_id ?? '',
@@ -171,7 +202,7 @@ export async function handleManagedDeviceSetup(req: VercelRequest, res: VercelRe
           instanceId: existing[0].instance_id,
           status: existing[0].status,
           lastSeenAt,
-          online: Date.now() - lastSeenAt <= 90_000,
+          online: Date.now() - lastSeenAt <= DEVICE_ONLINE_WINDOW_MS,
         },
       });
       return;
@@ -302,9 +333,7 @@ export async function handleDeviceRoleUpdate(req: VercelRequest, res: VercelResp
     return;
   }
 
-  const targetClass = (payload.classes as Array<Record<string, unknown>>).find(
-    (item) => String(item.id ?? '') === classId && String(item.gradeId ?? '') === gradeId,
-  );
+  const targetClass = payload.classes.find((item) => item.id === classId && item.gradeId === gradeId);
   if (!gradeId || !classId || !targetClass) {
     res.status(400).json({ ok: false, error: '请选择有效的年级和班级' });
     return;
@@ -329,7 +358,7 @@ export async function handleDeviceRoleUpdate(req: VercelRequest, res: VercelResp
         instanceId: occupied[0].instance_id,
         status: occupied[0].status,
         lastSeenAt,
-        online: Date.now() - lastSeenAt <= 90_000,
+        online: Date.now() - lastSeenAt <= DEVICE_ONLINE_WINDOW_MS,
       },
     });
     return;
@@ -389,16 +418,102 @@ export async function handleDeviceCommand(req: VercelRequest, res: VercelRespons
       return;
     }
   }
+  const idempotencyKey = String(req.body?.idempotencyKey ?? '')
+    .trim()
+    .slice(0, 160);
+  if (idempotencyKey) {
+    const existing =
+      (await sql`SELECT id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason
+      FROM device_commands WHERE instance_id=${instanceId} AND idempotency_key=${idempotencyKey} LIMIT 1`) as unknown as Array<
+        Record<string, unknown>
+      >;
+    if (existing[0]) {
+      const command = {
+        id: String(existing[0].id),
+        action: existing[0].action as DeviceCommandAction,
+        ...(existing[0].minutes == null ? {} : { minutes: Number(existing[0].minutes) }),
+        createdAt: Number(existing[0].created_at),
+        status: String(existing[0].status) as DeviceCommand['status'],
+        idempotencyKey,
+        expiresAt: Number(existing[0].expires_at),
+        ...(existing[0].claimed_at == null ? {} : { claimedAt: Number(existing[0].claimed_at) }),
+        ...(existing[0].acknowledged_at == null ? {} : { acknowledgedAt: Number(existing[0].acknowledged_at) }),
+        ...(String(existing[0].failure_reason ?? '') ? { failureReason: String(existing[0].failure_reason) } : {}),
+      } satisfies DeviceCommand;
+      res.status(200).json({ ok: true, command });
+      return;
+    }
+  }
   if (!(await acquireWriteSlotOrReject(req, res))) return;
-  const command = {
-    id: `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    action: commandAction,
+  const createdAt = Date.now();
+  /*
+   * 手动指令默认保留 24 小时（上限也是 24h）：以前是 15 分钟，设备离线一会儿指令就被标成
+   * expired 且永不执行，而老师那边只看到"已发送"——教室端什么也没发生。
+   * 现在过期只作为兜底，过期/失败会显示在设备列表里，可以重发。
+   */
+  const expiresAt = Math.min(
+    createdAt + 24 * 60 * 60 * 1000,
+    Math.max(createdAt + 60_000, Number(req.body?.expiresAt) || createdAt + 24 * 60 * 60 * 1000),
+  );
+  const command: DeviceCommand = {
+    id: `cmd_${createdAt}_${Math.random().toString(36).slice(2, 7)}`,
+    action: commandAction as DeviceCommandAction,
     minutes: commandAction === 'extend' ? Math.min(120, Math.max(1, Number(req.body?.minutes) || 5)) : undefined,
-    createdAt: Date.now(),
+    createdAt,
+    status: 'pending' as const,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    expiresAt,
   };
-  await sql`UPDATE device_instances SET temporary_command=${JSON.stringify(command)}::jsonb, updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
-  await writeAudit(deviceActor, `device.temporary.${commandAction}`, 'device', instanceId);
-  res.status(200).json({ ok: true, command });
+  let persisted: DeviceCommand = command;
+  const transactionResults = await sql.transaction((transaction) => [
+    transaction`INSERT INTO device_commands (id, instance_id, action, minutes, created_at, status, idempotency_key, expires_at)
+      VALUES (${command.id}, ${instanceId}, ${command.action}, ${command.minutes ?? null}, ${command.createdAt}, 'pending', ${idempotencyKey}, ${expiresAt})
+      ON CONFLICT (instance_id, idempotency_key) WHERE idempotency_key <> '' DO NOTHING
+      RETURNING id, action, minutes, created_at, status, idempotency_key, expires_at`,
+  ]);
+  const inserted = transactionResults[0] as unknown as Array<Record<string, unknown>>;
+  if (inserted[0]) {
+    await sql`UPDATE device_instances SET temporary_command=${JSON.stringify(command)}::jsonb, updated_at=${Date.now()} WHERE instance_id=${instanceId}`;
+  }
+  if (!inserted[0] && idempotencyKey) {
+    const existing =
+      (await sql`SELECT id, action, minutes, created_at, status, idempotency_key, expires_at, claimed_at, acknowledged_at, failure_reason
+      FROM device_commands WHERE instance_id=${instanceId} AND idempotency_key=${idempotencyKey} LIMIT 1`) as unknown as Array<
+        Record<string, unknown>
+      >;
+    if (existing[0]) {
+      persisted = {
+        id: String(existing[0].id),
+        action: existing[0].action as DeviceCommandAction,
+        ...(existing[0].minutes == null ? {} : { minutes: Number(existing[0].minutes) }),
+        createdAt: Number(existing[0].created_at),
+        status: String(existing[0].status) as DeviceCommand['status'],
+        idempotencyKey,
+        expiresAt: Number(existing[0].expires_at),
+        ...(existing[0].claimed_at == null ? {} : { claimedAt: Number(existing[0].claimed_at) }),
+        ...(existing[0].acknowledged_at == null ? {} : { acknowledgedAt: Number(existing[0].acknowledged_at) }),
+        ...(String(existing[0].failure_reason ?? '') ? { failureReason: String(existing[0].failure_reason) } : {}),
+      } satisfies DeviceCommand;
+    }
+  }
+  await writeAudit(deviceActor, `device.command.${commandAction}`, 'device', instanceId);
+  // 目标设备当前在不在线：不在线时前端要明确提示"指令会保留到设备上线"，而不是乐观报成功。
+  const deviceRows =
+    (await sql`SELECT last_seen_at FROM device_instances WHERE instance_id=${instanceId}`) as unknown as Array<{
+      last_seen_at?: unknown;
+    }>;
+  const lastSeenAt = Number(deviceRows[0]?.last_seen_at ?? 0);
+  const deviceOnline = Number.isFinite(lastSeenAt) && Date.now() - lastSeenAt <= DEVICE_ONLINE_WINDOW_MS;
+  res.status(200).json({
+    ok: true,
+    command: persisted,
+    deviceOnline,
+    ...(deviceOnline
+      ? {}
+      : {
+          deliveryHint: `设备当前离线（最后在线 ${lastSeenAt > 0 ? new Date(lastSeenAt).toLocaleString('zh-CN', { hour12: false }) : '从未上线'}）：指令最多保留 24 小时，设备上线后自动执行；过期可在设备列表重发。`,
+        }),
+  });
   return;
 }
 

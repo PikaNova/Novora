@@ -8,6 +8,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      'dist-ui-check/**',
       'node_modules/**',
       '.api-check/**',
       '.integration-check/**',
@@ -19,6 +20,7 @@ export default tseslint.config(
       'outputs/**',
       'notion-audit/**',
       'public/**',
+      'workspace/**',
     ],
   },
   js.configs.recommended,

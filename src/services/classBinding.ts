@@ -1,19 +1,44 @@
 import { getInstanceId } from './telemetry';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { runQueued } from './syncQueue';
+import { authHeaders } from './auth/session';
+import {
+  parseDeviceBinding,
+  parseDeviceBindingInfo,
+  parseDeviceCommand,
+  parseDeviceSetupConflict,
+  parsePluginBindingInfo,
+  type DeviceBinding,
+  type DeviceBindingInfo,
+  type DeviceCommand,
+  type DeviceHeartbeatInput,
+  type DeviceSetupConflict,
+  type PluginBindingInfo,
+} from '../shared/deviceContracts';
+import { parseExamVersion } from '../shared/examContracts';
 
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
 const BINDING_CACHE_KEY = 'exam_board_device_binding_cache';
 const DEVICE_PURPOSE_KEY = 'exam_board_device_purpose_confirmed';
 const PENDING_MANAGEMENT_SETUP_KEY = 'novora_pending_management_setup';
-const ADMIN_TOKEN_KEY = 'admin_auth_token';
 let heartbeatInFlight = false;
 
-async function sendWithRateLimitRetry(send: () => Promise<Response>): Promise<{ response: Response; data: any }> {
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function errorMessage(value: unknown, fallback: string): string {
+  const message = asRecord(value).error;
+  return typeof message === 'string' && message ? message : fallback;
+}
+
+export type { DeviceBinding, DeviceBindingInfo, DeviceCommand, DeviceSetupConflict, PluginBindingInfo };
+
+async function sendWithRateLimitRetry(send: () => Promise<Response>): Promise<{ response: Response; data: unknown }> {
   let response = await send();
   let data = await response.json().catch(() => null);
-  if (response.status === 429 && data?.code === 'RATE_LIMITED') {
+  if (response.status === 429 && asRecord(data).code === 'RATE_LIMITED') {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     response = await send();
     data = await response.json().catch(() => null);
@@ -21,30 +46,6 @@ async function sendWithRateLimitRetry(send: () => Promise<Response>): Promise<{ 
   return { response, data };
 }
 
-export interface DeviceBinding {
-  gradeId: string;
-  classId: string;
-  revoked: boolean;
-  isManagement?: boolean;
-}
-
-export interface DeviceBindingInfo extends DeviceBinding {
-  instanceId: string;
-  isManagement?: boolean;
-  managementRoleName?: string;
-  managementScopeLabel?: string;
-  page: string;
-  clientVersion: string;
-  status: string;
-  currentExam: string;
-  currentSubject: string;
-  examStart: string;
-  examEnd: string;
-  lastSeenAt: number;
-  updatedAt: number;
-}
-
-export type DeviceSetupConflict = { instanceId: string; status: string; lastSeenAt: number; online: boolean };
 export type DeviceBindingSaveResult =
   { ok: true; replaced: boolean } | { ok: false; conflict?: DeviceSetupConflict; error: string };
 export type DeviceRoleUpdateResult =
@@ -82,9 +83,10 @@ export async function fetchOccupiedClassIds(): Promise<string[]> {
     12_000,
   );
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error || '班级绑定状态加载失败');
-  return Array.isArray(data?.occupiedClassIds)
-    ? data.occupiedClassIds.filter((value: unknown): value is string => typeof value === 'string')
+  const source = asRecord(data);
+  if (!response.ok) throw new Error(errorMessage(source, '班级绑定状态加载失败'));
+  return Array.isArray(source.occupiedClassIds)
+    ? source.occupiedClassIds.filter((value: unknown): value is string => typeof value === 'string')
     : [];
 }
 export async function setupManagedDevice(input: {
@@ -108,9 +110,10 @@ export async function setupManagedDevice(input: {
       { priority: 'high' },
     ),
   );
-  if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS')
-    return { conflict: data.existing as DeviceSetupConflict };
-  if (!response.ok) throw new Error(data?.error || '设备登记失败');
+  const source = asRecord(data);
+  if (response.status === 409 && source.code === 'CLASS_DEVICE_EXISTS')
+    return { conflict: parseDeviceSetupConflict(source.existing) ?? undefined };
+  if (!response.ok) throw new Error(errorMessage(source, '设备登记失败'));
   if (input.bindManagement) {
     cacheDeviceBinding({ gradeId: '', classId: '', revoked: false, isManagement: true });
     clearPendingManagementSetup();
@@ -148,15 +151,20 @@ export async function updateDeviceRole(input: {
         { priority: 'high' },
       ),
     );
-    if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS')
-      return { ok: false, conflict: data.existing as DeviceSetupConflict, error: data.error || '该班级已有考试端' };
-    if (!response.ok) return { ok: false, error: data?.error || '设备角色转换失败' };
-    const binding: DeviceBinding = {
-      gradeId: data?.binding?.gradeId ?? '',
-      classId: data?.binding?.classId ?? '',
-      revoked: false,
-      isManagement: data?.binding?.isManagement === true,
-    };
+    const source = asRecord(data);
+    const conflict =
+      response.status === 409 && source.code === 'CLASS_DEVICE_EXISTS'
+        ? parseDeviceSetupConflict(source.existing)
+        : null;
+    if (conflict)
+      return {
+        ok: false,
+        conflict,
+        error: errorMessage(source, '该班级已有考试端'),
+      };
+    if (!response.ok) return { ok: false, error: errorMessage(source, '设备角色转换失败') };
+    const binding = parseDeviceBinding(source.binding);
+    if (!binding) return { ok: false, error: '服务器返回了无效的设备绑定' };
     if (input.instanceId === getInstanceId()) {
       cacheDeviceBinding(binding);
       clearPendingManagementSetup();
@@ -164,27 +172,10 @@ export async function updateDeviceRole(input: {
       if (binding.isManagement) clearClassChoiceConfirmation();
       else markClassChoiceConfirmed();
     }
-    return { ok: true, binding, replaced: data?.replaced === true };
+    return { ok: true, binding, replaced: source.replaced === true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : '设备角色转换失败，请检查网络后重试' };
   }
-}
-
-export interface PluginBindingInfo {
-  pluginInstanceId: string;
-  viewerInstanceId: string;
-  gradeId: string;
-  classId: string;
-  paired: boolean;
-  pluginLastSeenAt: number;
-  viewerLastSeenAt: number;
-}
-
-export interface DeviceCommand {
-  id: string;
-  action: 'pause' | 'resume' | 'extend' | 'end';
-  minutes?: number;
-  createdAt: number;
 }
 
 export function hasConfirmedClassChoice(): boolean {
@@ -291,13 +282,18 @@ export async function saveDeviceBinding(
         { priority: 'high' },
       ),
     );
-    if (response.status === 409 && data?.code === 'CLASS_DEVICE_EXISTS')
+    const source = asRecord(data);
+    const conflict =
+      response.status === 409 && source.code === 'CLASS_DEVICE_EXISTS'
+        ? parseDeviceSetupConflict(source.existing)
+        : null;
+    if (conflict)
       return {
         ok: false,
-        conflict: data.existing as DeviceSetupConflict,
-        error: data.error || '该班级已绑定其他考试端',
+        conflict,
+        error: errorMessage(source, '该班级已绑定其他考试端'),
       };
-    if (!response.ok) return { ok: false, error: data?.error || '班级绑定失败' };
+    if (!response.ok) return { ok: false, error: errorMessage(source, '班级绑定失败') };
     cacheDeviceBinding({ gradeId, classId, revoked: false, isManagement: false });
     clearPendingManagementSetup();
     markClassChoiceConfirmed();
@@ -306,11 +302,6 @@ export async function saveDeviceBinding(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : '班级绑定失败，请检查网络后重试' };
   }
-}
-
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY) ?? '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function fetchDeviceBindings(): Promise<{
@@ -331,10 +322,14 @@ export async function fetchDeviceBindings(): Promise<{
           ? '当前账号无权查看设备'
           : '设备管理加载失败',
     );
-  const data = await response.json();
+  const data = asRecord(await response.json().catch(() => null));
   return {
-    bindings: Array.isArray(data.bindings) ? data.bindings : [],
-    plugins: Array.isArray(data.plugins) ? data.plugins : [],
+    bindings: (Array.isArray(data.bindings) ? data.bindings : [])
+      .map(parseDeviceBindingInfo)
+      .filter((item): item is DeviceBindingInfo => item !== null),
+    plugins: (Array.isArray(data.plugins) ? data.plugins : [])
+      .map(parsePluginBindingInfo)
+      .filter((item): item is PluginBindingInfo => item !== null),
     truncated: data.truncated === true,
   };
 }
@@ -355,13 +350,14 @@ export async function revokeDevice(instanceId: string, pluginInstanceIds: string
       { priority: 'high' },
     ),
   );
+  const source = asRecord(data);
   if (!response.ok)
     throw new Error(
       response.status === 401
         ? '登录状态已失效'
         : response.status === 403
           ? '当前账号无权删除此设备'
-          : data?.error || '删除设备失败',
+          : errorMessage(source, '删除设备失败'),
     );
 }
 
@@ -369,7 +365,12 @@ export async function sendDeviceCommand(
   instanceId: string,
   commandAction: DeviceCommand['action'],
   minutes?: number,
-): Promise<void> {
+): Promise<{
+  /** 目标设备当时是否在线；离线时指令会保留到设备上线（最多 24 小时）。 */
+  deviceOnline: boolean;
+  /** 离线时的说明文案（由服务端给出）。 */
+  deliveryHint: string;
+}> {
   const { response, data } = await sendWithRateLimitRetry(() =>
     runQueued(
       () =>
@@ -385,21 +386,28 @@ export async function sendDeviceCommand(
       { priority: 'high' },
     ),
   );
+  const source = asRecord(data);
   if (!response.ok)
     throw new Error(
       response.status === 401
         ? '登录状态已失效'
         : response.status === 403
           ? '当前账号无权管理此设备'
-          : data?.error || '临时考试指令发送失败',
+          : errorMessage(source, '临时考试指令发送失败'),
     );
+  return {
+    deviceOnline: source.deviceOnline !== false,
+    deliveryHint: typeof source.deliveryHint === 'string' ? source.deliveryHint : '',
+  };
 }
 
-export async function sendDeviceHeartbeat(
-  input: Omit<DeviceBindingInfo, 'instanceId' | 'gradeId' | 'classId' | 'revoked' | 'lastSeenAt' | 'updatedAt'> & {
-    acknowledgedCommandId?: string;
-  },
-): Promise<{ revoked: boolean; binding: DeviceBinding | null; command: DeviceCommand | null }> {
+export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<{
+  revoked: boolean;
+  binding: DeviceBinding | null;
+  command: DeviceCommand | null;
+  /** 服务端当前快照版本号；只有启用了该优化的部署（Vercel）才会返回。 */
+  version?: number;
+}> {
   if (heartbeatInFlight) return { revoked: false, binding: null, command: null };
   heartbeatInFlight = true;
   try {
@@ -413,7 +421,7 @@ export async function sendDeviceHeartbeat(
       8_000,
     );
     if (!response.ok) return { revoked: false, binding: null, command: null };
-    const data = await response.json();
+    const data = asRecord(await response.json().catch(() => null));
     if (data.revoked === true) {
       if (hasPendingManagementSetup()) return { revoked: true, binding: null, command: null };
       cacheDeviceBinding({ gradeId: '', classId: '', revoked: true, isManagement: false });
@@ -424,14 +432,7 @@ export async function sendDeviceHeartbeat(
         command: null,
       };
     }
-    const binding = data.binding
-      ? ({
-          gradeId: String(data.binding.gradeId ?? ''),
-          classId: String(data.binding.classId ?? ''),
-          revoked: false,
-          isManagement: data.binding.isManagement === true,
-        } satisfies DeviceBinding)
-      : null;
+    const binding = data.binding == null ? null : parseDeviceBinding(data.binding);
     if (binding) {
       const previous = getCachedDeviceBinding();
       const changed =
@@ -448,8 +449,9 @@ export async function sendDeviceHeartbeat(
         window.dispatchEvent(new CustomEvent('exam-board:binding-updated', { detail: binding }));
       }
     }
-    const command = data.command && typeof data.command.id === 'string' ? (data.command as DeviceCommand) : null;
-    return { revoked: false, binding, command };
+    const command = parseDeviceCommand(data.command);
+    const version = parseExamVersion(data.version);
+    return { revoked: false, binding, command, ...(version > 0 ? { version } : {}) };
   } catch {
     return { revoked: false, binding: null, command: null };
   } finally {

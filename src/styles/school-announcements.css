@@ -1,0 +1,796 @@
+/*
+ * 后台「公告」板块（学校公告管理）。
+ * 视觉沿用后台既有卡片（见 admin.css 的 .device-status__stats）：深色底 + 细描边。
+ * 大屏上的公告外观由 school-announcement-view.css 提供，本文件只负责后台编辑器与列表。
+ */
+.school-announcements {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sann-card {
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.sann-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.sann-card__head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.98rem;
+}
+.sann-card__head h3 svg {
+  width: 18px;
+  height: 18px;
+}
+.sann-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.78rem;
+}
+/* 概览卡里的行内说明：与下拉框并排时不占一整行。 */
+.sann-note--inline {
+  align-self: end;
+  padding-bottom: 6px;
+}
+/* ===== 近 N 天概览 ===== */
+.sann-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.sann-stats > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.sann-stats span {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.75rem;
+}
+.sann-stats strong {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.sann-stats small {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.7rem;
+}
+.sann-stats > div.is-primary {
+  border-color: rgba(52, 152, 219, 0.5);
+  background: rgba(52, 152, 219, 0.14);
+}
+.sann-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 44px;
+  margin: 12px 0 4px;
+}
+.sann-spark > span {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 255, 255, 0.12);
+}
+.sann-spark > span.is-active {
+  background: linear-gradient(180deg, #5cc8a1, #3498db);
+}
+.sann-lowest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.sann-lowest button {
+  padding: 3px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.sann-lowest button:hover {
+  border-color: rgba(52, 152, 219, 0.6);
+}
+.sann-template {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sann-search {
+  min-width: 180px;
+  max-width: 240px;
+}
+.sann-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.sann-compose__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.sann-compose__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.sann-compose__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* ===== Markdown 正文编辑器 ===== */
+.sann-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sann-editor__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sann-editor__label {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+}
+.sann-editor__tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sann-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.sann-tool:hover:not(:disabled) {
+  border-color: rgba(52, 152, 219, 0.6);
+  color: #fff;
+}
+.sann-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sann-editor__input {
+  min-height: 190px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  resize: vertical;
+}
+/* ===== 样式选择 ===== */
+.sann-style-picker,
+.sann-scope-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sann-scope-picker__title {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+}
+.sann-style-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.sann-style {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sann-style strong {
+  font-size: 0.84rem;
+}
+.sann-style small {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.sann-style.is-active {
+  border-color: rgba(52, 152, 219, 0.7);
+  background: rgba(52, 152, 219, 0.18);
+}
+.sann-style:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sann-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sann-chip {
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.sann-chip.is-active {
+  border-color: rgba(52, 152, 219, 0.65);
+  background: rgba(52, 152, 219, 0.22);
+  color: #fff;
+  font-weight: 700;
+}
+.sann-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* ===== 右侧实时预览（与大屏同一组类名渲染）===== */
+.sann-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sann-preview__head {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.76rem;
+}
+.sann-preview__screen {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(3, 6, 14, 0.9), rgba(3, 6, 14, 0.7));
+}
+/* 预览里按大屏比例缩小，长内容不撑破卡片。 */
+.sann-preview__screen .sann-view {
+  padding: 18px 20px;
+  gap: 12px;
+}
+.sann-preview__screen .sann-view__title {
+  font-size: 21px;
+}
+.sann-preview__screen .sann-view.is-poster .sann-view__title {
+  font-size: 30px;
+}
+.sann-preview__screen .sann-view__body {
+  font-size: 15px;
+}
+.sann-preview__screen .sann-view.is-poster .sann-view__body {
+  font-size: 18px;
+}
+/* ===== 记录列表 ===== */
+.sann-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sann-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sann-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-left: 3px solid rgba(148, 180, 208, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.sann-item.is-expired,
+.sann-item.is-revoked {
+  opacity: 0.72;
+}
+.sann-item.is-active {
+  border-left-color: #3498db;
+}
+.sann-item__main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sann-item__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sann-item__title strong {
+  font-size: 0.94rem;
+}
+/* 列表里的正文也按 Markdown 渲染，但压到适合后台阅读的字号。 */
+.sann-item__body {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.84rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.sann-item__body .md-p {
+  margin: 4px 0;
+}
+.sann-item__body .md-h {
+  margin: 8px 0 4px;
+  font-size: 0.92rem;
+}
+.sann-item__body .md-ul,
+.sann-item__body .md-ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.sann-item__body .md-img {
+  display: block;
+  width: auto;
+  max-width: min(260px, 100%);
+  margin: 8px 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+.sann-item__body a {
+  color: #7ec8ff;
+}
+.sann-item__body .md-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.sann-item__body .md-table th,
+.sann-item__body .md-table td {
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.sann-item__meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+}
+.sann-item__actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.sann-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.7rem;
+}
+.sann-badge.is-active {
+  background: rgba(52, 152, 219, 0.22);
+  color: #bde7ff;
+}
+.sann-badge.is-urgent {
+  background: rgba(231, 76, 60, 0.24);
+  color: #ffb3aa;
+  font-weight: 700;
+}
+.sann-badge.is-warn {
+  background: rgba(230, 162, 60, 0.22);
+  color: #f0c48a;
+}
+/* ===== 回执明细弹窗 ===== */
+.sann-receipts {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  /* 同时挂着 .admin-modal--wide（max-width: 620px）：不覆盖宽度的话两栏会挤成一团 */
+  width: min(1080px, calc(100vw - 48px));
+  max-width: min(1080px, calc(100vw - 48px));
+  max-height: min(88vh, 860px);
+  overflow: hidden;
+}
+/* 宽屏两栏：左栏统计/班级分组、右栏设备明细各自滚动；窄屏回落单列（整块滚动）。 */
+.sann-receipts__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+.sann-receipts__side,
+.sann-receipts__main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.sann-receipts__main {
+  gap: 10px;
+}
+@media (min-width: 980px) {
+  .sann-receipts__body {
+    grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+    overflow: hidden;
+  }
+  .sann-receipts__side {
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .sann-receipts__main {
+    overflow: hidden;
+  }
+  /* 侧栏只有 ~300px，四个统计块挤一行会折字，改成 2×2。 */
+  .sann-receipts__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sann-receipts__table {
+    flex: 1 1 auto;
+  }
+}
+.sann-receipts__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sann-receipts__lead {
+  margin: 6px 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.8rem;
+}
+.sann-receipts__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sann-receipts__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.sann-receipts__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.sann-receipts__stats span {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.74rem;
+}
+.sann-receipts__stats strong {
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+.sann-receipts__stats strong small {
+  font-size: 0.8rem;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.sann-receipts__stats > div.is-primary {
+  border-color: rgba(52, 152, 219, 0.5);
+  background: rgba(52, 152, 219, 0.14);
+}
+.sann-receipts__bar {
+  height: 6px;
+  margin-top: -4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+.sann-receipts__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3498db, #5cc8a1);
+}
+.sann-receipts__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sann-receipts__groups > span {
+  padding: 3px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.74rem;
+}
+.sann-receipts__groups > span.is-done {
+  border-color: rgba(92, 200, 161, 0.5);
+  background: rgba(92, 200, 161, 0.16);
+}
+.sann-receipts__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sann-receipts__table {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+}
+.sann-receipts__table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.sann-receipts__table th,
+.sann-receipts__table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: left;
+  white-space: nowrap;
+}
+.sann-receipts__table th {
+  position: sticky;
+  top: 0;
+  background: #14181f;
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 500;
+}
+.sann-receipts__table tr.is-seen td {
+  background: rgba(52, 152, 219, 0.06);
+}
+.sann-receipts__device {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sann-receipts__device code {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+.sann-receipts__device small {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.68rem;
+}
+.sann-empty {
+  padding: 32px 0;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  font-size: 0.85rem;
+}
+.sann-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+/* ===== 发布前确认窗 ===== */
+.sann-publish {
+  /* 同为公告类弹窗：宽屏两栏（左信息右预览），窄屏单列；给整窗一个高度上限，别一路往下拉长。 */
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  width: min(1040px, calc(100vw - 48px));
+  max-width: min(1040px, calc(100vw - 48px));
+  max-height: min(88vh, 820px);
+  overflow: hidden;
+}
+.sann-publish__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+.sann-publish__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0;
+  align-content: start;
+}
+.sann-publish__facts > div {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.sann-publish__facts dt {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.72rem;
+}
+.sann-publish__facts dd {
+  margin: 4px 0 0;
+  font-size: 0.86rem;
+}
+.sann-publish__preview {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(3, 6, 14, 0.9), rgba(3, 6, 14, 0.7));
+  max-height: 46vh;
+  overflow: auto;
+}
+.sann-publish__preview .sann-view__title {
+  font-size: 22px;
+}
+.sann-publish__preview .sann-view.is-poster .sann-view__title {
+  font-size: 32px;
+}
+@media (min-width: 980px) {
+  .sann-publish__body {
+    grid-template-columns: minmax(240px, 0.78fr) minmax(0, 1.22fr);
+    overflow: hidden;
+  }
+  /* 侧栏窄，信息卡竖排；预览区自己滚动。 */
+  .sann-publish__facts {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .sann-publish__preview {
+    max-height: none;
+    overflow: auto;
+  }
+}
+
+@media (max-width: 1000px) {
+  .sann-compose {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .sann-compose__row,
+  .sann-style-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sann-item {
+    flex-direction: column;
+  }
+  .sann-receipts__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sann-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ===== 动效（2026-09-25） =====
+ * 后台「公告」板块此前零动效：概览四个数字整块出现、迷你柱状图直接立着、
+ * 记录列表整屏同时出现，工具/样式/范围三组按钮都是硬切色。
+ */
+
+@keyframes sann-stat-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 柱子从底部长出来。柱高是行内 style 给的百分比，这里只做 scaleY，不动高度。 */
+@keyframes sann-bar-grow {
+  from {
+    transform: scaleY(0.04);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* 记录行只动 transform，不动 opacity：.sann-item.is-expired / .is-revoked 自带 opacity .72，
+   动画补了 opacity 会把「已过期」画成正常态一样的实心。 */
+@keyframes sann-row-in {
+  from {
+    transform: translateY(8px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.sann-stats > div {
+  animation: sann-stat-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-spark > span {
+  transform-origin: bottom;
+  animation: sann-bar-grow var(--motion-medium) var(--motion-spring-gentle) backwards;
+  animation-delay: calc((sibling-index() - 1) * 22ms);
+}
+
+.sann-item {
+  animation: sann-row-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition: border-left-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-item:hover {
+  border-left-color: rgba(148, 180, 208, 0.6);
+}
+
+.sann-item.is-active:hover {
+  border-left-color: #3498db;
+}
+
+/* 三组选择控件此前改色没有过渡。 */
+.sann-tool,
+.sann-style,
+.sann-chip,
+.sann-lowest button {
+  transition:
+    color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-style:active:not(:disabled),
+.sann-chip:active:not(:disabled),
+.sann-tool:active:not(:disabled),
+.sann-lowest button:active {
+  transform: scale(0.985);
+}
+
+.sann-empty {
+  animation: sann-stat-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .sann-stats > div,
+  html:not([data-motion='best-effects']) .sann-spark > span,
+  html:not([data-motion='best-effects']) .sann-item,
+  html:not([data-motion='best-effects']) .sann-empty {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}

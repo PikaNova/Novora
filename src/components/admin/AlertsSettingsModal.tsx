@@ -147,7 +147,6 @@ export function AlertsSettingsModal({
                               })
                             }
                           />
-                          <span />
                         </label>
                       </div>
                       <div className="admin-alert-card__fields">
@@ -236,7 +235,6 @@ export function AlertsSettingsModal({
                                 })
                               }
                             />
-                            <span />
                           </label>
                           <button
                             className="admin-item-btn admin-item-btn--delete"

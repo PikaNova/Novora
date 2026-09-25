@@ -1,4 +1,3 @@
-import { RadioTower } from 'lucide-react';
 import { APP_VERSION } from '../../services/telemetry';
 import { Switch } from './Switch';
 import { useTelemetrySettings } from '../../hooks/settings/useTelemetrySettings';

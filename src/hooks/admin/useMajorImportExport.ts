@@ -3,7 +3,7 @@ import type { ExamItem, MajorExam } from '../../types';
 import { normalizeExamItems } from '../../utils/examSchedule';
 import { adminCan, type AdminUserContext } from '../../services/examService';
 import { notify } from '../../services/notify';
-import { makeId, fmtLocal, duration } from './adminPageUtils';
+import { makeId } from './adminPageUtils';
 import type { MajorModal } from './useMajorScheduleActions';
 
 type ImportPreviewItem = ExamItem & { include: boolean };

@@ -59,6 +59,8 @@ export function useWeeklyBatchOps({
 
   useEffect(() => {
     if (copyModal) setCopyWizardStep(0);
+    // Only reset the wizard step when the modal opens or closes, not when its fields change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- modal content identity intentionally excluded
   }, [copyModal !== null]);
 
   useEffect(() => {

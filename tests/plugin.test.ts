@@ -53,7 +53,7 @@ function makePayload(overrides: Partial<ExamPayload> = {}): ExamPayload {
 function payloadWithMajor(item: Record<string, unknown>): ExamPayload {
   return makePayload({
     activeMajorId: 'major-1',
-    majors: [{ id: 'major-1', name: 'Midterm', order: 0, items: [item] }] as any,
+    majors: [{ id: 'major-1', name: 'Midterm', order: 0, items: [item] }] as unknown as ExamPayload['majors'],
   });
 }
 
@@ -140,19 +140,19 @@ test('actorScopeLabel treats wildcard permission as all scope', () => {
   const payload = makePayload();
   const label = actorScopeLabel(makeActor({ permissions: ['*'] }), payload);
   assert.ok(label.length > 0);
-  assert.equal(label, actorScopeLabel(makeActor({ scopes: [{ type: 'all' } as any] }), payload));
+  assert.equal(label, actorScopeLabel(makeActor({ scopes: [{ type: 'all', gradeId: '', classId: '' }] }), payload));
 });
 
 test('actorScopeLabel resolves a grade scope name', () => {
   assert.equal(
-    actorScopeLabel(makeActor({ scopes: [{ type: 'grade', gradeId: 'grade-1' } as any] }), makePayload()),
+    actorScopeLabel(makeActor({ scopes: [{ type: 'grade', gradeId: 'grade-1', classId: '' }] }), makePayload()),
     'Grade 3',
   );
 });
 
 test('actorScopeLabel includes both names for a class scope', () => {
   const label = actorScopeLabel(
-    makeActor({ scopes: [{ type: 'class', gradeId: 'grade-1', classId: 'class-1' } as any] }),
+    makeActor({ scopes: [{ type: 'class', gradeId: 'grade-1', classId: 'class-1' }] }),
     makePayload(),
   );
   assert.ok(label.includes('Grade'));
@@ -169,8 +169,8 @@ test('actorScopeLabel supports multiple scopes', () => {
   const label = actorScopeLabel(
     makeActor({
       scopes: [
-        { type: 'grade', gradeId: 'grade-1' } as any,
-        { type: 'class', gradeId: 'grade-1', classId: 'class-1' } as any,
+        { type: 'grade', gradeId: 'grade-1', classId: '' },
+        { type: 'class', gradeId: 'grade-1', classId: 'class-1' },
       ],
     }),
     makePayload(),

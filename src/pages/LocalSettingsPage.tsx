@@ -18,11 +18,7 @@ import {
 } from '../utils/appSettings';
 import { getDesignId, setDesignId } from '../utils/designPref';
 import { applyMotionSettings } from '../utils/motionSettings';
-import {
-  applyTypographySettings,
-  loadTypographyFont,
-  TYPOGRAPHY_FONT_OPTIONS,
-} from '../utils/typographySettings';
+import { applyTypographySettings, loadTypographyFont, TYPOGRAPHY_FONT_OPTIONS } from '../utils/typographySettings';
 import '../styles/settings.css';
 import ClassMultiPicker from '../components/ClassMultiPicker';
 import InlineSelect from '../components/InlineSelect';

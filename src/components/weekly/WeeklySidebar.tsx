@@ -3,7 +3,7 @@ import { CircleHelp } from 'lucide-react';
 import InlineSelect from '../InlineSelect';
 import HelpTip from '../HelpTip';
 import type { WeeklyConflictPolicy, WeeklyExamItem, WeeklyPlan } from '../../types/exam';
-import { useWeeklyBatchOps, type WeeklyCopyModal } from '../../hooks/weekly/useWeeklyBatchOps';
+import { useWeeklyBatchOps } from '../../hooks/weekly/useWeeklyBatchOps';
 import { SCOPE_LABEL } from './weeklyShared';
 
 type BatchOpsState = ReturnType<typeof useWeeklyBatchOps>;

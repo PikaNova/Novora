@@ -7,6 +7,9 @@ const integrationUrl = process.env.INTEGRATION_DATABASE_URL;
 if (!integrationUrl) {
   throw new Error('INTEGRATION_DATABASE_URL is required. Refusing to use DATABASE_URL for integration tests.');
 }
+if (integrationUrl === process.env.DATABASE_URL) {
+  throw new Error('INTEGRATION_DATABASE_URL must differ from DATABASE_URL. Integration tests truncate their target.');
+}
 if (process.env.INTEGRATION_TEST_CONFIRM !== 'novora-disposable') {
   throw new Error('Set INTEGRATION_TEST_CONFIRM=novora-disposable to confirm this database may be cleared.');
 }
@@ -31,7 +34,9 @@ function run(command, args) {
 }
 
 function runTestsWithTransientRetry() {
-  const args = ['--test', '.integration-check/tests/integration/*.test.js'];
+  // 集成用例共享同一个 disposable 数据库和全局 write_throttle 行，必须串行执行；
+  // 并发运行会让不同用例互相消费 900ms 写槽，产生非确定性的 429。
+  const args = ['--test', '--test-concurrency=1', '.integration-check/tests/integration/*.test.js'];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const result = spawnSync(process.execPath, args, {
       cwd: process.cwd(),

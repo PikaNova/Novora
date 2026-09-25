@@ -1,34 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { adminCan, type AdminUserContext } from '../../services/examService';
-import type { AdminTab } from '../../types/exam';
+import { ADMIN_NAV, adminSectionUrl } from './adminRoutes';
 
-export const ADMIN_NAV: Array<{
-  id: AdminTab;
-  label: string;
-  mobileLabel: string;
-  permission: string;
-}> = [
-  { id: 'overview', label: '仪表盘', mobileLabel: '仪表盘', permission: 'overview.read' },
-  { id: 'dashboard', label: '数据大屏', mobileLabel: '大屏', permission: 'overview.read' },
-  { id: 'major', label: '大型考试', mobileLabel: '考试', permission: 'major.read' },
-  { id: 'weekly', label: '周测计划', mobileLabel: '周测', permission: 'weekly.read' },
-  { id: 'classes', label: '年级与班级', mobileLabel: '班级', permission: 'school.read' },
-  { id: 'devices', label: '设备管理', mobileLabel: '设备', permission: 'device.read' },
-  { id: 'users', label: '用户与权限', mobileLabel: '用户', permission: 'user.read' },
-];
-
-// Owns admin-shell navigation concerns: which tab is active, the "more" menu
-// (mobile nav overflow) placement/visibility, the permission-denied banner,
-// and tab-permission enforcement/redirect.
+// Owns the admin-shell navigation concerns that are NOT part of the route: the
+// "more" menu (mobile nav overflow) placement/visibility and the
+// permission-denied banner.
+//
+// Which tab is active now comes from the URL (`/admin/<板块>`), so switching tabs
+// is a navigation rather than a local state write — that is what keeps a refresh
+// on the same section. Deep-link parsing and the post-auth fallback live in
+// adminRoutes.ts / AdminPage, since they need the URL and the permissions.
 export function useAdminModals(params: {
   adminUser: AdminUserContext | null;
-  defaultTab: AdminTab;
   navigate: NavigateFunction;
   locationSearch: string;
 }) {
-  const { adminUser, defaultTab, navigate, locationSearch } = params;
-  const [adminTab, setAdminTab] = useState<AdminTab>(defaultTab);
+  const { adminUser, navigate, locationSearch } = params;
   const [deniedModule, setDeniedModule] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
@@ -79,36 +67,13 @@ export function useAdminModals(params: {
     };
   }, [moreOpen]);
 
-  useEffect(() => {
-    if (!adminUser) return;
-    if (adminUser.mustChangePassword) {
-      if (adminTab !== 'users') setAdminTab('users');
-      return;
-    }
-    const accountView = new URLSearchParams(locationSearch).get('account') === '1';
-    if (adminTab === 'users' && accountView) return;
-    const permissionByTab: Record<AdminTab, string> = {
-      overview: 'overview.read',
-      dashboard: 'overview.read',
-      major: 'major.read',
-      weekly: 'weekly.read',
-      classes: 'school.read',
-      devices: 'device.read',
-      users: 'user.read',
-    };
-    if (adminCan(permissionByTab[adminTab], adminUser)) return;
-    const next = (Object.keys(permissionByTab) as AdminTab[]).find((tab) => adminCan(permissionByTab[tab], adminUser));
-    if (next) setAdminTab(next);
-  }, [adminTab, adminUser, locationSearch]);
-
   const can = useCallback((permission: string) => adminCan(permission, adminUser), [adminUser]);
 
   const openMyAccount = useCallback(() => {
     setDeniedModule('');
-    navigate('/admin?tab=users&account=1');
-    setAdminTab('users');
+    navigate(adminSectionUrl({ tab: 'users', search: locationSearch, extra: { account: '1' } }));
     setMoreOpen(false);
-  }, [navigate]);
+  }, [navigate, locationSearch]);
 
   const selectAdminTab = useCallback(
     (item: (typeof ADMIN_NAV)[number]) => {
@@ -121,14 +86,12 @@ export function useAdminModals(params: {
         return;
       }
       setDeniedModule('');
-      setAdminTab(item.id);
+      navigate(adminSectionUrl({ tab: item.id, search: locationSearch }));
     },
-    [can, openMyAccount],
+    [can, openMyAccount, navigate, locationSearch],
   );
 
   return {
-    adminTab,
-    setAdminTab,
     deniedModule,
     setDeniedModule,
     moreOpen,

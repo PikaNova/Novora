@@ -14,16 +14,11 @@ import { mirrorAppSettings } from '../services/offlineStore.js';
 import type { SchoolClass, SchoolGrade } from '../types/school.js';
 import type { TimeSyncSettings } from './settings/timeSync.js';
 import { DEFAULT_TIME_SYNC_SETTINGS } from './settings/timeSync.js';
-import type { TypographyFontId, TypographySettings } from './settings/typography.js';
+import type { TypographySettings } from './settings/typography.js';
 import { DEFAULT_TYPOGRAPHY } from './settings/typography.js';
 import type { MotionMode } from './settings/motion.js';
 import { DEFAULT_MOTION_MODE } from './settings/motion.js';
-import type {
-  MajorBatchSubjectGroup,
-  MajorBatchTimeSlot,
-  MajorBatchTimeGroup,
-  MajorBatchSettings,
-} from './settings/majorBatch.js';
+import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchSettings } from './settings/majorBatch.js';
 import { DEFAULT_MAJOR_BATCH_SETTINGS, normalizeMajorBatchSettings } from './settings/majorBatch.js';
 import { DEFAULT_DESIGN_POLICY, normalizeDesignPolicy } from './settings/design.js';
 import type { InitializationState } from './settings/school.js';
@@ -194,6 +189,12 @@ export function genMajorId(): string {
   return `major_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/** 时间戳字段归一：合法数字原样、null 保持 null、其它（含缺失）视为 undefined。 */
+function nullableNumber(value: unknown): number | null | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return value === null ? null : undefined;
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   version: 4,
   hasVisited: false,
@@ -258,6 +259,16 @@ export function normalizeExam(raw: unknown): ExamSettings {
 
   majors = majors
     .map((m, i) => ({
+      /**
+       * 先摊平原对象再补默认值/归一化：规范化只负责"把已知字段修成合法形状"，
+       * **不能把服务端写入的生命周期字段（publishedAt / pausedAt / pausedMs / endAt /
+       * actualStartAt / archivedAt / draft…）丢掉**——它们不是客户端编辑出来的，
+       * 丢了会出现两类问题：
+       *   1) 教室端读本地快照，看不到暂停/延长/结束/归档（后台改了、大屏没反应）；
+       *   2) 每次普通保存都把归档考试判成"被改过"，后台反复弹「已归档：修改没有生效」。
+       * 未知字段一并保留，避免服务端加了新字段后被这里静默截断。
+       */
+      ...m,
       id: m.id || genMajorId(),
       name: m.name || `考试${i + 1}`,
       items: normalizeExamItems(Array.isArray(m.items) ? m.items : []),
@@ -267,9 +278,19 @@ export function normalizeExam(raw: unknown): ExamSettings {
       source: m.source === 'quick' ? ('quick' as const) : ('regular' as const),
       temporary: m.temporary === true || m.source === 'quick',
       priorityOverSchedule: m.priorityOverSchedule === true,
+      draft: m.draft === true ? true : undefined,
       createdAt: Number.isFinite(m.createdAt) ? Number(m.createdAt) : undefined,
       createdBy: Number.isFinite(m.createdBy) ? Number(m.createdBy) : undefined,
-      endedAt: Number.isFinite(m.endedAt) ? Number(m.endedAt) : null,
+      // 生命周期时间戳：保留 null 与"缺失"的区别（服务端带排序以外的比较口径依赖它）。
+      startAt: nullableNumber(m.startAt),
+      endAt: nullableNumber(m.endAt),
+      actualStartAt: nullableNumber(m.actualStartAt),
+      actualEndAt: nullableNumber(m.actualEndAt),
+      pausedAt: nullableNumber(m.pausedAt),
+      pausedMs: Number.isFinite(m.pausedMs) ? Math.max(0, Number(m.pausedMs)) : undefined,
+      publishedAt: nullableNumber(m.publishedAt),
+      endedAt: nullableNumber(m.endedAt),
+      archivedAt: nullableNumber(m.archivedAt),
     }))
     .sort((a, b) => a.order - b.order)
     .map((m, i) => ({ ...m, order: i }));

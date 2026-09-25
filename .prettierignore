@@ -2,7 +2,9 @@ dist
 node_modules
 .api-check
 .test-check
+.integration-check
 coverage
 package-lock.json
 *.png
 *.zip
+workspace

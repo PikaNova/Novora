@@ -1,0 +1,348 @@
+/*
+ * 学校公告窗口（教室大屏）：比作者端「系统公告窗口」更大、更醒目。
+ * 系统公告窗口 max-width 760px；这里更宽（1920 屏能铺 3 列），正文字号也整体更大。
+ * 卡片样式由 school-announcement-view.css 提供，后台预览复用同一套类名。
+ *
+ * 布局（2026-09-25 重写）：头部与分页固定在窗口上，只有卡片区滚动；
+ * 卡片走自适应网格（2–3 列），海报与紧急公告占满整行；历史用紧凑卡免得一路往下堆。
+ */
+.sann-screen-overlay {
+  /* 遮罩内边距：窗口的 max-height 要用它反算，否则在 768p 教室屏上窗口会比可视区高、顶部被裁。 */
+  --sann-overlay-pad: clamp(16px, 3vw, 52px);
+  position: fixed;
+  inset: 0;
+  /* 压在系统公告窗口（3000）、考试提醒浮层（.eao 4000）、结束提醒条/弹窗（4200/4300）之上：
+     公告"随时随地都要弹"，就不能被这几层盖住（2026-09-26 修正，原来 3200 反而在提醒浮层下面）。
+     仍在全屏退出提示（10020）与提醒层（--z-reminder 20000）之下。 */
+  z-index: 4400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sann-overlay-pad);
+  background: rgba(3, 6, 14, 0.76);
+  backdrop-filter: blur(10px);
+}
+.sann-screen-window {
+  display: flex;
+  flex-direction: column;
+  width: min(1560px, 94vw);
+  max-height: min(1040px, calc(100vh - 2 * var(--sann-overlay-pad)));
+  max-height: min(1040px, calc(100dvh - 2 * var(--sann-overlay-pad)));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  background: #090c12;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-region-content, inherit);
+}
+.sann-screen-window__head {
+  /* 头部永不参与收缩：内容再长也不该挤压它（以前正是被挤掉才看起来"被遮挡"）。 */
+  flex: none;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+.sann-screen-window__head-main {
+  min-width: 0;
+}
+.sann-screen-window__title {
+  margin: 0;
+  color: #f2f6fa;
+  font-size: 30px;
+  line-height: 1.3;
+  font-family: var(--font-region-display, inherit);
+}
+.sann-screen-window__lead {
+  margin: 8px 0 0;
+  color: #93a0ad;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+/* 分页与来源说明：钉在窗口上，不随卡片滚动，也不会被长列表挤掉。 */
+.sann-screen-window__toolbar {
+  flex: none;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 16px 28px 0;
+}
+.sann-screen-window__note {
+  color: #8b95a1;
+  font-size: 14px;
+}
+.sann-screen-window__close {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  color: #d6dde5;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sann-screen-window__close:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+.sann-screen-window__close:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.sann-screen-window__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+/* 「系统公告」切换：两扇窗口各有各的版式，这里只做通道切换。 */
+.sann-screen-window__switch {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dbe4ee;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.sann-screen-window__switch:hover:not(:disabled) {
+  border-color: rgba(52, 152, 219, 0.6);
+  color: #fff;
+}
+.sann-screen-window__switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.sann-screen-window__body {
+  /* 唯一的滚动区：必须 min-height:0 才能在 flex 列里真正滚动，而不是把窗口撑破。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 28px 30px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* 卡片网格：自动 2–3 列（1920 屏 3 列、1366 屏 2 列、窄屏 1 列）。 */
+.sann-screen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(320px, 28vw, 460px), 1fr));
+  align-items: start;
+  align-content: start;
+  gap: 18px;
+}
+/* 海报、紧急公告、以及"只有一条"时占满整行：它们要的是一眼看完，不是挤在格子里。 */
+.sann-screen-grid > .sann-screen-window__item:has(> .sann-view.is-poster),
+.sann-screen-grid > .sann-screen-window__item:has(> .sann-view.is-urgent),
+.sann-screen-grid > .sann-screen-window__item:only-child {
+  grid-column: 1 / -1;
+}
+/* 历史卡：同一套排版收小一号，让 2–3 列一屏能放更多条（字号仍按教室大屏可读性定）。 */
+.sann-screen-window__item.is-compact > .sann-view {
+  padding: 18px 20px;
+  gap: 12px;
+}
+.sann-screen-window__item.is-compact .sann-view__title {
+  font-size: 24px;
+}
+.sann-screen-window__item.is-compact .sann-view__body {
+  font-size: 16.5px;
+  line-height: 1.7;
+}
+.sann-screen-window__item.is-compact .md-body .md-img {
+  max-width: min(420px, 100%);
+}
+/* 「当前 / 历史」分页：历史是教室端自己回看过去通知的入口。 */
+.sann-screen-tabs {
+  display: flex;
+  gap: 8px;
+}
+.sann-screen-tabs button {
+  min-height: 40px;
+  padding: 6px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(240, 244, 249, 0.72);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.sann-screen-tabs button:hover {
+  color: #fff;
+}
+.sann-screen-tabs button.is-active {
+  border-color: rgba(52, 152, 219, 0.65);
+  background: rgba(52, 152, 219, 0.22);
+  color: #fff;
+  font-weight: 700;
+}
+/* 回执计时挂在卡片外层容器上（IntersectionObserver 观察的就是它）。 */
+.sann-screen-window__item {
+  min-width: 0;
+}
+.sann-screen-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 48px 12px;
+  color: #8b95a1;
+  font-size: 16px;
+}
+
+/* 窄屏（平板/手机调试）：单列，分页与来源说明仍在固定条上。 */
+@media (max-width: 900px) {
+  .sann-screen-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .sann-screen-window__toolbar {
+    padding: 12px 16px 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .sann-screen-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+  .sann-screen-window {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+    border-radius: 16px;
+  }
+  /* 与 .sann-view 在窄屏的圆角保持一致，紧急公告的扩散圈才不会露出方角。 */
+  .sann-screen-window__item {
+    border-radius: 14px;
+  }
+  .sann-screen-window__head {
+    padding: 16px 16px 14px;
+  }
+  .sann-screen-window__title {
+    font-size: 22px;
+  }
+  .sann-screen-window__body {
+    padding: 16px 16px 22px;
+  }
+}
+
+/* ===== 动效（2026-09-25） =====
+ * 作者端的考试公告窗口（.eann-overlay / .eann-window）在 transitions.css 里一直有入场，
+ * 而学校公告这扇更大、更重要的窗口此前什么都沒有——两扇窗并存时观感是分裂的。
+ * 这里补齐，并按它的体量给得更重一点（更大的位移、更长的收束）。
+ */
+
+@keyframes sann-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sann-window-in {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.972);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sann-screen-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sann-screen-overlay {
+  animation: sann-overlay-in var(--motion-fast) var(--motion-ease-out-expo) backwards;
+}
+
+.sann-screen-window {
+  animation: sann-window-in var(--motion-medium) var(--motion-spring-gentle) 40ms backwards;
+}
+
+/* 窗口落定之后，里面的公告一条条到齐。
+ *
+ * 排队必须写在外层容器上：sibling-index() 数的是「自己有几个兄弟」，
+ * 而每张卡片都被 .sann-screen-window__item 单独包着、没有兄弟。
+ * 也不能把它塞进自定义属性转交——自定义属性是文本替换，
+ * sibling-index() 会在「使用它的那个元素」上求值，卡片上照样是 1。
+ *
+ * 所以这一层拥有入场。卡片自己的入场在下面让开，避免同一张卡动两次；
+ * 紧急公告的红色扩散圈跟着移到这一层，并镜像卡片的圆角
+ * （改 .sann-view 的 border-radius 时这里要一起改）。 */
+.sann-screen-window__item {
+  border-radius: 16px;
+  animation: sann-screen-item-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
+  /* 错峰封顶 520ms：历史一屏可能有二三十条，不封顶的话最后一条要等一秒多才出现。 */
+  animation-delay: min(calc((sibling-index() - 1) * var(--motion-stagger-lg) + 120ms), 520ms);
+}
+
+.sann-screen-window .sann-screen-window__item > .sann-view {
+  animation: none;
+}
+
+/* 紧急公告：先落定，再扩散一圈红。选择器写到 (0,2,0) 靠 :has() 而不是覆盖 animation，
+   这样不会和 .sann-view.is-urgent 的权重打架。 */
+.sann-screen-window__item:has(> .sann-view.is-urgent) {
+  animation:
+    sann-screen-item-in var(--motion-medium) var(--motion-ease-out-expo) backwards,
+    sann-urgent-ring 900ms var(--motion-ease-out-expo) 400ms backwards;
+  animation-delay: min(calc((sibling-index() - 1) * var(--motion-stagger-lg) + 120ms), 520ms), 520ms;
+}
+
+.sann-screen-empty {
+  animation: sann-screen-item-in var(--motion-medium) var(--motion-ease-out-expo) 120ms backwards;
+}
+
+/* 关窗与「系统公告」切换此前都是硬切色。 */
+.sann-screen-window__close,
+.sann-screen-window__switch,
+.sann-screen-tabs button {
+  transition:
+    color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-screen-window__close:active:not(:disabled),
+.sann-screen-window__switch:active:not(:disabled),
+.sann-screen-tabs button:active {
+  transform: scale(0.97);
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .sann-screen-overlay,
+  html:not([data-motion='best-effects']) .sann-screen-window,
+  html:not([data-motion='best-effects']) .sann-screen-window__item,
+  html:not([data-motion='best-effects']) .sann-screen-empty {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -26,7 +26,10 @@ const adminPassword = process.env.ADMIN_PASSWORD ?? '';
 let admin: Login;
 
 function makeRes() {
-  const calls: { statusCode?: number; body?: any; headers: Record<string, unknown> } = { headers: {} };
+  const calls: { statusCode?: number; body: Record<string, unknown>; headers: Record<string, unknown> } = {
+    body: {},
+    headers: {},
+  };
   const res: VercelResponse = {
     setHeader(name: string, value: unknown) {
       calls.headers[name] = value;
@@ -41,12 +44,12 @@ function makeRes() {
     },
     json(body: unknown) {
       calls.statusCode ??= 200;
-      calls.body = body;
+      calls.body = body as Record<string, unknown>;
       return res;
     },
     send(body: unknown) {
       calls.statusCode ??= 200;
-      calls.body = body;
+      calls.body = body as Record<string, unknown>;
       return res;
     },
     end() {
@@ -71,11 +74,12 @@ function makeTopLevelReq(
   method: string,
   body: Record<string, unknown> = {},
   headers: Record<string, string> = {},
+  query: Record<string, string> = {},
 ): VercelRequest {
   return {
     method,
     headers,
-    query: {},
+    query,
     cookies: {},
     body,
   } as unknown as VercelRequest;
@@ -105,6 +109,13 @@ async function clearDatabase() {
     INSERT INTO write_throttle (id, next_allowed_at)
     VALUES (1, 0)
   `;
+}
+
+async function releaseWriteSlot() {
+  await database()`UPDATE write_throttle SET next_allowed_at = ${-Date.now()} WHERE id = 1`;
+  // pg 客户端可能在前一条请求的 Promise 完成后仍有结果回调排队；给连接一个
+  // tick，确保后续路由看到已释放的槽位。
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
 }
 
 async function seedRoles() {
@@ -151,7 +162,12 @@ async function createUser(username: string, roleId: string, scopes: Scope[]): Pr
   return { id, token: login.token };
 }
 
-async function seedExam(input: { grades?: any[]; classes?: any[]; majors?: any[]; weeklyPlans?: any[] }) {
+async function seedExam(input: {
+  grades?: Array<Record<string, unknown>>;
+  classes?: Array<Record<string, unknown>>;
+  majors?: Array<Record<string, unknown>>;
+  weeklyPlans?: Array<Record<string, unknown>>;
+}) {
   const sql = database();
   const updatedAt = Date.now();
   await sql`
@@ -178,7 +194,8 @@ async function readPayload() {
   const rows = (await database()`
     SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode,
            active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy,
-           grades, classes, initialization, design_policy, updated_at
+           grades, classes, initialization, design_policy, major_batch_presets, exam_metadata,
+           lifecycle, revisions, updated_at
     FROM exam_data WHERE id = 1
   `) as unknown as ExamRow[];
   return examPayload(rows[0] ?? {});
@@ -234,6 +251,139 @@ async function getAudit(token: string) {
   await usersHandler(req, res);
   return calls;
 }
+
+/** 走真实的 GET /api/exams（顶层入口），用于验证 ETag 协商。 */
+async function getSnapshot(token: string, headers: Record<string, string> = {}, query: Record<string, string> = {}) {
+  const { res, calls } = makeRes();
+  const req = makeTopLevelReq('GET', {}, { authorization: `Bearer ${token}`, ...headers }, query);
+  await examsHandler(req, res);
+  return calls;
+}
+
+test('快照 GET 的 ETag 协商：强 ETag 与反代改写的弱 ETag 都要命中 304', async () => {
+  const first = await getSnapshot(admin.token);
+  assert.equal(first.statusCode, 200);
+  const etag = String(first.headers['ETag'] ?? '');
+  assert.match(etag, /^"exam-\d+"$/, '应用自己发的是强 ETag');
+
+  // 反代（openresty/nginx）gzip 之后会把 ETag 改写成 W/"..."，客户端原样回传。
+  // 以前应用侧用严格相等比较，于是永远不命中 304 —— 每次轮询都重传整份快照。
+  // 真实 Node 请求头是小写；这里按线上形状传（大小写不匹配会让断言失真）。
+  const weak = await getSnapshot(admin.token, { 'if-none-match': `W/${etag}` });
+  assert.equal(weak.statusCode, 304, '弱 ETag 必须命中，否则每次轮询都要重传整份快照');
+
+  const strong = await getSnapshot(admin.token, { 'if-none-match': etag });
+  assert.equal(strong.statusCode, 304);
+
+  const stale = await getSnapshot(admin.token, { 'if-none-match': '"exam-9999999999999"' });
+  assert.equal(stale.statusCode, 200, 'ETag 不匹配时必须返回完整快照');
+  assert.ok(String(stale.body).length > 0);
+});
+
+/**
+ * 域级增量读：整份快照 ~135KB（班级、科目、周测…），改一个域也会让文档版本前进、
+ * 客户端随即重下整份。带 `since` 时服务端只回真的变了的域。
+ */
+test('快照增量读：带 since 只回变化的域，整份读取行为不变', async () => {
+  // 造一份"像真的"快照：20 个班级 + 8 个科目，整份明显比增量大。
+  await seedExam({
+    grades: [{ id: 'g1', name: 'Grade one' }],
+    classes: Array.from({ length: 20 }, (_, index) => ({
+      id: `c${index + 1}`,
+      gradeId: 'g1',
+      name: `Class ${index + 1}`,
+    })),
+    majors: [
+      {
+        id: 'm1',
+        name: '大型考试',
+        items: Array.from({ length: 8 }, (_, index) => ({
+          id: `i${index + 1}`,
+          name: `Subject ${index + 1}`,
+          startTime: '2026-09-25T09:00',
+          endTime: '2026-09-25T11:00',
+          enabled: true,
+        })),
+      },
+    ],
+  });
+  await releaseWriteSlot();
+  const seeded = await readPayload();
+  const written = await post(admin.token, bodyFrom(seeded));
+  assert.equal(written.statusCode, 200);
+
+  const full = await getSnapshot(admin.token);
+  assert.equal(full.statusCode, 200);
+  const fullBody = JSON.parse(String(full.body)) as Record<string, unknown>;
+  const revisions = fullBody.revisions as Record<string, number>;
+  assert.equal(
+    Object.values(revisions).every((value) => typeof value === 'number'),
+    true,
+    '整份快照必须带各域修订号（客户端据此判断能不能问增量）',
+  );
+  assert.equal(Array.isArray(fullBody.classes) && fullBody.classes.length, 20);
+
+  // 1) 客户端手上就是最新：一个域的字段都不该下发（只回非域字段）
+  const unchanged = await getSnapshot(
+    admin.token,
+    {},
+    {
+      resource: 'snapshot',
+      since: JSON.stringify(revisions),
+    },
+  );
+  assert.equal(unchanged.statusCode, 200);
+  const unchangedBody = JSON.parse(String(unchanged.body)) as Record<string, unknown>;
+  assert.equal(unchangedBody.partial, true);
+  assert.equal(unchangedBody.classes, undefined, '没变的班级域不该再传');
+  assert.equal(unchangedBody.items, undefined);
+  assert.equal(unchangedBody.majors, undefined);
+  assert.deepEqual(unchangedBody.revisions, revisions);
+  assert.ok(
+    String(unchanged.body).length * 3 < String(full.body).length,
+    `增量响应要明显更小：${String(unchanged.body).length} vs ${String(full.body).length}`,
+  );
+
+  // 2) 只改提醒设置：再用旧修订号问，只回 alerts 域
+  await releaseWriteSlot();
+  const before = await readPayload();
+  const savedAlerts = await post(admin.token, {
+    alerts: { enabled: false, durationSec: 8, states: {}, custom: [], silentMode: 'all', updatedAt: Date.now() },
+    baseUpdatedAt: before.updatedAt,
+    baseRevisions: revisions,
+  });
+  assert.equal(savedAlerts.statusCode, 200);
+
+  const delta = await getSnapshot(
+    admin.token,
+    {},
+    {
+      resource: 'snapshot',
+      since: JSON.stringify(revisions),
+    },
+  );
+  const deltaBody = JSON.parse(String(delta.body)) as Record<string, unknown>;
+  assert.equal(deltaBody.partial, true);
+  assert.ok(deltaBody.alerts, '变化过的 alerts 域必须下发');
+  assert.equal(deltaBody.classes, undefined, '改提醒设置不该重传班级');
+  assert.equal(deltaBody.items, undefined, '改提醒设置不该重传科目');
+  const deltaRevisions = deltaBody.revisions as Record<string, number>;
+  assert.equal(deltaRevisions.alerts, revisions.alerts + 1);
+  assert.equal(deltaRevisions.classes, revisions.classes);
+
+  // 3) 不带 since 的老客户端：仍然是整份快照，行为不变
+  const plain = await getSnapshot(admin.token);
+  const plainBody = JSON.parse(String(plain.body)) as Record<string, unknown>;
+  assert.equal(plainBody.partial, undefined);
+  assert.equal(Array.isArray(plainBody.classes) && plainBody.classes.length, 20);
+  assert.equal(plainBody.alerts !== undefined, true);
+
+  // 4) since 格式不对（缺域/不是数字）：退回整份，不猜
+  const broken = await getSnapshot(admin.token, {}, { resource: 'snapshot', since: '{"major":1}' });
+  const brokenBody = JSON.parse(String(broken.body)) as Record<string, unknown>;
+  assert.equal(brokenBody.partial, undefined, '看不懂的 since 一律整份下发');
+  assert.equal(Array.isArray(brokenBody.classes) && brokenBody.classes.length, 20);
+});
 
 beforeEach(async () => {
   assert.ok(adminPassword.length >= 16, 'the integration runner must inject a strong temporary password');
@@ -303,6 +453,7 @@ test('database write: deleting grades and classes removes matching scopes and th
   );
 
   const afterDeletion = await readPayload();
+  await releaseWriteSlot();
   const denied = await post(
     removedGrade.token,
     bodyFrom(afterDeletion, {
@@ -355,6 +506,7 @@ test('database write: stale out-of-scope data cannot block or overwrite an owned
     }),
   );
   assert.equal(superWrite.statusCode, 200);
+  await releaseWriteSlot();
   const current = await readPayload();
 
   const quick = {
@@ -368,6 +520,8 @@ test('database write: stale out-of-scope data cannot block or overwrite an owned
     temporary: true,
     createdBy: classAdmin.id,
   };
+  await releaseWriteSlot();
+  __resetRateLimiterForTests();
   const create = await post(
     classAdmin.token,
     bodyFrom(stale, {
@@ -385,6 +539,7 @@ test('database write: stale out-of-scope data cannot block or overwrite an owned
   assert.ok(persisted.majors.some((major) => major.id === quick.id));
 
   const beforeDelete = await readPayload();
+  await releaseWriteSlot();
   const remove = await post(
     classAdmin.token,
     bodyFrom(beforeDelete, {
@@ -505,6 +660,56 @@ test('database users route: role changes invalidate the old token', async () => 
   assert.equal(await getActor(target.token), null);
 });
 
+test('database roles route: 权限变化让该角色的账号重新登录，只改说明不动会话', async () => {
+  const roleName = `权限探针角色-${Date.now().toString(36)}`;
+  const created = await postUser(admin.token, {
+    resource: 'roles',
+    action: 'save',
+    name: roleName,
+    description: 'integration probe',
+    permissions: ['overview.read'],
+  });
+  assert.equal(created.statusCode, 200);
+  const roleId = (created.body?.roles as Array<{ id: string; name: string }>).find(
+    (role) => role.name === roleName,
+  )?.id;
+  assert.ok(roleId, '新建的角色必须出现在返回列表里');
+
+  const member = await createUser('role-perm-member', roleId, [{ type: 'grade', gradeId: 'g1' }]);
+  assert.ok(await getActor(member.token), '改权限之前该账号的令牌可用');
+
+  // 只改说明：不动会话
+  const renamed = await postUser(admin.token, {
+    resource: 'roles',
+    action: 'save',
+    id: roleId,
+    name: roleName,
+    description: 'integration probe v2',
+    permissions: ['overview.read'],
+  });
+  assert.equal(renamed.statusCode, 200);
+  assert.equal(Number(renamed.body?.sessionsInvalidated ?? -1), 0, '只改说明不该踢人');
+  assert.ok(await getActor(member.token), '只改说明时令牌仍然可用');
+
+  // 改权限：该角色的账号必须重新登录（客户端权限是登录时缓存的，不失效就会前端后端不一致）
+  const changed = await postUser(admin.token, {
+    resource: 'roles',
+    action: 'save',
+    id: roleId,
+    name: roleName,
+    description: 'integration probe v2',
+    permissions: ['overview.read', 'major.read'],
+  });
+  assert.equal(changed.statusCode, 200);
+  assert.equal(Number(changed.body?.sessionsInvalidated), 1, '应当报告 1 个会话被失效');
+  assert.equal(await getActor(member.token), null, '旧令牌必须失效');
+
+  const versions = (await authSql()`SELECT token_version FROM app_users WHERE id=${member.id}`) as unknown as Array<{
+    token_version: number;
+  }>;
+  assert.equal(Number(versions[0]?.token_version), 2, 'token_version 应当 +1');
+});
+
 test('database audit route: an all-scope administrator receives recent login failure alerts', async () => {
   const now = Date.now();
   for (const offset of [0, 1_000, 2_000]) {
@@ -587,6 +792,7 @@ test('database device route: replacing a class device revokes and unpairs the ol
     VALUES ('plugin-a', 'hash', 'device-a', 'g1', 'c1', TRUE, ${now}, ${now})`;
 
   const second = makeRes();
+  await releaseWriteSlot();
   await handleManagedDeviceSetup(
     makeReq(admin.token, {
       instanceId: 'device-b',
@@ -662,7 +868,7 @@ test('top-level handler: concurrent reads return the same current snapshot', asy
     [200, 200, 200, 200, 200],
     'concurrent read statuses',
   );
-  const parsed = responses.map(({ calls }) => JSON.parse(calls.body));
+  const parsed = responses.map(({ calls }) => JSON.parse(calls.body as unknown as string));
   const updatedAts = new Set(parsed.map((body) => body.updatedAt));
   assert.equal(updatedAts.size, 1, 'concurrent reads must return the same updatedAt');
   assert.deepEqual(
@@ -705,4 +911,159 @@ test('top-level handler: the general entry limit rejects the request over its bu
   );
   assert.equal(responses[maximum].calls.statusCode, 429);
   assert.equal(responses[maximum].calls.body?.code, 'RATE_LIMITED');
+});
+
+// 域级提交（v2.8.7 / T-287-01）：客户端只发变化的域，服务端未携带的域必须保持原值。
+test('database write: 只携带 classes 时，其它域保持服务端当前值', async () => {
+  await seedExam({
+    grades: [{ id: 'g1', name: 'Grade one' }],
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one' }],
+    majors: [{ id: 'm1', name: 'Midterm', items: [{ id: 'i1', name: 'Math' }], order: 0 }],
+    weeklyPlans: [{ id: 'w1', gradeId: 'g1', classId: 'c1', name: 'Week one' }],
+  });
+  const before = await readPayload();
+
+  const response = await post(admin.token, {
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one renamed' }],
+    baseUpdatedAt: before.updatedAt,
+  });
+  assert.equal(response.statusCode, 200);
+
+  const after = await readPayload();
+  assert.deepEqual(
+    after.classes.map((item) => item.name),
+    ['Class one renamed'],
+  );
+  assert.equal(after.title, before.title);
+  assert.equal(after.activeMajorId, before.activeMajorId);
+  assert.deepEqual(after.majors, before.majors);
+  assert.deepEqual(after.items, before.items);
+  assert.deepEqual(after.weeklyPlans, before.weeklyPlans);
+  assert.deepEqual(after.alerts, before.alerts);
+  assert.ok(after.updatedAt > before.updatedAt, '保存成功必须推进文档版本号');
+});
+
+test('database write: alerts 未携带时保留，显式 null 才清空', async () => {
+  await seedExam({ grades: [{ id: 'g1', name: 'Grade one' }] });
+  const alerts = { enabled: true, durationSec: 8, states: {}, custom: [] };
+  const seeded = await post(admin.token, bodyFrom(await readPayload(), { alerts }));
+  assert.equal(seeded.statusCode, 200);
+  const withAlerts = await readPayload();
+  assert.ok(withAlerts.alerts, '前置条件：服务端已有全屏提醒配置');
+
+  await releaseWriteSlot();
+  const partial = await post(admin.token, {
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one' }],
+    baseUpdatedAt: withAlerts.updatedAt,
+  });
+  assert.equal(partial.statusCode, 200);
+  assert.ok((await readPayload()).alerts, '未携带 alerts 的提交不得把提醒清空');
+
+  await releaseWriteSlot();
+  const cleared = await post(admin.token, {
+    alerts: null,
+    baseUpdatedAt: (await readPayload()).updatedAt,
+  });
+  assert.equal(cleared.statusCode, 200);
+  assert.equal((await readPayload()).alerts, null, '显式 null 才代表清空');
+});
+
+test('database write: 空提交与非法 items 都在占用写槽前返回 400', async () => {
+  await seedExam({});
+  const before = await readPayload();
+
+  const empty = await post(admin.token, { baseUpdatedAt: before.updatedAt });
+  assert.equal(empty.statusCode, 400);
+
+  const invalidItems = await post(admin.token, { items: 'not-an-array', baseUpdatedAt: before.updatedAt });
+  assert.equal(invalidItems.statusCode, 400);
+  assert.equal(invalidItems.body.error, 'items must be an array');
+});
+
+// 域级版本（v2.8.8 / T-288）：跨域并发不再互相 409，同域并发仍然冲突。
+const revisionsOf = (body: Record<string, unknown>): Record<string, number> =>
+  (body.revisions ?? {}) as Record<string, number>;
+
+test('database write: 携带 baseRevisions 时，改不同域的两台设备互不冲突', async () => {
+  await seedExam({
+    grades: [{ id: 'g1', name: 'Grade one' }],
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one' }],
+    majors: [{ id: 'm1', name: 'Midterm', items: [{ id: 'i1', name: 'Math' }], order: 0 }],
+    weeklyPlans: [{ id: 'w1', gradeId: 'g1', classId: 'c1', name: 'Week one' }],
+  });
+  const base = await readPayload();
+  assert.deepEqual(base.revisions, {}, '干净库的修订号应从空表开始');
+
+  const first = await post(admin.token, {
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one renamed' }],
+    baseUpdatedAt: base.updatedAt,
+    baseRevisions: base.revisions,
+  });
+  assert.equal(first.statusCode, 200);
+  assert.equal(revisionsOf(first.body).classes, 1, '只有真被改动的域才推进修订号');
+  assert.equal(revisionsOf(first.body).weekly ?? 0, 0);
+
+  await releaseWriteSlot();
+  // 第二台设备拿着同一份（此时已过期的）基线，只提交周测：跨域并发不应被挡下。
+  const second = await post(admin.token, {
+    weeklyPlans: [{ id: 'w1', gradeId: 'g1', classId: 'c1', name: 'Week one edited' }],
+    baseUpdatedAt: base.updatedAt,
+    baseRevisions: base.revisions,
+  });
+  assert.equal(second.statusCode, 200, '改周测不该被别人的班级改动挡下');
+
+  const after = await readPayload();
+  assert.equal(after.classes[0]?.name, 'Class one renamed');
+  assert.equal(after.weeklyPlans[0]?.name, 'Week one edited');
+  assert.equal(after.revisions?.classes, 1);
+  assert.equal(after.revisions?.weekly, 1);
+  assert.equal(after.revisions?.major ?? 0, 0, '没被改动的域修订号不动');
+});
+
+test('database write: 同一个域被并发修改时仍然 409，并只列出冲突域', async () => {
+  await seedExam({
+    grades: [{ id: 'g1', name: 'Grade one' }],
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one' }],
+  });
+  const base = await readPayload();
+  const first = await post(admin.token, {
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'First write' }],
+    baseUpdatedAt: base.updatedAt,
+    baseRevisions: base.revisions,
+  });
+  assert.equal(first.statusCode, 200);
+
+  await releaseWriteSlot();
+  const stale = await post(admin.token, {
+    classes: [{ id: 'c1', gradeId: 'g1', name: 'Second write' }],
+    baseUpdatedAt: base.updatedAt,
+    baseRevisions: base.revisions,
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.deepEqual(stale.body.conflicts, ['classes'], '409 只应报出真正冲突的域');
+  assert.equal(revisionsOf(stale.body).classes, 1, '409 也要回传当前修订号，供客户端更新基线');
+  // 带 baseRevisions 的客户端只收冲突域：其余域按定义与它的基线一致，由客户端自己补全。
+  assert.equal(stale.body.remotePartial, true);
+  assert.deepEqual(Object.keys(stale.body.remote as Record<string, unknown>).sort(), [
+    'classes',
+    'revisions',
+    'updatedAt',
+  ]);
+  assert.equal((await readPayload()).classes[0]?.name, 'First write', '冲突方不得写入');
+});
+
+test('database write: 不带 baseRevisions 的老客户端仍按整行版本判定冲突', async () => {
+  await seedExam({ classes: [{ id: 'c1', gradeId: 'g1', name: 'Class one' }] });
+  const stale = await readPayload();
+  const first = await post(admin.token, bodyFrom(stale, { classes: [{ id: 'c1', gradeId: 'g1', name: 'Written' }] }));
+  assert.equal(first.statusCode, 200);
+
+  await releaseWriteSlot();
+  // 老客户端：整份提交 + 旧 updatedAt，即便改的是另一个域也必须 409（与改动前行为一致）。
+  const legacy = await post(admin.token, bodyFrom(stale, { scheduleMode: 'weekly-only' }));
+  assert.equal(legacy.statusCode, 409);
+  assert.deepEqual(legacy.body.conflicts, [], '老客户端拿不到域级冲突信息');
+  assert.equal(legacy.body.remotePartial, undefined, '老客户端仍然拿整份 remote');
+  assert.ok((legacy.body.remote as Record<string, unknown>).majors !== undefined, '整份 remote 必须含非冲突域');
+  assert.equal((await readPayload()).scheduleMode, 'major-only');
 });

@@ -25,7 +25,6 @@ export function DateTimePicker(props: DateTimePickerProps) {
     mode = 'datetime',
     hourRange = [0, 23],
     yearRange,
-    presets,
     weekStartsOn = 1,
     title,
     validate,
@@ -59,9 +58,10 @@ export function DateTimePicker(props: DateTimePickerProps) {
   const [yearCenter, setYearCenter] = useState(draft.year);
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [hourMin, hourMax] = hourRange;
   const hourValues = useMemo(
-    () => Array.from({ length: 24 }, (_, hour) => hour).filter((hour) => hour >= hourRange[0] && hour <= hourRange[1]),
-    [hourRange[0], hourRange[1]],
+    () => Array.from({ length: 24 }, (_, hour) => hour).filter((hour) => hour >= hourMin && hour <= hourMax),
+    [hourMax, hourMin],
   );
   const minuteValues = useMemo(() => Array.from({ length: 60 }, (_, minute) => minute), []);
 

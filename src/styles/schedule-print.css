@@ -1,7 +1,8 @@
 .schedule-preview {
   position: fixed;
   inset: 0;
-  z-index: 5000;
+  /* 层级在 transitions.css 的叠层阶梯里统一管（16000：高于弹窗遮罩 15000，
+     因为它经常是从编辑器 / 周测弹窗里再打开的）。 */
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: 100vw;

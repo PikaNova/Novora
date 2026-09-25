@@ -6,16 +6,24 @@ import { canonicalizeForCompare, sameJson } from '../../src/shared/jsonCompare.j
 
 export { canonicalizeForCompare, sameJson };
 
-export function changedRecords(before: any[], after: any[]): any[] {
+type IdentifiedRecord = { id?: unknown };
+
+export function changedRecords<T extends IdentifiedRecord>(before: T[], after: T[]): T[] {
   const left = new Map((Array.isArray(before) ? before : []).map((item) => [String(item?.id ?? ''), item]));
   const right = new Map((Array.isArray(after) ? after : []).map((item) => [String(item?.id ?? ''), item]));
   const ids = new Set([...left.keys(), ...right.keys()]);
-  return [...ids]
-    .filter((id) => !sameJson(left.get(id), right.get(id)))
-    .flatMap((id) => [left.get(id), right.get(id)].filter(Boolean));
+  const changed: T[] = [];
+  for (const id of ids) {
+    const beforeItem = left.get(id);
+    const afterItem = right.get(id);
+    if (sameJson(beforeItem, afterItem)) continue;
+    if (beforeItem) changed.push(beforeItem);
+    if (afterItem) changed.push(afterItem);
+  }
+  return changed;
 }
 
-export function recordDiff(before: any[], after: any[]) {
+export function recordDiff<T extends IdentifiedRecord>(before: T[], after: T[]) {
   const left = new Map((Array.isArray(before) ? before : []).map((item) => [String(item?.id ?? ''), item]));
   const right = new Map((Array.isArray(after) ? after : []).map((item) => [String(item?.id ?? ''), item]));
   return {
@@ -29,7 +37,7 @@ export function recordDiff(before: any[], after: any[]) {
 
 export function cleanActiveWeeklyPlanByClass(
   value: Record<string, string | null> | undefined,
-  classMap: Map<string, any>,
+  classMap: ReadonlyMap<string, unknown>,
 ): Record<string, string | null> {
   if (!value || typeof value !== 'object') return {};
   const cleaned: Record<string, string | null> = {};

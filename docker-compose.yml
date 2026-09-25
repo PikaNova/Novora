@@ -14,15 +14,39 @@
       timeout: 3s
       retries: 20
 
+  db-integration:
+    image: postgres:16-alpine
+    profiles:
+      - test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-novora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-novora}
+      POSTGRES_DB: novora_integration
+    ports:
+      - '${INTEGRATION_DB_PORT:-15432}:5432'
+    volumes:
+      - novora_integration_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-novora} -d novora_integration']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   app:
     build:
       context: .
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        # 部署时把当前 commit 传进来（update-local 会自动注入），健康检查据此自报版本。
+        COMMIT_SHA: ${COMMIT_SHA:-}
     restart: unless-stopped
     ports:
       - '${PORT:-3000}:3000'
     environment:
+      # 容器内固定监听 3000（覆盖 .env 里的 PORT，避免与端口映射错位）；
+      # 宿主机端口仍由 .env 的 PORT 控制。
+      PORT: 3000
+      COMMIT_SHA: ${COMMIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-novora}:${POSTGRES_PASSWORD:-novora}@db:5432/${POSTGRES_DB:-novora}
     env_file:
       - .env
@@ -32,3 +56,4 @@
 
 volumes:
   novora_pgdata:
+  novora_integration_pgdata:

@@ -1,8 +1,10 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { fetchSystemStatus, type SystemStatusPayload } from '../../services/systemStatus';
 import { APP_VERSION } from '../../services/telemetry';
+import { auditActionLabel } from '../../constants/auditActions';
 import SettingsCollapsibleCard from './SettingsCollapsibleCard';
+import RefreshButton from '../admin/RefreshButton';
 
 function formatUptime(seconds: number): string {
   const s = Math.max(0, seconds);
@@ -125,9 +127,7 @@ function SystemStatusBody() {
     <div className="system-status">
       <div className="set-card__head">
         <p className="set-card__lead">仅超管可见 · 每 10 秒自动刷新，折叠时暂停。</p>
-        <button className="set-btn" disabled={loading} onClick={() => void load()}>
-          <RefreshCw size={15} aria-hidden="true" /> {loading ? '刷新中…' : '刷新'}
-        </button>
+        <RefreshButton className="set-btn" busy={loading} onRefresh={() => void load()} title="刷新系统状态" />
       </div>
 
       <div className="system-status__summary">
@@ -213,6 +213,16 @@ function SystemStatusBody() {
               <b>{data.database.reachable ? '正常' : '异常'}</b>
             </li>
             <li>
+              <span>Schema 版本</span>
+              <b>
+                {data.database.schemaVersion != null
+                  ? `v${data.database.schemaVersion}（auth ${data.database.schemaVersions?.auth ?? '—'} / exams ${
+                      data.database.schemaVersions?.exams ?? '—'
+                    }）`
+                  : '—'}
+              </b>
+            </li>
+            <li>
               <span>往返延迟</span>
               <b className={'system-status__latency ' + latencyTone(data.database.latencyMs)}>
                 {data.database.latencyMs != null ? data.database.latencyMs + ' ms' : '—'}
@@ -254,7 +264,8 @@ function SystemStatusBody() {
               {events.map((event, index) => (
                 <li key={index}>
                   <span className="system-status__event-time">{formatClock(event.createdAt)}</span>
-                  <code>{event.action}</code>
+                  {/* 显示中文名，原始码只留在悬停提示里给排查用。 */}
+                  <code title={event.action}>{auditActionLabel(event.action)}</code>
                   <span className="system-status__event-user">{event.username || '系统'}</span>
                 </li>
               ))}

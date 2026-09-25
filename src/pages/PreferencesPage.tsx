@@ -30,6 +30,8 @@ export default function PreferencesPage() {
         note:
           item.kind === 'weekly' ? '周测' : item.kind === 'temporary' ? '本机临时考试' : item.majorName || '大型考试',
       })),
+    // Recompute when the exam snapshot changes; getResolvedExamItems reads from settings internally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute triggers are snapshot-level, not direct reads
     [exam.updatedAt, exam.selectedGradeId, exam.selectedClassId],
   );
   const majorCount = entries.filter((item) => item.kind === 'major').length;
