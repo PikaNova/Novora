@@ -6,13 +6,13 @@
  */
 
 import { recordUserAction } from '../utils/diagnostics';
+import { authHeaders } from './auth/session';
 
 // 检查更新与一键部署已合并进 /api/system（Vercel Hobby 单次部署最多 12 个函数），
 // 旧地址 /api/update-check、/api/redeploy 仍由 vercel.json rewrite 兜底；
 // 这里直接用规范地址，查询串写在请求本身、不经过 rewrite，参数不会被丢掉。
 const CHECK_URL = '/api/system?sys=update-check';
 const REDEPLOY_URL = '/api/system?sys=redeploy';
-const TOKEN_KEY = 'admin_auth_token';
 
 export interface UpdateInfo {
   ok: boolean;
@@ -99,9 +99,7 @@ export interface RedeployResult {
 export async function triggerRedeploy(): Promise<RedeployResult> {
   recordUserAction('触发重新部署');
   try {
-    const headers: Record<string, string> = {};
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers: Record<string, string> = authHeaders();
     const res = await fetch(REDEPLOY_URL, { method: 'POST', headers });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) {

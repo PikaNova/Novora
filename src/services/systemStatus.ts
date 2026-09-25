@@ -1,4 +1,6 @@
 // 系统状态与健康检查前端服务。
+import { authHeaders } from './auth/session';
+
 export type SystemStatusPayload = {
   ok: boolean;
   fetchedAt: number;
@@ -78,18 +80,9 @@ export type SystemStatusPayload = {
   requestStats?: { windowStart: number; total: number; failed: number } | null;
 };
 
-function authToken(): string {
-  try {
-    return localStorage.getItem('admin_auth_token') || '';
-  } catch {
-    return '';
-  }
-}
-
 async function request<T>(path: string): Promise<T> {
-  const token = authToken();
   const response = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     cache: 'no-store',
   });
   const data = await response.json().catch(() => null);

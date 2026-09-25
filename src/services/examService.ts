@@ -3,7 +3,7 @@ import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } fro
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
-import { fetchWithTimeout } from './fetchWithTimeout';
+import { clearRequestDedupe, fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
 import { runQueued } from './syncQueue';
 import { recordExamSave, recordExamSaveConflict } from './examSaveMetrics';
@@ -14,6 +14,16 @@ import {
   type PermissionScope,
 } from '../shared/permissionRules';
 import { examSnapshotQuery, parseExamPayload, parseExamVersion, type ExamPayload } from '../shared/examContracts';
+import {
+  clearAuthSession,
+  getAuthToken,
+  GRADE_ADMIN_FIRST_LOGIN_KEY,
+  hasValidLocalSession,
+  readSessionUserRaw,
+  storeAuthSession,
+  writeSessionUser,
+} from './auth/session';
+import { apiFetch } from './auth/client';
 import {
   changedExamDomains,
   fullExamSaveBody,
@@ -29,10 +39,6 @@ export type { ExamPayload };
 
 const API_URL = '/api/exams';
 const LOGIN_URL = '/api/login';
-const TOKEN_KEY = 'admin_auth_token';
-const TOKEN_EXPIRES_KEY = 'admin_auth_token_expires';
-const ADMIN_USER_KEY = 'admin_user_context';
-const GRADE_ADMIN_FIRST_LOGIN_KEY = 'novora_grade_admin_first_login';
 const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
@@ -432,8 +438,6 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
       return baseUpdatedAt;
     }
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) headers['Authorization'] = `Bearer ${token}`;
     const requestBody: Record<string, unknown> = {
       ...(diff ? diff.body : fullExamSaveBody(toSaveSnapshot(input))),
       baseUpdatedAt,
@@ -449,7 +453,7 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
       false,
     );
 
-    const res = await fetchWithTimeout(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) }, 20_000);
+    const res = await apiFetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) }, 20_000);
 
     if (res.status === 401) {
       lastExamApiError = await apiErrorFromResponse(res, '登录状态已失效');
@@ -545,14 +549,13 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
 
 /** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。同样经全局队列排队（普通优先级）。 */
 export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<DesignPolicy> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? '';
   try {
     const response = await runQueued(() =>
-      fetchWithTimeout(
+      apiFetch(
         API_URL,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'design-policy', designPolicy }),
         },
         20_000,
@@ -586,13 +589,12 @@ export async function saveMajorBatchPresets(presets: {
   subjectGroups: unknown[];
   timeGroups: unknown[];
 }): Promise<{ subjectGroups: unknown[]; timeGroups: unknown[]; updatedAt: number }> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? '';
   const response = await runQueued(() =>
-    fetchWithTimeout(
+    apiFetch(
       API_URL,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'major-batch-presets', presets }),
       },
       20_000,
@@ -729,7 +731,7 @@ function parseAdminUserContext(data: unknown): AdminUserContext | null {
 
 export function getAdminUser(): AdminUserContext | null {
   try {
-    return parseAdminUserContext(JSON.parse(localStorage.getItem(ADMIN_USER_KEY) || 'null'));
+    return parseAdminUserContext(readSessionUserRaw());
   } catch {
     return null;
   }
@@ -770,13 +772,8 @@ export function adminCanClass(gradeId: string, classId: string, user = getAdminU
 /** V3：登录/进入管理页时主动刷新一次真实权限，消除前端 localStorage 缓存与服务端实际角色的漂移（见权限排查报告原因 5）。 */
 export async function refreshAdminUser(): Promise<AdminUserContext | null> {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return null;
-    const res = await fetchWithTimeout(
-      `${LOGIN_URL}?action=me`,
-      { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' } },
-      10_000,
-    );
+    if (!getAuthToken()) return null;
+    const res = await apiFetch(`${LOGIN_URL}?action=me`, { headers: { 'Cache-Control': 'no-store' } }, 10_000);
     if (!res.ok) {
       if (res.status === 401) logoutAdmin();
       return null;
@@ -785,7 +782,7 @@ export async function refreshAdminUser(): Promise<AdminUserContext | null> {
     if (!data?.user) return null;
     const user = parseAdminUserContext(data.user);
     if (!user) return null;
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
+    writeSessionUser(user);
     return user;
   } catch {
     return getAdminUser();
@@ -813,15 +810,7 @@ export async function loginAdmin(username: string, password: string): Promise<Lo
     }
     const token = typeof data.token === 'string' && data.token ? data.token : null;
     const user = parseAdminUserContext(data.user);
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
-    }
-    if (user) {
-      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
-      if (data.firstLogin === true && user.roleId === 'grade_admin')
-        localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(user.id));
-    }
+    storeAuthSession(token, Number(data.expiresAt ?? 0), user, data.firstLogin === true);
     lastAuthApiError = null;
     return { token, user };
   } catch (err) {
@@ -870,32 +859,17 @@ export function storeAdminSession(
   user: AdminUserContext | null,
   firstLogin = false,
 ): void {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(TOKEN_EXPIRES_KEY, String(expiresAt ?? 0));
-  }
-  if (user) {
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
-    if (firstLogin === true && user.roleId === 'grade_admin')
-      localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(user.id));
-  }
+  storeAuthSession(token, expiresAt, user, firstLogin);
 }
 
 export function hasValidLocalToken(): boolean {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const expires = Number(localStorage.getItem(TOKEN_EXPIRES_KEY) ?? 0);
-  if (!token) return false;
-  if (expires && Date.now() > expires) {
-    logoutAdmin();
-    return false;
-  }
-  return true;
+  return hasValidLocalSession();
 }
 
 export function logoutAdmin(): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(TOKEN_EXPIRES_KEY);
-  localStorage.removeItem(ADMIN_USER_KEY);
+  clearAuthSession();
+  // fetchWithTimeout 要求在登出/切号时清掉在途合并表，否则上一个身份的 GET 结果可能被复用。
+  clearRequestDedupe();
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -906,15 +880,11 @@ export function logoutAdmin(): void {
 export type ResetCategory = 'all' | 'major' | 'weekly' | 'school' | 'settings' | 'devices';
 
 export async function resetCloudData(categories: ResetCategory[]): Promise<void> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? '';
-  const response = await fetchWithTimeout(
+  const response = await apiFetch(
     API_URL,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reset-data', categories }),
     },
     30_000,

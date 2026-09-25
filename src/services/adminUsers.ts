@@ -1,5 +1,6 @@
 import type { LoginFailureAlert } from '../shared/authContracts.js';
 import type { AdminScope } from './examService';
+import { getAuthToken } from './auth/session';
 
 export type ManagedUser = {
   id: number;
@@ -118,8 +119,6 @@ function parseStringList(data: unknown): string[] {
   return Array.isArray(data) ? data.filter((p): p is string => typeof p === 'string') : [];
 }
 
-const token = () => localStorage.getItem('admin_auth_token') || '';
-
 export class AdminApiError extends Error {
   field?: string;
   code?: string;
@@ -136,7 +135,7 @@ export class AdminApiError extends Error {
 }
 
 async function request(path: string, init: RequestInit = {}, bearerToken?: string) {
-  const authToken = bearerToken ?? token();
+  const authToken = bearerToken ?? getAuthToken();
   const response = await fetch(path, {
     ...init,
     headers: {
