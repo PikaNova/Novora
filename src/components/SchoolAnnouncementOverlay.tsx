@@ -79,17 +79,17 @@ export default function SchoolAnnouncementOverlay({
   }, [hasUrgent, open, onClose]);
 
   if (!open) return null;
+  const currentCount = announcements.length;
+  const historyCount = history.length;
   return (
     <div className="sann-screen-overlay" role="dialog" aria-modal="true" aria-label="学校公告" onClick={close}>
       <section className="sann-screen-window" onClick={(event) => event.stopPropagation()}>
         <header className="sann-screen-window__head">
-          <div>
+          <div className="sann-screen-window__head-main">
             <h2 className="sann-screen-window__title">{schoolName ? `${schoolName} · 公告` : '学校公告'}</h2>
-            <p className="sann-screen-window__lead">
-              {hasUrgent
-                ? '含紧急公告：需要等它过期或管理员撤回后才能关闭。'
-                : `${announcements.length} 条公告 · 由学校管理端发布`}
-            </p>
+            {/* 条数不再写进头部：条数变化会改这行的高度，长列表下正是它被挤没。
+                现在头部的说明只在"紧急"这种必须说的情况出现，静态来源说明放到下面固定条。 */}
+            {hasUrgent && <p className="sann-screen-window__lead">含紧急公告：需要等它过期或管理员撤回后才能关闭。</p>}
           </div>
           <div className="sann-screen-window__actions">
             {onSwitchToSystem && (
@@ -114,7 +114,8 @@ export default function SchoolAnnouncementOverlay({
             </button>
           </div>
         </header>
-        <div className="sann-screen-window__body">
+        {/* 分页与来源说明钉在窗口上，不跟着卡片滚动。 */}
+        <div className="sann-screen-window__toolbar">
           <div className="sann-screen-tabs" role="tablist" aria-label="公告分页">
             <button
               type="button"
@@ -123,7 +124,7 @@ export default function SchoolAnnouncementOverlay({
               className={tab === 'current' ? 'is-active' : undefined}
               onClick={() => setTab('current')}
             >
-              当前{announcements.length > 0 ? `（${announcements.length}）` : ''}
+              当前{currentCount > 0 ? `（${currentCount}）` : ''}
             </button>
             <button
               type="button"
@@ -132,43 +133,51 @@ export default function SchoolAnnouncementOverlay({
               className={tab === 'history' ? 'is-active' : undefined}
               onClick={() => setTab('history')}
             >
-              历史
+              历史{historyCount > 0 ? `（${historyCount}）` : ''}
             </button>
           </div>
+          <span className="sann-screen-window__note">由学校管理端发布</span>
+        </div>
+        <div className="sann-screen-window__body">
           {tab === 'current' ? (
-            announcements.length === 0 ? (
+            currentCount === 0 ? (
               <div className="sann-screen-empty">
                 <Mascot className="mascot-inline" size={40} alt="" />
                 当前没有学校公告。
               </div>
             ) : (
-              announcements.map((item) => (
-                <TrackedAnnouncementCard
-                  key={item.id}
-                  item={item}
-                  minMs={seenMinMs}
-                  meta={`${formatDateTimeInZone(item.createdAt)} 发布${item.seenAt ? ' · 已读' : ' · 未读'}`}
-                  onSeen={onSeen}
-                />
-              ))
+              <div className="sann-screen-grid">
+                {announcements.map((item) => (
+                  <TrackedAnnouncementCard
+                    key={item.id}
+                    item={item}
+                    minMs={seenMinMs}
+                    meta={`${formatDateTimeInZone(item.createdAt)} 发布${item.seenAt ? ' · 已读' : ' · 未读'}`}
+                    onSeen={onSeen}
+                  />
+                ))}
+              </div>
             )
-          ) : historyLoading && history.length === 0 ? (
+          ) : historyLoading && historyCount === 0 ? (
             <div className="sann-screen-empty">历史公告加载中…</div>
-          ) : history.length === 0 ? (
+          ) : historyCount === 0 ? (
             <div className="sann-screen-empty">
               <Mascot className="mascot-inline" size={40} alt="" />
               还没有历史公告。
             </div>
           ) : (
-            history.map((item) => (
-              <SchoolAnnouncementCard
-                key={item.id}
-                item={item}
-                meta={`${formatDateTimeInZone(item.createdAt)} 发布 · ${ANNOUNCEMENT_STATUS_LABELS[item.status]}${
-                  item.seenAt ? ' · 已读' : ' · 当时未读'
-                }`}
-              />
-            ))
+            <div className="sann-screen-grid">
+              {history.map((item) => (
+                <div className="sann-screen-window__item is-compact" key={item.id}>
+                  <SchoolAnnouncementCard
+                    item={item}
+                    meta={`${formatDateTimeInZone(item.createdAt)} 发布 · ${ANNOUNCEMENT_STATUS_LABELS[item.status]}${
+                      item.seenAt ? ' · 已读' : ' · 当时未读'
+                    }`}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </section>

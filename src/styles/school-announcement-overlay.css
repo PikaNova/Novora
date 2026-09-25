@@ -1,9 +1,14 @@
 /*
  * 学校公告窗口（教室大屏）：比作者端「系统公告窗口」更大、更醒目。
- * 系统公告窗口 max-width 760px；这里 min(1180px, 95vw)，正文字号也整体更大。
+ * 系统公告窗口 max-width 760px；这里更宽（1920 屏能铺 3 列），正文字号也整体更大。
  * 卡片样式由 school-announcement-view.css 提供，后台预览复用同一套类名。
+ *
+ * 布局（2026-09-25 重写）：头部与分页固定在窗口上，只有卡片区滚动；
+ * 卡片走自适应网格（2–3 列），海报与紧急公告占满整行；历史用紧凑卡免得一路往下堆。
  */
 .sann-screen-overlay {
+  /* 遮罩内边距：窗口的 max-height 要用它反算，否则在 768p 教室屏上窗口会比可视区高、顶部被裁。 */
+  --sann-overlay-pad: clamp(16px, 3vw, 52px);
   position: fixed;
   inset: 0;
   /* 压在系统公告窗口（z-index 3000）与提醒浮层之上：学校公告优先。 */
@@ -11,15 +16,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(16px, 3vw, 52px);
+  padding: var(--sann-overlay-pad);
   background: rgba(3, 6, 14, 0.76);
   backdrop-filter: blur(10px);
 }
 .sann-screen-window {
   display: flex;
   flex-direction: column;
-  width: min(1180px, 95vw);
-  max-height: min(92vh, 1040px);
+  width: min(1560px, 94vw);
+  max-height: min(1040px, calc(100vh - 2 * var(--sann-overlay-pad)));
+  max-height: min(1040px, calc(100dvh - 2 * var(--sann-overlay-pad)));
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 20px;
@@ -28,6 +34,11 @@
   font-family: var(--font-region-content, inherit);
 }
 .sann-screen-window__head {
+  /* 头部永不参与收缩：内容再长也不该挤压它（以前正是被挤掉才看起来"被遮挡"）。 */
+  flex: none;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -35,6 +46,9 @@
   padding: 22px 28px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
+}
+.sann-screen-window__head-main {
+  min-width: 0;
 }
 .sann-screen-window__title {
   margin: 0;
@@ -48,6 +62,23 @@
   color: #93a0ad;
   font-size: 15px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+/* 分页与来源说明：钉在窗口上，不随卡片滚动，也不会被长列表挤掉。 */
+.sann-screen-window__toolbar {
+  flex: none;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 16px 28px 0;
+}
+.sann-screen-window__note {
+  color: #8b95a1;
+  font-size: 14px;
 }
 .sann-screen-window__close {
   width: 46px;
@@ -96,11 +127,41 @@
   cursor: not-allowed;
 }
 .sann-screen-window__body {
-  display: grid;
-  gap: 20px;
-  padding: 24px 28px 30px;
+  /* 唯一的滚动区：必须 min-height:0 才能在 flex 列里真正滚动，而不是把窗口撑破。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 28px 30px;
   overflow: auto;
   overscroll-behavior: contain;
+}
+/* 卡片网格：自动 2–3 列（1920 屏 3 列、1366 屏 2 列、窄屏 1 列）。 */
+.sann-screen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(320px, 28vw, 460px), 1fr));
+  align-items: start;
+  align-content: start;
+  gap: 18px;
+}
+/* 海报、紧急公告、以及"只有一条"时占满整行：它们要的是一眼看完，不是挤在格子里。 */
+.sann-screen-grid > .sann-screen-window__item:has(> .sann-view.is-poster),
+.sann-screen-grid > .sann-screen-window__item:has(> .sann-view.is-urgent),
+.sann-screen-grid > .sann-screen-window__item:only-child {
+  grid-column: 1 / -1;
+}
+/* 历史卡：同一套排版收小一号，让 2–3 列一屏能放更多条（字号仍按教室大屏可读性定）。 */
+.sann-screen-window__item.is-compact > .sann-view {
+  padding: 18px 20px;
+  gap: 12px;
+}
+.sann-screen-window__item.is-compact .sann-view__title {
+  font-size: 24px;
+}
+.sann-screen-window__item.is-compact .sann-view__body {
+  font-size: 16.5px;
+  line-height: 1.7;
+}
+.sann-screen-window__item.is-compact .md-body .md-img {
+  max-width: min(420px, 100%);
 }
 /* 「当前 / 历史」分页：历史是教室端自己回看过去通知的入口。 */
 .sann-screen-tabs {
@@ -140,6 +201,17 @@
   font-size: 16px;
 }
 
+/* 窄屏（平板/手机调试）：单列，分页与来源说明仍在固定条上。 */
+@media (max-width: 900px) {
+  .sann-screen-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .sann-screen-window__toolbar {
+    padding: 12px 16px 0;
+  }
+}
+
 @media (max-width: 700px) {
   .sann-screen-overlay {
     padding: 12px;
@@ -147,7 +219,7 @@
   }
   .sann-screen-window {
     width: 100%;
-    max-height: 88vh;
+    max-height: calc(100dvh - 24px);
     border-radius: 16px;
   }
   /* 与 .sann-view 在窄屏的圆角保持一致，紧急公告的扩散圈才不会露出方角。 */
@@ -161,7 +233,6 @@
     font-size: 22px;
   }
   .sann-screen-window__body {
-    gap: 14px;
     padding: 16px 16px 22px;
   }
 }
@@ -224,7 +295,8 @@
 .sann-screen-window__item {
   border-radius: 16px;
   animation: sann-screen-item-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
-  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger-lg) + 120ms);
+  /* 错峰封顶 520ms：历史一屏可能有二三十条，不封顶的话最后一条要等一秒多才出现。 */
+  animation-delay: min(calc((sibling-index() - 1) * var(--motion-stagger-lg) + 120ms), 520ms);
 }
 
 .sann-screen-window .sann-screen-window__item > .sann-view {
@@ -237,7 +309,7 @@
   animation:
     sann-screen-item-in var(--motion-medium) var(--motion-ease-out-expo) backwards,
     sann-urgent-ring 900ms var(--motion-ease-out-expo) 400ms backwards;
-  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger-lg) + 120ms), 520ms;
+  animation-delay: min(calc((sibling-index() - 1) * var(--motion-stagger-lg) + 120ms), 520ms), 520ms;
 }
 
 .sann-screen-empty {
