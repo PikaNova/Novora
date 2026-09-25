@@ -66,14 +66,17 @@ async function main() {
     spawnSync('docker', ['compose', 'version'], { stdio: 'ignore' }).status === 0;
 
   const port = loadPort();
+  // 把当前 commit 传进构建：容器里没有 .git，健康检查只能靠这个自报「跑的是哪一版」。
+  const buildCommit = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || '';
+  const buildEnv = { ...process.env, COMMIT_SHA: buildCommit };
 
   if (hasDocker) {
     console.log('\n[2/4] Docker 模式：重建并启动（docker compose up -d --build）');
-    run('docker', ['compose', 'up', '-d', '--build']);
+    run('docker', ['compose', 'up', '-d', '--build'], { env: buildEnv });
   } else {
     console.log('\n[2/4] 裸机模式：构建前端与 server');
-    run(npmCmd, ['run', 'build']);
-    run(npmCmd, ['run', 'serve:build']);
+    run(npmCmd, ['run', 'build'], { env: buildEnv });
+    run(npmCmd, ['run', 'serve:build'], { env: buildEnv });
   }
 
   // 3) 健康检查
@@ -83,7 +86,9 @@ async function main() {
     console.error('\n健康检查未通过：服务未能在 90 秒内返回 ok。请查看日志：docker compose logs -f app');
     process.exit(1);
   }
-  console.log('健康检查通过：db ok，版本 ' + (health.body.version || 'unknown'));
+  console.log(
+    '健康检查通过：db ok，版本 ' + (health.body.version || 'unknown') + '，构建 ' + (health.body.commit || 'unknown'),
+  );
 
   // 4) 收尾提示
   const rev = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).stdout.trim();

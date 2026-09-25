@@ -1,4 +1,5 @@
 import { apiErrorFromResponse, networkApiError } from './apiError';
+import { authHeaders as sessionAuthHeaders } from './auth/session';
 import {
   ANNOUNCEMENT_LEVELS,
   ANNOUNCEMENT_SCOPE_TYPES,
@@ -114,15 +115,8 @@ export type SchoolAnnouncementReceipts = {
   receipts: AnnouncementReceipt[];
 };
 
-function authToken(): string {
-  return typeof localStorage === 'undefined' ? '' : localStorage.getItem('admin_auth_token') || '';
-}
-
 function authHeaders(): Record<string, string> {
-  const token = authToken();
-  return token
-    ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-    : { 'Content-Type': 'application/json' };
+  return { 'Content-Type': 'application/json', ...sessionAuthHeaders() };
 }
 
 function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {

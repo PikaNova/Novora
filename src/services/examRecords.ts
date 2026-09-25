@@ -8,6 +8,7 @@ import {
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { logger } from '../utils/logger';
 import { fetchWithTimeout } from './fetchWithTimeout';
+import { authHeaders as sessionAuthHeaders } from './auth/session';
 
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
@@ -359,17 +360,8 @@ function parseLastOperation(raw: unknown): { action: string; reason: string; at:
   return { action, reason: textValue(row.reason), at: numberOrNull(row.at) ?? 0 };
 }
 
-function authToken(): string {
-  return typeof localStorage === 'undefined' ? '' : localStorage.getItem('admin_auth_token') || '';
-}
-
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const token = authToken();
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...extra,
-  };
+  return { 'Content-Type': 'application/json', ...sessionAuthHeaders(extra) };
 }
 
 export type ExamRecordActionRequest = {

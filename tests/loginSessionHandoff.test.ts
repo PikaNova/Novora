@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AUTH_TOKEN_KEY } from '../src/services/auth/session.js';
 
 Object.assign(globalThis as typeof globalThis & { __APP_VERSION__: string; __COMMIT_SHA__: string }, {
   __APP_VERSION__: 'test',
@@ -63,7 +64,7 @@ test('first-login credential change uses the newly issued session token', async 
     const session = await loginAdmin('custom-role-user', 'initial-password');
     assert.equal(session?.token, issuedToken);
     assert.equal(session?.user?.mustChangePassword, true);
-    storage.removeItem('admin_auth_token');
+    storage.removeItem(AUTH_TOKEN_KEY);
     await changeOwnCredentials('initial-password', 'custom-role-user', 'new-password', session!.token!);
     assert.equal(credentialChangeAuthorization, `Bearer ${issuedToken}`);
   } finally {

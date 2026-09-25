@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatClockInZone, getZonedParts } from '../utils/zonedTime';
 import { logoutAdmin } from '../services/examService';
+import { authHeaders } from '../services/auth/session';
 import { isAbortError } from '../shared/abortError';
 import Mascot from './Mascot';
 import {
@@ -60,7 +61,6 @@ type DashboardPayload = {
   updatedAt: number;
 };
 
-const TOKEN_KEY = 'admin_auth_token';
 const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 
 function useCountUp(value: number, duration = 700): number {
@@ -158,10 +158,9 @@ export default function DashboardPanel() {
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
-      const token = localStorage.getItem(TOKEN_KEY) || '';
       try {
         const res = await fetch('/api/exams?action=dashboard', {
-          headers: token ? { Authorization: 'Bearer ' + token } : {},
+          headers: authHeaders(),
           signal,
         });
         if (res.status === 401) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 // 先装浏览器常量/存储，再引服务（ESM 按 import 顺序求值）。
 import './helpers/browserGlobals.js';
+import { AUTH_TOKEN_KEY } from '../src/services/auth/session.js';
 import { applyFrozenArchivedMajors, saveExamsToServer, takeFrozenArchivedMajors } from '../src/services/examService.js';
 import { flushPendingExamSync, queuePendingExamSync } from '../src/services/examOutbox.js';
 import type { MajorExam } from '../src/types/index.js';
@@ -40,7 +41,7 @@ function signIn(): void {
       scopes: [{ type: 'all', gradeId: '', classId: '' }],
     }),
   );
-  localStorage.setItem('admin_auth_token', 'test-token');
+  localStorage.setItem(AUTH_TOKEN_KEY, 'test-token');
 }
 
 const ORIGINAL_FETCH = globalThis.fetch;

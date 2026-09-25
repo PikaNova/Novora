@@ -3,9 +3,10 @@ import type { DesignPolicy, ScheduleMode, WeeklyPlan, WeeklyConflictPolicy } fro
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import type { ExamSettings } from '../utils/appSettings';
 import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
-import { fetchWithTimeout } from './fetchWithTimeout';
+import { clearRequestDedupe, fetchWithTimeout } from './fetchWithTimeout';
 import { saveDesignPolicyDraft, clearDesignPolicyDraft } from './designPolicyDraft';
 import { runQueued } from './syncQueue';
+import { recordExamSave, recordExamSaveConflict } from './examSaveMetrics';
 import {
   canAccessClass as sharedCanAccessClass,
   canAccessGrade as sharedCanAccessGrade,
@@ -13,6 +14,16 @@ import {
   type PermissionScope,
 } from '../shared/permissionRules';
 import { examSnapshotQuery, parseExamPayload, parseExamVersion, type ExamPayload } from '../shared/examContracts';
+import {
+  clearAuthSession,
+  getAuthToken,
+  GRADE_ADMIN_FIRST_LOGIN_KEY,
+  hasValidLocalSession,
+  readSessionUserRaw,
+  storeAuthSession,
+  writeSessionUser,
+} from './auth/session';
+import { apiFetch } from './auth/client';
 import {
   changedExamDomains,
   fullExamSaveBody,
@@ -28,13 +39,18 @@ export type { ExamPayload };
 
 const API_URL = '/api/exams';
 const LOGIN_URL = '/api/login';
-const TOKEN_KEY = 'admin_auth_token';
-const TOKEN_EXPIRES_KEY = 'admin_auth_token_expires';
-const ADMIN_USER_KEY = 'admin_user_context';
-const GRADE_ADMIN_FIRST_LOGIN_KEY = 'novora_grade_admin_first_login';
 const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
+/**
+ * 最近一次 409 返回的云端快照（与 `CLOUD_SNAPSHOT_KEY` 分开存）。
+ *
+ * 冲突后的重试（客户端三方合并 → 再提交）需要一份「与服务端版本配套的基线」才能继续只提交变化域。
+ * 但不能把它写成 `getCloudSnapshot()`：调用方把 getCloudSnapshot() 当作三方合并的 base，
+ * 换成 remote 会让「远端已改、本地未改」的字段被误判成本地值，静默丢掉对方的改动。
+ * 因此单独存一份，仅在保存时作为逐域比对基线使用。
+ */
+const CLOUD_CONFLICT_BASE_KEY = 'exam_cloud_conflict_base';
 /**
  * 边缘缓存能力标记：只有服务端在某次心跳里回过 version 才会置位。
  * 置位后客户端才使用版本化快照 URL、并放弃公告的缓存穿透参数；
@@ -132,18 +148,51 @@ function classifyFetchError(err: unknown): ApiError {
  */
 let snapshotFlight: Promise<ExamPayload | null> | null = null;
 
-/** 仅供测试：清掉正在共享的那次读取。 */
-export function __resetSnapshotFlightForTests(): void {
-  snapshotFlight = null;
+/**
+ * 结果窗口：刚取到的快照在这段时间内直接被复用，不再发条件请求。
+ *
+ * 单飞只能合并"同时在途"的调用；开机首轮里 `useExamSync` / `useAdminSyncEngine` /
+ * 总览 / 设计规则 / 批量预设是错峰发起的（相隔几百毫秒），单飞拦不住，一屏仍会叠出 5 条。
+ * 快照本身有 ETag 与本地缓存兜底，1 秒内的复用不会带来可感知的数据滞后；
+ * 任何一次写操作都会立刻作废这个窗口（见 saveExamsToServer）。
+ */
+let snapshotReuseWindowMs = 1_000;
+let lastSnapshot: { at: number; payload: ExamPayload | null } | null = null;
+
+/** 写操作后调用：保证紧接着的读取不会拿到写完之前的快照。 */
+export function invalidateExamSnapshotReuse(): void {
+  lastSnapshot = null;
 }
 
-export async function fetchExamsFromServer(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
+/** 仅供测试：清掉正在共享的那次读取与结果窗口。 */
+export function __resetSnapshotFlightForTests(): void {
+  snapshotFlight = null;
+  lastSnapshot = null;
+}
+
+/** 仅供测试：把结果窗口调短，避免用例真的等 1 秒。 */
+export function __setSnapshotReuseWindowForTests(ms: number): void {
+  snapshotReuseWindowMs = Math.max(0, ms);
+}
+
+export async function fetchExamsFromServer(
+  bootstrapInstanceId?: string,
+  options: { fresh?: boolean } = {},
+): Promise<ExamPayload | null> {
   // bootstrap 带设备身份、URL 也不同，单独走，不与普通快照合并。
   if (bootstrapInstanceId) return fetchExamsOnce(bootstrapInstanceId);
+  if (!options.fresh && lastSnapshot && Date.now() - lastSnapshot.at < snapshotReuseWindowMs) {
+    return lastSnapshot.payload;
+  }
   if (snapshotFlight) return snapshotFlight;
-  snapshotFlight = fetchExamsOnce().finally(() => {
-    snapshotFlight = null;
-  });
+  snapshotFlight = fetchExamsOnce()
+    .then((payload) => {
+      lastSnapshot = { at: Date.now(), payload };
+      return payload;
+    })
+    .finally(() => {
+      snapshotFlight = null;
+    });
   return snapshotFlight;
 }
 
@@ -276,12 +325,63 @@ export function applyFrozenArchivedMajors(majors: MajorExam[], frozen: MajorExam
 
 /**
  * 与服务端基线对齐的「已保存快照」：只有版本号与快照一致时才可用于逐域比对。
- * 版本对不上（例如刚发生过 409、或快照属于更早的版本）时返回 null，调用方退回整份提交。
+ *
+ * 先看本机已应用的快照；对不上时再看最近一次 409 回传的云端版本——冲突重试正是拿它当基线，
+ * 否则每次冲突都会退回「整份提交」，把 A 段省下来的字节又还回去。
+ * 两者都对不上（例如快照属于更早的版本）才返回 null，由调用方退回整份提交。
  */
 function saveBaseSnapshot(baseUpdatedAt: number): ExamPayload | null {
   if (!(baseUpdatedAt > 0)) return null;
   const snapshot = getCloudSnapshot();
-  return snapshot && snapshot.updatedAt === baseUpdatedAt ? snapshot : null;
+  if (snapshot && snapshot.updatedAt === baseUpdatedAt) return snapshot;
+  const conflictBase = getConflictBaseSnapshot();
+  return conflictBase && conflictBase.updatedAt === baseUpdatedAt ? conflictBase : null;
+}
+
+/** 冲突重试的基线：只在 409 之后写入，成功后清除。 */
+function rememberConflictBase(payload: ExamPayload): void {
+  try {
+    localStorage.setItem(CLOUD_CONFLICT_BASE_KEY, JSON.stringify(payload));
+  } catch {
+    /* 隐私模式下退化为整份提交 */
+  }
+}
+
+function getConflictBaseSnapshot(): ExamPayload | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CLOUD_CONFLICT_BASE_KEY) || 'null');
+    return parsed && typeof parsed === 'object' ? parseExamPayload(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearConflictBase(): void {
+  try {
+    localStorage.removeItem(CLOUD_CONFLICT_BASE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 重建 409 的完整 remote。
+ *
+ * 客户端带了 baseRevisions 时服务端只回冲突域（`remotePartial: true`）；其余域与客户端手里的
+ * 基线一致，叠加即可还原完整快照。必须用**原始 JSON** 叠加后再解析——若把部分载荷直接交给
+ * parseExamPayload，缺席字段会被填成默认值（空数组/null），反而覆盖掉基线里的真实内容。
+ * 没有可用基线时返回 null，由调用方按「冲突数据不完整」处理（不静默丢字段）。
+ */
+function rebuildConflictRemote(data: unknown, base: ExamPayload | null): ExamPayload | null {
+  const envelope = (data ?? {}) as { remote?: unknown; remotePartial?: unknown };
+  const source = envelope.remote;
+  if (!source || typeof source !== 'object') return null;
+  if (envelope.remotePartial !== true) return parseExamPayload(source);
+  if (!base) return null;
+  return parseExamPayload({
+    ...(base as unknown as Record<string, unknown>),
+    ...(source as Record<string, unknown>),
+  });
 }
 
 function toSaveSnapshot(input: SaveExamsInput): ExamSaveSnapshot {
@@ -317,6 +417,7 @@ export function getLastExamSaveSummary(): ExamSaveSummary | null {
 
 function recordSaveSummary(domains: readonly ExamSaveDomain[], bytes: number, skipped: boolean): void {
   lastSaveSummary = { domains: [...domains], bytes, skipped };
+  recordExamSave({ domains, bytes, skipped });
   console.info(
     skipped
       ? '[examService] save skipped: 与服务端基线一致，未发起请求'
@@ -337,8 +438,6 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
       return baseUpdatedAt;
     }
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) headers['Authorization'] = `Bearer ${token}`;
     const requestBody: Record<string, unknown> = {
       ...(diff ? diff.body : fullExamSaveBody(toSaveSnapshot(input))),
       baseUpdatedAt,
@@ -354,7 +453,7 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
       false,
     );
 
-    const res = await fetchWithTimeout(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) }, 20_000);
+    const res = await apiFetch(API_URL, { method: 'POST', headers, body: JSON.stringify(requestBody) }, 20_000);
 
     if (res.status === 401) {
       lastExamApiError = await apiErrorFromResponse(res, '登录状态已失效');
@@ -363,8 +462,13 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     }
     if (res.status === 409) {
       const data = await res.json().catch(() => null);
-      if (data?.code === 'DATA_CONFLICT' || data?.remote)
-        return { kind: 'conflict', remote: data?.remote ? parseExamPayload(data.remote) : null };
+      if (data?.code === 'DATA_CONFLICT' || data?.remote) {
+        recordExamSaveConflict(Array.isArray(data?.conflicts) ? data.conflicts.map(String) : []);
+        const remote = rebuildConflictRemote(data, base);
+        // 记下服务端版本：调用方的三方合并会用 remote.updatedAt 重试，那时只有这份快照配得上该版本号。
+        if (remote) rememberConflictBase(remote);
+        return { kind: 'conflict', remote };
+      }
       const replay = new Response(JSON.stringify(data), { status: res.status, headers: res.headers });
       const error = await apiErrorFromResponse(replay, '云端拒绝了本次保存');
       lastExamApiError = error;
@@ -381,6 +485,8 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     if (!data?.ok) return null;
     if (input.action === 'initialize' && typeof data.recoveryKey === 'string') generatedRecoveryKey = data.recoveryKey;
     const updatedAt = Number(data.updatedAt ?? Date.now());
+    // 本次提交已经落地，冲突基线作废；留着只会让后续版本号比较多一条擦边命中的可能。
+    clearConflictBase();
     const frozen = Array.isArray(data.frozenMajors) ? (data.frozenMajors as MajorExam[]) : [];
     frozenArchivedMajors = frozen;
     // 归档条目按服务端版本写进基线快照：否则本地基线仍是"已删除/已改名"的旧值，
@@ -431,6 +537,8 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
 
 /** 经全局 syncQueue 排队（高优先级）：与设备写入共享同一最小请求间隔，避免并发打爆 Neon 免费额度。 */
 export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExamsResult> {
+  // 有写入就作废快照复用窗口：否则紧接着的读取可能拿回写之前的快照。
+  invalidateExamSnapshotReuse();
   return runQueued(() => saveExamsToServerNow(input), {
     priority: 'high',
     key: input.clientQueueKey,
@@ -441,14 +549,13 @@ export async function saveExamsToServer(input: SaveExamsInput): Promise<SaveExam
 
 /** V3：失败时写入 localStorage 草稿，下次打开管理页可提示恢复。同样经全局队列排队（普通优先级）。 */
 export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<DesignPolicy> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? '';
   try {
     const response = await runQueued(() =>
-      fetchWithTimeout(
+      apiFetch(
         API_URL,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'design-policy', designPolicy }),
         },
         20_000,
@@ -482,13 +589,12 @@ export async function saveMajorBatchPresets(presets: {
   subjectGroups: unknown[];
   timeGroups: unknown[];
 }): Promise<{ subjectGroups: unknown[]; timeGroups: unknown[]; updatedAt: number }> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? '';
   const response = await runQueued(() =>
-    fetchWithTimeout(
+    apiFetch(
       API_URL,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'major-batch-presets', presets }),
       },
       20_000,
@@ -625,7 +731,7 @@ function parseAdminUserContext(data: unknown): AdminUserContext | null {
 
 export function getAdminUser(): AdminUserContext | null {
   try {
-    return parseAdminUserContext(JSON.parse(localStorage.getItem(ADMIN_USER_KEY) || 'null'));
+    return parseAdminUserContext(readSessionUserRaw());
   } catch {
     return null;
   }
@@ -666,13 +772,8 @@ export function adminCanClass(gradeId: string, classId: string, user = getAdminU
 /** V3：登录/进入管理页时主动刷新一次真实权限，消除前端 localStorage 缓存与服务端实际角色的漂移（见权限排查报告原因 5）。 */
 export async function refreshAdminUser(): Promise<AdminUserContext | null> {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return null;
-    const res = await fetchWithTimeout(
-      `${LOGIN_URL}?action=me`,
-      { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' } },
-      10_000,
-    );
+    if (!getAuthToken()) return null;
+    const res = await apiFetch(`${LOGIN_URL}?action=me`, { headers: { 'Cache-Control': 'no-store' } }, 10_000);
     if (!res.ok) {
       if (res.status === 401) logoutAdmin();
       return null;
@@ -681,7 +782,7 @@ export async function refreshAdminUser(): Promise<AdminUserContext | null> {
     if (!data?.user) return null;
     const user = parseAdminUserContext(data.user);
     if (!user) return null;
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
+    writeSessionUser(user);
     return user;
   } catch {
     return getAdminUser();
@@ -709,15 +810,7 @@ export async function loginAdmin(username: string, password: string): Promise<Lo
     }
     const token = typeof data.token === 'string' && data.token ? data.token : null;
     const user = parseAdminUserContext(data.user);
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(TOKEN_EXPIRES_KEY, String(data.expiresAt ?? 0));
-    }
-    if (user) {
-      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
-      if (data.firstLogin === true && user.roleId === 'grade_admin')
-        localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(user.id));
-    }
+    storeAuthSession(token, Number(data.expiresAt ?? 0), user, data.firstLogin === true);
     lastAuthApiError = null;
     return { token, user };
   } catch (err) {
@@ -766,32 +859,17 @@ export function storeAdminSession(
   user: AdminUserContext | null,
   firstLogin = false,
 ): void {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(TOKEN_EXPIRES_KEY, String(expiresAt ?? 0));
-  }
-  if (user) {
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
-    if (firstLogin === true && user.roleId === 'grade_admin')
-      localStorage.setItem(GRADE_ADMIN_FIRST_LOGIN_KEY, String(user.id));
-  }
+  storeAuthSession(token, expiresAt, user, firstLogin);
 }
 
 export function hasValidLocalToken(): boolean {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const expires = Number(localStorage.getItem(TOKEN_EXPIRES_KEY) ?? 0);
-  if (!token) return false;
-  if (expires && Date.now() > expires) {
-    logoutAdmin();
-    return false;
-  }
-  return true;
+  return hasValidLocalSession();
 }
 
 export function logoutAdmin(): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(TOKEN_EXPIRES_KEY);
-  localStorage.removeItem(ADMIN_USER_KEY);
+  clearAuthSession();
+  // fetchWithTimeout 要求在登出/切号时清掉在途合并表，否则上一个身份的 GET 结果可能被复用。
+  clearRequestDedupe();
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -802,15 +880,11 @@ export function logoutAdmin(): void {
 export type ResetCategory = 'all' | 'major' | 'weekly' | 'school' | 'settings' | 'devices';
 
 export async function resetCloudData(categories: ResetCategory[]): Promise<void> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? '';
-  const response = await fetchWithTimeout(
+  const response = await apiFetch(
     API_URL,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reset-data', categories }),
     },
     30_000,

@@ -1,6 +1,7 @@
 import { getInstanceId } from './telemetry';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { runQueued } from './syncQueue';
+import { authHeaders } from './auth/session';
 import {
   parseDeviceBinding,
   parseDeviceBindingInfo,
@@ -21,7 +22,6 @@ const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
 const BINDING_CACHE_KEY = 'exam_board_device_binding_cache';
 const DEVICE_PURPOSE_KEY = 'exam_board_device_purpose_confirmed';
 const PENDING_MANAGEMENT_SETUP_KEY = 'novora_pending_management_setup';
-const ADMIN_TOKEN_KEY = 'admin_auth_token';
 let heartbeatInFlight = false;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -302,11 +302,6 @@ export async function saveDeviceBinding(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : '班级绑定失败，请检查网络后重试' };
   }
-}
-
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY) ?? '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function fetchDeviceBindings(): Promise<{

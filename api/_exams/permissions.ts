@@ -12,6 +12,29 @@ import { asRecord } from '../../src/shared/typeGuards.js';
 export const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
 /**
+ * 归档只读的比较口径：**忽略纯排序字段**（`order` 与 `items[].order`）。
+ *
+ * 客户端每次保存都会把 majors 按 order 重新编号（新增/删除一场考试就会让后面的序号整体前移/后移），
+ * 那是列表排版，不是内容修改。以前用整对象深比较，于是**每一次普通保存**都会把归档考试
+ * 报成「被改过」：后台频繁弹「已归档：这次修改没有生效」的提示，客户端还会白做一次回灌。
+ * 真实的内容改动（改名、删减科目、改范围、清空归档标记等）仍然会被拦下。
+ */
+function sameArchivedContent(submitted: unknown, frozen: unknown): boolean {
+  const stripOrder = (value: unknown): unknown => {
+    const record = asRecord(value);
+    const { order: _order, ...rest } = record;
+    if (Array.isArray(rest.items)) {
+      rest.items = rest.items.map((item) => {
+        const { order: _itemOrder, ...itemRest } = asRecord(item);
+        return itemRest;
+      });
+    }
+    return rest;
+  };
+  return sameJson(stripOrder(submitted), stripOrder(frozen));
+}
+
+/**
  * 已归档的考试是只读历史（T-284-01）：快照里对应条目一律回退到服务端当前值，
  * 也不允许从快照中移除——记录层靠快照里的条目做运行时投影，移除会让记录失去载体、
  * 审计链出现孤儿。要修改必须先 unarchive。
@@ -45,7 +68,7 @@ export function freezeArchivedMajors(
       majors.push(raw);
       continue;
     }
-    if (!sameJson(raw, frozen)) {
+    if (!sameArchivedContent(raw, frozen)) {
       frozenIds.push(id);
       frozenMajors.push(frozen);
     }

@@ -4,7 +4,12 @@ import { APP_VERSION } from '../../services/telemetry';
 import { useAboutSettings } from '../../hooks/settings/useAboutSettings';
 
 const AUTHOR_NAME = 'PikaNova';
-const REPOSITORY_URL = 'https://docs.pikachu2026.space/guide/12-maintenance';
+/**
+ * 「关于」里的 GitHub 链接指向公开仓库 Novora。
+ * 这里以前误填成了文档站地址（链接文字写着 PikaNova/Novora，点开却是维护文档）。
+ * 注意别写成 Novora-future——那是内部开发仓库，公开仓库是 Novora。
+ */
+const REPOSITORY_URL = 'https://github.com/PikaNova/Novora';
 
 /**
  * 设置页“关于”卡片（含作者水印页脚）。

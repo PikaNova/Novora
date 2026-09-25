@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AUTH_TOKEN_KEY } from '../src/services/auth/session.js';
 
 // The diagnostic log section talks to permission-protected endpoints, so every request must
 // carry the same admin bearer token as the rest of the admin API. These tests pin that contract:
@@ -64,7 +65,7 @@ function stubFetch(payload: Record<string, unknown>): CapturedRequest[] {
 
 function loginAs(token: string): void {
   storage.clear();
-  storage.setItem('admin_auth_token', token);
+  storage.setItem(AUTH_TOKEN_KEY, token);
 }
 
 test('manual diagnostic upload carries the admin bearer token', async () => {

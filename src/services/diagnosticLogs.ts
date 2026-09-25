@@ -9,28 +9,19 @@ import {
   type LocalDiagnosticBundle,
 } from '../utils/logger';
 import { splitDiagnosticParts } from '../shared/diagnosticLogContracts';
+import { authHeaders } from './auth/session';
 
 export type { DiagnosticCaptureConfig, LocalDiagnosticBundle };
 
-const TOKEN_KEY = 'admin_auth_token';
 const MINUTE_MS = 60000;
 /** 「按时间发送」的默认区间：最近 24 小时；管理员可自行收窄或放宽。 */
 const DEFAULT_RANGE_MS = 24 * 60 * 60 * 1000;
-
-function authorizationHeader(): Record<string, string> {
-  try {
-    const token = localStorage.getItem(TOKEN_KEY);
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
-}
 
 async function request(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
   const response = await fetch(path, {
     ...init,
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', ...authorizationHeader(), ...(init.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init.headers || {}) },
   });
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : `请求失败（${response.status}）`);

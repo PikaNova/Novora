@@ -84,7 +84,13 @@ const ACTION_CONFIRM: Record<
     tone: 'danger',
     label: '强制结束',
   },
-  pause: { title: '暂停考试', message: '暂停期间倒计时停止，教室大屏会显示暂停状态。', tone: 'warning', label: '暂停' },
+  pause: {
+    title: '暂停考试',
+    // 暂停不等系统的到点校验：还没开考的考试也能手动暂停（服务端会先补记开考时间）。
+    message: '暂停期间倒计时停止，教室大屏会立刻显示暂停状态；还没开考的考试会先记为已开考再暂停。',
+    tone: 'warning',
+    label: '暂停',
+  },
   resume: { title: '继续考试', message: '恢复后剩余时间按累计暂停时长顺延。', tone: 'info', label: '继续' },
   extend: { title: '延长考试', message: '延长会同时顺延结束时间与倒计时。', tone: 'info', label: '延长' },
   end: {

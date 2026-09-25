@@ -93,6 +93,17 @@
 - 待办：409 响应目前仍回整份 `remote`（另附 `conflicts` 与 `revisions`），
   「只回冲突域」留作后续优化，客户端三方合并逻辑因此无需改动。
 
+#### SYNC-03 / SYNC-04 落地后补记（2026-09-25）
+
+- 409 现在只回冲突域：服务端按修订域挑出对应保存域字段，附 `revisions` 与 `updatedAt`，
+  并标 `remotePartial: true`；带 `baseRevisions` 的客户端用手里的基线补全成完整快照后再做三方合并。
+  补全必须基于**原始 JSON** 叠加——先把部分载荷交给 `parseExamPayload` 会把缺席字段填成默认值
+  （空数组 / null），反过来盖掉基线里的真实内容。老客户端不带 `baseRevisions`，仍然收整份 `remote`。
+- 保存指标落到 `src/services/examSaveMetrics.ts`：提交次数、no-op 跳过次数、409 次数、
+  字节数分位（最近 100 次样本）、保存域与冲突域分布；只含计数与域名枚举，不含考试内容。
+  这些键值并入错误上报的同步快照（`collectSyncState`），作者端不需要改协议就能看到，
+  用来判断提交瘦身与域级版本在真实学校里的效果（跨域冲突率是否真的降下来了）。
+
 ### 阶段 C：记录级写 + 增量读
 
 - C1 周测计划、年级/班级按 `exam_records` + `exam_record_operations` 已验证的范式建记录表
