@@ -3,7 +3,10 @@ import {
   parseAnnouncementStyle,
   resolveAnnouncementStatus,
   type AnnouncementLevel,
+  type AnnouncementReceipt,
+  type AnnouncementReceiptSummary,
   type AnnouncementScopeType,
+  type AnnouncementSeenItem,
   type AnnouncementStatus,
   type AnnouncementStyle,
 } from '../shared/examAnnouncementContracts.js';
@@ -28,6 +31,10 @@ export type SchoolExamAnnouncement = {
   createdBy: number | null;
   createdAt: number;
   expiresAt: number | null;
+  /** 管理端列表才有：应达 / 送达 / 已读设备数（设备端接口不返回，默认 0）。 */
+  targetCount?: number;
+  deliveredCount?: number;
+  seenCount?: number;
 };
 
 export type SendExamAnnouncementInput = {
@@ -64,6 +71,23 @@ export type UploadedAnnouncementImage = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
+};
+
+/** 管理端回执明细（GET ?resource=announcement-receipts&id=xx）。 */
+export type SchoolAnnouncementReceipts = {
+  announcement: {
+    id: string;
+    title: string;
+    level: AnnouncementLevel;
+    style: AnnouncementStyle;
+    scopeType: AnnouncementScopeType;
+    scopeIds: string[];
+    createdAt: number;
+    expiresAt: number | null;
+    status: AnnouncementStatus;
+  };
+  summary: AnnouncementReceiptSummary;
+  receipts: AnnouncementReceipt[];
 };
 
 function authToken(): string {
@@ -103,6 +127,9 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
     createdBy: typeof row.createdBy === 'number' ? row.createdBy : null,
     createdAt: typeof row.createdAt === 'number' ? row.createdAt : 0,
     expiresAt,
+    targetCount: typeof row.targetCount === 'number' ? row.targetCount : 0,
+    deliveredCount: typeof row.deliveredCount === 'number' ? row.deliveredCount : 0,
+    seenCount: typeof row.seenCount === 'number' ? row.seenCount : 0,
   };
 }
 
@@ -242,4 +269,96 @@ export async function deleteSchoolAnnouncementImage(id: number): Promise<void> {
     throw networkApiError();
   }
   if (!response.ok) throw await apiErrorFromResponse(response, '图片删除失败');
+}
+
+/**
+ * 教室端上报"看过"回执（无需登录，走设备实例绑定校验）。
+ *
+ * 每条代表这台设备把某条公告展示满 3 秒；服务端按 (公告, 设备) 幂等累加时长。
+ * 上报失败的条目会留在本地缓冲里，由调用方稍后重试（离线补报）。
+ */
+export async function sendAnnouncementAck(input: {
+  instanceId: string;
+  seen: AnnouncementSeenItem[];
+}): Promise<{ recorded: number }> {
+  if (!input.instanceId || !input.seen.length) return { recorded: 0 };
+  let response: Response;
+  try {
+    response = await fetch('/api/exams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'announce-ack', instanceId: input.instanceId, seen: input.seen }),
+    });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '公告回执上报失败');
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; recorded?: unknown } | null;
+  if (!payload?.ok) throw await apiErrorFromResponse(response, '公告回执上报失败');
+  return { recorded: Number(payload.recorded) || 0 };
+}
+
+/** 管理端：单条公告的回执明细（权限：major.read；范围外的公告按不存在处理）。 */
+export async function fetchAnnouncementReceipts(id: string): Promise<SchoolAnnouncementReceipts> {
+  const params = new URLSearchParams({ resource: 'announcement-receipts', id });
+  let response: Response;
+  try {
+    response = await fetch(`/api/exams?${params.toString()}`, { headers: authHeaders(), cache: 'no-store' });
+  } catch {
+    throw networkApiError();
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response, '回执读取失败');
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    announcement?: unknown;
+    summary?: unknown;
+    receipts?: unknown;
+  } | null;
+  if (!payload?.ok || !payload.announcement || !Array.isArray(payload.receipts)) {
+    throw await apiErrorFromResponse(response, '回执读取失败');
+  }
+  const announcement = payload.announcement as Record<string, unknown>;
+  const summary = (payload.summary ?? {}) as Record<string, unknown>;
+  return {
+    announcement: {
+      id: String(announcement.id ?? ''),
+      title: typeof announcement.title === 'string' ? announcement.title : '',
+      level: announcement.level === 'urgent' ? 'urgent' : 'normal',
+      style: parseAnnouncementStyle(announcement.style),
+      scopeType:
+        announcement.scopeType === 'grade' || announcement.scopeType === 'class' ? announcement.scopeType : 'all',
+      scopeIds: Array.isArray(announcement.scopeIds)
+        ? announcement.scopeIds.filter((item): item is string => typeof item === 'string')
+        : [],
+      createdAt: Number(announcement.createdAt) || 0,
+      expiresAt: typeof announcement.expiresAt === 'number' ? announcement.expiresAt : null,
+      status: announcement.status === 'expired' || announcement.status === 'revoked' ? announcement.status : 'active',
+    },
+    summary: {
+      target: Number(summary.target) || 0,
+      delivered: Number(summary.delivered) || 0,
+      seen: Number(summary.seen) || 0,
+    },
+    receipts: payload.receipts.map(parseReceipt).filter((item): item is AnnouncementReceipt => item !== null),
+  };
+}
+
+function parseReceipt(raw: unknown): AnnouncementReceipt | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const instanceId = typeof row.instanceId === 'string' ? row.instanceId : '';
+  if (!instanceId) return null;
+  const time = (value: unknown): number | null => (typeof value === 'number' && value > 0 ? value : null);
+  return {
+    instanceId,
+    gradeId: typeof row.gradeId === 'string' ? row.gradeId : '',
+    classId: typeof row.classId === 'string' ? row.classId : '',
+    deliveredAt: time(row.deliveredAt),
+    firstSeenAt: time(row.firstSeenAt),
+    lastSeenAt: time(row.lastSeenAt),
+    seenCount: Number(row.seenCount) || 0,
+    seenMs: Number(row.seenMs) || 0,
+    clientVersion: typeof row.clientVersion === 'string' ? row.clientVersion : '',
+    lastSeenOnlineAt: Number(row.lastSeenOnlineAt) || 0,
+  };
 }

@@ -7,6 +7,7 @@ import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
 import Mascot from './Mascot';
 import SchoolAnnouncementCard from './SchoolAnnouncementCard';
 import SchoolAnnouncementPublishDialog from './admin/SchoolAnnouncementPublishDialog';
+import SchoolAnnouncementReceiptsDialog from './admin/SchoolAnnouncementReceiptsDialog';
 import { getAppSettings } from '../utils/appSettings';
 import { getAdminUser } from '../services/examService';
 import { resolveDeviceScope } from '../utils/deviceScope';
@@ -152,6 +153,7 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState('');
   const [revokingId, setRevokingId] = useState('');
+  const [receiptsFor, setReceiptsFor] = useState<SchoolExamAnnouncement | null>(null);
 
   const query: SchoolAnnouncementQuery = useMemo(
     () => ({ status: filters.status, level: filters.level, scope: filters.scope, limit: PAGE_SIZE }),
@@ -629,6 +631,15 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                     <span className={`sann-badge is-${item.status}`}>{ANNOUNCEMENT_STATUS_LABELS[item.status]}</span>
                     {item.level === 'urgent' && <span className="sann-badge is-urgent">紧急</span>}
                     <span className="sann-badge">{ANNOUNCEMENT_STYLE_LABELS[item.style]}</span>
+                    {/* 回执徽标：已读设备数 / 应达设备数（设备口径，≥3 秒算已读）。 */}
+                    <span
+                      className={`sann-badge${
+                        item.targetCount && item.seenCount === item.targetCount ? ' is-active' : ''
+                      }`}
+                      title={`已送达 ${item.deliveredCount ?? 0} 台 · 应达 ${item.targetCount ?? 0} 台`}
+                    >
+                      已读 {item.seenCount ?? 0}/{item.targetCount ?? 0}
+                    </span>
                   </div>
                   {item.body.trim() && (
                     <div
@@ -643,16 +654,26 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
                     {item.examId && <span>关联考试 {item.examId}</span>}
                   </div>
                 </div>
-                {canSend && item.status === 'active' && (
+                <div className="sann-item__actions">
                   <button
-                    className="admin-btn admin-btn--danger"
+                    className="admin-btn admin-btn--ghost"
                     type="button"
-                    disabled={revokingId === item.id}
-                    onClick={() => void revoke(item)}
+                    onClick={() => setReceiptsFor(item)}
+                    title="查看这条公告在哪些教室看过、哪些还没看"
                   >
-                    {revokingId === item.id ? '撤回中…' : '撤回'}
+                    回执
                   </button>
-                )}
+                  {canSend && item.status === 'active' && (
+                    <button
+                      className="admin-btn admin-btn--danger"
+                      type="button"
+                      disabled={revokingId === item.id}
+                      onClick={() => void revoke(item)}
+                    >
+                      {revokingId === item.id ? '撤回中…' : '撤回'}
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -678,6 +699,14 @@ export default function SchoolAnnouncementsPanel({ can }: { can: (permission: st
             if (sending) return;
             setConfirmOpen(false);
           }}
+        />
+      )}
+
+      {receiptsFor && (
+        <SchoolAnnouncementReceiptsDialog
+          announcementId={receiptsFor.id}
+          title={receiptsFor.title}
+          onClose={() => setReceiptsFor(null)}
         />
       )}
     </main>

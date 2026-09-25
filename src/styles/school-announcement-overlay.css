@@ -76,6 +76,10 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+/* 回执计时挂在卡片外层容器上（IntersectionObserver 观察的就是它）。 */
+.sann-screen-window__item {
+  min-width: 0;
+}
 .sann-screen-empty {
   display: grid;
   justify-items: center;

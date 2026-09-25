@@ -23,6 +23,43 @@ export const ANNOUNCEMENT_DEFAULT_EXPIRES_MINUTES = 120;
 export const ANNOUNCEMENT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const ANNOUNCEMENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 export const ANNOUNCEMENT_DEFAULT_STYLE: AnnouncementStyle = 'card';
+/**
+ * 大屏上"看过"的门槛：累计展示满 3 秒才算已读（回执口径，2026-09-25 定稿）。
+ * 不足门槛的停留不记已读，只累加时长——避免滚动路过被算成已读。
+ */
+export const ANNOUNCEMENT_SEEN_MIN_MS = 3_000;
+/** 一次 ack 最多上报多少条公告（超出的留到下次，避免单请求过大）。 */
+export const ANNOUNCEMENT_ACK_BATCH_MAX = 50;
+/** 单条公告单次上报的时长上限（1 小时），防止设备时钟异常把统计撑坏。 */
+export const ANNOUNCEMENT_SEEN_MAX_MS = 60 * 60 * 1000;
+
+/** 设备上报的"看过"项：公告 id + 本次累计展示时长。 */
+export type AnnouncementSeenItem = { id: string; seenMs: number };
+
+/** 单条公告在一台设备上的回执（管理端查看）。 */
+export type AnnouncementReceipt = {
+  instanceId: string;
+  gradeId: string;
+  classId: string;
+  /** 设备拉到过这条公告的时间（送达）。 */
+  deliveredAt: number | null;
+  /** 首次真正展示满门槛的时间（已读）。 */
+  firstSeenAt: number | null;
+  lastSeenAt: number | null;
+  seenCount: number;
+  seenMs: number;
+  clientVersion: string;
+  lastSeenOnlineAt: number;
+};
+
+export type AnnouncementReceiptSummary = {
+  /** 按发布时的范围算出的应达设备数。 */
+  target: number;
+  /** 拉到过公告的设备数。 */
+  delivered: number;
+  /** 真正看过（≥3 秒）的设备数。 */
+  seen: number;
+};
 
 /** 发送时的有效期选项（分钟，0 = 不过期）。发送弹窗与公告管理页共用一份。 */
 export const ANNOUNCEMENT_EXPIRY_OPTIONS: Array<{ value: string; label: string }> = [
@@ -104,4 +141,40 @@ export function parseAnnouncementStyle(
 
 export function isAnnouncementImageType(mimeType: unknown): boolean {
   return (ANNOUNCEMENT_IMAGE_TYPES as readonly string[]).includes(String(mimeType ?? ''));
+}
+
+/**
+ * 归一化设备上报的"看过"列表：丢掉非法项、按时长上限截断、同一公告取较大值、限制条数。
+ * 服务端与客户端共用，避免两边对脏数据的容忍度不一致。
+ */
+export function normalizeSeenItems(raw: unknown, limit = ANNOUNCEMENT_ACK_BATCH_MAX): AnnouncementSeenItem[] {
+  if (!Array.isArray(raw)) return [];
+  const merged = new Map<string, number>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const id = String(row.id ?? '')
+      .trim()
+      .slice(0, 128);
+    if (!id) continue;
+    const seenMs = Math.max(0, Math.min(ANNOUNCEMENT_SEEN_MAX_MS, Math.trunc(Number(row.seenMs) || 0)));
+    // 同一批里出现两次（例如列表和弹窗都报了）取较大值，避免重复累加。
+    merged.set(id, Math.max(merged.get(id) ?? 0, seenMs));
+  }
+  return [...merged.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, Math.max(1, limit))
+    .map(([id, seenMs]) => ({ id, seenMs }));
+}
+
+/** 把新上报的时长并入本地待发送缓冲（同 id 累加，供离线补报）。 */
+export function mergeSeenItems(
+  pending: Record<string, number>,
+  incoming: readonly AnnouncementSeenItem[],
+): Record<string, number> {
+  const next: Record<string, number> = { ...pending };
+  for (const item of normalizeSeenItems(incoming)) {
+    next[item.id] = Math.min(ANNOUNCEMENT_SEEN_MAX_MS, (next[item.id] ?? 0) + item.seenMs);
+  }
+  return next;
 }

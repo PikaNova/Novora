@@ -312,6 +312,11 @@
   color: rgba(255, 255, 255, 0.5);
   font-size: 0.75rem;
 }
+.sann-item__actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
 .sann-badge {
   padding: 2px 8px;
   border-radius: 999px;
@@ -326,6 +331,142 @@
   background: rgba(231, 76, 60, 0.24);
   color: #ffb3aa;
   font-weight: 700;
+}
+.sann-badge.is-warn {
+  background: rgba(230, 162, 60, 0.22);
+  color: #f0c48a;
+}
+/* ===== 回执明细弹窗 ===== */
+.sann-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: min(88vh, 900px);
+  overflow: hidden;
+}
+.sann-receipts__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sann-receipts__lead {
+  margin: 6px 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.8rem;
+}
+.sann-receipts__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sann-receipts__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.sann-receipts__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.sann-receipts__stats span {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.74rem;
+}
+.sann-receipts__stats strong {
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+.sann-receipts__stats strong small {
+  font-size: 0.8rem;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.sann-receipts__stats > div.is-primary {
+  border-color: rgba(52, 152, 219, 0.5);
+  background: rgba(52, 152, 219, 0.14);
+}
+.sann-receipts__bar {
+  height: 6px;
+  margin-top: -4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+.sann-receipts__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3498db, #5cc8a1);
+}
+.sann-receipts__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sann-receipts__groups > span {
+  padding: 3px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.74rem;
+}
+.sann-receipts__groups > span.is-done {
+  border-color: rgba(92, 200, 161, 0.5);
+  background: rgba(92, 200, 161, 0.16);
+}
+.sann-receipts__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sann-receipts__table {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+}
+.sann-receipts__table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.sann-receipts__table th,
+.sann-receipts__table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: left;
+  white-space: nowrap;
+}
+.sann-receipts__table th {
+  position: sticky;
+  top: 0;
+  background: #14181f;
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 500;
+}
+.sann-receipts__table tr.is-seen td {
+  background: rgba(52, 152, 219, 0.06);
+}
+.sann-receipts__device {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sann-receipts__device code {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+.sann-receipts__device small {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.68rem;
 }
 .sann-empty {
   padding: 32px 0;
@@ -388,5 +529,8 @@
   }
   .sann-item {
     flex-direction: column;
+  }
+  .sann-receipts__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

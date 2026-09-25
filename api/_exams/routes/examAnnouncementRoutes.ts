@@ -5,12 +5,14 @@ import { database, ensureTableOnce, missingRelation } from '../db.js';
 import { examPayload } from '../payload.js';
 import { hasAllScope } from '../../../src/shared/permissionRules.js';
 import {
+  ANNOUNCEMENT_ACK_BATCH_MAX,
   ANNOUNCEMENT_BODY_MAX,
   ANNOUNCEMENT_DEFAULT_EXPIRES_MINUTES,
   ANNOUNCEMENT_IMAGE_MAX_BYTES,
   ANNOUNCEMENT_SCOPE_ID_MAX,
   ANNOUNCEMENT_TITLE_MAX,
   isAnnouncementImageType,
+  normalizeSeenItems,
   parseAnnouncementLevelFilter,
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
@@ -123,23 +125,39 @@ async function handleAnnouncementList(req: VercelRequest, res: VercelResponse): 
   const now = Date.now();
   const classGradeIds = await loadClassGradeIds(sql, actor);
   const rows = (await sql`
-    SELECT id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at
-    FROM exam_announcements
+    SELECT a.id, a.title, a.body, a.level, a.style, a.exam_id, a.scope_type, a.scope_ids,
+      a.created_by, a.created_at, a.expires_at, a.status,
+      -- 回执计数：一台设备一行，delivered=拉到过，seen=真正看过（≥3 秒）
+      (SELECT COUNT(*) FROM exam_announcement_receipts r WHERE r.announcement_id = a.id) AS delivered_count,
+      (SELECT COUNT(*) FROM exam_announcement_receipts r
+        WHERE r.announcement_id = a.id AND r.first_seen_at IS NOT NULL) AS seen_count,
+      -- 应达设备数按公告范围现算（不落库：设备换绑后历史公告的应达数随之变化）
+      (SELECT COUNT(*) FROM device_instances d
+        WHERE d.revoked = FALSE AND d.is_management = FALSE
+          AND (a.scope_type = 'all'
+            OR (a.scope_type = 'grade' AND d.grade_id IN (SELECT jsonb_array_elements_text(a.scope_ids)))
+            OR (a.scope_type = 'class' AND d.class_id IN (SELECT jsonb_array_elements_text(a.scope_ids))))) AS target_count
+    FROM exam_announcements a
     WHERE (
         ${status} = 'all'
-        OR (${status} = 'active' AND status = 'sent' AND (expires_at IS NULL OR expires_at > ${now}))
-        OR (${status} = 'expired' AND status = 'sent' AND expires_at IS NOT NULL AND expires_at <= ${now})
-        OR (${status} = 'revoked' AND status = 'revoked')
+        OR (${status} = 'active' AND a.status = 'sent' AND (a.expires_at IS NULL OR a.expires_at > ${now}))
+        OR (${status} = 'expired' AND a.status = 'sent' AND a.expires_at IS NOT NULL AND a.expires_at <= ${now})
+        OR (${status} = 'revoked' AND a.status = 'revoked')
       )
-      AND (${level} = 'all' OR level = ${level})
-      AND (${scope} = 'any' OR scope_type = ${scope})
-    ORDER BY created_at DESC
+      AND (${level} = 'all' OR a.level = ${level})
+      AND (${scope} = 'any' OR a.scope_type = ${scope})
+    ORDER BY a.created_at DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `) as unknown as Row[];
   const visible = rows.filter((row) => actorSeesAnnouncement(actor, row, classGradeIds));
   res.status(200).json({
     ok: true,
-    data: visible.slice(0, limit).map((row) => announcementJson(row, now)),
+    data: visible.slice(0, limit).map((row) => ({
+      ...announcementJson(row, now),
+      targetCount: number(row.target_count, 0),
+      deliveredCount: number(row.delivered_count, 0),
+      seenCount: number(row.seen_count, 0),
+    })),
     hasMore: rows.length > limit,
     serverTime: now,
   });
@@ -147,7 +165,10 @@ async function handleAnnouncementList(req: VercelRequest, res: VercelResponse): 
 
 /**
  * 教室端拉取：按设备绑定的年级/班级过滤，只回没过期的。
- * 排序：紧急优先，其次按时间倒序；一期不做回执，拉取即算送达。
+ * 排序：紧急优先，其次按时间倒序。
+ *
+ * 拉取即算"送达"：顺手把送达时间记进回执表。写入带 `WHERE delivered_at IS NULL` 守卫，
+ * 已经送达过的公告不会真的写行（这台设备每分钟拉一次，不能每次都产生一次 UPDATE）。
  */
 async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse): Promise<void> {
   const instanceId = text(req.query?.instanceId ?? req.body?.instanceId)
@@ -160,7 +181,7 @@ async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse
   await ensureTableOnce();
   const sql = database();
   const deviceRows = (await sql`
-    SELECT grade_id, class_id, revoked FROM device_instances WHERE instance_id = ${instanceId}
+    SELECT grade_id, class_id, client_version, revoked FROM device_instances WHERE instance_id = ${instanceId}
   `) as unknown as Row[];
   const device = deviceRows[0];
   if (!device || device.revoked === true) {
@@ -171,7 +192,7 @@ async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse
   const classId = text(device.class_id);
   const now = Date.now();
   const rows = (await sql`
-    SELECT id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at
+    SELECT id, title, body, level, style, exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status
     FROM exam_announcements
     WHERE status = 'sent'
       AND (expires_at IS NULL OR expires_at > ${now})
@@ -183,6 +204,20 @@ async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse
     ORDER BY CASE WHEN level = 'urgent' THEN 0 ELSE 1 END, created_at DESC
     LIMIT 20
   `) as unknown as Row[];
+  const deliveredIds = rows.map((row) => text(row.id)).filter(Boolean);
+  if (deliveredIds.length) {
+    await sql`
+      INSERT INTO exam_announcement_receipts (announcement_id, instance_id, grade_id, class_id, delivered_at, updated_at)
+      SELECT item.id, ${instanceId}, ${gradeId}, ${classId}, ${now}, ${now}
+      FROM jsonb_to_recordset(${JSON.stringify(deliveredIds.map((id) => ({ id })))}::jsonb) AS item(id text)
+      ON CONFLICT (announcement_id, instance_id) DO UPDATE SET
+        delivered_at = COALESCE(exam_announcement_receipts.delivered_at, EXCLUDED.delivered_at),
+        grade_id = EXCLUDED.grade_id,
+        class_id = EXCLUDED.class_id,
+        updated_at = EXCLUDED.updated_at
+      WHERE exam_announcement_receipts.delivered_at IS NULL
+    `;
+  }
   res.status(200).json({ ok: true, data: rows.map((row) => announcementJson(row, now)), serverTime: now });
 }
 
@@ -297,6 +332,151 @@ export function announcementImageUrl(id: number | string): string {
 }
 
 /**
+ * 教室端回执上报（`action=announce-ack`，无需登录，但要求设备已绑定且未撤销）。
+ *
+ * 每条 = 「这台设备把这条公告展示满 ANNOUNCEMENT_SEEN_MIN_MS（3 秒）」，
+ * seenMs 是本次实际停留时长。同一台设备同一条公告只保留一行：
+ * 重复上报累加 seen_ms 与 seen_count，不写流水行——免费版数据库扛不住按次写。
+ * 返回 recorded 让客户端知道哪些已被接受，离线补报时按这个收敛本地缓冲。
+ */
+async function handleAnnouncementAck(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'POST') {
+    error(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return;
+  }
+  const instanceId = text(req.body?.instanceId).trim().slice(0, 128);
+  if (!instanceId) {
+    error(res, 400, 'INVALID_INSTANCE', 'instanceId is required');
+    return;
+  }
+  const seen = normalizeSeenItems(req.body?.seen, ANNOUNCEMENT_ACK_BATCH_MAX);
+  await ensureTableOnce();
+  const sql = database();
+  const deviceRows = (await sql`
+    SELECT grade_id, class_id, revoked FROM device_instances WHERE instance_id = ${instanceId}
+  `) as unknown as Row[];
+  const device = deviceRows[0];
+  if (!device || device.revoked === true) {
+    error(res, 404, 'DEVICE_NOT_FOUND', '设备未绑定或已撤销');
+    return;
+  }
+  const now = Date.now();
+  // 客户端版本取设备心跳写入的那一列，设备不必在回执里重复上报。
+  const clientVersion = text(device.client_version).slice(0, 40);
+  if (!seen.length) {
+    res.status(200).json({ ok: true, recorded: 0, serverTime: now });
+    return;
+  }
+  const payload = JSON.stringify(seen.map((item) => ({ id: item.id, seen_ms: item.seenMs })));
+  const recorded = (await sql`
+    INSERT INTO exam_announcement_receipts (announcement_id, instance_id, grade_id, class_id,
+      delivered_at, first_seen_at, last_seen_at, seen_count, seen_ms, client_version, updated_at)
+    SELECT item.id, ${instanceId}, ${text(device.grade_id)}, ${text(device.class_id)},
+      ${now}, ${now}, ${now}, 1, COALESCE(item.seen_ms, 0), ${clientVersion}, ${now}
+    FROM jsonb_to_recordset(${payload}::jsonb) AS item(id text, seen_ms bigint)
+    JOIN exam_announcements a ON a.id = item.id
+    ON CONFLICT (announcement_id, instance_id) DO UPDATE SET
+      last_seen_at = EXCLUDED.last_seen_at,
+      seen_count = exam_announcement_receipts.seen_count + 1,
+      seen_ms = exam_announcement_receipts.seen_ms + EXCLUDED.seen_ms,
+      first_seen_at = COALESCE(exam_announcement_receipts.first_seen_at, EXCLUDED.first_seen_at),
+      delivered_at = COALESCE(exam_announcement_receipts.delivered_at, EXCLUDED.delivered_at),
+      grade_id = EXCLUDED.grade_id,
+      class_id = EXCLUDED.class_id,
+      client_version = EXCLUDED.client_version,
+      updated_at = EXCLUDED.updated_at
+    RETURNING announcement_id
+  `) as unknown as Row[];
+  res.status(200).json({ ok: true, recorded: recorded.length, serverTime: now });
+}
+
+/**
+ * 管理端回执明细（`?resource=announcement-receipts&id=xx`）：公告 + 应达设备逐台状态。
+ *
+ * 以设备为准（2026-09-25 定稿）：设备是公告的实际受众，管理端只看"哪间教室看过/没看过"。
+ * 设备清单按公告范围现算，再按当前账号的数据范围过滤，班级管理员只能看到自己范围内的教室。
+ */
+async function handleAnnouncementReceipts(req: VercelRequest, res: VercelResponse): Promise<void> {
+  const actor = await requireActor(req, res, 'major.read');
+  if (!actor) return;
+  const id = text(req.query?.id).trim().slice(0, 128);
+  if (!id) {
+    error(res, 400, 'INVALID_ANNOUNCEMENT', 'id is required');
+    return;
+  }
+  await ensureTableOnce();
+  const sql = database();
+  const announcementRows = (await sql`
+    SELECT id, title, level, style, scope_type, scope_ids, created_at, expires_at, status
+    FROM exam_announcements WHERE id = ${id}
+  `) as unknown as Row[];
+  const announcement = announcementRows[0];
+  if (!announcement) {
+    error(res, 404, 'ANNOUNCEMENT_NOT_FOUND', '公告不存在');
+    return;
+  }
+  if (!actorSeesAnnouncement(actor, announcement, await loadClassGradeIds(sql, actor))) {
+    // 范围外一律按"找不到"处理，避免通过回执接口旁路出别人范围内的公告。
+    error(res, 404, 'ANNOUNCEMENT_NOT_FOUND', '公告不存在');
+    return;
+  }
+  const scopeType = text(announcement.scope_type) || 'all';
+  const scopeIdsJson = JSON.stringify(idList(announcement.scope_ids));
+  const rows = (await sql`
+    SELECT d.instance_id, d.grade_id, d.class_id, d.client_version,
+      d.last_seen_at AS device_last_seen_at,
+      r.delivered_at, r.first_seen_at, r.last_seen_at AS receipt_last_seen_at, r.seen_count, r.seen_ms
+    FROM device_instances d
+    LEFT JOIN exam_announcement_receipts r
+      ON r.announcement_id = ${id} AND r.instance_id = d.instance_id
+    WHERE d.revoked = FALSE
+      AND d.is_management = FALSE
+      AND (${scopeType} = 'all'
+        OR (${scopeType} = 'grade' AND d.grade_id IN (SELECT jsonb_array_elements_text(${scopeIdsJson}::jsonb)))
+        OR (${scopeType} = 'class' AND d.class_id IN (SELECT jsonb_array_elements_text(${scopeIdsJson}::jsonb))))
+    ORDER BY d.grade_id, d.class_id, d.instance_id
+  `) as unknown as Row[];
+  const visible = rows.filter((row) =>
+    hasAllScope(actor) ? true : canAccessClass(actor, text(row.grade_id), text(row.class_id)),
+  );
+  const receipts = visible.map((row) => ({
+    instanceId: text(row.instance_id),
+    gradeId: text(row.grade_id),
+    classId: text(row.class_id),
+    deliveredAt: row.delivered_at == null ? null : number(row.delivered_at),
+    firstSeenAt: row.first_seen_at == null ? null : number(row.first_seen_at),
+    lastSeenAt: row.receipt_last_seen_at == null ? null : number(row.receipt_last_seen_at),
+    seenCount: number(row.seen_count, 0),
+    seenMs: number(row.seen_ms, 0),
+    clientVersion: text(row.client_version),
+    lastSeenOnlineAt: number(row.device_last_seen_at, 0),
+  }));
+  res.status(200).json({
+    ok: true,
+    announcement: {
+      id: text(announcement.id),
+      title: text(announcement.title),
+      level: text(announcement.level) === 'urgent' ? 'urgent' : 'normal',
+      style: parseAnnouncementStyle(announcement.style),
+      scopeType,
+      scopeIds: idList(announcement.scope_ids),
+      createdAt: number(announcement.created_at),
+      expiresAt: announcement.expires_at == null ? null : number(announcement.expires_at),
+      status: resolveAnnouncementStatus(
+        { status: announcement.status, expiresAt: number(announcement.expires_at, 0) },
+        Date.now(),
+      ),
+    },
+    summary: {
+      target: receipts.length,
+      delivered: receipts.filter((item) => item.deliveredAt != null).length,
+      seen: receipts.filter((item) => item.firstSeenAt != null).length,
+    },
+    receipts,
+  });
+}
+
+/**
  * 公告正文图片。
  *
  * - `GET ?resource=announcement-image&id=N` 不鉴权：教室大屏按公告正文里的 Markdown
@@ -384,8 +564,16 @@ export async function handleExamAnnouncementRoute(
     await handleDeviceAnnouncements(req, res);
     return;
   }
+  if (req.method === 'GET' && resource === 'announcement-receipts') {
+    await handleAnnouncementReceipts(req, res);
+    return;
+  }
   if (req.method === 'GET' && resource === 'announcements') {
     await handleAnnouncementList(req, res);
+    return;
+  }
+  if (actionName === 'announce-ack' || text(req.body?.action) === 'announce-ack') {
+    await handleAnnouncementAck(req, res);
     return;
   }
   if (actionName === 'announce-send' || text(req.body?.action) === 'announce-send') {

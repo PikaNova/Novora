@@ -82,6 +82,8 @@ const RECORD_ACTIONS = new Set([
 const ANNOUNCEMENT_WRITE_ACTIONS = new Set([
   'announce-send',
   'announce-revoke',
+  // 教室大屏的"看过"回执：设备上报，不是管理员操作，但仍走同一条公告路由。
+  'announce-ack',
   'announce-image-upload',
   'announce-image-delete',
 ]);
@@ -173,7 +175,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res);
         return;
       }
-      if (resource === 'announcements' || resource === 'device-announcements' || resource === 'announcement-image') {
+      if (
+        resource === 'announcements' ||
+        resource === 'device-announcements' ||
+        resource === 'announcement-image' ||
+        resource === 'announcement-receipts'
+      ) {
         await handleExamAnnouncementRoute(req, res);
         return;
       }

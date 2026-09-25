@@ -3,11 +3,15 @@ import test from 'node:test';
 import {
   ANNOUNCEMENT_EXPIRY_OPTIONS,
   ANNOUNCEMENT_IMAGE_MAX_BYTES,
+  ANNOUNCEMENT_SEEN_MAX_MS,
+  ANNOUNCEMENT_SEEN_MIN_MS,
   ANNOUNCEMENT_SCOPE_LABELS,
   ANNOUNCEMENT_STATUS_LABELS,
   ANNOUNCEMENT_STYLES,
   ANNOUNCEMENT_STYLE_LABELS,
   isAnnouncementImageType,
+  mergeSeenItems,
+  normalizeSeenItems,
   parseAnnouncementLevelFilter,
   parseAnnouncementScopeFilter,
   parseAnnouncementStatusFilter,
@@ -101,4 +105,40 @@ test('image constraints match what the server accepts', () => {
     assert.equal(isAnnouncementImageType(mimeType), false);
   }
   assert.equal(ANNOUNCEMENT_IMAGE_MAX_BYTES, 2 * 1024 * 1024);
+});
+
+// 回执口径（2026-09-25 定稿）：设备把公告展示满 3 秒才算已读，时长累计上报。
+test('seen threshold and per-report cap are the agreed values', () => {
+  assert.equal(ANNOUNCEMENT_SEEN_MIN_MS, 3000);
+  assert.equal(ANNOUNCEMENT_SEEN_MAX_MS, 60 * 60 * 1000);
+});
+
+test('normalizeSeenItems drops junk, clamps duration and keeps the larger duplicate', () => {
+  const cleaned = normalizeSeenItems([
+    { id: 'ann_a', seenMs: 3000 },
+    { id: 'ann_a', seenMs: 8000 },
+    { id: '', seenMs: 5000 },
+    { id: 'ann_b', seenMs: -20 },
+    { id: 'ann_c', seenMs: ANNOUNCEMENT_SEEN_MAX_MS * 10 },
+    'nope',
+    null,
+  ]);
+  assert.deepEqual(Object.fromEntries(cleaned.map((item) => [item.id, item.seenMs])), {
+    ann_a: 8000,
+    ann_b: 0,
+    ann_c: ANNOUNCEMENT_SEEN_MAX_MS,
+  });
+  assert.deepEqual(normalizeSeenItems('not-an-array'), []);
+  assert.deepEqual(normalizeSeenItems([{ id: 'ann_a', seenMs: 1000 }], 0), [{ id: 'ann_a', seenMs: 1000 }]);
+});
+
+test('mergeSeenItems accumulates pending durations for offline replay', () => {
+  const pending = mergeSeenItems({ ann_a: 3000 }, [
+    { id: 'ann_a', seenMs: 2000 },
+    { id: 'ann_b', seenMs: 4000 },
+  ]);
+  assert.deepEqual(pending, { ann_a: 5000, ann_b: 4000 });
+  // 累计时长有上限，设备时钟异常也不会把统计撑坏。
+  const capped = mergeSeenItems({ ann_a: ANNOUNCEMENT_SEEN_MAX_MS }, [{ id: 'ann_a', seenMs: 5000 }]);
+  assert.equal(capped.ann_a, ANNOUNCEMENT_SEEN_MAX_MS);
 });
