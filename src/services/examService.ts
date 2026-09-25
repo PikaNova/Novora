@@ -36,6 +36,15 @@ const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
 /**
+ * 最近一次 409 返回的云端快照（与 `CLOUD_SNAPSHOT_KEY` 分开存）。
+ *
+ * 冲突后的重试（客户端三方合并 → 再提交）需要一份「与服务端版本配套的基线」才能继续只提交变化域。
+ * 但不能把它写成 `getCloudSnapshot()`：调用方把 getCloudSnapshot() 当作三方合并的 base，
+ * 换成 remote 会让「远端已改、本地未改」的字段被误判成本地值，静默丢掉对方的改动。
+ * 因此单独存一份，仅在保存时作为逐域比对基线使用。
+ */
+const CLOUD_CONFLICT_BASE_KEY = 'exam_cloud_conflict_base';
+/**
  * 边缘缓存能力标记：只有服务端在某次心跳里回过 version 才会置位。
  * 置位后客户端才使用版本化快照 URL、并放弃公告的缓存穿透参数；
  * 本地 / Docker / 内网部署不会置位，因此连请求形状都保持改造前不变，
@@ -309,12 +318,43 @@ export function applyFrozenArchivedMajors(majors: MajorExam[], frozen: MajorExam
 
 /**
  * 与服务端基线对齐的「已保存快照」：只有版本号与快照一致时才可用于逐域比对。
- * 版本对不上（例如刚发生过 409、或快照属于更早的版本）时返回 null，调用方退回整份提交。
+ *
+ * 先看本机已应用的快照；对不上时再看最近一次 409 回传的云端版本——冲突重试正是拿它当基线，
+ * 否则每次冲突都会退回「整份提交」，把 A 段省下来的字节又还回去。
+ * 两者都对不上（例如快照属于更早的版本）才返回 null，由调用方退回整份提交。
  */
 function saveBaseSnapshot(baseUpdatedAt: number): ExamPayload | null {
   if (!(baseUpdatedAt > 0)) return null;
   const snapshot = getCloudSnapshot();
-  return snapshot && snapshot.updatedAt === baseUpdatedAt ? snapshot : null;
+  if (snapshot && snapshot.updatedAt === baseUpdatedAt) return snapshot;
+  const conflictBase = getConflictBaseSnapshot();
+  return conflictBase && conflictBase.updatedAt === baseUpdatedAt ? conflictBase : null;
+}
+
+/** 冲突重试的基线：只在 409 之后写入，成功后清除。 */
+function rememberConflictBase(payload: ExamPayload): void {
+  try {
+    localStorage.setItem(CLOUD_CONFLICT_BASE_KEY, JSON.stringify(payload));
+  } catch {
+    /* 隐私模式下退化为整份提交 */
+  }
+}
+
+function getConflictBaseSnapshot(): ExamPayload | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CLOUD_CONFLICT_BASE_KEY) || 'null');
+    return parsed && typeof parsed === 'object' ? parseExamPayload(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearConflictBase(): void {
+  try {
+    localStorage.removeItem(CLOUD_CONFLICT_BASE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 function toSaveSnapshot(input: SaveExamsInput): ExamSaveSnapshot {
@@ -396,8 +436,12 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     }
     if (res.status === 409) {
       const data = await res.json().catch(() => null);
-      if (data?.code === 'DATA_CONFLICT' || data?.remote)
-        return { kind: 'conflict', remote: data?.remote ? parseExamPayload(data.remote) : null };
+      if (data?.code === 'DATA_CONFLICT' || data?.remote) {
+        const remote = data?.remote ? parseExamPayload(data.remote) : null;
+        // 记下服务端版本：调用方的三方合并会用 remote.updatedAt 重试，那时只有这份快照配得上该版本号。
+        if (remote) rememberConflictBase(remote);
+        return { kind: 'conflict', remote };
+      }
       const replay = new Response(JSON.stringify(data), { status: res.status, headers: res.headers });
       const error = await apiErrorFromResponse(replay, '云端拒绝了本次保存');
       lastExamApiError = error;
@@ -414,6 +458,8 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
     if (!data?.ok) return null;
     if (input.action === 'initialize' && typeof data.recoveryKey === 'string') generatedRecoveryKey = data.recoveryKey;
     const updatedAt = Number(data.updatedAt ?? Date.now());
+    // 本次提交已经落地，冲突基线作废；留着只会让后续版本号比较多一条擦边命中的可能。
+    clearConflictBase();
     const frozen = Array.isArray(data.frozenMajors) ? (data.frozenMajors as MajorExam[]) : [];
     frozenArchivedMajors = frozen;
     // 归档条目按服务端版本写进基线快照：否则本地基线仍是"已删除/已改名"的旧值，

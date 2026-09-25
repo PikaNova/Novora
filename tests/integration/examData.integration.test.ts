@@ -193,7 +193,8 @@ async function readPayload() {
   const rows = (await database()`
     SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode,
            active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy,
-           grades, classes, initialization, design_policy, revisions, updated_at
+           grades, classes, initialization, design_policy, major_batch_presets, exam_metadata,
+           lifecycle, revisions, updated_at
     FROM exam_data WHERE id = 1
   `) as unknown as ExamRow[];
   return examPayload(rows[0] ?? {});
