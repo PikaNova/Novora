@@ -14,6 +14,7 @@ import {
   type PermissionScope,
 } from '../shared/permissionRules';
 import { examSnapshotQuery, parseExamPayload, parseExamVersion, type ExamPayload } from '../shared/examContracts';
+import { mergeExamSnapshotPartial } from '../shared/examSnapshotDelta';
 import {
   clearAuthSession,
   getAuthToken,
@@ -31,6 +32,7 @@ import {
   presentExamSaveDomains,
   revisionDomainsFor,
   EXAM_REVISION_DOMAINS,
+  EXAM_REVISION_DOMAIN_FIELDS,
   type ExamSaveDomain,
   type ExamSaveSnapshot,
 } from '../shared/examSaveDiff';
@@ -185,7 +187,7 @@ export async function fetchExamsFromServer(
     return lastSnapshot.payload;
   }
   if (snapshotFlight) return snapshotFlight;
-  snapshotFlight = fetchExamsOnce()
+  snapshotFlight = fetchExamsOnce(undefined, knownSnapshotRevisions())
     .then((payload) => {
       lastSnapshot = { at: Date.now(), payload };
       return payload;
@@ -196,7 +198,41 @@ export async function fetchExamsFromServer(
   return snapshotFlight;
 }
 
-async function fetchExamsOnce(bootstrapInstanceId?: string): Promise<ExamPayload | null> {
+/**
+ * 本地缓存能不能用来做增量读：每个修订域都要有修订号、且该域涉及的字段都在缓存里。
+ *
+ * 只有服务端说「这个域没变」时我们才不发它的字段，所以必须保证本地确实有那份内容——
+ * 缺修订号（老缓存）或缺字段时返回 null，退回整份读取。
+ */
+function knownSnapshotRevisions(): Record<string, number> | null {
+  const snapshot = getCloudSnapshot();
+  if (!snapshot) return null;
+  const record = snapshot as unknown as Record<string, unknown>;
+  const revisions = record.revisions;
+  if (!revisions || typeof revisions !== 'object') return null;
+  const table = revisions as Record<string, unknown>;
+  const since: Record<string, number> = {};
+  for (const domain of EXAM_REVISION_DOMAINS) {
+    const value = table[domain];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+    for (const field of EXAM_REVISION_DOMAIN_FIELDS[domain]) {
+      if (!Object.prototype.hasOwnProperty.call(record, field)) return null;
+    }
+    since[domain] = value;
+  }
+  return since;
+}
+
+/** 增量读的 URL：`resource=snapshot&since=<各域修订号>`。 */
+function examSnapshotSinceQuery(since: Record<string, number>): string {
+  const params = new URLSearchParams({ resource: 'snapshot', since: JSON.stringify(since) });
+  return params.toString();
+}
+
+async function fetchExamsOnce(
+  bootstrapInstanceId?: string,
+  since: Record<string, number> | null = null,
+): Promise<ExamPayload | null> {
   try {
     const headers: Record<string, string> = {};
     const isBootstrap = !!bootstrapInstanceId;
@@ -208,6 +244,9 @@ async function fetchExamsOnce(bootstrapInstanceId?: string): Promise<ExamPayload
     let url = API_URL;
     if (isBootstrap) {
       url = `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`;
+    } else if (since) {
+      // 有完整本地缓存：只问变了的那几个域（整份 135KB → 常见情况几 KB）。
+      url = `${API_URL}?${examSnapshotSinceQuery(since)}`;
     } else if (cloudVersion > 0 && supportsEdgeCache()) {
       url = `${API_URL}?${examSnapshotQuery(cloudVersion)}`;
     }
@@ -258,6 +297,17 @@ async function fetchExamsOnce(bootstrapInstanceId?: string): Promise<ExamPayload
         retryable: true,
       });
       return null;
+    }
+    // 服务端按域增量回应：与本地缓存叠加后再解析。缓存不可用（被清空/换账号）时
+    // 退一次整份读取，绝不拿半份数据当完整快照用。
+    if (data?.partial === true) {
+      const base = getCloudSnapshot();
+      const merged = mergeExamSnapshotPartial(base as unknown as Record<string, unknown> | null, data);
+      if (!merged) return fetchExamsOnce(bootstrapInstanceId, null);
+      const mergedPayload = parseExamPayload(merged);
+      rememberCloudSnapshot(mergedPayload);
+      lastExamApiError = null;
+      return mergedPayload;
     }
     const payload = parseExamPayload(data);
     rememberCloudSnapshot(payload);
@@ -437,9 +487,16 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
       recordSaveSummary([], 0, true);
       return baseUpdatedAt;
     }
+    /**
+     * 这里刻意**不做**「内容指纹去重」：试过一版「同一份内容 10 秒内不再推」，
+     * 结果把 outbox 重放、冲突重试与归档冻结回灌这几条必须重推的路径一起挡掉了
+     * （tests/examOutbox.pipeline.test.ts 与 tests/examFrozenArchivedMajors.test.ts 立刻报红）。
+     * 真正安全的去重只有上面那条：与**服务端基线**逐域比过、确认没有变化才跳过。
+     */
+    const submitBody = diff ? diff.body : fullExamSaveBody(toSaveSnapshot(input));
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const requestBody: Record<string, unknown> = {
-      ...(diff ? diff.body : fullExamSaveBody(toSaveSnapshot(input))),
+      ...submitBody,
       baseUpdatedAt,
     };
     // 有可比基线时同时给出域级修订号：服务端据此只校验「本次要写的域」，

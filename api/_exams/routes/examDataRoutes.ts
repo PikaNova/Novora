@@ -11,6 +11,7 @@ import {
 } from '../db.js';
 import { examPayload } from '../payload.js';
 import { examEtag, isCurrentSnapshotRequest, matchesIfNoneMatch } from '../../../src/shared/examContracts.js';
+import { examSnapshotDelta, parseSinceRevisions } from '../../../src/shared/examSnapshotDelta.js';
 import {
   EXAM_REVISION_DOMAINS,
   EXAM_REVISION_DOMAIN_FIELDS,
@@ -156,6 +157,24 @@ export async function handleExamDataGet(req: VercelRequest, res: VercelResponse,
     updated_at: 0,
   };
   const payload = examPayload(row);
+  // 域级增量读：客户端带着「我手上各域的修订号」来时，只回真的变了的域。
+  // 整份快照 ~135KB，改个提醒设置也要重下整份（线上实测 1.17s），这里用写路径同一把尺子收敛。
+  const since = parseSinceRevisions(req.query?.since);
+  if (since) {
+    const delta = examSnapshotDelta(payload as unknown as Record<string, unknown>, since);
+    res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).send(
+      JSON.stringify({
+        ok: true,
+        partial: true,
+        ...delta.fields,
+        revisions: delta.revisions,
+        updatedAt: delta.updatedAt,
+      }),
+    );
+    return;
+  }
   const body = JSON.stringify(payload);
   res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.setHeader('Content-Type', 'application/json');

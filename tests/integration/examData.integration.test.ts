@@ -74,11 +74,12 @@ function makeTopLevelReq(
   method: string,
   body: Record<string, unknown> = {},
   headers: Record<string, string> = {},
+  query: Record<string, string> = {},
 ): VercelRequest {
   return {
     method,
     headers,
-    query: {},
+    query,
     cookies: {},
     body,
   } as unknown as VercelRequest;
@@ -252,9 +253,9 @@ async function getAudit(token: string) {
 }
 
 /** 走真实的 GET /api/exams（顶层入口），用于验证 ETag 协商。 */
-async function getSnapshot(token: string, headers: Record<string, string> = {}) {
+async function getSnapshot(token: string, headers: Record<string, string> = {}, query: Record<string, string> = {}) {
   const { res, calls } = makeRes();
-  const req = makeTopLevelReq('GET', {}, { authorization: `Bearer ${token}`, ...headers });
+  const req = makeTopLevelReq('GET', {}, { authorization: `Bearer ${token}`, ...headers }, query);
   await examsHandler(req, res);
   return calls;
 }
@@ -277,6 +278,111 @@ test('快照 GET 的 ETag 协商：强 ETag 与反代改写的弱 ETag 都要命
   const stale = await getSnapshot(admin.token, { 'if-none-match': '"exam-9999999999999"' });
   assert.equal(stale.statusCode, 200, 'ETag 不匹配时必须返回完整快照');
   assert.ok(String(stale.body).length > 0);
+});
+
+/**
+ * 域级增量读：整份快照 ~135KB（班级、科目、周测…），改一个域也会让文档版本前进、
+ * 客户端随即重下整份。带 `since` 时服务端只回真的变了的域。
+ */
+test('快照增量读：带 since 只回变化的域，整份读取行为不变', async () => {
+  // 造一份"像真的"快照：20 个班级 + 8 个科目，整份明显比增量大。
+  await seedExam({
+    grades: [{ id: 'g1', name: 'Grade one' }],
+    classes: Array.from({ length: 20 }, (_, index) => ({
+      id: `c${index + 1}`,
+      gradeId: 'g1',
+      name: `Class ${index + 1}`,
+    })),
+    majors: [
+      {
+        id: 'm1',
+        name: '大型考试',
+        items: Array.from({ length: 8 }, (_, index) => ({
+          id: `i${index + 1}`,
+          name: `Subject ${index + 1}`,
+          startTime: '2026-09-25T09:00',
+          endTime: '2026-09-25T11:00',
+          enabled: true,
+        })),
+      },
+    ],
+  });
+  await releaseWriteSlot();
+  const seeded = await readPayload();
+  const written = await post(admin.token, bodyFrom(seeded));
+  assert.equal(written.statusCode, 200);
+
+  const full = await getSnapshot(admin.token);
+  assert.equal(full.statusCode, 200);
+  const fullBody = JSON.parse(String(full.body)) as Record<string, unknown>;
+  const revisions = fullBody.revisions as Record<string, number>;
+  assert.equal(
+    Object.values(revisions).every((value) => typeof value === 'number'),
+    true,
+    '整份快照必须带各域修订号（客户端据此判断能不能问增量）',
+  );
+  assert.equal(Array.isArray(fullBody.classes) && fullBody.classes.length, 20);
+
+  // 1) 客户端手上就是最新：一个域的字段都不该下发（只回非域字段）
+  const unchanged = await getSnapshot(
+    admin.token,
+    {},
+    {
+      resource: 'snapshot',
+      since: JSON.stringify(revisions),
+    },
+  );
+  assert.equal(unchanged.statusCode, 200);
+  const unchangedBody = JSON.parse(String(unchanged.body)) as Record<string, unknown>;
+  assert.equal(unchangedBody.partial, true);
+  assert.equal(unchangedBody.classes, undefined, '没变的班级域不该再传');
+  assert.equal(unchangedBody.items, undefined);
+  assert.equal(unchangedBody.majors, undefined);
+  assert.deepEqual(unchangedBody.revisions, revisions);
+  assert.ok(
+    String(unchanged.body).length * 3 < String(full.body).length,
+    `增量响应要明显更小：${String(unchanged.body).length} vs ${String(full.body).length}`,
+  );
+
+  // 2) 只改提醒设置：再用旧修订号问，只回 alerts 域
+  await releaseWriteSlot();
+  const before = await readPayload();
+  const savedAlerts = await post(admin.token, {
+    alerts: { enabled: false, durationSec: 8, states: {}, custom: [], silentMode: 'all', updatedAt: Date.now() },
+    baseUpdatedAt: before.updatedAt,
+    baseRevisions: revisions,
+  });
+  assert.equal(savedAlerts.statusCode, 200);
+
+  const delta = await getSnapshot(
+    admin.token,
+    {},
+    {
+      resource: 'snapshot',
+      since: JSON.stringify(revisions),
+    },
+  );
+  const deltaBody = JSON.parse(String(delta.body)) as Record<string, unknown>;
+  assert.equal(deltaBody.partial, true);
+  assert.ok(deltaBody.alerts, '变化过的 alerts 域必须下发');
+  assert.equal(deltaBody.classes, undefined, '改提醒设置不该重传班级');
+  assert.equal(deltaBody.items, undefined, '改提醒设置不该重传科目');
+  const deltaRevisions = deltaBody.revisions as Record<string, number>;
+  assert.equal(deltaRevisions.alerts, revisions.alerts + 1);
+  assert.equal(deltaRevisions.classes, revisions.classes);
+
+  // 3) 不带 since 的老客户端：仍然是整份快照，行为不变
+  const plain = await getSnapshot(admin.token);
+  const plainBody = JSON.parse(String(plain.body)) as Record<string, unknown>;
+  assert.equal(plainBody.partial, undefined);
+  assert.equal(Array.isArray(plainBody.classes) && plainBody.classes.length, 20);
+  assert.equal(plainBody.alerts !== undefined, true);
+
+  // 4) since 格式不对（缺域/不是数字）：退回整份，不猜
+  const broken = await getSnapshot(admin.token, {}, { resource: 'snapshot', since: '{"major":1}' });
+  const brokenBody = JSON.parse(String(broken.body)) as Record<string, unknown>;
+  assert.equal(brokenBody.partial, undefined, '看不懂的 since 一律整份下发');
+  assert.equal(Array.isArray(brokenBody.classes) && brokenBody.classes.length, 20);
 });
 
 beforeEach(async () => {
