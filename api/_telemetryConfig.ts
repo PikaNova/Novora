@@ -12,7 +12,7 @@
 //
 // 注意：本配置只在服务端函数（api/*）中使用，不会随浏览器包体下发。
 
-import { ensureTelemetryIpSalt } from './_auth.js';
+import { ensureTelemetryIpSalt } from './_telemetry/ipSalt.js';
 
 // ==== 作者维护区：域名变更改这里，然后发布新版本即可 ====
 const REPO_BASE_URL = 'https://telemetry.pikachu2026.space';

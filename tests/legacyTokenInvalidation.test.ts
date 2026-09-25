@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import path from 'node:path';
 
-const authSource = readFileSync(path.join(process.cwd(), 'api/_auth.ts'), 'utf8');
+// 鉴权实现自 v1.32 起按职责拆在 api/_auth/*，barrel 只做转出。
+// 这里把所有模块拼成一份源码再断言，等于「不论函数住在哪个文件都盯住同一条不变量」。
+const authModuleDir = path.join(process.cwd(), 'api/_auth');
+const authSource = [
+  readFileSync(path.join(process.cwd(), 'api/_auth.ts'), 'utf8'),
+  ...readdirSync(authModuleDir)
+    .filter((name) => name.endsWith('.ts'))
+    .sort()
+    .map((name) => readFileSync(path.join(authModuleDir, name), 'utf8')),
+].join('\n');
 const usersSource = readFileSync(path.join(process.cwd(), 'api/users.ts'), 'utf8');
 
 function functionSource(source: string, name: string): string {
