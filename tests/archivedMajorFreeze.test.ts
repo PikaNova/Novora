@@ -55,6 +55,44 @@ test('freezeArchivedMajors: 原样提交（outbox 重放）不会被标记为冻
   assert.deepEqual(idsOf(result.body), ['archived-1']);
 });
 
+test('freezeArchivedMajors: 只有排序字段变了不算"被改过"（前端每次保存都会重排 order）', () => {
+  const withItems = {
+    ...archivedMajor,
+    order: 4,
+    items: [
+      { id: 'i1', name: '数学', startTime: '2026-06-07T09:00', endTime: '2026-06-07T11:00', enabled: true, order: 0 },
+      { id: 'i2', name: '语文', startTime: '2026-06-07T14:00', endTime: '2026-06-07T16:00', enabled: true, order: 1 },
+    ],
+  };
+  const resorted = {
+    ...withItems,
+    order: 5,
+    items: withItems.items.map((item, index) => ({ ...item, order: index + 1 })),
+  };
+  const result = freezeArchivedMajors(current([withItems]), { majors: [resorted] });
+  assert.deepEqual(result.frozenIds, [], '纯排序变化（新增/删除别的考试导致的重新编号）不该报成"已归档：修改没有生效"');
+  assert.deepEqual(result.frozenMajors, []);
+});
+
+test('freezeArchivedMajors: 真正的内容改动仍然被拦下（改名 / 删科目）', () => {
+  const renamed = freezeArchivedMajors(current([archivedMajor]), {
+    majors: [{ ...archivedMajor, name: '改过的名字' }],
+  });
+  assert.deepEqual(renamed.frozenIds, ['archived-1']);
+
+  const withItems = {
+    ...archivedMajor,
+    items: [
+      { id: 'i1', name: '数学', startTime: '2026-06-07T09:00', endTime: '2026-06-07T11:00', enabled: true, order: 0 },
+      { id: 'i2', name: '语文', startTime: '2026-06-07T14:00', endTime: '2026-06-07T16:00', enabled: true, order: 1 },
+    ],
+  };
+  const trimmed = freezeArchivedMajors(current([withItems]), {
+    majors: [{ ...withItems, items: [withItems.items[0]] }],
+  });
+  assert.deepEqual(trimmed.frozenIds, ['archived-1'], '删掉科目仍是真实改动');
+});
+
 test('freezeArchivedMajors: 归档考试被移出快照时会被补回', () => {
   const result = freezeArchivedMajors(current([archivedMajor, liveMajor]), {
     majors: [liveMajor],
