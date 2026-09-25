@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/fonts.css';
 import './styles/design-fonts.css';
+import './styles/motion-tokens.css';
 import './styles/motion.css';
 import './styles/schedule-print.css';
 import './styles/notice.css';

@@ -1533,3 +1533,83 @@ select.set-input {
   color: #9fd8ff;
   font-size: 12px;
 }
+
+/* ===== 动效：设备只读的考试安排预览（2026-09-25） =====
+ * 这块 14 格日历此前是整块硬出现的，格子也没有任何指针反馈——
+ * 这一页在被投影的教室设备上很常见，所以补的是「逐格到达」和「哪一格被指到」。
+ * 注意 .client-calendar 是 overflow-x: auto，任何向外的 transform / 外阴影都会被裁掉，
+ * 因此 hover 只动 border / background 和 inset 阴影。
+ */
+
+@keyframes client-cell-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes client-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.client-readonly__summary {
+  animation: client-cell-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
+}
+
+.client-calendar > article {
+  /* fill-mode: backwards，不是 both：both 会把 transform: none 永久按住，
+     格子以后加任何 hover 位移都会静默失效。 */
+  animation: client-cell-in var(--motion-medium) var(--motion-spring-snappy) backwards;
+  /* sibling-index() 是 1 起的，减 1 让第一格立刻出发。
+     无 sibling-index() 的浏览器上这条声明整体失效，退化成不延迟（stagger 为 0），不会出错。 */
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-fast) var(--motion-ease-standard);
+}
+
+.client-calendar > article:hover {
+  border-color: #9fb6c4;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px rgb(52 152 219 / 22%);
+}
+
+.client-calendar > article.has-events:hover {
+  border-color: #4f9ed4;
+  background: #e6f3fc;
+  box-shadow: inset 0 0 0 2px rgb(52 152 219 / 34%);
+}
+
+/* 日期下面的事件块比格子晚一拍出现，读起来是「格子立住了，安排落进去」。 */
+.client-calendar article > div {
+  animation: client-chip-in var(--motion-fast) var(--motion-ease-out-expo) backwards;
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+}
+
+.client-calendar article > small {
+  animation: client-chip-in var(--motion-fast) var(--motion-ease-out-expo) 120ms backwards;
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .client-readonly__summary,
+  html:not([data-motion='best-effects']) .client-calendar > article,
+  html:not([data-motion='best-effects']) .client-calendar article > div,
+  html:not([data-motion='best-effects']) .client-calendar article > small {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}

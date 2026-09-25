@@ -193,3 +193,167 @@
     margin-bottom: 12px;
   }
 }
+
+/* ===== 动效（2026-09-25） =====
+ * 这一页此前是零动效：没有 keyframes、没有 transition、按钮连 hover 反馈都没有。
+ * 它是一个「一次性流程」——打开、确认、看到成功——所以动效只服务一件事：
+ * 让「连上了」这个瞬间有落点。
+ */
+
+@keyframes pc-brand-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pc-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pc-item-in {
+  from {
+    transform: translateY(8px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes pc-alert-in {
+  from {
+    opacity: 0;
+    transform: translateX(-7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pc-success-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.plugin-connect__brand {
+  animation: pc-brand-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
+}
+
+.plugin-connect__panel {
+  animation: pc-panel-in var(--motion-medium) var(--motion-spring-gentle) 60ms backwards;
+}
+
+/* 面板里的内容按「图标 → 标题 → 说明 → 状态块 → 按钮」依次到达，步长 45ms。
+ *
+ * 两条硬约束，都是踩出来的：
+ * 1. 子项只动 transform，不动 opacity。按钮被 :disabled 压到 opacity .45，
+ *    而动画的填充态优先级高于普通声明——补了 opacity 就会把禁用态画成可用态。
+ * 2. fill-mode 用 backwards 而不是 both。both 会把 transform: none 永久按住，
+ *    按钮的 :hover / :active 从此失效；backwards 只在延迟期保持起始态，
+ *    动画结束后交回样式表。 */
+.plugin-connect__icon,
+.plugin-connect__panel h1,
+.plugin-connect__panel p,
+.plugin-connect__binding,
+.plugin-connect__panel > button {
+  animation: pc-item-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+}
+
+.plugin-connect__icon {
+  animation-delay: 120ms;
+}
+
+.plugin-connect__panel h1 {
+  animation-delay: 165ms;
+}
+
+.plugin-connect__panel p {
+  animation-delay: 210ms;
+}
+
+.plugin-connect__binding {
+  animation-delay: 255ms;
+}
+
+.plugin-connect__panel > button {
+  animation-delay: 300ms;
+}
+
+/* 报错是条件渲染的，出现即入场：从左侧推入，读起来像「被判定了」而不是凭空出现。
+   60ms 是给「点确认后失败」留的观感余量——错误块延迟太久会像卡了一下。 */
+.plugin-connect__error {
+  animation: pc-alert-in var(--motion-standard) var(--motion-ease-out-expo) 60ms backwards;
+}
+
+/* 成功态：勾用弹簧弹出，标签跟着起。 */
+.plugin-connect__success {
+  animation: pc-success-pop var(--motion-medium) var(--motion-spring-pop) 60ms backwards;
+  transform-origin: center;
+}
+
+.plugin-connect__panel:has(.plugin-connect__success) {
+  border-color: #2f6b4a;
+  background: linear-gradient(180deg, #1b1b1b, #17251d);
+  transition:
+    border-color var(--motion-slow) var(--motion-ease-out-expo),
+    background var(--motion-slow) var(--motion-ease-out-expo);
+}
+
+/* 按钮此前没有任何指针反馈。 */
+.plugin-connect__panel > button {
+  transition:
+    transform var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-fast) var(--motion-ease-standard);
+}
+
+.plugin-connect__panel > button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background-color: #3a8bf5;
+  box-shadow: 0 8px 22px rgb(47 128 237 / 32%);
+}
+
+.plugin-connect__panel > button:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+  box-shadow: 0 3px 10px rgb(47 128 237 / 24%);
+}
+
+.plugin-connect__panel > button:focus-visible {
+  outline: 2px solid #79b8ff;
+  outline-offset: 2px;
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .plugin-connect__brand,
+  html:not([data-motion='best-effects']) .plugin-connect__panel,
+  html:not([data-motion='best-effects']) .plugin-connect__icon,
+  html:not([data-motion='best-effects']) .plugin-connect__panel h1,
+  html:not([data-motion='best-effects']) .plugin-connect__panel p,
+  html:not([data-motion='best-effects']) .plugin-connect__binding,
+  html:not([data-motion='best-effects']) .plugin-connect__error,
+  html:not([data-motion='best-effects']) .plugin-connect__success,
+  html:not([data-motion='best-effects']) .plugin-connect__panel > button {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
