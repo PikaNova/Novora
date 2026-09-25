@@ -84,15 +84,20 @@ test('RATE_LIMITED uses a one-second first retry instead of the normal server de
   setTestOwner();
   queuePendingExamSync(pending());
   const originalFetch = globalThis.fetch;
-  testGlobals.fetch = async () => rateLimitedResponse();
+  // 从「请求发出」计起，而不是从用例开始计起：机器忙时调度本身能花掉几百毫秒，
+  // 那种误差会被算进 nextRetryAt - before 里，把这条断言顶出上限（CI 上尤其常见）。
+  let fetchAt = Date.now();
+  testGlobals.fetch = async () => {
+    fetchAt = Date.now();
+    return rateLimitedResponse();
+  };
 
   try {
-    const before = Date.now();
     assert.equal((await flushPendingExamSync()).kind, 'error');
     const saved = getPendingExamSync();
     assert.ok(saved);
     assert.equal(saved.retryCount, 1);
-    const delay = (saved.nextRetryAt ?? 0) - before;
+    const delay = (saved.nextRetryAt ?? 0) - fetchAt;
     assert.ok(delay > 0 && delay <= 1_200, `expected about 1s, got ${delay}ms`);
   } finally {
     testGlobals.fetch = originalFetch;
@@ -106,15 +111,18 @@ test('RATE_LIMITED retry growth is capped at eight seconds', async () => {
   setTestOwner();
   queuePendingExamSync(pending(3));
   const originalFetch = globalThis.fetch;
-  testGlobals.fetch = async () => rateLimitedResponse();
+  let fetchAt = Date.now();
+  testGlobals.fetch = async () => {
+    fetchAt = Date.now();
+    return rateLimitedResponse();
+  };
 
   try {
-    const before = Date.now();
     await flushPendingExamSync();
     const saved = getPendingExamSync();
     assert.ok(saved);
     assert.equal(saved.retryCount, 4);
-    const delay = (saved.nextRetryAt ?? 0) - before;
+    const delay = (saved.nextRetryAt ?? 0) - fetchAt;
     assert.ok(delay > 6_000 && delay <= 8_200, `expected 8s cap, got ${delay}ms`);
   } finally {
     testGlobals.fetch = originalFetch;
