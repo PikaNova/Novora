@@ -209,6 +209,7 @@ function actorCanAccessRecord(actor: AdminActor, row: RecordRow): boolean {
 function planInput(row: RecordRow) {
   return {
     status: recordStatus(row) ?? 'draft',
+    startAt: nullableNumber(row.start_at),
     actualStartAt: nullableNumber(row.actual_start_at),
     actualEndAt: nullableNumber(row.actual_end_at),
     endAt: nullableNumber(row.end_at),
@@ -630,7 +631,12 @@ function describeTimeChange(
   if (action === 'extend') {
     return `延长 ${extendMinutes} 分钟：结束 ${fmt(before.endAt)} → ${fmt(patch.endAt ?? before.endAt)}`;
   }
-  if (action === 'pause') return '暂停：结束时间按实际暂停时长顺延';
+  // 未开考就暂停的（系统自动开考还没跑到）：同一笔操作里补记了开考时间，日志里要说清楚，
+  // 否则事后看操作记录会发现「开考时间」凭空变了却找不到出处。
+  if (action === 'pause') {
+    const startedNote = patch.actualStartAt == null ? '' : `；同时补记开考时间 ${fmt(patch.actualStartAt)}`;
+    return `暂停：结束时间按实际暂停时长顺延${startedNote}`;
+  }
   if (action === 'resume') {
     const pausedMs = patch.pausedMs ?? 0;
     const nextEnd = before.endAt == null ? null : before.endAt + pausedMs;

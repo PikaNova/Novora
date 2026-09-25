@@ -10,12 +10,13 @@ test('availableExamRecordActions: 草稿只能发布或复制', () => {
   assert.deepEqual(availableExamRecordActions(context({})), ['publish', 'copy']);
 });
 
-test('availableExamRecordActions: 已发布未开考时先给开考，不能给暂停或继续', () => {
+test('availableExamRecordActions: 已发布未开考的也给暂停（不等系统到点开考），但不给继续', () => {
   for (const status of ['published', 'ongoing'] as const) {
     const actions = availableExamRecordActions(context({ status }));
-    // 手动结束已经变成「申请停止」；「开考」不再由人工发起（到点由系统自动开考）。
-    assert.deepEqual(actions, ['request_stop', 'extend', 'copy']);
-    assert.equal(actions.includes('pause'), false);
+    // 手动结束已经变成「申请停止」；「开考」不再由人工发起（到点由系统自动开考），
+    // 但「暂停」不能因为还没开考就消失——否则管理员只能干等系统的时间校验。
+    assert.deepEqual(actions, ['pause', 'extend', 'request_stop', 'copy']);
+    assert.equal(actions.includes('pause'), true);
     assert.equal(actions.includes('resume'), false);
   }
 });
@@ -36,9 +37,10 @@ test('availableExamRecordActions: 结束与归档状态互斥且都可复制', (
   assert.deepEqual(availableExamRecordActions(context({ status: 'archived' })), ['unarchive', 'copy']);
 });
 
-test('availableExamRecordActions: 未开考的已发布考试不会因为暂停字段而给出继续按钮', () => {
+test('availableExamRecordActions: 只要在暂停中就只给继续，不会再给一次暂停', () => {
   const actions = availableExamRecordActions(context({ status: 'published', actualStartAt: null, pausedAt: 1_000 }));
-  assert.deepEqual(actions, ['request_stop', 'extend', 'copy']);
+  assert.deepEqual(actions, ['resume', 'request_stop', 'copy']);
+  assert.equal(actions.includes('pause'), false);
 });
 
 test('availableExamRecordActions: 停止中只给强制结束与复制（等系统判定）', () => {

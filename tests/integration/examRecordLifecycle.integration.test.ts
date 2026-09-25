@@ -442,6 +442,68 @@ test('考试生命周期：暂停期间结束会结算暂停时长，倒计时�
   assert.equal(row.paused_at, null);
 });
 
+/**
+ * 后台必须能手动暂停一场考试，不能干等系统的到点校验。
+ *
+ * 自动开考是惰性的（靠读接口/设备心跳触发）：没人打开页面时 actualStartAt 一直是空，
+ * 旧逻辑据此拒绝暂停（409「考试还未开考」），按钮也不出现。现在未开考也能暂停，
+ * 服务端先补开考时间再暂停，保证「暂停中必然已开考」与「教室端立刻看到暂停」都成立。
+ */
+test('考试生命周期：未开考也能手动暂停（先补记开考时间），教室端快照同步带上暂停', async () => {
+  const futureStart = Date.now() + 30 * 60_000;
+  const endAt = futureStart + 3_600_000;
+  await seedMajors([{ id: 'manual-pause', startAt: futureStart, endAt }]);
+  await act(admin.token, 'record-publish', { id: 'manual-pause' });
+
+  const before = await readRecord('manual-pause');
+  assert.equal(before.actual_start_at, null, '还没到点，系统不该写 actual_start_at');
+
+  // 提前暂停：记此刻为开考时间，然后立即暂停。
+  const paused = await act(admin.token, 'record-pause', { id: 'manual-pause', reason: '考场临时调整' });
+  assert.equal(paused.statusCode, 200, '未开考的考试也必须能手动暂停');
+  assert.ok(Number(data(paused).pausedAt) > 0, '暂停必须写入 pausedAt');
+  const earlyStart = Number(data(paused).actualStartAt);
+  assert.ok(earlyStart > 0, '未开考就暂停要补记开考时间');
+  assert.ok(earlyStart < futureStart, '补记的开考时间应当是此刻（提前开考），而不是未来的计划时间');
+  assert.equal(data(paused).displayStatus, 'ongoing');
+
+  // 教室端读的是快照：开考与暂停都要在快照里，否则大屏既看不到暂停也看不到本场。
+  const major = (await readSnapshotMajors()).find((item) => item.id === 'manual-pause');
+  assert.ok(major, '快照里必须有这场考试');
+  assert.equal(Number(major.actualStartAt), earlyStart);
+  assert.ok(Number(major.pausedAt) > 0);
+
+  // 到了计划开始时间，系统的自动开考不该覆盖已补记的开考时间，也不该动暂停状态。
+  await database()`UPDATE exam_records SET start_at = ${Date.now() - 1_000} WHERE id = 'manual-pause'`;
+  await autoStartDueRecords(Date.now());
+  const afterAutoStart = await readRecord('manual-pause');
+  assert.equal(Number(afterAutoStart.actual_start_at), earlyStart, '自动开考不能改写已经补记的开考时间');
+  assert.ok(Number(afterAutoStart.paused_at) > 0, '自动开考不能把暂停状态冲掉');
+
+  // 继续后回到计时：暂停时长按实际暂停区间累计。
+  await sleep(120);
+  const resumed = await act(admin.token, 'record-resume', { id: 'manual-pause' });
+  assert.equal(resumed.statusCode, 200);
+  assert.equal(data(resumed).pausedAt, null);
+  assert.ok(Number(data(resumed).pausedMs) >= 100, `继续要结算暂停时长，实际 ${data(resumed).pausedMs}ms`);
+});
+
+test('考试生命周期：计划开始时间已过但系统还没开考时，暂停按计划时间补记开考', async () => {
+  const startAt = Date.now() - 5 * 60_000;
+  await seedMajors([{ id: 'lazy-start', startAt, endAt: Date.now() + 3_600_000 }]);
+  await act(admin.token, 'record-publish', { id: 'lazy-start' });
+  assert.equal((await readRecord('lazy-start')).actual_start_at, null, '惰性开考还没跑到');
+
+  const paused = await act(admin.token, 'record-pause', { id: 'lazy-start' });
+  assert.equal(paused.statusCode, 200);
+  assert.equal(
+    Number(data(paused).actualStartAt),
+    startAt,
+    '补记的开考时间应当是计划开始时间（等于补上漏掉的自动开考），而不是点暂停的那一刻',
+  );
+  assert.ok(Number(data(paused).pausedAt) > 0);
+});
+
 test('考试生命周期：非法转移与非法参数一律拒绝，且不写状态也不写操作日志', async () => {
   const endAt = Date.now() + 3_600_000;
   // 只给结束时间、不给开始时间：新约定下「时间窗完整 = 创建即发布」，

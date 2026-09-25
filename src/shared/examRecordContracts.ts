@@ -146,13 +146,11 @@ export function availableExamRecordActions(context: ExamRecordActionContext): Ex
   // 已申请停止：等系统判定，管理员只能强制结束（逃生门）或复制。
   if (context.status === 'stopping') return ['force_end', 'copy'];
   // 开考已经由系统按计划时间完成，所以这里不再有「开考」；手动结束一律变成「申请停止」。
-  const live: ExamRecordActionName[] =
-    context.actualStartAt == null
-      ? ['request_stop', 'extend', 'copy']
-      : context.pausedAt != null
-        ? ['resume', 'request_stop', 'copy']
-        : ['pause', 'extend', 'request_stop', 'copy'];
-  return live;
+  // 「暂停」不等人：自动开考是惰性的（靠读接口/设备心跳触发），到点前 actualStartAt 为空，
+  // 若按它给按钮，管理员就只能干等系统的时间校验——所以暂停对所有进行中的考试都给，
+  // 未开考的那次由服务端先补开考时间再暂停。
+  if (context.pausedAt != null) return ['resume', 'request_stop', 'copy'];
+  return ['pause', 'extend', 'request_stop', 'copy'];
 }
 
 /**
