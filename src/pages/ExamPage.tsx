@@ -129,6 +129,12 @@ function getActiveExams(items: ExamItem[]): ExamItem[] {
 
 function computeRawState(items: ExamItem[], nowTs: number): RawState {
   const active = getActiveExams(items);
+  // 后台「暂停考试」要立刻在教室端生效：暂停期间把"现在"钉在暂停那一刻，
+  // 倒计时/用时因此冻结（继续考试时后台会把 endAt 顺延、并把 pausedMs 记进快照）。
+  const pausedAt = active
+    .map((exam) => (exam as ExamItem & { pausedAt?: number | null }).pausedAt)
+    .find((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (pausedAt != null && pausedAt < nowTs) nowTs = pausedAt;
   if (active.length === 0) {
     return {
       currentExam: null,

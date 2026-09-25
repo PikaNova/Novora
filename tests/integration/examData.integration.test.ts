@@ -250,6 +250,34 @@ async function getAudit(token: string) {
   return calls;
 }
 
+/** 走真实的 GET /api/exams（顶层入口），用于验证 ETag 协商。 */
+async function getSnapshot(token: string, headers: Record<string, string> = {}) {
+  const { res, calls } = makeRes();
+  const req = makeTopLevelReq('GET', {}, { authorization: `Bearer ${token}`, ...headers });
+  await examsHandler(req, res);
+  return calls;
+}
+
+test('快照 GET 的 ETag 协商：强 ETag 与反代改写的弱 ETag 都要命中 304', async () => {
+  const first = await getSnapshot(admin.token);
+  assert.equal(first.statusCode, 200);
+  const etag = String(first.headers['ETag'] ?? '');
+  assert.match(etag, /^"exam-\d+"$/, '应用自己发的是强 ETag');
+
+  // 反代（openresty/nginx）gzip 之后会把 ETag 改写成 W/"..."，客户端原样回传。
+  // 以前应用侧用严格相等比较，于是永远不命中 304 —— 每次轮询都重传整份快照。
+  // 真实 Node 请求头是小写；这里按线上形状传（大小写不匹配会让断言失真）。
+  const weak = await getSnapshot(admin.token, { 'if-none-match': `W/${etag}` });
+  assert.equal(weak.statusCode, 304, '弱 ETag 必须命中，否则每次轮询都要重传整份快照');
+
+  const strong = await getSnapshot(admin.token, { 'if-none-match': etag });
+  assert.equal(strong.statusCode, 304);
+
+  const stale = await getSnapshot(admin.token, { 'if-none-match': '"exam-9999999999999"' });
+  assert.equal(stale.statusCode, 200, 'ETag 不匹配时必须返回完整快照');
+  assert.ok(String(stale.body).length > 0);
+});
+
 beforeEach(async () => {
   assert.ok(adminPassword.length >= 16, 'the integration runner must inject a strong temporary password');
   admin = await resetDatabase();

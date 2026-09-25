@@ -1,6 +1,32 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { examSnapshotQuery, isCurrentSnapshotRequest, parseExamVersion } from '../src/shared/examContracts.js';
+import {
+  examEtag,
+  examSnapshotQuery,
+  isCurrentSnapshotRequest,
+  matchesIfNoneMatch,
+  parseExamVersion,
+} from '../src/shared/examContracts.js';
+
+test('If-None-Match 用弱比较：反代 gzip 把强 ETag 变成 W/ 形式后仍要命中', () => {
+  const etag = examEtag(1790264042699);
+  assert.equal(etag, '"exam-1790264042699"');
+
+  // 反代（nginx/openresty）对 gzip 过的响应会改写 ETag，客户端回传的就是这个弱形式；
+  // 以前用严格相等比较，于是每次轮询都重传整份快照（dev 上 137 KB/次）。
+  assert.equal(matchesIfNoneMatch(`W/${etag}`, etag), true);
+  assert.equal(matchesIfNoneMatch(etag, etag), true);
+  assert.equal(matchesIfNoneMatch(`  ${etag}  `, etag), true);
+  assert.equal(matchesIfNoneMatch('*', etag), true);
+  // 多代理链路可能回传列表，列表里任意一项命中即可
+  assert.equal(matchesIfNoneMatch(`"exam-0", W/${etag}`, etag), true);
+
+  assert.equal(matchesIfNoneMatch('"exam-0"', etag), false);
+  assert.equal(matchesIfNoneMatch('', etag), false);
+  assert.equal(matchesIfNoneMatch(undefined, etag), false);
+  assert.equal(matchesIfNoneMatch(['"exam-0"', `W/${etag}`], etag), true);
+  assert.equal(matchesIfNoneMatch(['"exam-0"', '"exam-1"'], etag), false);
+});
 
 test('exam versions normalize to positive integers', () => {
   assert.equal(parseExamVersion(1789222939596), 1789222939596);
