@@ -273,3 +273,81 @@
     font-size: 23px;
   }
 }
+
+/* ===== 动效（2026-09-25） =====
+ * 这张卡片是大屏公告的本体，此前零动效。它每一张都是「一件事正在通知全校」，
+ * 所以到的时候要站得住：整卡落定，标题→正文→脚注依次跟上。
+ * 同一套类名后台预览也在用，所以改这里后台预览会一起动——那是想要的。
+ */
+
+@keyframes sann-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 卡内分件只动 transform，不动 opacity：整卡已经负责淡入，再叠一层就是双重淡入。 */
+@keyframes sann-view-part-in {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* 紧急公告到的时候要有一次「被点到」：一圈红色扩散，一次性，不循环。 */
+@keyframes sann-urgent-ring {
+  from {
+    box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.55);
+  }
+  to {
+    box-shadow: 0 0 0 18px rgba(231, 76, 60, 0);
+  }
+}
+
+.sann-view {
+  /* fill-mode 用 backwards 不用 both：both 会把 transform: none 永久按住。 */
+  animation: sann-view-in var(--motion-medium) var(--motion-spring-gentle) backwards;
+}
+
+.sann-view__head,
+.sann-view__body,
+.sann-view__meta {
+  animation: sann-view-part-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+}
+
+.sann-view__head {
+  animation-delay: 90ms;
+}
+
+.sann-view__body {
+  animation-delay: 150ms;
+}
+
+.sann-view__meta {
+  animation-delay: 210ms;
+}
+
+.sann-view.is-urgent {
+  animation:
+    sann-view-in var(--motion-medium) var(--motion-spring-gentle) backwards,
+    sann-urgent-ring 900ms var(--motion-ease-out-expo) 320ms backwards;
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .sann-view,
+  html:not([data-motion='best-effects']) .sann-view__head,
+  html:not([data-motion='best-effects']) .sann-view__body,
+  html:not([data-motion='best-effects']) .sann-view__meta {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}

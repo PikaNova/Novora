@@ -694,3 +694,103 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ===== 动效（2026-09-25） =====
+ * 后台「公告」板块此前零动效：概览四个数字整块出现、迷你柱状图直接立着、
+ * 记录列表整屏同时出现，工具/样式/范围三组按钮都是硬切色。
+ */
+
+@keyframes sann-stat-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 柱子从底部长出来。柱高是行内 style 给的百分比，这里只做 scaleY，不动高度。 */
+@keyframes sann-bar-grow {
+  from {
+    transform: scaleY(0.04);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* 记录行只动 transform，不动 opacity：.sann-item.is-expired / .is-revoked 自带 opacity .72，
+   动画补了 opacity 会把「已过期」画成正常态一样的实心。 */
+@keyframes sann-row-in {
+  from {
+    transform: translateY(8px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.sann-stats > div {
+  animation: sann-stat-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-spark > span {
+  transform-origin: bottom;
+  animation: sann-bar-grow var(--motion-medium) var(--motion-spring-gentle) backwards;
+  animation-delay: calc((sibling-index() - 1) * 22ms);
+}
+
+.sann-item {
+  animation: sann-row-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition: border-left-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-item:hover {
+  border-left-color: rgba(148, 180, 208, 0.6);
+}
+
+.sann-item.is-active:hover {
+  border-left-color: #3498db;
+}
+
+/* 三组选择控件此前改色没有过渡。 */
+.sann-tool,
+.sann-style,
+.sann-chip,
+.sann-lowest button {
+  transition:
+    color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-fast) var(--motion-ease-standard);
+}
+
+.sann-style:active:not(:disabled),
+.sann-chip:active:not(:disabled),
+.sann-tool:active:not(:disabled),
+.sann-lowest button:active {
+  transform: scale(0.985);
+}
+
+.sann-empty {
+  animation: sann-stat-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .sann-stats > div,
+  html:not([data-motion='best-effects']) .sann-spark > span,
+  html:not([data-motion='best-effects']) .sann-item,
+  html:not([data-motion='best-effects']) .sann-empty {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
