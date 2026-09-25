@@ -69,6 +69,32 @@
   opacity: 0.35;
   cursor: not-allowed;
 }
+.sann-screen-window__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+/* 「系统公告」切换：两扇窗口各有各的版式，这里只做通道切换。 */
+.sann-screen-window__switch {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dbe4ee;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.sann-screen-window__switch:hover:not(:disabled) {
+  border-color: rgba(52, 152, 219, 0.6);
+  color: #fff;
+}
+.sann-screen-window__switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .sann-screen-window__body {
   display: grid;
   gap: 20px;

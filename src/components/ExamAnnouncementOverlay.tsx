@@ -9,6 +9,8 @@ type Props = {
   open: boolean;
   announcements: Announcement[];
   loading: boolean;
+  /** 切回学校公告窗口（本机有学校公告时才会传）。 */
+  onSwitchToSchool?: () => void;
   onClose: () => void;
 };
 
@@ -35,9 +37,11 @@ function formatUpdatedAt(value: number): string {
  * 只展示作者端统一公告，沿用设置页公告的 Markdown 卡片阅读方式；
  * 学校自己发的公告走另一扇更大的窗口（`SchoolAnnouncementOverlay`）。
  */
-export default function ExamAnnouncementOverlay({ open, announcements, loading, onClose }: Props) {
+export default function ExamAnnouncementOverlay({ open, announcements, loading, onSwitchToSchool, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
+    // 组件测试/无 window 环境（例如 node 里渲染）不该因为键盘监听炸掉。
+    if (typeof window === 'undefined') return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
@@ -57,9 +61,16 @@ export default function ExamAnnouncementOverlay({ open, announcements, loading, 
             </h2>
             <p className="eann-window__lead">公告由作者端统一发布，内容以 Markdown 渲染。</p>
           </div>
-          <button className="eann-window__close" onClick={onClose} aria-label="关闭公告">
-            ×
-          </button>
+          <div className="eann-window__actions">
+            {onSwitchToSchool && (
+              <button className="eann-window__switch" type="button" onClick={onSwitchToSchool}>
+                学校公告
+              </button>
+            )}
+            <button className="eann-window__close" onClick={onClose} aria-label="关闭公告">
+              ×
+            </button>
+          </div>
         </header>
         <div className="eann-window__body">
           {loading ? (

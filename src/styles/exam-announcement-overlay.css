@@ -69,6 +69,28 @@
   color: #fff;
   background: rgba(255, 255, 255, 0.1);
 }
+.eann-window__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+/* 「学校公告」切换：作者端窗口保持自己的版式，只提供通道入口。 */
+.eann-window__switch {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #d5dde6;
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.eann-window__switch:hover {
+  border-color: rgba(52, 152, 219, 0.6);
+  color: #fff;
+}
 .eann-window__body {
   overflow: auto;
   overscroll-behavior: contain;

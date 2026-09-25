@@ -20,6 +20,13 @@ type Props = {
   onRequestHistory?: () => void;
   /** 大屏上的学校名（标题用，可空）。 */
   schoolName?: string;
+  /** 切到作者端「系统公告」窗口。 */
+  onSwitchToSystem?: () => void;
+  /**
+   * 紧急公告展示期间禁止切走：这扇窗口本来就是"不可关闭"，切换等于绕开它。
+   * 传 true 时按钮置灰并提示原因。
+   */
+  switchLocked?: boolean;
   onClose: () => void;
   /** 某条公告在屏幕上真正看满门槛时回调（回执上报的入口）。 */
   onSeen?: (item: AnnouncementSeenItem) => void;
@@ -41,6 +48,8 @@ export default function SchoolAnnouncementOverlay({
   historyLoading = false,
   onRequestHistory,
   schoolName = '',
+  onSwitchToSystem,
+  switchLocked = false,
   onClose,
   onSeen,
   seenMinMs = ANNOUNCEMENT_SEEN_MIN_MS,
@@ -60,6 +69,8 @@ export default function SchoolAnnouncementOverlay({
   };
   useEffect(() => {
     if (!open) return;
+    // 组件测试/无 window 环境（例如 node 里渲染）不该因为键盘监听炸掉。
+    if (typeof window === 'undefined') return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !hasUrgent) onClose();
     };
@@ -80,15 +91,28 @@ export default function SchoolAnnouncementOverlay({
                 : `${announcements.length} 条公告 · 由学校管理端发布`}
             </p>
           </div>
-          <button
-            className="sann-screen-window__close"
-            type="button"
-            onClick={close}
-            disabled={hasUrgent}
-            aria-label="关闭公告"
-          >
-            ×
-          </button>
+          <div className="sann-screen-window__actions">
+            {onSwitchToSystem && (
+              <button
+                className="sann-screen-window__switch"
+                type="button"
+                onClick={onSwitchToSystem}
+                disabled={switchLocked}
+                title={switchLocked ? '紧急公告展示期间不能切换' : '查看作者端发布的系统公告'}
+              >
+                系统公告
+              </button>
+            )}
+            <button
+              className="sann-screen-window__close"
+              type="button"
+              onClick={close}
+              disabled={hasUrgent}
+              aria-label="关闭公告"
+            >
+              ×
+            </button>
+          </div>
         </header>
         <div className="sann-screen-window__body">
           <div className="sann-screen-tabs" role="tablist" aria-label="公告分页">

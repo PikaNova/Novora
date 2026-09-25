@@ -405,6 +405,30 @@ function BoundExamPage() {
       .finally(() => setSchoolHistoryLoading(false));
   }, []);
 
+  /** 拉一次作者端系统公告（切到系统公告窗口时用，保证看到的是最新的）。 */
+  const loadSystemAnnouncements = useCallback(() => {
+    setAnnouncementsLoading(true);
+    void fetchAnnouncements(true)
+      .then(setAnnouncements)
+      .finally(() => setAnnouncementsLoading(false));
+  }, []);
+
+  /**
+   * 两个窗口之间的切换（用户口径：入口不能因为学校公告有内容就再也看不到作者端公告）。
+   * 紧急学校公告展示期间不给切——那扇窗口本来就不可关闭，切换等于绕开它。
+   */
+  const switchToSystemAnnouncements = useCallback(() => {
+    setSchoolAnnouncementsOpen(false);
+    setAnnouncementsOpen(true);
+    loadSystemAnnouncements();
+  }, [loadSystemAnnouncements]);
+
+  const switchToSchoolAnnouncements = useCallback(() => {
+    setAnnouncementsOpen(false);
+    setSchoolAnnouncementsOpen(true);
+    loadSchoolAnnouncementHistory();
+  }, [loadSchoolAnnouncementHistory]);
+
   /**
    * 学校公告"看满 3 秒"的回执入口：先进本地缓冲，再立刻尝试发一次；
    * 失败（断网/429）会留在缓冲里，由每分钟的轮询补发。
@@ -884,6 +908,11 @@ function BoundExamPage() {
         open={announcementsOpen && !schoolAnnouncementsOpen}
         announcements={announcements}
         loading={announcementsLoading}
+        onSwitchToSchool={
+          schoolAnnouncements.length > 0 || schoolAnnouncementHistory.length > 0
+            ? switchToSchoolAnnouncements
+            : undefined
+        }
         onClose={() => setAnnouncementsOpen(false)}
       />
       <SchoolAnnouncementOverlay
@@ -893,6 +922,8 @@ function BoundExamPage() {
         historyLoading={schoolHistoryLoading}
         onRequestHistory={loadSchoolAnnouncementHistory}
         schoolName={schoolName}
+        onSwitchToSystem={switchToSystemAnnouncements}
+        switchLocked={schoolAnnouncements.some((item) => item.level === 'urgent')}
         onSeen={handleSchoolAnnouncementSeen}
         onClose={() => setSchoolAnnouncementsOpen(false)}
       />
