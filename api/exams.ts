@@ -166,6 +166,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const resource = String(req.query?.resource ?? '');
       if (
         resource === 'records' ||
+        // 「取单条记录」是考试详情抽屉的数据来源。它和列表是两条独立的路：
+        // 日程轴/班级网格里的行来自本地快照，可能属于别的板块，列表里找不到，
+        // 只能按 id 单取。这里漏过一次，抽屉就只剩「考试详情数据不完整」。
+        resource === 'record' ||
         resource === 'record-operations' ||
         resource === 'record-precheck' ||
         resource === 'record-consistency'

@@ -345,13 +345,42 @@
   flex-wrap: wrap;
 }
 
+/*
+ * 窄屏考试行：手机上原来靠「自动放置」落位，5 个子元素塞进 2 列后变成
+ * 「时间｜标题」/ 适用范围 / 状态 / 展开箭头各占一行，箭头被推到第 4 行最左侧（贴着时间列），
+ * 实测每场 109px 高、共 4 行，扫读时是散的。这里改成显式的网格区域，
+ * 让箭头跨行贴右侧居中，时间与状态在同一行左右对齐。
+ */
 @media (max-width: 900px) {
   .exam-schedule__row {
-    grid-template-columns: 104px minmax(0, 1fr) auto;
+    grid-template-columns: 104px minmax(0, 1fr) auto 18px;
+    grid-template-areas:
+      'time main status chevron'
+      '.    scope scope  scope';
     row-gap: 4px;
   }
+  .exam-schedule__time {
+    grid-area: time;
+  }
+  .exam-schedule__main {
+    grid-area: main;
+  }
+  .exam-schedule__status {
+    grid-area: status;
+  }
+  .exam-schedule__chevron {
+    grid-area: chevron;
+    align-self: center;
+  }
   .exam-schedule__scope {
-    grid-column: 2 / -1;
+    grid-area: scope;
+  }
+  /* 骨架行没有这些子元素，用 flex 让它保持「一行几条占位线」。 */
+  .exam-schedule__row.is-skeleton {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
   }
   .exam-schedule__detail {
     padding-left: 12px;
@@ -360,11 +389,33 @@
 
 @media (max-width: 620px) {
   .exam-schedule__row {
-    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'time   status'
+      'main   chevron'
+      'scope  chevron';
+    row-gap: 5px;
+    column-gap: 10px;
+    padding: 12px;
+  }
+  .exam-schedule.is-compact .exam-schedule__row {
+    padding: 9px 12px;
+  }
+  /* 标题独占一行：与类型徽标、科数挤在一行时会被省略号截掉一大半。 */
+  .exam-schedule__main {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .exam-schedule__main strong {
+    flex: 1 1 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
   }
   .exam-schedule__status {
-    grid-column: 2;
-    justify-self: start;
+    justify-self: end;
   }
 }
 
