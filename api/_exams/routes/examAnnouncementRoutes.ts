@@ -78,6 +78,8 @@ function announcementJson(row: Row, now: number): Record<string, unknown> {
     /** 管理端最近一次"提醒未读教室"的时间（大屏据此决定是否再弹）。 */
     remindAt: row.remind_at == null ? null : number(row.remind_at),
     remindScope: parseAnnouncementRemindScope(row.remind_scope),
+    /** 本机对这条公告的已读时间（只有设备端接口带这一列，管理端为 null）。 */
+    seenAt: row.seen_at == null ? null : number(row.seen_at),
     examId: text(row.exam_id) || null,
     scopeType: text(row.scope_type) || 'all',
     scopeIds: idList(row.scope_ids),
@@ -201,10 +203,14 @@ async function handleAnnouncementList(req: VercelRequest, res: VercelResponse): 
 }
 
 /**
- * 教室端拉取：按设备绑定的年级/班级过滤，只回没过期的。
- * 排序：紧急优先，其次按时间倒序。
+ * 教室端拉取：按设备绑定的年级/班级过滤。
  *
- * 拉取即算"送达"：顺手把送达时间记进回执表。写入带 `WHERE delivered_at IS NULL` 守卫，
+ * - 默认只回没过期的"当前公告"，排序：紧急优先，其次按时间倒序；
+ * - `history=1` 时回本机范围内的历史公告（已过期 / 已撤回），按发布时间倒序，
+ *   用于教室端公告窗口的「历史」分页（管理端撤回过的公告也留在历史里，标注状态即可）。
+ *
+ * 两种口径都带上本机对每条公告的已读时间（`seenAt`），教室端可以直接标出"已读/未读"。
+ * 拉取当前公告即算"送达"：顺手把送达时间记进回执表。写入带 `WHERE delivered_at IS NULL` 守卫，
  * 已经送达过的公告不会真的写行（这台设备每分钟拉一次，不能每次都产生一次 UPDATE）。
  */
 async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -228,18 +234,42 @@ async function handleDeviceAnnouncements(req: VercelRequest, res: VercelResponse
   const gradeId = text(device.grade_id);
   const classId = text(device.class_id);
   const now = Date.now();
+  const history = text(req.query?.history ?? req.body?.history) === '1';
+  if (history) {
+    const limit = Math.min(50, Math.max(1, Math.trunc(number(req.query?.limit, 30))));
+    const rows = (await sql`
+      SELECT a.id, a.title, a.body, a.level, a.style, a.silent, a.remind_at, a.remind_scope,
+        a.exam_id, a.scope_type, a.scope_ids, a.created_by, a.created_at, a.expires_at, a.status,
+        r.first_seen_at AS seen_at
+      FROM exam_announcements a
+      LEFT JOIN exam_announcement_receipts r
+        ON r.announcement_id = a.id AND r.instance_id = ${instanceId}
+      WHERE (a.status = 'revoked'
+          OR (a.status = 'sent' AND a.expires_at IS NOT NULL AND a.expires_at <= ${now}))
+        AND (a.scope_type = 'all'
+          OR (a.scope_type = 'grade' AND a.scope_ids @> ${JSON.stringify([gradeId])}::jsonb)
+          OR (a.scope_type = 'class' AND a.scope_ids @> ${JSON.stringify([classId])}::jsonb))
+      ORDER BY a.created_at DESC
+      LIMIT ${limit}
+    `) as unknown as Row[];
+    res.status(200).json({ ok: true, data: rows.map((row) => announcementJson(row, now)), serverTime: now });
+    return;
+  }
   const rows = (await sql`
-    SELECT id, title, body, level, style, silent, remind_at, remind_scope,
-      exam_id, scope_type, scope_ids, created_by, created_at, expires_at, status
-    FROM exam_announcements
-    WHERE status = 'sent'
-      AND (expires_at IS NULL OR expires_at > ${now})
+    SELECT a.id, a.title, a.body, a.level, a.style, a.silent, a.remind_at, a.remind_scope,
+      a.exam_id, a.scope_type, a.scope_ids, a.created_by, a.created_at, a.expires_at, a.status,
+      r.first_seen_at AS seen_at
+    FROM exam_announcements a
+    LEFT JOIN exam_announcement_receipts r
+      ON r.announcement_id = a.id AND r.instance_id = ${instanceId}
+    WHERE a.status = 'sent'
+      AND (a.expires_at IS NULL OR a.expires_at > ${now})
       AND (
-        scope_type = 'all'
-        OR (scope_type = 'grade' AND scope_ids @> ${JSON.stringify([gradeId])}::jsonb)
-        OR (scope_type = 'class' AND scope_ids @> ${JSON.stringify([classId])}::jsonb)
+        a.scope_type = 'all'
+        OR (a.scope_type = 'grade' AND a.scope_ids @> ${JSON.stringify([gradeId])}::jsonb)
+        OR (a.scope_type = 'class' AND a.scope_ids @> ${JSON.stringify([classId])}::jsonb)
       )
-    ORDER BY CASE WHEN level = 'urgent' THEN 0 ELSE 1 END, created_at DESC
+    ORDER BY CASE WHEN a.level = 'urgent' THEN 0 ELSE 1 END, a.created_at DESC
     LIMIT 20
   `) as unknown as Row[];
   const deliveredIds = rows.map((row) => text(row.id)).filter(Boolean);

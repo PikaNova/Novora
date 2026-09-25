@@ -280,6 +280,9 @@ function BoundExamPage() {
    */
   const [schoolAnnouncements, setSchoolAnnouncements] = useState<SchoolExamAnnouncement[]>([]);
   const [schoolAnnouncementsOpen, setSchoolAnnouncementsOpen] = useState(false);
+  /** 历史公告（已过期 / 已撤回）：只在教室端点左右「历史」分页时按需拉取。 */
+  const [schoolAnnouncementHistory, setSchoolAnnouncementHistory] = useState<SchoolExamAnnouncement[]>([]);
+  const [schoolHistoryLoading, setSchoolHistoryLoading] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
   const examLiveRef = useRef(false);
   /** 考试期间不打断考场：待弹的公告先记下来，考完再弹。 */
@@ -363,9 +366,15 @@ function BoundExamPage() {
   const openAnnouncements = useCallback(() => {
     const instanceId = getClassBindingInstanceId();
     if (instanceId) {
-      void fetchDeviceExamAnnouncements(instanceId).then((list) => {
+      // 当前公告与历史公告一起拉：即使当前没有公告，只要历史里有内容，
+      // 教室端也应该能打开学校公告窗口翻历史（而不是被回落到作者端窗口）。
+      void Promise.all([
+        fetchDeviceExamAnnouncements(instanceId),
+        fetchDeviceExamAnnouncements(instanceId, { history: true, limit: 30 }),
+      ]).then(([list, history]) => {
         setSchoolAnnouncements(list);
-        if (list.length > 0) {
+        setSchoolAnnouncementHistory(history);
+        if (list.length > 0 || history.length > 0) {
           // 手动打开也算"弹过"：不然下一次轮询还会把它当成新公告再弹一次。
           markAnnouncementsShown(list.map((item) => item.id));
           setSchoolAnnouncementsOpen(true);
@@ -384,6 +393,16 @@ function BoundExamPage() {
     void fetchAnnouncements(true)
       .then(setAnnouncements)
       .finally(() => setAnnouncementsLoading(false));
+  }, []);
+
+  /** 教室端切到「历史」分页时拉一次历史公告。 */
+  const loadSchoolAnnouncementHistory = useCallback(() => {
+    const instanceId = getClassBindingInstanceId();
+    if (!instanceId) return;
+    setSchoolHistoryLoading(true);
+    void fetchDeviceExamAnnouncements(instanceId, { history: true, limit: 30 })
+      .then(setSchoolAnnouncementHistory)
+      .finally(() => setSchoolHistoryLoading(false));
   }, []);
 
   /**
@@ -870,6 +889,9 @@ function BoundExamPage() {
       <SchoolAnnouncementOverlay
         open={schoolAnnouncementsOpen}
         announcements={schoolAnnouncements}
+        history={schoolAnnouncementHistory}
+        historyLoading={schoolHistoryLoading}
+        onRequestHistory={loadSchoolAnnouncementHistory}
         schoolName={schoolName}
         onSeen={handleSchoolAnnouncementSeen}
         onClose={() => setSchoolAnnouncementsOpen(false)}

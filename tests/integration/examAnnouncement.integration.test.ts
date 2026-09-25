@@ -90,9 +90,12 @@ async function list(token: string, query: Record<string, string>) {
   return calls;
 }
 
-async function deviceList(instanceId: string) {
+async function deviceList(instanceId: string, extra: Record<string, string> = {}) {
   const { res, calls } = makeRes();
-  await handleExamAnnouncementRoute(makeReq('GET', { query: { resource: 'device-announcements', instanceId } }), res);
+  await handleExamAnnouncementRoute(
+    makeReq('GET', { query: { resource: 'device-announcements', instanceId, ...extra } }),
+    res,
+  );
   return calls;
 }
 
@@ -614,4 +617,80 @@ test('统计：汇总应达/送达/已读、覆盖设备与回执率最低的公
   assert.equal(lowest[0].id, id);
   assert.equal(lowest[0].target, 2);
   assert.equal(lowest[0].seen, 1);
+});
+
+// ===== 教室端历史公告（公告按钮里的「历史」分页）=====
+
+test('教室端历史：只回本机范围内的已过期/已撤回，并带上本机已读时间', async () => {
+  await bindDevice('hist-dev-1', 'g1', 'c1');
+  const expired = String(
+    objectOf(
+      await send(admin.token, {
+        title: '已经过期',
+        body: 'x',
+        scopeType: 'class',
+        scopeIds: ['c1'],
+        expiresInMinutes: 120,
+      }),
+    ).id,
+  );
+  const revoked = String(
+    objectOf(await send(admin.token, { title: '后来撤回', body: 'y', scopeType: 'class', scopeIds: ['c1'] })).id,
+  );
+  const active = String(
+    objectOf(
+      await send(admin.token, {
+        title: '仍然生效',
+        body: 'z',
+        scopeType: 'class',
+        scopeIds: ['c1'],
+        expiresInMinutes: 120,
+      }),
+    ).id,
+  );
+  const foreign = String(
+    objectOf(
+      await send(admin.token, {
+        title: '别的班',
+        body: 'w',
+        scopeType: 'class',
+        scopeIds: ['c9'],
+        expiresInMinutes: 120,
+      }),
+    ).id,
+  );
+
+  // 把两条改成"过期"，再撤回一条。
+  await database()`
+    UPDATE exam_announcements SET expires_at = ${Date.now() - 60_000} WHERE id IN (${expired}, ${foreign})
+  `;
+  await send(admin.token, { id: revoked }, 'announce-revoke');
+
+  const history = await deviceList('hist-dev-1', { history: '1' });
+  const ids = rows(history)
+    .map((row) => String(row.id))
+    .sort();
+  assert.deepEqual(ids, [expired, revoked].sort(), '历史里只该有本班范围内已过期/已撤回的两条');
+  const current = await deviceList('hist-dev-1');
+  assert.deepEqual(
+    rows(current).map((row) => String(row.id)),
+    [active],
+    '当前列表不受历史影响',
+  );
+
+  const expiredRow = rows(history).find((row) => row.id === expired);
+  const revokedRow = rows(history).find((row) => row.id === revoked);
+  assert.equal(expiredRow?.status, 'expired');
+  assert.equal(revokedRow?.status, 'revoked');
+  assert.equal(expiredRow?.seenAt, null, '没看过就是 null');
+  assert.equal(rows(current)[0].seenAt, null);
+
+  // 本机看过历史里的那条之后，历史与当前列表都会带上 seenAt。
+  await ack('hist-dev-1', [{ id: revoked, seenMs: 5000 }]);
+  const afterSeen = await deviceList('hist-dev-1', { history: '1' });
+  assert.ok(Number(rows(afterSeen).find((row) => row.id === revoked)?.seenAt) > 0);
+
+  // 未绑定的设备拿不到历史（沿用设备绑定校验）。
+  const ghost = await deviceList('ghost-device', { history: '1' });
+  assert.equal(ghost.statusCode, 404);
 });

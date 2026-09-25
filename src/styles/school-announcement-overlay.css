@@ -76,6 +76,31 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+/* 「当前 / 历史」分页：历史是教室端自己回看过去通知的入口。 */
+.sann-screen-tabs {
+  display: flex;
+  gap: 8px;
+}
+.sann-screen-tabs button {
+  min-height: 40px;
+  padding: 6px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(240, 244, 249, 0.72);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.sann-screen-tabs button:hover {
+  color: #fff;
+}
+.sann-screen-tabs button.is-active {
+  border-color: rgba(52, 152, 219, 0.65);
+  background: rgba(52, 152, 219, 0.22);
+  color: #fff;
+  font-weight: 700;
+}
 /* 回执计时挂在卡片外层容器上（IntersectionObserver 观察的就是它）。 */
 .sann-screen-window__item {
   min-width: 0;

@@ -34,6 +34,8 @@ export type SchoolExamAnnouncement = {
   /** 管理端最近一次"提醒未读教室"的时间。 */
   remindAt: number | null;
   remindScope: AnnouncementRemindScope;
+  /** 本机（这台教室大屏）对这条公告的已读时间；管理端列表里恒为 null。 */
+  seenAt: number | null;
   examId: string | null;
   scopeType: AnnouncementScopeType;
   scopeIds: string[];
@@ -130,6 +132,7 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
     silent: row.silent === true,
     remindAt: typeof row.remindAt === 'number' && row.remindAt > 0 ? row.remindAt : null,
     remindScope: parseAnnouncementRemindScope(row.remindScope),
+    seenAt: typeof row.seenAt === 'number' && row.seenAt > 0 ? row.seenAt : null,
     // 服务端已经算好展示状态；旧实例没这一列时按 expiresAt 兜底，避免状态一直显示"生效中"。
     status:
       row.status === 'active' || row.status === 'expired' || row.status === 'revoked'
@@ -149,10 +152,18 @@ function parseAnnouncement(raw: unknown): SchoolExamAnnouncement | null {
   };
 }
 
-/** 教室端：拉取本机（按绑定班级/年级）能收到的公告。 */
-export async function fetchDeviceExamAnnouncements(instanceId: string): Promise<SchoolExamAnnouncement[]> {
+/**
+ * 教室端：拉取本机（按绑定班级/年级）能收到的公告。
+ * `history: true` 时改拉历史公告（已过期 / 已撤回），给公告窗口的「历史」分页用。
+ */
+export async function fetchDeviceExamAnnouncements(
+  instanceId: string,
+  options: { history?: boolean; limit?: number } = {},
+): Promise<SchoolExamAnnouncement[]> {
   if (!instanceId) return [];
   const params = new URLSearchParams({ resource: 'device-announcements', instanceId });
+  if (options.history) params.set('history', '1');
+  if (options.limit) params.set('limit', String(options.limit));
   let response: Response;
   try {
     response = await fetch(`/api/exams?${params.toString()}`, { cache: 'no-store' });

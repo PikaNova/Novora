@@ -1,15 +1,23 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Mascot from './Mascot';
 import SchoolAnnouncementCard from './SchoolAnnouncementCard';
 import { formatDateTimeInZone } from '../utils/timeSource';
 import { createSeenTracker } from '../utils/announcementSeen';
 import type { SchoolExamAnnouncement } from '../services/examAnnouncements';
-import { ANNOUNCEMENT_SEEN_MIN_MS, type AnnouncementSeenItem } from '../shared/examAnnouncementContracts.js';
+import {
+  ANNOUNCEMENT_SEEN_MIN_MS,
+  ANNOUNCEMENT_STATUS_LABELS,
+  type AnnouncementSeenItem,
+} from '../shared/examAnnouncementContracts.js';
 import '../styles/school-announcement-overlay.css';
 
 type Props = {
   open: boolean;
   announcements: SchoolExamAnnouncement[];
+  /** 历史公告（已过期 / 已撤回）；切到「历史」分页或打开窗口时按需拉取。 */
+  history?: SchoolExamAnnouncement[];
+  historyLoading?: boolean;
+  onRequestHistory?: () => void;
   /** 大屏上的学校名（标题用，可空）。 */
   schoolName?: string;
   onClose: () => void;
@@ -29,12 +37,23 @@ type Props = {
 export default function SchoolAnnouncementOverlay({
   open,
   announcements,
+  history = [],
+  historyLoading = false,
+  onRequestHistory,
   schoolName = '',
   onClose,
   onSeen,
   seenMinMs = ANNOUNCEMENT_SEEN_MIN_MS,
 }: Props) {
   const hasUrgent = announcements.some((item) => item.level === 'urgent');
+  const [tab, setTab] = useState<'current' | 'history'>('current');
+  // 每次重新打开都回到「当前」；历史只在用户切过去时拉一次。
+  useEffect(() => {
+    if (open) setTab('current');
+  }, [open]);
+  useEffect(() => {
+    if (open && tab === 'history') onRequestHistory?.();
+  }, [onRequestHistory, open, tab]);
   const close = () => {
     if (hasUrgent) return;
     onClose();
@@ -72,19 +91,58 @@ export default function SchoolAnnouncementOverlay({
           </button>
         </header>
         <div className="sann-screen-window__body">
-          {announcements.length === 0 ? (
+          <div className="sann-screen-tabs" role="tablist" aria-label="公告分页">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'current'}
+              className={tab === 'current' ? 'is-active' : undefined}
+              onClick={() => setTab('current')}
+            >
+              当前{announcements.length > 0 ? `（${announcements.length}）` : ''}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'history'}
+              className={tab === 'history' ? 'is-active' : undefined}
+              onClick={() => setTab('history')}
+            >
+              历史
+            </button>
+          </div>
+          {tab === 'current' ? (
+            announcements.length === 0 ? (
+              <div className="sann-screen-empty">
+                <Mascot className="mascot-inline" size={40} alt="" />
+                当前没有学校公告。
+              </div>
+            ) : (
+              announcements.map((item) => (
+                <TrackedAnnouncementCard
+                  key={item.id}
+                  item={item}
+                  minMs={seenMinMs}
+                  meta={`${formatDateTimeInZone(item.createdAt)} 发布${item.seenAt ? ' · 已读' : ' · 未读'}`}
+                  onSeen={onSeen}
+                />
+              ))
+            )
+          ) : historyLoading && history.length === 0 ? (
+            <div className="sann-screen-empty">历史公告加载中…</div>
+          ) : history.length === 0 ? (
             <div className="sann-screen-empty">
               <Mascot className="mascot-inline" size={40} alt="" />
-              当前没有学校公告。
+              还没有历史公告。
             </div>
           ) : (
-            announcements.map((item) => (
-              <TrackedAnnouncementCard
+            history.map((item) => (
+              <SchoolAnnouncementCard
                 key={item.id}
                 item={item}
-                minMs={seenMinMs}
-                meta={`${formatDateTimeInZone(item.createdAt)} 发布`}
-                onSeen={onSeen}
+                meta={`${formatDateTimeInZone(item.createdAt)} 发布 · ${ANNOUNCEMENT_STATUS_LABELS[item.status]}${
+                  item.seenAt ? ' · 已读' : ' · 当时未读'
+                }`}
               />
             ))
           )}
