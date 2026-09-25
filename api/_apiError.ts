@@ -140,7 +140,8 @@ export function sendRateLimited(req: VercelRequest, res: VercelResponse, retryAf
   const body: ApiErrorResponse = {
     ok: false,
     code: 'RATE_LIMITED',
-    error: '其他设备正在保存数据，系统将很快自动重试。',
+    // 别再说「其他设备」：写槽只有一个，用户自己那个页面连着写两次也会被挡（保存并发布）。
+    error: '数据正在同步，系统将很快自动重试。',
     retryable: true,
     requestId: id,
   };

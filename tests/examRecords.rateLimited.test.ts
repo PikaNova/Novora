@@ -44,7 +44,7 @@ function rateLimitedResponse(retryAfterMs: number): Response {
     JSON.stringify({
       ok: false,
       code: 'RATE_LIMITED',
-      error: '其他设备正在保存数据，系统将很快自动重试。',
+      error: '数据正在同步，系统将很快自动重试。',
       retryable: true,
       retryAfterMs,
     }),
@@ -115,12 +115,47 @@ test('重试超过上限后抛出服务端的限流原因', async () => {
       () => runExamRecordAction({ id: 'exam-1', action: 'publish' }),
       (error: { code?: string; message?: string }) => {
         assert.equal(error.code, 'RATE_LIMITED');
-        assert.match(String(error.message), /正在保存数据/);
+        assert.match(String(error.message), /正在同步/);
         return true;
       },
     );
     assert.equal(calls, 4);
   } finally {
     testGlobals.fetch = originalFetch;
+  }
+});
+
+/**
+ * 「保存并发布」= 保存快照 + 发布动作两次连写。服务端写槽 900ms 只放行一个写请求，
+ * 所以记录动作必须和保存共用同一个业务写队列 —— 否则第二个请求必然撞窗口、
+ * 每次都要白白 429 重试一轮（用户看到的「同步繁忙」就是这么来的）。
+ */
+test('记录动作与其它云端写入共享同一个队列：不并发、且留足写槽间隔', async () => {
+  const { __resetSyncQueueForTests } = await import('../src/services/syncQueue.js');
+  __resetSyncQueueForTests();
+  const originalFetch = globalThis.fetch;
+  const starts: number[] = [];
+  let concurrent = 0;
+  let maxConcurrent = 0;
+  testGlobals.fetch = async () => {
+    starts.push(Date.now());
+    concurrent += 1;
+    maxConcurrent = Math.max(maxConcurrent, concurrent);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    concurrent -= 1;
+    return okResponse();
+  };
+
+  try {
+    await Promise.all([
+      runExamRecordAction({ id: 'exam-1', action: 'publish' }),
+      runExamRecordAction({ id: 'exam-1', action: 'pause' }),
+    ]);
+    assert.equal(starts.length, 2);
+    assert.equal(maxConcurrent, 1, '记录动作不能并发打服务端');
+    assert.ok(starts[1] - starts[0] >= 800, `两次写之间要留出写槽窗口，实际 ${starts[1] - starts[0]}ms`);
+  } finally {
+    testGlobals.fetch = originalFetch;
+    __resetSyncQueueForTests();
   }
 });

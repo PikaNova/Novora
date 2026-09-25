@@ -9,6 +9,7 @@ import { ApiError, apiErrorFromResponse, networkApiError } from './apiError';
 import { logger } from '../utils/logger';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { authHeaders as sessionAuthHeaders } from './auth/session';
+import { runQueued } from './syncQueue';
 
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
@@ -373,9 +374,12 @@ export type ExamRecordActionRequest = {
 /**
  * 全局写槽（服务端 `GLOBAL_WRITE_MIN_INTERVAL_MS = 900`）同时只放行一个写请求。
  * 向导「保存并发布」是两次连写：先写考试窗口快照，紧接着发发布动作，第二个请求
- * 几乎必然落在前一个请求刚占用的窗口里，服务端按约回 429 RATE_LIMITED + Retry-After。
- * 写槽是动作的第一道门，429 发生在任何写语句之前，所以照服务端提示等一会儿重发
- * 既安全、也不会把动作执行两遍；需要幂等键的动作重试时沿用同一个键。
+ * 几乎必然落在前一个请求刚占用的窗口里。
+ *
+ * 所以记录动作也走 **同一个业务写队列**（`runQueued`，`MIN_BUSINESS_INTERVAL_MS = 900`）：
+ * 保存与发布被排成 900ms 间隔的两次写，不再互相踩。下面这套 429 重试保留为兜底——
+ * 另一个标签页 / 另一台设备同时写时仍会撞窗口，而 429 发生在任何写语句之前，
+ * 照服务端提示等一会儿重发既安全、也不会把动作执行两遍；需要幂等键的动作沿用同一个键。
  */
 const RATE_LIMITED_MAX_ATTEMPTS = 4;
 const RATE_LIMITED_FALLBACK_WAIT_MS = 900;
@@ -405,12 +409,18 @@ export async function runExamRecordAction(input: ExamRecordActionRequest): Promi
   for (let attempt = 1; ; attempt += 1) {
     let response: Response;
     try {
-      response = await fetch('/api/exams', {
-        method: 'POST',
-        headers: authHeaders(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
-        body: JSON.stringify(body),
-        cache: 'no-store',
-      });
+      // 走队列：和「保存考试」「设备/插件写入」共享同一个 900ms 最小间隔，
+      // 高优先级保证用户点的动作排在后台批量保存前面。
+      response = await runQueued(
+        () =>
+          fetch('/api/exams', {
+            method: 'POST',
+            headers: authHeaders(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+            body: JSON.stringify(body),
+            cache: 'no-store',
+          }),
+        { priority: 'high', label: EXAM_RECORD_ACTION_LABELS[input.action] ?? '考试操作' },
+      );
     } catch {
       throw networkApiError();
     }

@@ -9,6 +9,9 @@ import { CLOUD_VERSION_EVENT, logoutAdmin } from '../services/examService';
 import { resolveDeviceCommandReceipt } from '../utils/deviceCommandReceipt';
 import { getSyncTransport, subscribeToSync } from '../sync/transport';
 
+/** 设置变更后的即时心跳合并窗口；多次变更只补发一次。 */
+const SETTINGS_CHANGED_TICK_DEBOUNCE_MS = 2_000;
+
 /**
  * 设备心跳与后台指令的副作用入口。
  *
@@ -70,11 +73,25 @@ export default function DeviceHeartbeat() {
     const onVisible = () => {
       if (document.visibilityState === 'visible') transport.tick();
     };
-    const onSettingsChanged = () => transport.tick();
+    /**
+     * 设置变更后的即时心跳要防抖：一次「保存并发布」会连着触发好几次
+     * `exam-board:settings-changed`（保存快照、写动作、绑定回写…），每次都立刻发心跳
+     * 会把上报节奏从 30s/60s 打成 1s 级——服务端每轮心跳都要跑一遍生命周期推进与命令认领，
+     * 纯属白烧。合并成一次即可，2 秒内教室里看到的状态一样新。
+     */
+    let settingsTickTimer: ReturnType<typeof setTimeout> | null = null;
+    const onSettingsChanged = () => {
+      if (settingsTickTimer !== null) clearTimeout(settingsTickTimer);
+      settingsTickTimer = setTimeout(() => {
+        settingsTickTimer = null;
+        transport.tick();
+      }, SETTINGS_CHANGED_TICK_DEBOUNCE_MS);
+    };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('exam-board:settings-changed', onSettingsChanged);
     return () => {
       unsubscribe();
+      if (settingsTickTimer !== null) clearTimeout(settingsTickTimer);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('exam-board:settings-changed', onSettingsChanged);
     };

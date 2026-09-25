@@ -55,7 +55,8 @@ const DEFAULT_MESSAGES: Record<string, string> = {
   DATABASE_TRANSACTION_FAILED: '数据库操作未完成，服务端变更已回滚。',
   DATABASE_POOL_EXHAUSTED: '服务器连接繁忙，请稍后重试。',
   DATABASE_CONFLICT: '操作遇到并发冲突，已自动回滚，请重试。',
-  RATE_LIMITED: '其他设备正在保存数据，系统将很快自动重试。',
+  // 写槽是全局单个：用户自己那个页面连着写两次（保存并发布）也会被挡，别说成「其他设备」。
+  RATE_LIMITED: '数据正在同步，系统将很快自动重试。',
 
   // 验证 / 权限 / 会话
   ALREADY_INITIALIZED: '云端已经完成初始化，请在年级与班级页面调整学校结构。',
@@ -237,6 +238,6 @@ export function getSyncNotifyTitle(code?: string): string {
   if (code === 'DATA_CONFLICT') return '数据冲突';
   if (code === 'CLASS_DEVICE_EXISTS') return '设备冲突';
   if (code === 'ALREADY_INITIALIZED') return '已初始化';
-  if (code === 'RATE_LIMITED') return '多设备同步繁忙';
+  if (code === 'RATE_LIMITED') return '同步繁忙';
   return '同步失败';
 }
