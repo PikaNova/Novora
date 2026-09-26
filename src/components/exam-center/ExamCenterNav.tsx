@@ -23,8 +23,9 @@ export type ExamCenterNavProps = {
 
 export function examCenterViews(can: (permission: string) => boolean): ExamCenterView[] {
   const visible = EXAM_CENTER_NAV_ITEMS.filter((item) => can(item.permission)).map((item) => item.id);
+  if (visible.length) return can('weekly.read') ? [...visible, 'weekly'] : visible;
   // 大考列表视图都不可见时（只有 weekly.read）默认落到周测。
-  return visible.length ? visible : ['weekly'];
+  return can('weekly.read') ? ['weekly'] : [];
 }
 
 export default function ExamCenterNav({ view, can, onSelect }: ExamCenterNavProps) {

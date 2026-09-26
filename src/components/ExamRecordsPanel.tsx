@@ -50,6 +50,7 @@ import {
   type WeeklyPlan,
 } from '../types/exam';
 import { parseZonedTime } from '../utils/zonedTime';
+import { nowMs } from '../utils/timeSource';
 import ExamRecordDetailDrawer from './ExamRecordDetailDrawer';
 import ScheduleBoard, { type ScheduleSubjectRow } from './exam-center/ScheduleBoard';
 import ScheduleGrid from './exam-center/ScheduleGrid';
@@ -74,6 +75,7 @@ type Props = {
   onOpenWeeklyEditor?: () => void;
   /** 详情抽屉里的「编辑考试」：由上层定位到这场考试再进编辑器，面板自己不猜落点。 */
   onEditRecord?: (record: ExamRecordListEntry) => void;
+  canEditRecord?: (record: ExamRecordListEntry) => boolean;
   /** 删除草稿：返回 true 表示确实删了（面板据此立刻重拉草稿列表）。 */
   onDeleteDraft?: (record: ExamRecordListEntry) => Promise<boolean>;
   /** 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突并列出科目。 */
@@ -159,6 +161,7 @@ export default function ExamRecordsPanel({
   weeklyPlanIdByClassId,
   onOpenWeeklyEditor,
   onEditRecord,
+  canEditRecord,
   onDeleteDraft,
   majors,
   scheduleMode,
@@ -196,6 +199,13 @@ export default function ExamRecordsPanel({
   const [scheduleWindow, setScheduleWindow] = useState<ScheduleWindowKey>(rememberedFilters?.scheduleWindow ?? 'week');
   const [expandedClassId, setExpandedClassId] = useState('');
   const [weeklyExpanded, setWeeklyExpanded] = useState(false);
+  const [now, setNow] = useState(() => nowMs());
+  const draftsRequestRef = useRef(0);
+
+  useEffect(() => {
+    const timer = globalThis.setInterval(() => setNow(nowMs()), 10_000);
+    return () => globalThis.clearInterval(timer);
+  }, []);
 
   /**
    * 父级（AdminPage）每 10 秒重渲染一次，`visibleClasses` 这类派生数组每次都是新引用；
@@ -227,18 +237,13 @@ export default function ExamRecordsPanel({
 
   // 「考试安排」的时间窗：今天 / 明天 / 本周 / 未来两周 / 全部。
   const window = useMemo(
-    () => resolveScheduleWindow(scheduleWindow, Date.now()),
-    // 时间窗只跟档位走；重新挂载（切板块回来）也会重算一次「今天」。
-    [scheduleWindow],
+    () => resolveScheduleWindow(scheduleWindow, now),
+    [scheduleWindow, now],
   );
   // 日程轴与班级网格共用同一套取数与行模型（时间窗、草稿、冲突），只有呈现方式不同。
   const boardActive = preset === 'schedule' && viewMode !== 'exam';
   const boardTimeline = preset === 'schedule' && viewMode === 'timeline';
 
-  /**
-   * 请求序号：筛选/窗口变化会连续触发多次取数，只有最后一次的结果可以落到界面。
-   * 没有它就会出现「先发的慢响应后到，把新结果覆盖回去」。
-   */
   const requestSeqRef = useRef(0);
 
   const loadRecords = useCallback(async () => {
@@ -261,7 +266,7 @@ export default function ExamRecordsPanel({
           ? { from: window.from, to: window.to, includeUnscheduled: true }
           : {}),
       });
-      if (seq !== requestSeqRef.current) return;
+    if (seq !== requestSeqRef.current) return;
       setRecords(result.data);
       setTotal(result.total);
       setTotalPages(result.totalPages);
@@ -327,6 +332,7 @@ export default function ExamRecordsPanel({
   // 考试安排的草稿：表格/按班级视图里是可折叠的一块，日程轴里是「未排期」分组，两种都要拉一次。
   useEffect(() => {
     if (preset !== 'schedule' || !(draftsOpen || boardActive)) return;
+    const requestId = ++draftsRequestRef.current;
     let active = true;
     setDraftsLoading(true);
     void fetchExamRecords({
@@ -340,13 +346,13 @@ export default function ExamRecordsPanel({
       createdBy: createdBy.trim() || undefined,
     })
       .then((result) => {
-        if (active) setDrafts(result.data);
+        if (active && requestId === draftsRequestRef.current) setDrafts(result.data);
       })
       .catch(() => {
         // 同上：草稿取数失败时保留上一批，避免「未排期」分组闪一下又回来。
       })
       .finally(() => {
-        if (active) setDraftsLoading(false);
+        if (active && requestId === draftsRequestRef.current) setDraftsLoading(false);
       });
     return () => {
       active = false;
@@ -398,10 +404,10 @@ export default function ExamRecordsPanel({
       activePlanIdByClassId: weeklyPlanIdByClassId,
       classes,
       grades,
-      now: Date.now(),
+      now,
       daysForward: 7,
     });
-  }, [preset, weeklyPlans, weeklyPlanIdByClassId, classes, grades]);
+  }, [preset, weeklyPlans, weeklyPlanIdByClassId, classes, grades, now]);
 
   // 日程轴的数据来源：本地快照展开出「大型考试 / 快速发布 / 周测」场次（周测已按时间结构合并，
   // 被大型考试按冲突策略暂停的实例单独返回），再和记录层的生命周期状态、草稿合流成一条轴。
@@ -449,16 +455,16 @@ export default function ExamRecordsPanel({
             records,
             grades,
             classes,
-            now: Date.now(),
+            now,
             rowFilter: makeScheduleRowFilter({ query, gradeId, classGradeIds }),
           })
         : null,
-    [boardActive, collected, drafts, records, grades, classes, query, gradeId, classGradeIds],
+    [boardActive, collected, drafts, records, grades, classes, query, gradeId, classGradeIds, now],
   );
 
   /** 班级网格的日期列（最多 7 天）与列头文案。 */
   const gridDays = useMemo(() => (boardActive ? scheduleWindowDays(window, 7) : []), [boardActive, window]);
-  const gridDayLabels = useMemo(() => gridDays.map((day) => scheduleDayLabel(day, Date.now())), [gridDays]);
+  const gridDayLabels = useMemo(() => gridDays.map((day) => scheduleDayLabel(day, now)), [gridDays, now]);
   const classGrid = useMemo(
     () => (board && gridDays.length ? buildClassGrid({ rows: board.rows, classes, grades, days: gridDays }) : []),
     [board, gridDays, classes, grades],
@@ -484,10 +490,10 @@ export default function ExamRecordsPanel({
 
   // 分组：安排页是 今天/明天/本周内/更晚，历史页是自然月（当前考试不分段）。
   const groupedRows = useMemo(() => {
-    if (preset === 'schedule') return groupScheduleEntries(records, Date.now());
+    if (preset === 'schedule') return groupScheduleEntries(records, now);
     if (preset === 'history') return groupHistoryEntries(records);
     return null;
-  }, [preset, records]);
+  }, [preset, records, now]);
 
   // 分组默认只展开最近两组（安排页=今天/明天，历史页=最近一个月），其余折叠；
   // 用户折叠过就按用户记的来（和筛选条件一样存在内存里，切板块回来还在）。
@@ -658,9 +664,15 @@ export default function ExamRecordsPanel({
                 <div className="exam-records-create__menu" role="menu" aria-label="选择考试类型">
                   {(
                     [
-                      ['major', '大型考试', '有起止的正式考试，先存草稿再完善'],
-                      ['quick', '快速发布', '立刻统一下发到班级，保存即生效'],
-                      ['weekly', '周测计划', '周期性的课表安排'],
+                      ...(can('major.create') || can('major.quick_create')
+                        ? [['major', '大型考试', '有起止的正式考试，先存草稿再完善'] as const]
+                        : []),
+                      ...(can('major.quick_create')
+                        ? [['quick', '快速发布', '立刻统一下发到班级，保存即生效'] as const]
+                        : []),
+                      ...(can('weekly.create')
+                        ? [['weekly', '周测计划', '周期性的课表安排'] as const]
+                        : []),
                     ] as const
                   ).map(([kind, label, hint]) => (
                     <button
@@ -847,6 +859,10 @@ export default function ExamRecordsPanel({
                 }
               : undefined
           }
+          canEditRecord={(recordId) => {
+            const found = records.find((item) => item.id === recordId) ?? drafts.find((item) => item.id === recordId);
+            return found ? (canEditRecord?.(found) ?? can('major.edit')) : can('major.edit');
+          }}
           onOpenWeeklyPlan={onOpenWeeklyEditor}
           onCopyRecord={(recordId) => void requestCopyRecord(recordId)}
           // 「全部」/两周档可能超过一次取数上限（100 条）：说清楚只显示了多少，并给一个收窄入口。
@@ -1039,7 +1055,7 @@ export default function ExamRecordsPanel({
               <ul className="exam-records-weekly__list">
                 {(weeklyExpanded ? weeklyRows : weeklyRows.slice(0, 5)).map((row) => (
                   <li key={row.key}>
-                    <span className="exam-records-weekly__when">{weeklyDateLabel(row.dateKey, Date.now())}</span>
+                    <span className="exam-records-weekly__when">{weeklyDateLabel(row.dateKey, now)}</span>
                     <strong>{row.name}</strong>
                     <span>
                       {row.gradeName}
@@ -1182,6 +1198,7 @@ export default function ExamRecordsPanel({
           onClose={() => setDetailId('')}
           onChanged={() => setRefreshKey((value) => value + 1)}
           onEdit={onEditRecord}
+          canEditRecord={canEditRecord}
           onDiscard={
             onDeleteDraft
               ? (record) => {

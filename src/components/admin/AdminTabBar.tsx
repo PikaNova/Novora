@@ -1,6 +1,6 @@
 // 后台主导航栏：只负责主功能切换。运行模式/年级/班级等页面状态由页面内的
 // AdminContextBar 承载，导航栏不再挂页面控件。
-import { ADMIN_NAV } from '../../hooks/admin/adminRoutes.js';
+import { ADMIN_NAV, canAccessAdminTab } from '../../hooks/admin/adminRoutes.js';
 import type { AdminTab, ExamCenterView } from '../../types/exam';
 import { EXAM_CENTER_NAV_ITEMS } from '../exam-center/ExamCenterNav.js';
 import ModuleIcon from '../ModuleIcon.js';
@@ -18,7 +18,7 @@ export function AdminTabBar({ adminTab, can, selectAdminTab, examView, onSelectE
   return (
     <nav className="admin-tabbar" aria-label="管理功能">
       <div className="admin-tabbar__tabs">
-        {ADMIN_NAV.filter((item) => item.id === 'users' || can(item.permission)).map((item) => (
+        {ADMIN_NAV.filter((item) => item.id === 'users' || canAccessAdminTab(item.id, can)).map((item) => (
           <div className="admin-tab-group" key={item.id}>
             <button
               className={`admin-tab${adminTab === item.id ? ' is-active' : ''}`}

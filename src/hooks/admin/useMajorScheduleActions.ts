@@ -221,14 +221,14 @@ export function useMajorScheduleActions(params: {
   const activeMajorTrackScopedCount = activeMajorTrackSubjects.filter((item) => item.targetClassIds?.length).length;
   const activeMajorUnsetTrackClassCount = classesInMajorScope(activeMajor).filter((item) => !item.track?.length).length;
 
-  const changeSelectedGrade = (gradeId: string) => {
-    if (gradeId === selectedGradeId) return;
+  const changeSelectedGrade = (gradeId: string): boolean => {
+    if (gradeId === selectedGradeId) return true;
     if (editingRef.current) {
       const subject = editingRef.current.name.trim() || '未命名分考试';
       notify('warning', `“${subject}”仍在编辑中，请先确认并保存，或取消本次编辑后再切换年级。`, '请先保存分考试');
-      return;
+      return false;
     }
-    if (gradeId && !visibleGrades.some((grade) => grade.id === gradeId)) return;
+    if (gradeId && !visibleGrades.some((grade) => grade.id === gradeId)) return false;
     setSelectedGradeId(gradeId);
     setSelectedClassId('');
     const candidates = visibleMajors.filter((major) => majorAppliesToGrade(major, gradeId));
@@ -237,8 +237,9 @@ export function useMajorScheduleActions(params: {
       candidates.find((major) => major.id === remembered) ??
       candidates.find((major) => major.targetGradeIds?.includes(gradeId)) ??
       candidates[0];
-    if (nextMajor) setEditingMajorId(nextMajor.id);
+    setEditingMajorId(nextMajor?.id ?? '');
     updateExamSettings({ selectedGradeId: gradeId, selectedClassId: '' });
+    return true;
   };
   const changeSelectedClass = (classId: string) => {
     if (classId && !visibleClasses.some((item) => item.id === classId && item.gradeId === selectedGradeId)) return;
@@ -479,14 +480,25 @@ export function useMajorScheduleActions(params: {
     setEditingMajorId(id);
     if (selectedGradeId) setEditingMajorIdByGrade((value) => ({ ...value, [selectedGradeId]: id }));
   };
-  const commitMajorModal = (onContinueToImport: () => void) => {
-    if (!majorModal) return;
+  const commitMajorModal = (onContinueToImport: () => void): string | null => {
+    if (!majorModal) return null;
     const name = majorModal.name.trim();
     if (!name) {
       setMajorError('请输入大型考试名称');
-      return;
+      return null;
     }
     const continueToImport = majorModal.mode === 'add' && majorModal.next === 'import';
+    const targetGradeId = majorModal.targetGradeIds.find((id) => visibleGrades.some((grade) => grade.id === id)) ?? '';
+    const alignSelectionToTarget = () => {
+      if (!targetGradeId || targetGradeId === selectedGradeId) return;
+      const classId =
+        adminUser?.roleId === 'class_admin'
+          ? (visibleClasses.find((item) => item.gradeId === targetGradeId)?.id ?? '')
+          : '';
+      setSelectedGradeId(targetGradeId);
+      setSelectedClassId(classId);
+      updateExamSettings({ selectedGradeId: targetGradeId, selectedClassId: classId });
+    };
     if (majorModal.mode === 'add') {
       const nm: MajorExam = {
         id: genMajorId(),
@@ -496,18 +508,28 @@ export function useMajorScheduleActions(params: {
         targetGradeIds: majorModal.targetGradeIds,
       };
       const ms = [...majors, nm];
+      alignSelectionToTarget();
       setEditingMajorId(nm.id);
-      if (selectedGradeId) setEditingMajorIdByGrade((value) => ({ ...value, [selectedGradeId]: nm.id }));
+      if (targetGradeId || selectedGradeId) {
+        const gradeId = targetGradeId || selectedGradeId;
+        setEditingMajorIdByGrade((value) => ({ ...value, [gradeId]: nm.id }));
+      }
       commit(ms, nm.id, true, `新增大型考试「${name}」`);
+      setMajorModal(null);
+      setMajorError('');
+      if (continueToImport) onContinueToImport();
+      return nm.id;
     } else {
       const ms = majors.map((m) =>
         m.id === activeMajor.id ? { ...m, name, targetGradeIds: majorModal.targetGradeIds } : m,
       );
+      alignSelectionToTarget();
       commit(ms, activeMajorId, true, `更新大型考试「${name}」`);
     }
     setMajorModal(null);
     setMajorError('');
     if (continueToImport) onContinueToImport();
+    return activeMajorId || null;
   };
   /** 删除当前大型考试：等服务端确认后再报成功（与「删除草稿」同口径）。 */
   const removeMajor = async () => {

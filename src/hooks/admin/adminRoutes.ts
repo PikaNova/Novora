@@ -35,6 +35,10 @@ export const ADMIN_TAB_LABELS = Object.fromEntries(ADMIN_NAV.map((item) => [item
   string
 >;
 
+export function canAccessAdminTab(tab: AdminTab, can: (permission: string) => boolean): boolean {
+  return tab === 'exam' ? can('major.read') || can('weekly.read') : can(ADMIN_TAB_PERMISSIONS[tab]);
+}
+
 /**
  * 考试中心内部视图：前三个是同一份列表的三个口径，
  * `weekly` / `editor` 复用现有面板（可深链，但不进左栏导航）。
@@ -102,7 +106,7 @@ export function adminSectionUrl(input: {
 
 /** 未指定板块（`/admin`、旧链接、无效板块）时的落点：第一个有权限的板块。 */
 export function firstPermittedAdminTab(can: (permission: string) => boolean, fallback: AdminTab): AdminTab {
-  return ADMIN_SECTIONS.find((tab) => can(ADMIN_TAB_PERMISSIONS[tab])) ?? fallback;
+  return ADMIN_SECTIONS.find((tab) => canAccessAdminTab(tab, can)) ?? fallback;
 }
 
 export type AdminRouteState = {
