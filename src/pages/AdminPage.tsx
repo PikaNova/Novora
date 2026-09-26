@@ -56,6 +56,7 @@ import { useAdminModals } from '../hooks/admin/useAdminModals';
 import {
   ADMIN_TAB_LABELS,
   ADMIN_TAB_PERMISSIONS,
+  canAccessAdminTab,
   adminSectionUrl,
   firstPermittedAdminTab,
   resolveAdminRoute,
@@ -663,7 +664,7 @@ export default function AdminPage() {
    * 不静默改到别的页。强制改密例外：那条路径由 URL 规范化改成「用户与权限」。
    */
   const deniedTab =
-    route.explicit && !adminUser.mustChangePassword && adminTab !== 'users' && !can(ADMIN_TAB_PERMISSIONS[adminTab])
+    route.explicit && !adminUser.mustChangePassword && adminTab !== 'users' && !canAccessAdminTab(adminTab, can)
       ? adminTab
       : null;
   const deniedLabel = deniedModule || (deniedTab ? ADMIN_TAB_LABELS[deniedTab] : '');
@@ -683,13 +684,27 @@ export default function AdminPage() {
   const canDeleteActiveMajor =
     can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
   const canQuickPublish = can('major.create') || can('major.quick_create');
+  const canEditExamRecord = (record: { source: 'regular' | 'quick'; createdBy: number | null }) =>
+    can('major.edit') ||
+    (can('major.quick_create') && record.source === 'quick' && record.createdBy != null && record.createdBy === adminUser?.id);
   // 考试中心的内部板块：前三个是同一份列表的三个口径，weekly/editor 复用现有面板。
   const availableExamViews = examCenterViews(can);
   const selectExamView = (view: ExamCenterView) => {
     setDeniedModule('');
     navigate(adminSectionUrl({ tab: 'exam', view, search: location.search }));
   };
-  const examViewActive = adminTab === 'exam' ? (examView ?? availableExamViews[0]) : availableExamViews[0];
+  const examViewActive =
+    adminTab === 'exam'
+      ? examView && availableExamViews.includes(examView)
+        ? examView
+        : availableExamViews[0]
+      : availableExamViews[0];
+  useEffect(() => {
+    if (!ready || !adminUser || adminTab !== 'exam' || !route.examView) return;
+    if (!availableExamViews.includes(route.examView)) {
+      navigate(adminSectionUrl({ tab: 'exam', view: availableExamViews[0], search: location.search }), { replace: true });
+    }
+  }, [ready, adminUser, adminTab, route.examView, availableExamViews, navigate, location.search]);
   const examListView: 'current' | 'schedule' | 'history' =
     examViewActive === 'schedule' || examViewActive === 'history' ? examViewActive : 'current';
   // 「创建考试」按类型分流到已有的创建流程：大型考试进编辑器并直接开新建向导。
@@ -1252,9 +1267,9 @@ export default function AdminPage() {
                   weeklyPlans={visibleWeeklyPlans}
                   weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
                   onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
-                  onEditRecord={
-                    can('major.edit') ? (record) => openExamRecordEditor(record.id, record.name) : undefined
-                  }
+                  onEditRecord={canEditExamRecord({ source: 'quick', createdBy: adminUser?.id ?? null })
+                    ? (record) => (canEditExamRecord(record) ? openExamRecordEditor(record.id, record.name) : undefined)
+                    : undefined}
                   onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
                   // 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突、列出科目。
                   majors={visibleMajors}
