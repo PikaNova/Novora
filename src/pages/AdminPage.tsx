@@ -55,7 +55,6 @@ import { useAnnouncements } from '../hooks/admin/useAnnouncements';
 import { useAdminModals } from '../hooks/admin/useAdminModals';
 import {
   ADMIN_TAB_LABELS,
-  ADMIN_TAB_PERMISSIONS,
   canAccessAdminTab,
   adminSectionUrl,
   firstPermittedAdminTab,
@@ -651,10 +650,18 @@ export default function AdminPage() {
     setWizardDraftCreated(false);
   }, [editingMajorId, majors, wizardDraftCreated]);
 
+  const can = (permission: string) => Boolean(adminUser && adminCan(permission, adminUser));
+  const availableExamViews = examCenterViews(can);
+  useEffect(() => {
+    if (!ready || !adminUser || adminTab !== 'exam' || !route.examView) return;
+    if (!availableExamViews.includes(route.examView)) {
+      navigate(adminSectionUrl({ tab: 'exam', view: availableExamViews[0], search: location.search }), { replace: true });
+    }
+  }, [ready, adminUser, adminTab, route.examView, availableExamViews, navigate, location.search]);
+
   if (!ready || !adminUser)
     return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;
 
-  const can = (permission: string) => adminCan(permission, adminUser);
   const backToAdmin = () => {
     setDeniedModule('');
     navigate('/admin', { replace: true });
@@ -688,7 +695,6 @@ export default function AdminPage() {
     can('major.edit') ||
     (can('major.quick_create') && record.source === 'quick' && record.createdBy != null && record.createdBy === adminUser?.id);
   // 考试中心的内部板块：前三个是同一份列表的三个口径，weekly/editor 复用现有面板。
-  const availableExamViews = examCenterViews(can);
   const selectExamView = (view: ExamCenterView) => {
     setDeniedModule('');
     navigate(adminSectionUrl({ tab: 'exam', view, search: location.search }));
@@ -699,12 +705,6 @@ export default function AdminPage() {
         ? examView
         : availableExamViews[0]
       : availableExamViews[0];
-  useEffect(() => {
-    if (!ready || !adminUser || adminTab !== 'exam' || !route.examView) return;
-    if (!availableExamViews.includes(route.examView)) {
-      navigate(adminSectionUrl({ tab: 'exam', view: availableExamViews[0], search: location.search }), { replace: true });
-    }
-  }, [ready, adminUser, adminTab, route.examView, availableExamViews, navigate, location.search]);
   const examListView: 'current' | 'schedule' | 'history' =
     examViewActive === 'schedule' || examViewActive === 'history' ? examViewActive : 'current';
   // 「创建考试」按类型分流到已有的创建流程：大型考试进编辑器并直接开新建向导。

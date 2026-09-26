@@ -202,7 +202,7 @@ function ScheduleRowView({
                   仍然进行
                 </button>
               )}
-            {row.recordId && onEditRecord && can('major.edit') && row.kind !== 'weekly' && (
+            {row.recordId && onEditRecord && row.kind !== 'weekly' && (
               <button
                 className="admin-btn admin-btn--ghost admin-btn--sm"
                 type="button"
