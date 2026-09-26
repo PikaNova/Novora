@@ -13,6 +13,19 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 
 考试看板Classisland插件仓库[插件仓库](https://github.com/PikaNova/ClassIsland.ExamReminder)
 
+## Beta 分支与部署方式
+
+本分支 `beta` 以 [PikaNova/Novora-future 的 `main`](https://github.com/PikaNova/Novora-future/tree/main) 为基准，用于发布候选版本和部署验证。Beta 环境应与生产环境使用独立的 Vercel 项目和 Neon 数据库，避免测试数据影响生产实例。
+
+### Beta 云端部署（Vercel + Neon）
+
+1. 在 Neon 创建独立项目，Provider 选择 AWS、Region 选择 Singapore (`ap-southeast-1`)，复制 pooled connection string。
+2. 在 Vercel 导入 `PikaNova/Novora`，Production Branch 设为 `beta`，Framework Preset 选择 Vite，Build Command 使用 `npm run build`，Output Directory 使用 `dist`。
+3. 在 Vercel 项目环境变量中配置 `DATABASE_URL`、`ADMIN_PASSWORD`；如需设置页中的一键重新部署，再创建指向 `beta` 分支的 Deploy Hook 并填写 `VERCEL_DEPLOY_HOOK_URL`。
+4. 部署完成后访问 `/login`，使用 `admin` 与 `ADMIN_PASSWORD` 完成首次初始化，并保存只显示一次的恢复密钥。
+
+不要把数据库连接串、管理员密码或 Deploy Hook 写入仓库。Beta 部署与本地 Docker/NAS 自托管部署的完整步骤分别见 [`DEPLOY_LOCAL.md`](DEPLOY_LOCAL.md) 和 [`DEPLOY_NAS.md`](DEPLOY_NAS.md)。
+
 ## 推荐部署区域
 
 ```text
@@ -37,7 +50,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 1. Fork 或导入本仓库到自己的 GitHub 账号。
 2. 在 [Vercel](https://vercel.com/) 中选择 Add New Project 并导入仓库。
 3. Framework Preset 选择 Vite，Build Command 使用 `npm run build`，Output Directory 使用 `dist`。
-4. 首次 Deploy 后创建 `main` 分支 Deploy Hook，添加 `VERCEL_DEPLOY_HOOK_URL`，再执行一次 Redeploy。
+4. 首次 Deploy 后创建与当前部署分支匹配的 Deploy Hook（生产使用 `main`，Beta 使用 `beta`），添加 `VERCEL_DEPLOY_HOOK_URL`，再执行一次 Redeploy。
 
 部署时只需要填写下面 3 个环境变量：
 
@@ -45,7 +58,7 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 | ------------------------ | -------------------- | --------------------------------------------------------------------------------- |
 | `DATABASE_URL`           | 是                   | Neon 新加坡 pooled connection string                                              |
 | `ADMIN_PASSWORD`         | 是                   | 首次创建 `admin` 超级管理员的初始密码，至少 8 位，建议 12 位以上                  |
-| `VERCEL_DEPLOY_HOOK_URL` | 是（项目创建后补充） | Vercel `Settings → Git → Deploy Hooks` 创建的 `main` 分支钩子，用于设置页一键部署 |
+| `VERCEL_DEPLOY_HOOK_URL` | 是（项目创建后补充） | Vercel `Settings → Git → Deploy Hooks` 创建的当前部署分支钩子（生产 `main`，Beta `beta`），用于设置页一键部署 |
 
 其他配置均由系统默认值、Vercel 自动变量或运行时降级逻辑处理：更新检查默认使用 `https://github.com/PikaNova/Novora`，公告与文档默认走作者端公开地址；遥测与错误上报不再需要部署者填写固定密钥，会在服务端运行时向作者端换取短期上报凭据。作者端暂不可用时会自动跳过上报，不影响考试看板、管理后台和数据库同步。诊断日志重试队列的 Cron 消费端点可选配 `DIAGNOSTIC_WORKER_SECRET`（见「诊断日志上报」），不配也能用。
 
