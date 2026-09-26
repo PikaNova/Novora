@@ -75,6 +75,7 @@ type Props = {
   onOpenWeeklyEditor?: () => void;
   /** 详情抽屉里的「编辑考试」：由上层定位到这场考试再进编辑器，面板自己不猜落点。 */
   onEditRecord?: (record: ExamRecordListEntry) => void;
+  canEditRecord?: (record: ExamRecordListEntry) => boolean;
   /** 删除草稿：返回 true 表示确实删了（面板据此立刻重拉草稿列表）。 */
   onDeleteDraft?: (record: ExamRecordListEntry) => Promise<boolean>;
   /** 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突并列出科目。 */
@@ -160,6 +161,7 @@ export default function ExamRecordsPanel({
   weeklyPlanIdByClassId,
   onOpenWeeklyEditor,
   onEditRecord,
+  canEditRecord,
   onDeleteDraft,
   majors,
   scheduleMode,
@@ -202,8 +204,8 @@ export default function ExamRecordsPanel({
   const draftsRequestRef = useRef(0);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(nowMs()), 10_000);
-    return () => window.clearInterval(timer);
+    const timer = globalThis.setInterval(() => setNow(nowMs()), 10_000);
+    return () => globalThis.clearInterval(timer);
   }, []);
 
   /**
@@ -843,6 +845,10 @@ export default function ExamRecordsPanel({
                 }
               : undefined
           }
+          canEditRecord={(recordId) => {
+            const found = records.find((item) => item.id === recordId) ?? drafts.find((item) => item.id === recordId);
+            return found ? (canEditRecord?.(found) ?? can('major.edit')) : can('major.edit');
+          }}
           onOpenWeeklyPlan={onOpenWeeklyEditor}
           onCopyRecord={(recordId) => void requestCopyRecord(recordId)}
           // 「全部」/两周档可能超过一次取数上限（100 条）：说清楚只显示了多少，并给一个收窄入口。
@@ -1171,6 +1177,7 @@ export default function ExamRecordsPanel({
           onClose={() => setDetailId('')}
           onChanged={() => setRefreshKey((value) => value + 1)}
           onEdit={onEditRecord}
+          canEditRecord={canEditRecord}
           onDiscard={
             onDeleteDraft
               ? (record) => {

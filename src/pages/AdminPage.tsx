@@ -1270,6 +1270,7 @@ export default function AdminPage() {
                   onEditRecord={canEditExamRecord({ source: 'quick', createdBy: adminUser?.id ?? null })
                     ? (record) => (canEditExamRecord(record) ? openExamRecordEditor(record.id, record.name) : undefined)
                     : undefined}
+                  canEditRecord={canEditExamRecord}
                   onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
                   // 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突、列出科目。
                   majors={visibleMajors}

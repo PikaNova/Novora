@@ -30,6 +30,7 @@ export type ScheduleBoardProps = {
   can: (permission: string) => boolean;
   onOpenDetail: (recordId: string) => void;
   onEditRecord?: (recordId: string) => void;
+  canEditRecord?: (recordId: string) => boolean;
   onOpenWeeklyPlan?: () => void;
   onDeleteDraft?: (recordId: string) => void;
   /** 行内复制：由上层调用考试动作（复制出新草稿），面板不自己发请求。 */
@@ -66,6 +67,7 @@ function ScheduleRowView({
   can,
   onOpenDetail,
   onEditRecord,
+  canEditRecord,
   onOpenWeeklyPlan,
   onDeleteDraft,
   onCopyRecord,
@@ -78,6 +80,7 @@ function ScheduleRowView({
   can: (permission: string) => boolean;
   onOpenDetail: (recordId: string) => void;
   onEditRecord?: (recordId: string) => void;
+  canEditRecord?: (recordId: string) => boolean;
   onOpenWeeklyPlan?: () => void;
   onDeleteDraft?: (recordId: string) => void;
   onCopyRecord?: (recordId: string) => void;
@@ -202,7 +205,7 @@ function ScheduleRowView({
                   仍然进行
                 </button>
               )}
-            {row.recordId && onEditRecord && row.kind !== 'weekly' && (
+            {row.recordId && onEditRecord && row.kind !== 'weekly' && canEditRecord?.(row.recordId) !== false && (
               <button
                 className="admin-btn admin-btn--ghost admin-btn--sm"
                 type="button"
@@ -248,6 +251,7 @@ export default function ScheduleBoard({
   can,
   onOpenDetail,
   onEditRecord,
+  canEditRecord,
   onOpenWeeklyPlan,
   onDeleteDraft,
   onCopyRecord,
@@ -418,6 +422,7 @@ export default function ScheduleBoard({
                             can={can}
                             onOpenDetail={onOpenDetail}
                             onEditRecord={onEditRecord}
+                            canEditRecord={canEditRecord}
                             onOpenWeeklyPlan={onOpenWeeklyPlan}
                             onDeleteDraft={onDeleteDraft}
                             onCopyRecord={onCopyRecord}
@@ -435,6 +440,7 @@ export default function ScheduleBoard({
                           can={can}
                           onOpenDetail={onOpenDetail}
                           onEditRecord={onEditRecord}
+                          canEditRecord={canEditRecord}
                           onOpenWeeklyPlan={onOpenWeeklyPlan}
                           onDeleteDraft={onDeleteDraft}
                           onCopyRecord={onCopyRecord}
