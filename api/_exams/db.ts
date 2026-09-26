@@ -65,6 +65,7 @@ export function ensureTableOnce(): Promise<void> {
           classes JSONB NOT NULL DEFAULT '[]',
           initialization JSONB NOT NULL DEFAULT '{}',
           design_policy JSONB NOT NULL DEFAULT '{"rules":[],"updatedAt":0}',
+          revisions JSONB NOT NULL DEFAULT '{}',
           updated_at BIGINT NOT NULL DEFAULT 0,
           CHECK (id = 1)
         )`,
@@ -83,6 +84,8 @@ export function ensureTableOnce(): Promise<void> {
           transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS major_batch_presets JSONB NOT NULL DEFAULT '{"subjectGroups":[],"timeGroups":[],"updatedAt":0}'`,
           transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS exam_metadata JSONB NOT NULL DEFAULT '{}'`,
           transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS lifecycle JSONB NOT NULL DEFAULT '{"status":"draft","createdAt":0,"startedAt":null,"endedAt":null}'`,
+          // v7：域级修订号。老行默认 '{}'（各域按 0 处理），老客户端不看该列，读契约不变。
+          transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS revisions JSONB NOT NULL DEFAULT '{}'`,
           transaction`CREATE TABLE IF NOT EXISTS exam_records (
           id TEXT PRIMARY KEY,
           runtime_major_id TEXT NOT NULL,
@@ -303,16 +306,16 @@ export function ensureTableOnce(): Promise<void> {
         await sql.transaction((transaction) => [projectCurrentExamRecords(transaction)]);
         await recordSchemaMigration(sql, {
           component: 'exams',
-          version: 6,
+          version: 7,
           description:
-            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images',
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images, per-domain revisions',
           startedAt: migrationStartedAt,
         });
       } catch (error) {
         await recordSchemaMigration(sql, {
           component: 'exams',
           description:
-            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images',
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles and images, per-domain revisions',
           startedAt: migrationStartedAt,
           error,
         }).catch(() => undefined);

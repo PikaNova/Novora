@@ -108,11 +108,13 @@ export function useWeeklyScheduleSync(params: {
         pendingRef.current = true;
         setSync('offline');
         const queued = getPendingExamSync();
-        const basePayload =
-          queued?.payload ?? buildPayloadRef.current(stateRef.current.majors, stateRef.current.activeMajorId);
+        // 待同步队列的 payload 可能是旧编辑，离线追加周测改动时必须以当前内存状态为准。
+        const basePayload = buildPayloadRef.current(stateRef.current.majors, stateRef.current.activeMajorId);
+        const queuedBase = queued?.baseSnapshot;
+        const liveBase = getCloudSnapshot();
         queuePendingExamSync({
           payload: { ...basePayload, ...weekly },
-          baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),
+          baseSnapshot: queuedBase && (!liveBase || queuedBase.updatedAt >= liveBase.updatedAt) ? queuedBase : liveBase,
           savedAt: Date.now(),
         });
         return;
@@ -121,7 +123,8 @@ export function useWeeklyScheduleSync(params: {
       const ms = stateRef.current.majors;
       const activeId = stateRef.current.activeMajorId;
       const queued = getPendingExamSync();
-      const base = queued?.payload ?? buildPayloadRef.current(ms, activeId);
+      // 队列只提供并发基线；提交内容必须由当前领域状态重新构造，避免旧队列吞掉新改动。
+      const base = buildPayloadRef.current(ms, activeId);
       const queuedBaseSnapshot = queued?.baseSnapshot;
       const liveBaseSnapshot = getCloudSnapshot();
       const baseSnapshot =

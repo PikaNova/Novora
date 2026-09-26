@@ -698,6 +698,9 @@ export function buildExamCenterView(
     (session) => Number.isFinite(dayEnd) && session.startAt < dayEnd && session.effectiveEndAt > dayStart,
   );
 
+  const actionable = [...running, ...overdue, ...upcoming, ...(previous ? [previous] : [])];
+  const headline =
+    actionable.find((session) => session.recordId != null) ?? actionable[0] ?? null;
   return {
     now,
     dayKey,
@@ -705,7 +708,7 @@ export function buildExamCenterView(
     overdue,
     upcoming,
     previous,
-    headline: running[0] ?? overdue[0] ?? upcoming[0] ?? previous,
+    headline,
     todayCount: todaySessions.length,
     hasAnyExamToday: todaySessions.length > 0,
     lifecycleUnknown: records === null,

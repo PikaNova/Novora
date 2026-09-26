@@ -14,6 +14,7 @@ import { normalizeDesignPolicy } from '../utils/settings/design.js';
 import { normalizeMajorBatchSettings, type MajorBatchSettings } from '../utils/settings/majorBatch.js';
 import { normalizeAlerts } from '../utils/appSettings.js';
 import { asRecord } from './typeGuards.js';
+import { parseExamRevisions } from './examSaveDiff.js';
 import { parseDeviceBinding, type DeviceBinding } from './deviceContracts.js';
 
 export interface ExamPayload {
@@ -35,6 +36,11 @@ export interface ExamPayload {
   majorBatchPresets?: MajorBatchSettings & { updatedAt: number };
   metadata?: Record<string, unknown>;
   lifecycle?: Record<string, unknown>;
+  /**
+   * 域级修订号（v2.8.8）：服务端为每个「修订域」维护的自增号，客户端保存时回传作为并发基线。
+   * 老服务端不返回该字段时为空对象，客户端会退回整行版本号（updatedAt）比较。
+   */
+  revisions?: Record<string, number>;
   binding?: DeviceBinding | null;
   updatedAt: number;
 }
@@ -213,6 +219,9 @@ export function parseExamPayload(raw: unknown): ExamPayload {
     majorBatchPresets: parseMajorBatchPresets(source.majorBatchPresets),
     ...(source.metadata === undefined ? {} : { metadata: asRecord(source.metadata) }),
     ...(source.lifecycle === undefined ? {} : { lifecycle: asRecord(source.lifecycle) }),
+    // 只有服务端真的给了修订号表才带上该字段：`{}` 与「没有这个字段」在保存时语义不同
+    // （前者是「各域都是 0」，后者是「不知道，只能整行比较」）。
+    ...(source.revisions === undefined ? {} : { revisions: parseExamRevisions(source.revisions) }),
     binding: source.binding == null ? null : parseDeviceBinding(source.binding),
     updatedAt: Number(source.updatedAt ?? 0) || 0,
   };

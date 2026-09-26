@@ -258,6 +258,7 @@ export default function CurrentExamPanel({
   onGoSchedule,
   refreshKey = 0,
 }: CurrentExamPanelProps) {
+  const canReadDevices = can('device.read');
   const [now, setNow] = useState(() => nowMs());
   const [records, setRecords] = useState<ExamRecordListEntry[] | null>(null);
   const [recordsError, setRecordsError] = useState('');
@@ -268,6 +269,8 @@ export default function CurrentExamPanel({
   const [devicesStale, setDevicesStale] = useState(false);
   const [detailId, setDetailId] = useState('');
   const [manualRefresh, setManualRefresh] = useState(0);
+  const recordsRequestRef = useRef(0);
+  const devicesRequestRef = useRef(0);
 
   // 倒计时用 1 秒时钟；页面不可见时停跳，回来时立即对齐一次，避免后台标签页空转。
   useEffect(() => {
@@ -289,18 +292,20 @@ export default function CurrentExamPanel({
   }, []);
 
   const loadRecords = useCallback(async () => {
+    const requestId = ++recordsRequestRef.current;
     setRecordsLoading(true);
     try {
       const result = await fetchExamRecords({ page: 1, pageSize: 100, preset: 'current' });
+      if (requestId !== recordsRequestRef.current) return;
       setRecords(result.data);
       setRecordsError('');
       setLastSyncedAt(Date.now());
     } catch (caught) {
       // 记录层只是状态权威源：读不到时保留上一批状态（首次失败才退回「状态未知」），
       // 清空会让整页状态闪一下再恢复。
-      setRecordsError(formatApiError(caught, '考试状态读取失败'));
+      if (requestId === recordsRequestRef.current) setRecordsError(formatApiError(caught, '考试状态读取失败'));
     } finally {
-      setRecordsLoading(false);
+      if (requestId === recordsRequestRef.current) setRecordsLoading(false);
     }
   }, []);
 
@@ -311,8 +316,10 @@ export default function CurrentExamPanel({
   }, [loadRecords, manualRefresh, refreshKey]);
 
   const loadDevices = useCallback(async () => {
+    const requestId = ++devicesRequestRef.current;
     try {
       const result = await fetchDeviceBindings();
+      if (requestId !== devicesRequestRef.current) return;
       const active = result.bindings.filter((item) => !item.revoked);
       const stamp = Date.now();
       setDevices({
@@ -323,15 +330,16 @@ export default function CurrentExamPanel({
       setDevicesStale(false);
     } catch {
       // 同理：读不到设备心跳时保留上一次的数字，只标「可能滞后」，不要清空状态条。
-      setDevicesStale(true);
+      if (requestId === devicesRequestRef.current) setDevicesStale(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!canReadDevices) return;
     void loadDevices();
     const timer = window.setInterval(() => void loadDevices(), DEVICES_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [loadDevices]);
+  }, [canReadDevices, loadDevices]);
 
   const dayKey = getShanghaiDateKey(now);
   // 收集层随班级数放大，只在数据或日期变化时重算；每秒变化的时间交给下面的 view。
@@ -387,6 +395,7 @@ export default function CurrentExamPanel({
   /** 抽屉自己按 id 取数；这里只是把手里已有的那一行当种子，避免开抽屉时闪一下加载态。 */
   const detailSeed = detailId ? (records?.find((item) => item.id === detailId) ?? null) : null;
   const canEdit = can('major.edit');
+  const canEditQuick = can('major.quick_create');
   const lastSyncLabel = lastSyncedAt ? `${Math.max(0, Math.round((now - lastSyncedAt) / 1000))} 秒前` : '—';
 
   const openDetail = (session: ExamSessionView) => {
@@ -568,7 +577,11 @@ export default function CurrentExamPanel({
           <button
             type="button"
             className="admin-btn admin-btn--ghost"
-            disabled={!canEdit || !headline || headline.kind === 'weekly'}
+             disabled={
+               !headline ||
+               headline.kind === 'weekly' ||
+               (!canEdit && !(canEditQuick && headline.kind === 'temporary'))
+             }
             onClick={() => headline && onEditExam(headline.sourceId, headline.examName)}
           >
             <Pencil size={16} aria-hidden="true" />
@@ -600,7 +613,9 @@ export default function CurrentExamPanel({
               : `客户端 ${devices.online}/${devices.total} 在线${devices.inExam ? ` · ${devices.inExam} 台考试中` : ''}${
                   devicesStale ? ' · 可能滞后' : ''
                 }`
-            : '客户端状态读取失败'}
+             : canReadDevices
+               ? '客户端状态读取失败'
+               : '当前账号没有查看设备的权限'}
         </span>
         <span className="exam-now-status">
           最后同步 {lastSyncLabel}

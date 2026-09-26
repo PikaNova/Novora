@@ -26,7 +26,7 @@ export type MajorModalWizardProps = {
   visibleGrades: SchoolGrade[];
   hasAllScope: boolean;
   backdropProps: BackdropProps;
-  commitMajorModal: (onContinueToImport: () => void) => Promise<void> | void;
+  commitMajorModal: (onContinueToImport: () => void) => string | null;
   setImportOpen: (open: boolean) => void;
   /** 第 2/3 步：当前草稿的科目与考试窗口。 */
   items: ExamItem[];

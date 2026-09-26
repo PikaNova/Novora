@@ -11,6 +11,13 @@ import {
 } from '../db.js';
 import { examPayload } from '../payload.js';
 import { examEtag, isCurrentSnapshotRequest } from '../../../src/shared/examContracts.js';
+import {
+  EXAM_REVISION_DOMAINS,
+  EXAM_REVISION_DOMAIN_FIELDS,
+  hasExamSaveDomain,
+  parseExamRevisions,
+  type ExamRevisionDomain,
+} from '../../../src/shared/examSaveDiff.js';
 import { isEdgeDeployment } from '../../_deployTarget.js';
 import {
   freezeArchivedMajors,
@@ -49,7 +56,7 @@ export async function handleBootstrap(req: VercelRequest, res: VercelResponse, s
   const selectBootstrap = async (): Promise<ExamRow[]> =>
     (await sql`
       SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode,
-             active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, updated_at,
+             active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, revisions, updated_at,
              (SELECT grade_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_grade_id,
              (SELECT class_id FROM device_instances WHERE instance_id = ${instanceId}) AS bound_class_id,
              (SELECT revoked FROM device_instances WHERE instance_id = ${instanceId}) AS binding_revoked,
@@ -94,7 +101,7 @@ export async function handleExamDataGet(req: VercelRequest, res: VercelResponse,
   const selectUpdatedAt = async (): Promise<Array<{ updated_at?: unknown }>> =>
     (await sql`SELECT updated_at FROM exam_data WHERE id = 1`) as unknown as Array<{ updated_at?: unknown }>;
   const selectRow = async (): Promise<ExamRow[]> =>
-    (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
+    (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, revisions, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
 
   let versionRows: Array<{ updated_at?: unknown }>;
   try {
@@ -161,8 +168,70 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     if (!actor) return;
   }
   const { action } = req.body ?? {};
-  if (!Array.isArray(req.body?.items)) {
-    res.status(400).json({ ok: false, error: 'items must be an array' });
+  // 客户端现在只提交改动的域（见 src/shared/examSaveDiff.ts），所以不再强制要求携带 items；
+  // 但仍要求至少携带一个可写域，避免空请求白占一次全局写槽。
+  const requestBody = (req.body ?? {}) as Record<string, unknown>;
+  if (!hasExamSaveDomain(requestBody)) {
+    res.status(400).json({ ok: false, error: 'request must carry at least one exam data field' });
+    return;
+  }
+  // 增量保存只校验请求中出现的字段。错误类型不能静默降级为空值，否则一次畸形请求
+  // 就可能把整场考试或学校结构清空；省略字段仍保持“保留服务端原值”的兼容语义。
+  const hasField = (field: string) => Object.prototype.hasOwnProperty.call(requestBody, field);
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
+  const invalidField = (field: string, isValid: (value: unknown) => boolean, message: string): boolean => {
+    // 单元/集成调用有时直接构造 req.body，JSON.stringify 后本来会省略的
+    // undefined 也按“未携带”处理；显式 null 或其它错误类型仍然拒绝。
+    if (!hasField(field) || requestBody[field] === undefined) return false;
+    if (isValid(requestBody[field])) return false;
+    res.status(400).json({ ok: false, error: `${field} ${message}` });
+    return true;
+  };
+  if (invalidField('items', Array.isArray, 'must be an array')) return;
+  if (invalidField('majors', Array.isArray, 'must be an array')) return;
+  if (invalidField('title', (value) => typeof value === 'string', 'must be a string')) return;
+  if (invalidField('activeMajorId', (value) => typeof value === 'string', 'must be a string')) return;
+  if (hasField('alerts') && requestBody.alerts !== undefined && requestBody.alerts !== null && !isRecord(requestBody.alerts)) {
+    res.status(400).json({ ok: false, error: 'alerts must be an object or null' });
+    return;
+  }
+  if (invalidField('weeklyPlans', Array.isArray, 'must be an array')) return;
+  if (hasField('scheduleMode') && requestBody.scheduleMode !== undefined && typeof requestBody.scheduleMode !== 'string') {
+    res.status(400).json({ ok: false, error: 'scheduleMode must be a string' });
+    return;
+  }
+  if (
+    hasField('activeWeeklyPlanId') &&
+    requestBody.activeWeeklyPlanId !== undefined &&
+    requestBody.activeWeeklyPlanId !== null &&
+    typeof requestBody.activeWeeklyPlanId !== 'string'
+  ) {
+    res.status(400).json({ ok: false, error: 'activeWeeklyPlanId must be a string or null' });
+    return;
+  }
+  if (
+    hasField('activeWeeklyPlanIdByClassId') &&
+    requestBody.activeWeeklyPlanIdByClassId !== undefined &&
+    requestBody.activeWeeklyPlanIdByClassId !== null &&
+    !isRecord(requestBody.activeWeeklyPlanIdByClassId)
+  ) {
+    res.status(400).json({ ok: false, error: 'activeWeeklyPlanIdByClassId must be an object or null' });
+    return;
+  }
+  if (invalidField('grades', Array.isArray, 'must be an array')) return;
+  if (invalidField('classes', Array.isArray, 'must be an array')) return;
+  if (hasField('initialization') && requestBody.initialization !== undefined && !isRecord(requestBody.initialization)) {
+    res.status(400).json({ ok: false, error: 'initialization must be an object' });
+    return;
+  }
+  if (
+    hasField('weeklyConflictPolicy') &&
+    requestBody.weeklyConflictPolicy !== undefined &&
+    requestBody.weeklyConflictPolicy !== null &&
+    !isRecord(requestBody.weeklyConflictPolicy)
+  ) {
+    res.status(400).json({ ok: false, error: 'weeklyConflictPolicy must be an object or null' });
     return;
   }
   // 快速考试走本地优先保存管道，没有显式动作；这里留下旧 majors 以便保存后补记生命周期转换。
@@ -174,12 +243,12 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     let currentRows: ExamRow[];
     try {
       currentRows =
-        (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
+        (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, revisions, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
     } catch (error) {
       if (!missingRelation(error)) throw error;
       await ensureTableOnce();
       currentRows =
-        (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
+        (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, revisions, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
     }
     const currentPayload = examPayload(currentRows[0] ?? {});
     priorMajors = currentPayload.majors;
@@ -256,6 +325,60 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     lifecycle,
     baseUpdatedAt,
   } = req.body ?? {};
+  // 域级提交：未携带的域保持服务端当前值（曾是无条件覆写，会把客户端没发的域清空）。
+  // 用 hasOwnProperty 判定「携带」，从而保留「显式 null = 清空 alerts」的语义。
+  const writeBody = (req.body ?? {}) as Record<string, unknown>;
+  const carries = (field: string) => Object.prototype.hasOwnProperty.call(writeBody, field);
+  const hasItems = carries('items');
+  const hasTitle = carries('title');
+  const hasMajors = carries('majors');
+  const hasActiveMajorId = carries('activeMajorId');
+  const hasAlerts = carries('alerts');
+  const hasWeeklyPlans = carries('weeklyPlans');
+  const hasScheduleMode = carries('scheduleMode');
+  const hasActiveWeeklyPlanId = carries('activeWeeklyPlanId');
+  const hasActiveWeeklyPlanByClass = carries('activeWeeklyPlanIdByClassId');
+  const hasGrades = carries('grades');
+  const hasClasses = carries('classes');
+  const hasInitialization = carries('initialization');
+  const hasWeeklyConflictPolicy = carries('weeklyConflictPolicy');
+  // 每个新值只序列化一次：既要写进列，也要参与「这个域到底变没变」的判定。
+  const itemsJson = JSON.stringify(Array.isArray(items) ? items : []);
+  const titleText = typeof title === 'string' ? title : '';
+  const majorsJson = JSON.stringify(Array.isArray(majors) ? majors : []);
+  const activeMajorIdText = typeof activeMajorId === 'string' ? activeMajorId : '';
+  const alertsJson = alerts && typeof alerts === 'object' ? JSON.stringify(alerts) : null;
+  const weeklyPlansJson =
+    weeklyPlans !== undefined ? JSON.stringify(Array.isArray(weeklyPlans) ? weeklyPlans : []) : null;
+  const scheduleModeText = typeof scheduleMode === 'string' ? scheduleMode : null;
+  const activeWeeklyPlanIdText = typeof activeWeeklyPlanId === 'string' ? activeWeeklyPlanId : null;
+  const activeWeeklyPlanByClassJson =
+    activeWeeklyPlanIdByClassId && typeof activeWeeklyPlanIdByClassId === 'object'
+      ? JSON.stringify(activeWeeklyPlanIdByClassId)
+      : null;
+  const weeklyConflictPolicyJson =
+    weeklyConflictPolicy && typeof weeklyConflictPolicy === 'object' ? JSON.stringify(weeklyConflictPolicy) : null;
+  const gradesJson = Array.isArray(grades) ? JSON.stringify(grades) : null;
+  const classesJson = Array.isArray(classes) ? JSON.stringify(classes) : null;
+  const initializationJson =
+    initialization && typeof initialization === 'object' ? JSON.stringify(initialization) : null;
+  // ── 域级并发判定（v2.8.8）──
+  // 客户端携带 baseRevisions 时，只校验「本次真要写的修订域」：改不同域的两台设备不再互相 409；
+  // 同一个域被并发修改仍然冲突（修订号不等）。老客户端不带该字段，退回整行 updated_at 比较。
+  // 客户端提供了 baseRevisions 就按域校验：表里没有的域按 0 处理（服务端计数从 0 开始）。
+  // 「没带这个字段」与「表里全是 0」必须区分——前者是老客户端/老快照，只能走整行版本比较。
+  const baseRevisionsInput = writeBody.baseRevisions as unknown;
+  const hasBaseRevisions =
+    !!baseRevisionsInput && typeof baseRevisionsInput === 'object' && !Array.isArray(baseRevisionsInput);
+  const baseRevisions = hasBaseRevisions ? parseExamRevisions(baseRevisionsInput) : {};
+  const guardedRevisionDomains = hasBaseRevisions
+    ? EXAM_REVISION_DOMAINS.filter((domain) => EXAM_REVISION_DOMAIN_FIELDS[domain].some((field) => carries(field)))
+    : [];
+  const guardedRevisionSet = new Set<ExamRevisionDomain>(guardedRevisionDomains);
+  const usesRevisions = guardedRevisionSet.size > 0;
+  const guardsRevisionDomain = (domain: ExamRevisionDomain) => guardedRevisionSet.has(domain);
+  const baseRevisionOf = (domain: ExamRevisionDomain) =>
+    guardedRevisionSet.has(domain) ? (baseRevisions[domain] ?? 0) : 0;
   const expectedVersion = Number(baseUpdatedAt ?? 0);
   const updatedAt = Date.now();
   let removedGradeIds: string[] = [];
@@ -278,26 +401,66 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     const results = await sql.transaction((transaction) => [
       transaction`
       UPDATE exam_data
-      SET items = ${JSON.stringify(items)}::jsonb,
-          title = ${typeof title === 'string' ? title : ''},
-          majors = ${JSON.stringify(Array.isArray(majors) ? majors : [])}::jsonb,
-          active_major_id = ${typeof activeMajorId === 'string' ? activeMajorId : ''},
-          alerts = ${alerts && typeof alerts === 'object' ? JSON.stringify(alerts) : null}::jsonb,
+      SET items = CASE WHEN ${hasItems}::boolean THEN ${itemsJson}::jsonb ELSE items END,
+          title = CASE WHEN ${hasTitle}::boolean THEN ${titleText} ELSE title END,
+          majors = CASE WHEN ${hasMajors}::boolean THEN ${majorsJson}::jsonb ELSE majors END,
+          active_major_id = CASE WHEN ${hasActiveMajorId}::boolean THEN ${activeMajorIdText} ELSE active_major_id END,
+          alerts = CASE WHEN ${hasAlerts}::boolean THEN ${alertsJson}::jsonb ELSE alerts END,
           -- 周测字段：仅当请求显式携带时才覆写，否则 COALESCE 保留既有值（后台保存不带周测→不丢失）。
-          weekly_plans = COALESCE(${weeklyPlans !== undefined ? JSON.stringify(Array.isArray(weeklyPlans) ? weeklyPlans : []) : null}::jsonb, weekly_plans),
-          schedule_mode = COALESCE(${typeof scheduleMode === 'string' ? scheduleMode : null}, schedule_mode),
-          active_weekly_plan_id = COALESCE(${typeof activeWeeklyPlanId === 'string' ? activeWeeklyPlanId : null}, active_weekly_plan_id),
-          active_weekly_plan_by_class = COALESCE(${activeWeeklyPlanIdByClassId && typeof activeWeeklyPlanIdByClassId === 'object' ? JSON.stringify(activeWeeklyPlanIdByClassId) : null}::jsonb, active_weekly_plan_by_class),
-          grades = COALESCE(${Array.isArray(grades) ? JSON.stringify(grades) : null}::jsonb, grades),
-          classes = COALESCE(${Array.isArray(classes) ? JSON.stringify(classes) : null}::jsonb, classes),
-          initialization = COALESCE(${initialization && typeof initialization === 'object' ? JSON.stringify(initialization) : null}::jsonb, initialization),
+          weekly_plans = COALESCE(${weeklyPlansJson}::jsonb, weekly_plans),
+          schedule_mode = COALESCE(${scheduleModeText}, schedule_mode),
+          active_weekly_plan_id = COALESCE(${activeWeeklyPlanIdText}, active_weekly_plan_id),
+          active_weekly_plan_by_class = COALESCE(${activeWeeklyPlanByClassJson}::jsonb, active_weekly_plan_by_class),
+          grades = COALESCE(${gradesJson}::jsonb, grades),
+          classes = COALESCE(${classesJson}::jsonb, classes),
+          initialization = COALESCE(${initializationJson}::jsonb, initialization),
           exam_metadata = COALESCE(${metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : null}::jsonb, exam_metadata),
           lifecycle = COALESCE(${lifecycle && typeof lifecycle === 'object' ? JSON.stringify(lifecycle) : null}::jsonb, lifecycle),
-          weekly_conflict_policy = COALESCE(${weeklyConflictPolicy && typeof weeklyConflictPolicy === 'object' ? JSON.stringify(weeklyConflictPolicy) : null}::jsonb, weekly_conflict_policy),
+          weekly_conflict_policy = COALESCE(${weeklyConflictPolicyJson}::jsonb, weekly_conflict_policy),
+          -- 域级修订号：只有该域的列真的变了才 +1（IS DISTINCT FROM 读的是本语句更新前的旧值）。
+          -- 没有任何变化时修订号不动，所以「提交相同的域」不会平白制造别人的冲突。
+          revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object(
+            'major', COALESCE((revisions->>'major')::bigint, 0) + CASE WHEN
+              (${hasMajors}::boolean AND majors IS DISTINCT FROM ${majorsJson}::jsonb)
+              OR (${hasItems}::boolean AND items IS DISTINCT FROM ${itemsJson}::jsonb)
+              OR (${hasTitle}::boolean AND title IS DISTINCT FROM ${titleText})
+              OR (${hasActiveMajorId}::boolean AND active_major_id IS DISTINCT FROM ${activeMajorIdText})
+              THEN 1 ELSE 0 END,
+            'alerts', COALESCE((revisions->>'alerts')::bigint, 0) + CASE WHEN
+              (${hasAlerts}::boolean AND alerts IS DISTINCT FROM ${alertsJson}::jsonb)
+              THEN 1 ELSE 0 END,
+            'weekly', COALESCE((revisions->>'weekly')::bigint, 0) + CASE WHEN
+              (${hasWeeklyPlans}::boolean AND weekly_plans IS DISTINCT FROM ${weeklyPlansJson}::jsonb)
+              OR (${hasActiveWeeklyPlanId}::boolean AND active_weekly_plan_id IS DISTINCT FROM ${activeWeeklyPlanIdText})
+              OR (${hasActiveWeeklyPlanByClass}::boolean AND active_weekly_plan_by_class IS DISTINCT FROM ${activeWeeklyPlanByClassJson}::jsonb)
+              THEN 1 ELSE 0 END,
+            'schedule', COALESCE((revisions->>'schedule')::bigint, 0) + CASE WHEN
+              (${hasScheduleMode}::boolean AND schedule_mode IS DISTINCT FROM ${scheduleModeText})
+              OR (${hasWeeklyConflictPolicy}::boolean AND weekly_conflict_policy IS DISTINCT FROM ${weeklyConflictPolicyJson}::jsonb)
+              THEN 1 ELSE 0 END,
+            'grades', COALESCE((revisions->>'grades')::bigint, 0) + CASE WHEN
+              (${hasGrades}::boolean AND grades IS DISTINCT FROM ${gradesJson}::jsonb)
+              THEN 1 ELSE 0 END,
+            'classes', COALESCE((revisions->>'classes')::bigint, 0) + CASE WHEN
+              (${hasClasses}::boolean AND classes IS DISTINCT FROM ${classesJson}::jsonb)
+              THEN 1 ELSE 0 END,
+            'initialization', COALESCE((revisions->>'initialization')::bigint, 0) + CASE WHEN
+              (${hasInitialization}::boolean AND initialization IS DISTINCT FROM ${initializationJson}::jsonb)
+              THEN 1 ELSE 0 END
+          ),
           updated_at = ${updatedAt}
+      -- 携带 baseRevisions 时按域判定并发（只看本次要写的域），否则沿用整行版本比较。
       -- 显式 BIGINT：毫秒级 baseUpdatedAt 不能在与字面量 0 比较时被 PostgreSQL 推断为 INTEGER。
-      WHERE id = 1 AND (${expectedVersion}::BIGINT <= 0 OR updated_at = ${expectedVersion}::BIGINT)
-      RETURNING updated_at
+      WHERE id = 1 AND CASE WHEN ${usesRevisions}::boolean THEN (
+              (NOT ${guardsRevisionDomain('major')}::boolean OR COALESCE((revisions->>'major')::bigint, 0) = ${baseRevisionOf('major')}::bigint)
+          AND (NOT ${guardsRevisionDomain('alerts')}::boolean OR COALESCE((revisions->>'alerts')::bigint, 0) = ${baseRevisionOf('alerts')}::bigint)
+          AND (NOT ${guardsRevisionDomain('weekly')}::boolean OR COALESCE((revisions->>'weekly')::bigint, 0) = ${baseRevisionOf('weekly')}::bigint)
+          AND (NOT ${guardsRevisionDomain('schedule')}::boolean OR COALESCE((revisions->>'schedule')::bigint, 0) = ${baseRevisionOf('schedule')}::bigint)
+          AND (NOT ${guardsRevisionDomain('grades')}::boolean OR COALESCE((revisions->>'grades')::bigint, 0) = ${baseRevisionOf('grades')}::bigint)
+          AND (NOT ${guardsRevisionDomain('classes')}::boolean OR COALESCE((revisions->>'classes')::bigint, 0) = ${baseRevisionOf('classes')}::bigint)
+          AND (NOT ${guardsRevisionDomain('initialization')}::boolean OR COALESCE((revisions->>'initialization')::bigint, 0) = ${baseRevisionOf('initialization')}::bigint)
+        ) ELSE (${expectedVersion}::BIGINT <= 0 OR updated_at = ${expectedVersion}::BIGINT) END
+      RETURNING updated_at, revisions
     `,
       projectCurrentExamRecords(transaction),
     ]);
@@ -320,13 +483,21 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   }
   if (!updatedRows?.length) {
     const rows =
-      (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
+      (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, exam_metadata, lifecycle, revisions, updated_at FROM exam_data WHERE id = 1`) as unknown as ExamRow[];
     const row = rows[0] ?? {};
-    const { ok: _ok, ...remote } = examPayload(row);
+    const currentPayload = examPayload(row);
+    const { ok: _ok, ...remote } = currentPayload;
+    // 只列出「本次携带、且基线修订号已经对不上」的域：客户端据此知道是哪个域被并发改了，
+    // 而不是把整份快照都当成冲突。老客户端（不带 baseRevisions）得到空数组，行为与改动前一致。
+    const conflicts = guardedRevisionDomains.filter(
+      (domain) => (currentPayload.revisions?.[domain] ?? 0) !== (baseRevisions[domain] ?? 0),
+    );
     res.status(409).json({
       ok: false,
       code: 'DATA_CONFLICT',
       error: '云端数据已发生变化',
+      conflicts,
+      revisions: currentPayload.revisions ?? {},
       remote,
       requestId: res.getHeader('X-Request-Id'),
     });
@@ -370,6 +541,8 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   res.status(200).json({
     ok: true,
     updatedAt,
+    // 客户端用它推进「本次提交过的域」的并发基线，其余域保持旧修订号（本地内容仍基于旧版本）。
+    revisions: parseExamRevisions((updatedRows[0] as { revisions?: unknown } | undefined)?.revisions),
     ...(recoveryKey ? { recoveryKey } : {}),
     ...(frozenArchivedIds.length ? { ignoredArchivedMajors: frozenArchivedIds } : {}),
     // 冻结条目的服务端版本：客户端用它把本地副本纠回来（否则本地显示删除/改名、刷新又回来）。
