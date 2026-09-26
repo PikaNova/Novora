@@ -13,10 +13,10 @@ import {
 import { getAppSettings, updateExamSettings, updateAlertsSettings } from '../../utils/appSettings';
 import { getPendingExamSync } from '../../services/examOutbox';
 import type { AlertsSettings, MajorExam } from '../../types';
-import type { AdminTab } from '../../types/exam';
 import type { WeeklyState } from './useWeeklyScheduleSync';
 import type { SyncState } from './adminPageUtils';
 import { syncMajorStateRef } from './adminPageUtils';
+import { adminSectionUrl } from './adminRoutes';
 
 export const OPEN_ADMIN: AdminUserContext = {
   id: 0,
@@ -53,10 +53,7 @@ export function useAdminSyncEngine(params: {
   initializationCompletedAt: number | undefined;
   gradesLength: number;
   classesLength: number;
-  adminTab: AdminTab;
-  setAdminTab: (tab: AdminTab) => void;
   setAlertsOpen: (open: boolean) => void;
-  setDeniedModule: (label: string) => void;
   setAnnounceOpen: (open: boolean) => void;
   setWizardOpen: (open: boolean) => void;
   setAlerts: (alerts: AlertsSettings) => void;
@@ -93,9 +90,7 @@ export function useAdminSyncEngine(params: {
     initializationCompletedAt,
     gradesLength,
     classesLength,
-    setAdminTab,
     setAlertsOpen,
-    setDeniedModule,
     setAnnounceOpen,
     setWizardOpen,
     setAlerts,
@@ -116,36 +111,10 @@ export function useAdminSyncEngine(params: {
     setWeeklyConflictPolicy,
   } = params;
 
-  // 从设置页「前往提醒管理」直达：URL 带 ?alerts=1 时自动打开提醒管理弹窗
+  // URL 开关：提醒/公告弹窗、初始化向导，以及「先配置后完善」的放行标记。
+  // 「当前在哪个板块」由路由决定（见 adminRoutes.ts），这里不再消费 ?tab=。
   useEffect(() => {
     const search = new URLSearchParams(location.search);
-    const requestedTab = search.get('tab') as AdminTab | null;
-    const ADMIN_NAV_PERMISSION: Record<AdminTab, string> = {
-      overview: 'overview.read',
-      dashboard: 'overview.read',
-      records: 'major.read',
-      major: 'major.read',
-      weekly: 'weekly.read',
-      classes: 'school.read',
-      devices: 'device.read',
-      users: 'user.read',
-    };
-    const ADMIN_NAV_LABEL: Record<AdminTab, string> = {
-      overview: '仪表盘',
-      dashboard: '数据大屏',
-      records: '考试管理',
-      major: '大型考试',
-      weekly: '周测计划',
-      classes: '年级与班级',
-      devices: '设备管理',
-      users: '用户与权限',
-    };
-    if (requestedTab && ADMIN_NAV_PERMISSION[requestedTab]) {
-      if (requestedTab === 'users' || adminCan(ADMIN_NAV_PERMISSION[requestedTab], adminUser)) {
-        setAdminTab(requestedTab);
-        setDeniedModule('');
-      } else setDeniedModule(ADMIN_NAV_LABEL[requestedTab]);
-    }
     if (search.get('alerts') === '1' && adminCan('alerts.read', adminUser)) setAlertsOpen(true);
     if (search.get('announce') === '1') setAnnounceOpen(true);
     const setupRequired = !initializationCompletedAt || gradesLength === 0 || classesLength === 0;
@@ -169,10 +138,8 @@ export function useAdminSyncEngine(params: {
     initializationCompletedAt,
     gradesLength,
     classesLength,
-    setAdminTab,
     setAlertsOpen,
     setAnnounceOpen,
-    setDeniedModule,
     setRecoveryConfigured,
     setWizardOpen,
   ]);
@@ -185,24 +152,28 @@ export function useAdminSyncEngine(params: {
       const requiredP = hasToken ? Promise.resolve(true) : isLoginRequired();
       const remoteP = fetchExamsFromServer();
       const userP = hasToken ? refreshAdminUser() : Promise.resolve(null);
+      // 会话失效时保留当前板块（例如刷新时正好掉线），登录后回到原处而不是默认板块。
+      // 直接读 window.location：这条路径不该把 pathname 加进 effect 依赖——那会让
+      // 每次切板块都重跑整段开机流程（重拉快照 + 重新对账）。
+      const loginTarget = () =>
+        `/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`;
 
       const required = await requiredP;
       if (cancelled) return;
       if (required && !hasValidLocalToken()) {
-        navigate('/login?next=/admin', { replace: true });
+        navigate(loginTarget(), { replace: true });
         return;
       }
       const verifiedUser = await userP;
       if (cancelled) return;
       if (required && !verifiedUser) {
-        navigate('/login?next=/admin', { replace: true });
+        navigate(loginTarget(), { replace: true });
         return;
       }
       if (verifiedUser?.mustChangePassword) {
         setAdminUser(verifiedUser);
-        setAdminTab('users');
         setReady(true);
-        if (location.search !== '?tab=users&password=1') navigate('/admin?tab=users&password=1', { replace: true });
+        navigate(adminSectionUrl({ tab: 'users', extra: { password: '1' } }), { replace: true });
         return;
       }
       setAdminUser(verifiedUser ?? OPEN_ADMIN);
@@ -211,15 +182,12 @@ export function useAdminSyncEngine(params: {
       const remote = await remoteP;
       if (cancelled) return;
       if (remote) setCloudReadConfirmed(true);
-      const localAt = getAppSettings().exam?.updatedAt ?? 0;
       const pendingSync = getPendingExamSync();
 
-      if (
-        remote &&
-        (remote.updatedAt > localAt ||
-          (remote.updatedAt === localAt && !pendingSync) ||
-          (remote.updatedAt < localAt && !pendingSync))
-      ) {
+      // 本地还有待同步的改动（含「删除草稿」）时绝不能用云端快照整体覆盖本地：
+      // 覆盖会把本机刚删掉的考试复活（表现就是"本机显示删除、刷新又出现"）。
+      // 待同步一律交给 pushToServer，真冲突由它的三方合并处理。
+      if (remote && !pendingSync) {
         const remoteUpdates: Record<string, unknown> = {
           items: remote.items,
           title: remote.title,
@@ -261,7 +229,7 @@ export function useAdminSyncEngine(params: {
         setInitialization(merged.initialization);
         pendingRef.current = false;
         setSync('saved');
-      } else if (pendingSync && localAt > (remote?.updatedAt ?? 0)) {
+      } else if (pendingSync) {
         pendingRef.current = true;
         const localExam = getAppSettings().exam;
         void pushToServer(localExam.majors, localExam.activeMajorId);

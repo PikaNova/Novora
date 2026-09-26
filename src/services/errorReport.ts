@@ -1,4 +1,5 @@
 import {
+  ERROR_REPORT_SCHEMA_VERSION,
   ERROR_REPORT_CHANNEL,
   buildErrorReportFingerprint,
   normalizeErrorReportLevel,
@@ -10,8 +11,23 @@ import {
   sanitizeErrorReportText,
 } from '../shared/errorReportContracts';
 import { APP_VERSION, getInstanceId, isEnabled } from './telemetry';
-import type { ErrorReportLevel, ErrorReportType } from '../shared/errorReportContracts';
+import { COMMIT_SHA } from './telemetry';
+import type {
+  ErrorReportLevel,
+  ErrorReportSeverity,
+  ErrorReportSource,
+  ErrorReportType,
+} from '../shared/errorReportContracts';
 import { getAppSettings } from '../utils/appSettings';
+import { captureErrorWindow } from '../utils/logger';
+import { isAbortError } from '../shared/abortError';
+import {
+  collectAppContext,
+  collectNetworkState,
+  collectSyncState,
+  getDiagnosticBreadcrumbs,
+  recordDiagnosticEvent,
+} from '../utils/diagnostics';
 
 export type { ErrorReportLevel, ErrorReportType } from '../shared/errorReportContracts';
 
@@ -26,6 +42,20 @@ export interface ErrorReportInput {
   action?: string;
   apiEndpoint?: string;
   httpStatus?: number;
+  /** 已知错误码（如 NETWORK_UNAVAILABLE / SYNC_FAILED）时上报，作者端据此给出运维说明。 */
+  errorCode?: string;
+  /** 归因与级别：不确定时留空，由作者端按错误码推断。 */
+  errorSource?: ErrorReportSource;
+  severity?: ErrorReportSeverity;
+  /** 给用户看的一句话说明。 */
+  userMessage?: string;
+  /** 给运维看的定位说明与建议操作。 */
+  operatorMessage?: string;
+  suggestedAction?: string;
+  retryable?: boolean;
+  requestId?: string;
+  traceId?: string;
+  migrationVersion?: string;
   context?: Record<string, unknown>;
 }
 
@@ -155,6 +185,7 @@ function buildPayload(input: ErrorReportInput): Record<string, unknown> | null {
   if (!message) return null;
   const route = sanitizeErrorReportPath(input.route);
   const apiEndpoint = sanitizeErrorReportPath(input.apiEndpoint, 160);
+  const occurredAt = Date.now();
   let schoolName: string | undefined;
   let province: string | undefined;
   try {
@@ -164,14 +195,21 @@ function buildPayload(input: ErrorReportInput): Record<string, unknown> | null {
   } catch {
     // Error reporting must stay silent when local settings are unavailable.
   }
+  const fingerprint = buildErrorReportFingerprint({
+    type,
+    errorName: input.errorName,
+    message,
+    route,
+    apiEndpoint,
+  });
   const payload = sanitizeErrorReportPayload({
-    schemaVersion: 1,
+    schemaVersion: ERROR_REPORT_SCHEMA_VERSION,
     clientChannel: ERROR_REPORT_CHANNEL,
     instanceId: getInstanceId(),
     deviceId: input.deviceId,
     type,
     level: normalizeErrorReportLevel(input.level),
-    fingerprint: buildErrorReportFingerprint({ type, errorName: input.errorName, message, route, apiEndpoint }),
+    fingerprint,
     errorName: input.errorName,
     message,
     stack: sanitizeErrorReportStack(input.stack),
@@ -179,9 +217,32 @@ function buildPayload(input: ErrorReportInput): Record<string, unknown> | null {
     action: input.action,
     apiEndpoint,
     httpStatus: input.httpStatus,
-    context: sanitizeErrorReportContext(input.context),
+    // 应用快照在前、调用方上下文在后：作者端展示按插入顺序截断，先看到通用状态。
+    context: sanitizeErrorReportContext({
+      ...collectAppContext(),
+      pendingReports: readQueue().length,
+      ...(input.context || {}),
+    }),
+    commitSha: COMMIT_SHA,
+    errorCode: input.errorCode,
+    errorSource: input.errorSource,
+    severity: input.severity,
+    userMessage: input.userMessage,
+    operatorMessage: input.operatorMessage,
+    suggestedAction: input.suggestedAction,
+    retryable: input.retryable,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    migrationVersion: input.migrationVersion,
+    // 时间戳用 36 进制：十进制毫秒会被脱敏规则当成手机号，事件 ID 一旦被改写就
+    // 无法和诊断包（按 errorEventId 关联）对上。
+    errorEventId: `err_${fingerprint}_${occurredAt.toString(36)}`,
+    occurredAt,
+    networkState: collectNetworkState(),
+    syncState: collectSyncState(),
+    breadcrumbs: getDiagnosticBreadcrumbs(),
     appVersion: APP_VERSION,
-    clientTs: Date.now(),
+    clientTs: occurredAt,
     schoolName,
     province,
     host: typeof location === 'undefined' ? null : location.host,
@@ -205,6 +266,13 @@ export async function reportError(input: ErrorReportInput): Promise<void> {
   if (shouldSkipDuplicate(fingerprint)) return;
   const payload = buildPayload(input);
   if (!payload) return;
+  captureErrorWindow({
+    errorEventId: typeof payload.errorEventId === 'string' ? payload.errorEventId : undefined,
+    fingerprint: typeof payload.fingerprint === 'string' ? payload.fingerprint : undefined,
+    errorCode: typeof payload.errorCode === 'string' ? payload.errorCode : undefined,
+  });
+  // 只记错误类型，不把错误正文再次写进本地事件序列（正文已在上报载荷里）。
+  recordDiagnosticEvent('error.report', String(payload.errorName || 'Error'), 'error');
   await flushQueuedReports();
   if ((await sendPayload(payload)) === 'retry') enqueue(payload);
 }
@@ -231,6 +299,9 @@ export function installGlobalErrorReporting(): void {
   window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
     const reason = event.reason;
     const error = reason && typeof reason === 'object' ? reason : null;
+    // 主动取消（组件卸载、路由切换）不是缺陷，但「没接住取消」仍是代码问题：
+    // 降级为 warning 并标记来源，避免运维把它当程序问题去翻调用栈。
+    const aborted = isAbortError(reason);
     void reportError({
       message:
         error && 'message' in error
@@ -241,8 +312,9 @@ export function installGlobalErrorReporting(): void {
       errorName: error && 'name' in error ? String(error.name) : 'UnhandledRejection',
       stack: error && 'stack' in error ? String(error.stack) : undefined,
       type: 'js',
-      level: 'error',
+      level: aborted ? 'warning' : 'error',
       action: 'unhandledrejection',
+      context: aborted ? { source: 'abort' } : undefined,
     });
   });
   window.addEventListener('online', () => void flushQueuedReports());

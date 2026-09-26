@@ -17,12 +17,18 @@ import { confirmDialog } from '../services/appDialog';
 import { beginBatch, endBatch } from '../services/syncQueue';
 import Mascot from './Mascot';
 import ClassMultiPicker, { type ClassPickerOption } from './ClassMultiPicker';
+import RefreshButton from './admin/RefreshButton';
 import InlineSelect from './InlineSelect';
 import DesignPolicyManager from './DesignPolicyManager';
 import { getAdminUser, logoutAdmin } from '../services/examService';
 import DeviceDetailDialog from './DeviceDetailDialog';
 import { deviceIsInScope, resolveDeviceScope } from '../utils/deviceScope';
-import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts';
+import {
+  DEVICE_ONLINE_WINDOW_MS,
+  describeDeviceLastCommand,
+  isDeviceExamPaused,
+  isDeviceTemporaryExam,
+} from '../shared/deviceContracts';
 
 const ONLINE_MS = DEVICE_ONLINE_WINDOW_MS;
 const formatTime = (value: number) =>
@@ -30,13 +36,17 @@ const formatTime = (value: number) =>
 const statusLabel = (item?: DeviceBindingInfo) =>
   !item
     ? '仅连接 ClassIsland'
-    : item.status === 'exam-running'
-      ? '考试进行中'
-      : item.status === 'waiting'
-        ? '等待考试'
-        : item.status === 'temporary-paused'
-          ? '临时考试已暂停'
-          : '空闲';
+    : item.status === 'exam-paused'
+      ? '考试已暂停'
+      : item.status === 'temporary-paused'
+        ? '本机临时考试已暂停'
+        : item.status === 'temporary-running'
+          ? '本机临时考试进行中'
+          : item.status === 'exam-running'
+            ? '考试进行中'
+            : item.status === 'waiting'
+              ? '等待考试'
+              : '空闲';
 
 type DeviceGroup = {
   key: string;
@@ -298,11 +308,16 @@ export default function DeviceStatusPanel({
 
   const command = async (item: DeviceBindingInfo, action: DeviceCommand['action']) => {
     try {
-      await sendDeviceCommand(item.instanceId, action, action === 'extend' ? 5 : undefined);
-      notify(
-        'success',
-        `已发送${action === 'pause' ? '暂停' : action === 'resume' ? '继续' : action === 'extend' ? '延长 5 分钟' : '结束'}指令。`,
-      );
+      const result = await sendDeviceCommand(item.instanceId, action, action === 'extend' ? 5 : undefined);
+      const label =
+        action === 'pause' ? '暂停' : action === 'resume' ? '继续' : action === 'extend' ? '延长 5 分钟' : '结束';
+      if (result.deviceOnline) {
+        notify('success', `已发送${label}指令，等待设备回执。`);
+      } else {
+        // 设备离线时说清楚：指令留着、上线才执行，别让人以为已经生效。
+        notify('warning', result.deliveryHint || `设备当前离线，${label}指令会在设备上线后执行。`, '指令已排队');
+      }
+      await load(true);
     } catch (cause) {
       notify('error', cause instanceof Error ? cause.message : '临时考试指令发送失败');
     }
@@ -323,9 +338,7 @@ export default function DeviceStatusPanel({
           </h2>
           <p>一个设备视图同时显示 Novora 看板、ClassIsland 插件、当前考试和班级绑定。</p>
         </div>
-        <button className="admin-btn" onClick={() => void load()} disabled={loading}>
-          刷新
-        </button>
+        <RefreshButton className="admin-btn" busy={loading} onRefresh={() => void load()} title="刷新设备状态" />
       </div>
       <DesignPolicyManager
         grades={selectableGrades}
@@ -442,7 +455,7 @@ export default function DeviceStatusPanel({
         <div className="device-status__current-note">当前设备固定显示在列表首位，不受搜索和班级筛选影响。</div>
       )}
       {error && <div className="admin-error">{error}</div>}
-      {loading && <div className="device-status__loading">正在读取设备状态…</div>}
+      {/* 刷新过程只体现在刷新按钮上：列表保持原样，不再插入「正在读取…」提示。 */}
       {!loading && displayedGroups.length === 0 && (
         <div className="admin-empty">
           <Mascot className="mascot-empty" size={64} alt="" />
@@ -460,8 +473,9 @@ export default function DeviceStatusPanel({
           <div className="device-status__list">
             {displayedGroups.map((item) => {
               const dashboard = item.dashboard;
-              const temporary =
-                !!dashboard && (dashboard.currentExam.includes('临时考试') || dashboard.status === 'temporary-paused');
+              // 按心跳上报的状态判断，不再靠考试名里是否含「临时考试」（那套匹配对"临时统一考试"这类名字无效）。
+              const temporary = isDeviceTemporaryExam(dashboard?.status);
+              const paused = isDeviceExamPaused(dashboard?.status);
               const lastSeenAt = groupLastSeenAt(item);
               const removed = isRemovedGroup(item);
               const isDashboardOnline = dashboardOnline(item);
@@ -533,19 +547,24 @@ export default function DeviceStatusPanel({
                     </div>
                     <span>
                       {isDashboardOnline && dashboard?.currentSubject
-                        ? `${dashboard.status === 'waiting' ? '下一场' : dashboard.status === 'temporary-paused' ? '已暂停' : '正在进行'}：${dashboard.currentExam} · ${dashboard.currentSubject}`
+                        ? `${dashboard.status === 'waiting' ? '下一场' : paused ? '已暂停' : '正在进行'}：${dashboard.currentExam} · ${dashboard.currentSubject}`
                         : dashboard
                           ? `页面 ${dashboard.page || '未知'} · v${dashboard.clientVersion || '未知'}`
                           : '插件已接入，等待 Novora 看板客户端心跳'}
                     </span>
-                    {isDashboardOnline && temporary && canRevoke && (
+                    {dashboard?.lastCommand &&
+                      (() => {
+                        const described = describeDeviceLastCommand(dashboard.lastCommand);
+                        return (
+                          <span className={`device-status__command is-${described.tone}`}>
+                            指令：{described.actionLabel} · {described.statusLabel}
+                          </span>
+                        );
+                      })()}
+                    {dashboard && isDashboardOnline && temporary && canRevoke && (
                       <div className="device-status__commands">
-                        <button
-                          onClick={() =>
-                            void command(dashboard, dashboard.status === 'temporary-paused' ? 'resume' : 'pause')
-                          }
-                        >
-                          {dashboard.status === 'temporary-paused' ? '继续' : '暂停'}
+                        <button onClick={() => void command(dashboard, paused ? 'resume' : 'pause')}>
+                          {paused ? '继续' : '暂停'}
                         </button>
                         <button onClick={() => void command(dashboard, 'extend')}>+5 分钟</button>
                         <button className="is-danger" onClick={() => void command(dashboard, 'end')}>

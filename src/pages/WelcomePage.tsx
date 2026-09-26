@@ -25,6 +25,7 @@ import {
 } from '../services/classBinding';
 import { classDisplayName, sortedClasses, sortedGrades } from '../utils/classSettings';
 import { useExamSync } from '../hooks/useExamSync';
+import { useFullscreen } from '../hooks/useFullscreen';
 import { hasValidLocalToken } from '../services/examService';
 import { notify } from '../services/notify';
 import { confirmDialog } from '../services/appDialog';
@@ -62,6 +63,7 @@ const LAST_OPENED_KEY = 'exam_board_last_opened_at';
 export default function WelcomePage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { enter: enterFullscreen } = useFullscreen();
   const lastOpenedRef = useRef<number>(0);
   useEffect(() => {
     const prev = Number(localStorage.getItem(LAST_OPENED_KEY) || 0);
@@ -301,6 +303,9 @@ export default function WelcomePage() {
       openClassPrompt();
       return;
     }
+    // 点击本身就是用户手势：先请求全屏再跳转，成功率远高于进大屏后自动请求。
+    // 被浏览器拒绝时静默降级，大屏内仍会给出“建议全屏”的提示条。
+    void enterFullscreen().catch(() => {});
     navigate('/exam');
   };
   const bindAsManagement = () => {

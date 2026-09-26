@@ -2,9 +2,9 @@
 // 统一走 /api/login 的 action 分发，错误抛 AdminApiError（含 code/retryAfterMs 可解析）。
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { AdminApiError } from './adminUsers';
+import { getAuthToken } from './auth/session';
 
 const LOGIN_URL = '/api/login';
-const TOKEN_KEY = 'admin_auth_token';
 const BIND_POLICIES = ['optional', 'force', 'skip'] as const;
 export type EmailBindPolicy = (typeof BIND_POLICIES)[number];
 
@@ -39,10 +39,6 @@ export type EmailConfigInput = {
   initBindPolicy: EmailBindPolicy;
 };
 
-function token(): string {
-  return localStorage.getItem(TOKEN_KEY) || '';
-}
-
 function normalizePolicy(value: unknown): EmailBindPolicy {
   return BIND_POLICIES.includes(value as EmailBindPolicy) ? (value as EmailBindPolicy) : 'optional';
 }
@@ -52,7 +48,7 @@ async function request<T = Record<string, unknown>>(
   init: RequestInit = {},
   bearerToken?: string,
 ): Promise<T> {
-  const authToken = bearerToken ?? token();
+  const authToken = bearerToken ?? getAuthToken();
   const response = await fetchWithTimeout(
     path,
     {

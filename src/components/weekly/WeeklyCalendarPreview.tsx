@@ -63,7 +63,8 @@ export default function WeeklyCalendarPreview({
               className="weekly-calendar__week"
               key={`week-${weekIndex}`}
               role="row"
-              style={{ gridTemplateColumns: `repeat(${week.length}, minmax(112px, 1fr))` }}
+              // 只交代当周天数；最小列宽交给 styles/admin.css 的断点（手机端要更宽，否则科目名被截断）。
+              style={{ '--weekly-day-count': week.length } as React.CSSProperties}
             >
               {week.map((day) => (
                 <section

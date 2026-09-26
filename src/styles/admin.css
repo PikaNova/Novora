@@ -1,5 +1,10 @@
+@import './controls.css';
+
 /* ===== 考试管理 admin.css ===== */
 .admin-page {
+  /* 后台外壳里页头是 sticky 的固定高度；左侧栏的 sticky 偏移与高度都以此为基准，
+     避免出现「栏顶钻到页头下面、栏底和视口底差 58px」的断层。 */
+  --admin-header-h: 58px;
   min-height: 100vh;
   background: #0d0d0d;
   color: #f0f0f0;
@@ -112,41 +117,7 @@
     transform: translateY(0);
   }
 }
-.admin-btn {
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background 0.2s;
-  white-space: nowrap;
-}
-.admin-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.admin-btn--primary {
-  background: #3498db;
-  border-color: #3498db;
-  color: #fff;
-  font-weight: 600;
-}
-.admin-btn--primary:hover {
-  background: #2980b9;
-}
-.admin-btn--ghost {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.2);
-}
-.admin-btn--danger {
-  color: #e74c3c;
-  border-color: rgba(231, 76, 60, 0.3);
-  background: rgba(231, 76, 60, 0.06);
-}
-.admin-btn--danger:hover {
-  background: rgba(231, 76, 60, 0.15);
-}
+/* 按钮：统一实现在 styles/controls.css（见文件开头的 @import）。 */
 .admin-body {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -685,39 +656,7 @@
 .admin-item__select input {
   margin: 0;
 }
-.admin-item__select input[type='checkbox'] {
-  appearance: none;
-  display: inline-grid;
-  place-content: center;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  border: 1px solid rgba(174, 197, 213, 0.55);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.035);
-  cursor: pointer;
-  transition:
-    background 0.14s,
-    border-color 0.14s,
-    transform 0.14s;
-}
-.admin-item__select input[type='checkbox']::after {
-  content: '';
-  width: 8px;
-  height: 4px;
-  border: solid #fff;
-  border-width: 0 0 2px 2px;
-  transform: rotate(-45deg) scale(0);
-  transition: transform 0.14s;
-}
-.admin-item__select input[type='checkbox']:checked {
-  border-color: #3498db;
-  background: #2586d7;
-}
-.admin-item__select input[type='checkbox']:checked::after {
-  transform: rotate(-45deg) scale(1);
-}
+/* 复选框本体样式统一在文件末尾的「统一控件」那一份规则里，这里只留布局。 */
 .admin-item:hover {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -1032,48 +971,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.admin-item-btn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-.admin-item-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.admin-item-btn--toggle.admin-item-btn--enable {
-  color: #27ae60;
-  border-color: rgba(39, 174, 96, 0.38);
-  background: rgba(39, 174, 96, 0.07);
-}
-.admin-item-btn--toggle.admin-item-btn--enable:hover {
-  background: rgba(39, 174, 96, 0.16);
-}
-.admin-item-btn--toggle.admin-item-btn--disable {
-  color: #e6a23c;
-  border-color: rgba(230, 162, 60, 0.4);
-  background: rgba(230, 162, 60, 0.07);
-}
-.admin-item-btn--toggle.admin-item-btn--disable:hover {
-  background: rgba(230, 162, 60, 0.16);
-}
-.admin-item-btn--edit.active {
-  color: #3498db;
-  border-color: rgba(52, 152, 219, 0.4);
-  background: rgba(52, 152, 219, 0.08);
-}
-.admin-item-btn--delete {
-  color: #e74c3c;
-  border-color: rgba(231, 76, 60, 0.25);
-}
-.admin-item-btn--delete:hover {
-  background: rgba(231, 76, 60, 0.12);
-}
+/* 行内小按钮（启用/停用/编辑/删除）：统一实现在 styles/controls.css。 */
 .admin-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1089,7 +987,8 @@
 }
 .admin-modal {
   box-sizing: border-box;
-  max-height: calc(100dvh - 48px);
+  /* 普通弹窗统一封顶：内容再多也在窗内滚动，不让弹窗一路顶到屏幕上下边缘（观感太"长条"）。 */
+  max-height: min(88vh, 900px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1103,6 +1002,107 @@
 }
 .admin-modal--wide {
   max-width: 620px;
+}
+/*
+ * 「分考试编辑器」弹窗：整页形态是两栏（左栏考试卡 + 主区列表），弹窗形态沿用同一份面板，
+ * 所以这里只定尺寸与滚动——左栏和主区各自滚动，不给整窗加一根长滚动条。
+ * 高度用 min() 自适应：内容少时不高出一片空白，内容多时最多到 92vh。
+ */
+.admin-modal--editor {
+  /* 关闭按钮（.admin-workflow-close）是绝对定位：必须挂在窗口自己身上，
+     否则会锚到遮罩、跑到整屏右上角去。 */
+  position: relative;
+  width: min(1440px, 100vw - 32px);
+  max-width: min(1440px, 100vw - 32px);
+  height: auto;
+  min-height: min(640px, calc(100dvh - 32px));
+  max-height: min(94vh, 980px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 18px 14px;
+}
+.admin-editor-modal__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  /* 给右上角的关闭按钮留出位置，长标题也不会压到它。 */
+  padding-right: 48px;
+}
+.admin-editor-modal__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.admin-editor-modal__title strong {
+  font-size: 1rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-editor-modal__title small {
+  font-size: 0.76rem;
+  opacity: 0.6;
+}
+.admin-editor-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+  gap: 16px;
+}
+/* 弹窗里左栏不再吸顶，改成自己滚动。 */
+.admin-modal--editor .admin-sidebar {
+  position: static;
+  top: auto;
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.admin-modal--editor .admin-main {
+  min-height: 0;
+  padding: 0 4px 0 0;
+}
+@media (max-width: 900px) {
+  /*
+   * 窄屏（平板以下）压成单栏：左栏在上、列表在下，整窗一起滚动。
+   * 弹窗本身在 ≤760px 时已经是整屏（见下方 .admin-modal-overlay 规则）。
+   */
+  .admin-editor-modal__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: min-content;
+    overflow-y: auto;
+  }
+  .admin-modal--editor .admin-sidebar,
+  .admin-modal--editor .admin-main {
+    overflow: visible;
+    max-height: none;
+    border-right: none;
+  }
+}
+@media (max-width: 760px) {
+  .admin-modal--editor {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 14px 12px max(12px, env(safe-area-inset-bottom));
+  }
+  .admin-editor-modal__head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-bottom: 8px;
+    background: #1a1a1a;
+  }
 }
 .admin-modal__title {
   font-size: 1rem;
@@ -1567,7 +1567,9 @@
     justify-content: flex-start;
   }
   .admin-item__name {
-    max-width: 180px;
+    /* 手机上别再按桌面宽度截科目名：180px 只够 12 个汉字，稍长的名字会被省略号切掉。
+       放开到整行宽度，旁边的状态徽标本来就允许换行。 */
+    max-width: 100%;
   }
 }
 
@@ -1894,46 +1896,7 @@
   margin-bottom: 10px;
 }
 
-/* 开关拨杆 */
-.admin-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-.admin-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.admin-switch span {
-  position: absolute;
-  inset: 0;
-  background: #cbd5e1;
-  border-radius: 999px;
-  transition: background 0.2s;
-}
-.admin-switch span::before {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  left: 3px;
-  top: 3px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-.admin-switch input:checked + span {
-  background: #27ae60;
-}
-.admin-switch input:checked + span::before {
-  transform: translateX(18px);
-}
+/* 开关拨杆：统一实现在 styles/controls.css（见文件开头的 @import）。 */
 
 @media (max-width: 720px) {
   .admin-alerts__grid {
@@ -2189,21 +2152,34 @@
   color: #fff;
   font-weight: 600;
 }
-.admin-tabbar__mode {
+/* 页面内上下文栏：运行模式 / 年级 / 班级跟随页面渲染，导航栏只保留功能切换。 */
+.admin-context-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #121212;
+}
+.admin-context-bar__field {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 0.78rem;
-  opacity: 0.75;
+  opacity: 0.85;
 }
-.admin-tabbar__mode-label {
+.admin-context-bar__label {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
   line-height: 1;
 }
-.admin-tabbar__mode .admin-input {
+.admin-context-bar__field .admin-input {
   padding: 5px 8px;
   font-size: 0.78rem;
 }
@@ -2253,6 +2229,10 @@
 }
 .weekly-calendar__week {
   display: grid;
+  /* 列数由组件按当周天数写入 --weekly-day-count；最小列宽交给断点调：
+     手机上一格只有 112px，「取消本次」按钮再吃掉 24px 后科目名只剩 62px，
+     实测 10 个字的科目名需要 110px，必然被省略号截掉。 */
+  grid-template-columns: repeat(var(--weekly-day-count, 5), minmax(var(--weekly-day-min, 112px), 1fr));
   gap: 8px;
   min-width: 0;
 }
@@ -2327,6 +2307,13 @@
 }
 .weekly-calendar__event-main b {
   font-size: 11px;
+  /* 科目名允许折成两行：一格宽度只够 5 个汉字，单行省略号会把「语文周测（限时训练）」
+     这类常见名字截掉一半。两行夹取既保住完整名称，也不会把日历格子撑高。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .weekly-calendar__event-main span {
   margin-top: 2px;
@@ -2347,6 +2334,8 @@
 @media (max-width: 900px) {
   .weekly-calendar__week {
     min-width: 580px;
+    /* 手机/平板上再放宽一点最小列宽，配合上面的两行科目名，常见科目名能完整显示。 */
+    --weekly-day-min: 124px;
   }
 }
 @media (max-width: 600px) {
@@ -2389,7 +2378,7 @@
   .admin-tabbar {
     padding: 8px 14px;
   }
-  .admin-tabbar__mode {
+  .admin-context-bar__field {
     width: 100%;
     justify-content: space-between;
   }
@@ -2972,6 +2961,23 @@
   background: rgba(190, 56, 48, 0.14);
   color: #ffaaa3;
 }
+/* 设备列表里的「最近一条指令」：说清是待认领、已执行、还是过期/失败。 */
+.device-status__command {
+  flex-basis: 100%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+  font-size: 11.5px;
+}
+.device-status__command.is-ok {
+  background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
+  color: var(--adm-success, #4cbe8c);
+}
+.device-status__command.is-warn {
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+}
 .admin-field-error {
   display: block;
   margin-top: 5px;
@@ -3349,10 +3355,7 @@
   background: rgba(255, 255, 255, 0.025);
   font-size: 0.8rem;
 }
-.admin-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* 按钮禁用态同上：统一在 styles/controls.css。 */
 @media (max-width: 700px) {
   .admin-tabbar__tabs {
     width: 100%;
@@ -4225,41 +4228,7 @@
   font-size: 11px;
   line-height: 1.4;
 }
-.quick-major-track-match__switch input {
-  appearance: none;
-  position: relative;
-  flex: 0 0 auto;
-  width: 42px;
-  height: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  cursor: pointer;
-  transition:
-    background 0.18s,
-    border-color 0.18s;
-}
-.quick-major-track-match__switch input::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #d7e1e8;
-  transition:
-    transform 0.18s,
-    background 0.18s;
-}
-.quick-major-track-match__switch input:checked {
-  border-color: #4ab9ef;
-  background: rgba(52, 152, 219, 0.7);
-}
-.quick-major-track-match__switch input:checked::after {
-  transform: translateX(18px);
-  background: #fff;
-}
+/* 开关本体：统一实现在 styles/controls.css。 */
 .quick-major-track-match > p {
   margin: 0;
   color: rgba(235, 244, 250, 0.66);
@@ -4587,24 +4556,19 @@
   .admin-more__mobile-only {
     display: block !important;
   }
+  /* 移动端功能切换由底部 mobile-nav 承担，左侧导航栏整体隐藏 */
   .admin-tabbar {
-    position: relative;
-    top: auto;
-    z-index: 1;
+    display: none;
+  }
+  .admin-context-bar {
+    position: static;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
-    min-height: 0;
     padding: 10px 12px;
     background: #101216;
   }
-  .admin-tabbar:not(.has-context) {
-    display: none;
-  }
-  .admin-tabbar__tabs {
-    display: none;
-  }
-  .admin-tabbar__mode {
+  .admin-context-bar__field {
     width: auto;
     min-width: 0;
     display: grid;
@@ -4613,15 +4577,15 @@
     color: rgba(240, 240, 240, 0.55);
     font-size: 11px;
   }
-  .admin-tabbar__mode:first-of-type {
+  .admin-context-bar__field:first-of-type {
     grid-column: 1/-1;
   }
-  .admin-tabbar__mode > span {
+  .admin-context-bar__label {
     display: flex;
     align-items: center;
     gap: 4px;
   }
-  .admin-tabbar__mode .admin-input {
+  .admin-context-bar__field .admin-input {
     width: 100%;
     min-width: 0;
     min-height: 40px;
@@ -4831,7 +4795,8 @@
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 1550;
+  /* 同属提醒层：这条提示可能正开着弹窗（例如向导里提示缺项），不能被盖住。 */
+  z-index: var(--z-reminder, 20000);
   width: min(390px, calc(100vw - 28px));
   padding: 16px;
   border: 1px solid rgba(232, 178, 65, 0.55);
@@ -5088,6 +5053,13 @@
 .admin-toggle-label > input[type='checkbox'],
 .admin-long-duration input[type='checkbox'],
 .init-check input[type='checkbox'],
+.exam-records-toggle input[type='checkbox'],
+.quick-major-priority input[type='checkbox'],
+.admin-check input[type='checkbox'],
+.major-wizard-items__toggle input[type='checkbox'],
+.time-range-cross-day input[type='checkbox'],
+.admin-item__select input[type='checkbox'],
+.admin-import-preview input[type='checkbox'],
 .class-management__batch input[type='checkbox'],
 .class-management__row > input[type='checkbox'],
 .device-status__batch input[type='checkbox'],
@@ -5115,6 +5087,13 @@
 .admin-toggle-label > input[type='checkbox']::after,
 .admin-long-duration input[type='checkbox']::after,
 .init-check input[type='checkbox']::after,
+.exam-records-toggle input[type='checkbox']::after,
+.quick-major-priority input[type='checkbox']::after,
+.admin-check input[type='checkbox']::after,
+.major-wizard-items__toggle input[type='checkbox']::after,
+.time-range-cross-day input[type='checkbox']::after,
+.admin-item__select input[type='checkbox']::after,
+.admin-import-preview input[type='checkbox']::after,
 .class-management__batch input[type='checkbox']::after,
 .class-management__row > input[type='checkbox']::after,
 .device-status__batch input[type='checkbox']::after,
@@ -5134,6 +5113,13 @@
 .admin-toggle-label > input[type='checkbox']:checked,
 .admin-long-duration input[type='checkbox']:checked,
 .init-check input[type='checkbox']:checked,
+.exam-records-toggle input[type='checkbox']:checked,
+.quick-major-priority input[type='checkbox']:checked,
+.admin-check input[type='checkbox']:checked,
+.major-wizard-items__toggle input[type='checkbox']:checked,
+.time-range-cross-day input[type='checkbox']:checked,
+.admin-item__select input[type='checkbox']:checked,
+.admin-import-preview input[type='checkbox']:checked,
 .class-management__batch input[type='checkbox']:checked,
 .class-management__row > input[type='checkbox']:checked,
 .device-status__batch input[type='checkbox']:checked,
@@ -5148,6 +5134,13 @@
 .admin-toggle-label > input[type='checkbox']:checked::after,
 .admin-long-duration input[type='checkbox']:checked::after,
 .init-check input[type='checkbox']:checked::after,
+.exam-records-toggle input[type='checkbox']:checked::after,
+.quick-major-priority input[type='checkbox']:checked::after,
+.admin-check input[type='checkbox']:checked::after,
+.major-wizard-items__toggle input[type='checkbox']:checked::after,
+.time-range-cross-day input[type='checkbox']:checked::after,
+.admin-item__select input[type='checkbox']:checked::after,
+.admin-import-preview input[type='checkbox']:checked::after,
 .class-management__batch input[type='checkbox']:checked::after,
 .class-management__row > input[type='checkbox']:checked::after,
 .device-status__batch input[type='checkbox']:checked::after,
@@ -5157,6 +5150,52 @@
 .admin-major-targets input[type='checkbox']:checked::after,
 .set-reset-grid input[type='checkbox']:checked::after {
   transform: rotate(-45deg) scale(1);
+}
+/*
+ * 统一控件：复选框的标签排版。
+ * 后台历史上有 6 种复选框写法（admin-toggle-label / init-check / exam-records-toggle /
+ * quick-major-priority / device-status__batch / class-management__row）。方框与对勾已经由上面
+ * 一份规则统一，这里再统一「行内标签」这一类的字号、间距与颜色。
+ * 有意排除在外的三种：.init-check / .quick-major-priority 是带边框背景的卡片式勾选行
+ * （display: grid 两列），.set-switch 是开关控件，各自保留自己的布局。
+ */
+.admin-toggle-label,
+.exam-records-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(240, 240, 240, 0.75);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.admin-toggle-label > small {
+  color: rgba(240, 240, 240, 0.5);
+  font-size: 0.72rem;
+}
+/*
+ * 统一控件：输入框 / 选择器 / 日期时间字段共用同一套尺寸与配色（令牌定义在 controls.css 的 :root，
+ * 因为弹窗是用 portal 渲染到 body 的，挂在 .admin-page 上弹窗里取不到值）。
+ */
+.admin-input,
+.admin-date-time-field .tdp-field {
+  min-height: var(--adm-ctl-h, 36px);
+  border: 1px solid var(--adm-ctl-line, rgba(255, 255, 255, 0.14));
+  border-radius: var(--adm-ctl-radius, 6px);
+  background: var(--adm-ctl-bg, rgba(255, 255, 255, 0.05));
+  color: var(--adm-ctl-text, #edf3f7);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.admin-input:focus,
+.admin-date-time-field .tdp-field:focus,
+.admin-date-time-field.is-open .tdp-field {
+  border-color: var(--adm-ctl-line-focus, rgba(89, 184, 241, 0.72));
+  background: var(--adm-ctl-bg-focus, rgba(255, 255, 255, 0.08));
+}
+.inline-select__trigger {
+  min-height: var(--adm-ctl-h, 36px);
+  border-radius: var(--adm-ctl-radius, 6px);
 }
 @media (max-width: 760px) {
   .user-management__row.is-batch {
@@ -5569,29 +5608,7 @@
 .admin-import-preview > label.is-skipped {
   opacity: 0.45;
 }
-.admin-import-preview input {
-  appearance: none;
-  display: grid;
-  place-content: center;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  border: 1px solid rgba(174, 197, 213, 0.55);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.035);
-}
-.admin-import-preview input:checked {
-  border-color: #3498db;
-  background: #2586d7;
-}
-.admin-import-preview input:checked::after {
-  content: '';
-  width: 8px;
-  height: 4px;
-  border: solid #fff;
-  border-width: 0 0 2px 2px;
-  transform: rotate(-45deg);
-}
+/* 复选框本体样式同上：统一在「统一控件」那一份规则里。 */
 .admin-import-preview span {
   display: grid;
   gap: 3px;
@@ -6566,6 +6583,68 @@
   color: #7fd7a6;
   font-size: 0.8rem;
 }
+
+@media (max-width: 700px) {
+  .admin-list-header {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .admin-list-header > .admin-list-title,
+  .admin-list-header > .weekly-list-actions {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .admin-list-header > .admin-list-title {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .admin-list-header > .admin-list-count {
+    min-width: 0;
+  }
+  .admin-list-header > .admin-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .admin-list-header > .admin-btn:last-child {
+    grid-column: 1 / -1;
+  }
+  .admin-list-header > .weekly-list-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+  }
+  .admin-list-header > .weekly-list-actions .admin-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .device-status__heading:not(.user-management__heading) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+  }
+  .device-status__heading:not(.user-management__heading) > div:first-child {
+    min-width: 0;
+  }
+  .device-status__heading:not(.user-management__heading) h2,
+  .device-status__heading:not(.user-management__heading) p {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+}
 .account-email-binding__head span {
   color: rgba(240, 240, 240, 0.55);
   font-size: 0.78rem;
@@ -6750,7 +6829,7 @@
 }
 .admin-workspace > .admin-tabbar {
   position: sticky;
-  top: 0;
+  top: var(--admin-header-h);
   z-index: 24;
   display: flex;
   align-self: start;
@@ -6758,7 +6837,7 @@
   align-items: stretch;
   justify-content: flex-start;
   gap: 18px;
-  height: calc(100dvh - 58px);
+  height: calc(100dvh - var(--admin-header-h));
   min-height: 0;
   padding: 18px 12px;
   overflow-y: auto;
@@ -6776,30 +6855,75 @@
   justify-content: flex-start;
   text-align: left;
 }
-.admin-workspace > .admin-tabbar .admin-tabbar__modes {
+/* 一级菜单下面挂的缩进子项（目前只有考试中心的三个板块）。 */
+.admin-tab-group {
   display: grid;
-  gap: 12px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-.admin-workspace > .admin-tabbar .admin-tabbar__mode {
-  display: grid;
-  align-items: start;
-  gap: 6px;
-  opacity: 1;
-  color: rgba(240, 240, 240, 0.62);
-}
-.admin-workspace > .admin-tabbar .admin-tabbar__mode .admin-input {
-  width: 100%;
+  gap: 4px;
   min-width: 0;
 }
-
+.admin-subnav {
+  display: grid;
+  gap: 4px;
+  margin: -2px 0 2px 18px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+.admin-subnav__item {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(240, 240, 240, 0.52);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.admin-subnav__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #dfe9f2;
+}
+.admin-subnav__item.is-active {
+  background: rgba(52, 152, 219, 0.16);
+  color: #b9e3ff;
+  font-weight: 600;
+  /* 父子同时亮时靠左侧竖条区分层级：主项是整块底色，子项多一条导轨色。 */
+  box-shadow: inset 2px 0 0 #3498db;
+}
+/*
+ * 字体分区：后台外壳与教室大屏消费同一组区域变量（设置 → 字体里的导航/标题/正文/数字）。
+ * 正文由 .admin-page 上的 --font-region-content 承担，这里补上其余三个区域，
+ * 让「字体分区改不动后台」不再成立。
+ */
+.admin-header,
+.admin-tabbar,
+.admin-context-bar,
+.admin-mobile-nav {
+  font-family: var(--font-region-navigation, inherit);
+}
+.admin-header__title,
+.admin-content :is(h1, h2, h3),
+.admin-modal__title {
+  font-family: var(--font-region-display, var(--font-region-content, inherit));
+}
+.admin-content :is(code, kbd, samp, time) {
+  font-family: var(--font-region-numeric, inherit);
+}
 @media (max-width: 900px) and (min-width: 701px) {
   .admin-workspace {
     grid-template-columns: 208px minmax(0, 1fr);
   }
   .admin-workspace > .admin-tabbar {
-    height: calc(100dvh - 58px);
+    height: calc(100dvh - var(--admin-header-h));
   }
   .admin-workspace > .admin-tabbar .admin-tab {
     padding-inline: 9px;
@@ -6814,14 +6938,6 @@
     overflow: visible;
   }
   .admin-workspace > .admin-tabbar {
-    display: grid;
-    flex-direction: initial;
-    height: auto;
-    max-height: none;
-    overflow: visible;
-    border-right: 0;
-  }
-  .admin-workspace > .admin-tabbar:not(.has-context) {
     display: none;
   }
 }

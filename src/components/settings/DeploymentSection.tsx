@@ -58,18 +58,51 @@ export default function DeploymentSection({ adminUser }: { adminUser: AdminUserC
       {upd.status === 'done' &&
         upd.info &&
         (upd.info.hasUpdate ? (
-          <div className="set-note set-note--warn">
-            发现新版本 v{upd.info.latest}
-            {upd.info.releaseUrl ? (
-              <>
-                {' '}
-                ·{' '}
-                <a href={upd.info.releaseUrl} target="_blank" rel="noopener noreferrer">
-                  查看发布说明
-                </a>
-              </>
+          <>
+            <div className="set-note set-note--warn">
+              发现新版本 v{upd.info.latest}
+              {upd.info.releaseUrl ? (
+                <>
+                  {' '}
+                  ·{' '}
+                  <a href={upd.info.releaseUrl} target="_blank" rel="noopener noreferrer">
+                    查看发布说明
+                  </a>
+                </>
+              ) : null}
+            </div>
+            <ul className="set-status__list">
+              <li>
+                <span>目标镜像</span>
+                <b style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', wordBreak: 'break-all' }}>
+                  {upd.info.image || '未声明'}
+                </b>
+              </li>
+              <li>
+                <span>镜像摘要</span>
+                <b style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' }}>
+                  {upd.info.digest ? upd.info.digest.slice(0, 19) + '…' : '未声明摘要校验'}
+                </b>
+              </li>
+              <li>
+                <span>最低 schema</span>
+                <b>
+                  {upd.info.minSchema ? `${upd.info.minSchema}（本机 ${upd.info.schemaVersion ?? '—'}）` : '未声明'}
+                </b>
+              </li>
+            </ul>
+            {upd.info.schemaReady === false ? (
+              <p className="set-note set-note--warn">
+                目标版本要求更高的数据库
+                schema，升级前请先完成备份，升级失败按既有回滚流程处理（版本可回滚、数据不回滚）。
+              </p>
             ) : null}
-          </div>
+            {(upd.info.warnings || []).map((warning) => (
+              <p className="set-note set-note--warn" key={warning}>
+                {warning}
+              </p>
+            ))}
+          </>
         ) : (
           <p className="set-note">✓ 已是最新版本</p>
         ))}

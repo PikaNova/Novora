@@ -1,6 +1,7 @@
-// 系统相关 Serverless 函数合并：/api/health、/api/status、/api/email-worker 三个 URL
+// 系统相关 Serverless 函数合并：/api/health、/api/status、/api/email-worker、
+// /api/diagnostic-worker、/api/time、/api/update-check、/api/redeploy 七个 URL
 // 通过 vercel.json rewrites 指向本文件（?sys=...），合并为一个函数以符合 Vercel Hobby
-// “单次部署最多 12 个 Serverless Functions”的上限。
+// “单次部署最多 12 个 Serverless Functions”的上限；各 URL 的行为与响应契约不变。
 // 兼容纯本地化部署：服务器信息全部来自 Node 运行时，不依赖 Vercel 专属能力。
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readFileSync } from 'node:fs';
@@ -9,9 +10,15 @@ import { authSql, ensureAuthTables, isAdminRecoveryConfigured, requireActor } fr
 import { ensureTableOnce } from './_exams/db.js';
 import { assertRows, rowShape, isString, isDatabaseInt8, type DatabaseInt8 } from './_validation.js';
 import { requestId, sendDatabaseError } from './_apiError.js';
-import { loadSmtpConfig } from './emailAuth.js';
+import { loadSmtpConfig } from './_emailAuth.js';
 import { drainOutbox } from './_emailQueue.js';
+import { clampDrainLimit, drainDiagnosticQueue, readDiagnosticQueueStats } from './_diagnosticQueue.js';
 import { readSchemaMigrationState, type SchemaMigrationState } from './_schemaMigration.js';
+import { resolveSubRoute } from './_routeMatch.js';
+import { handleTime } from './_system/time.js';
+import { handleUpdateCheck } from './_system/updateCheck.js';
+import { handleRedeploy } from './_system/redeploy.js';
+import { resolveBuildCommit } from './_buildInfo.js';
 
 let cachedVersion: string | null = null;
 function readVersionFrom(url: URL): string | null {
@@ -32,15 +39,19 @@ function appVersion(): string {
   return cachedVersion;
 }
 
+/** 本入口承载的全部对外路由（rewrite 别名 → 查询串里的 sys）。 */
+const SYSTEM_ROUTES = [
+  'health',
+  'status',
+  'email-worker',
+  'diagnostic-worker',
+  'time',
+  'update-check',
+  'redeploy',
+] as const;
+
 function sysRoute(req: VercelRequest): string {
-  const fromQuery = String(req.query?.sys ?? '');
-  if (fromQuery === 'health' || fromQuery === 'status' || fromQuery === 'email-worker') return fromQuery;
-  const pathname = String(req.url ?? '')
-    .split('?')[0]
-    .replace(/\/+$/, '');
-  const segment = pathname.split('/').pop() ?? '';
-  if (segment === 'health' || segment === 'status' || segment === 'email-worker') return segment;
-  return '';
+  return resolveSubRoute(req, 'sys', SYSTEM_ROUTES);
 }
 
 const isCountRow = rowShape<{ count: number }>({ count: (v): v is number => typeof v === 'number' });
@@ -96,6 +107,8 @@ const REQUIRED_TABLES = [
   'exam_record_operations',
   'app_schema_versions',
   'app_schema_migration_logs',
+  'app_diagnostic_settings',
+  'app_diagnostic_bundles',
 ];
 
 function smtpPresetOf(host: string): 'qq' | '163' | 'custom' {
@@ -136,6 +149,7 @@ async function handleHealth(req: VercelRequest, res: VercelResponse): Promise<vo
       ok: schemaOk,
       status: schemaOk ? 'ok' : 'degraded',
       version: appVersion(),
+      commit: resolveBuildCommit(),
       serverTime: new Date().toISOString(),
       latencyMs,
       schemaVersion: schemaState.version,
@@ -275,26 +289,32 @@ async function collectDatabase(): Promise<{
   }
 }
 
+// 用 process.cpuUsage() 的两次差值代替原来的 600ms 采样窗口：旧实现每次取样都要让函数
+// 空转 600 毫秒，直接记进免费版的 GB-秒。取值含义改为“自上次取样以来的平均占用”。
 let cpuUsageCache: { at: number; value: number | null } | null = null;
+let lastCpuSample: { at: number; usage: NodeJS.CpuUsage } | null = null;
+
+function cpuPercentBetweenSample(now: number): number | null {
+  const usage = process.cpuUsage();
+  const previous = lastCpuSample;
+  lastCpuSample = { at: now, usage };
+  const cores = Math.max(1, cpus().length);
+  const clamp = (usedMs: number, capacityMs: number): number | null =>
+    capacityMs > 0 ? Math.min(100, Math.max(0, (usedMs / capacityMs) * 100)) : null;
+  if (previous && now > previous.at) {
+    const usedMs = (usage.user - previous.usage.user + (usage.system - previous.usage.system)) / 1000;
+    return clamp(usedMs, (now - previous.at) * cores);
+  }
+  // 冷启动后的第一次取样没有上一个基线，退回“进程启动至今的平均占用”。
+  const totalMs = (usage.user + usage.system) / 1000;
+  return clamp(totalMs, Math.max(1, process.uptime() * 1000) * cores);
+}
+
 async function currentCpuUsage(): Promise<number | null> {
-  if (cpuUsageCache && Date.now() - cpuUsageCache.at < 5000) return cpuUsageCache.value;
-  const sample = () => {
-    const list = cpus();
-    let idle = 0;
-    let total = 0;
-    for (const core of list) {
-      for (const value of Object.values(core.times)) total += value;
-      idle += core.times.idle;
-    }
-    return { idle, total };
-  };
-  const before = sample();
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  const after = sample();
-  const idleDelta = after.idle - before.idle;
-  const totalDelta = after.total - before.total;
-  const value = totalDelta > 0 ? Math.min(100, Math.max(0, 100 * (1 - idleDelta / totalDelta))) : null;
-  cpuUsageCache = { at: Date.now(), value };
+  const now = Date.now();
+  if (cpuUsageCache && now - cpuUsageCache.at < 5000) return cpuUsageCache.value;
+  const value = cpuPercentBetweenSample(now);
+  cpuUsageCache = { at: now, value };
   return value;
 }
 
@@ -470,10 +490,13 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
       res.status(403).json({ ok: false, code: 'PERMISSION_DENIED', error: '仅超级管理员可查看系统状态' });
       return;
     }
-    const [database, infra, mailQueue, events, recoveryConfigured, smtp, system] = await Promise.all([
+    // 诊断队列统计直接查表；与 collectDatabase 的 DDL 并行会让首次部署出现“表不存在”。
+    await ensureTableOnce();
+    const [database, infra, mailQueue, diagnosticQueue, events, recoveryConfigured, smtp, system] = await Promise.all([
       collectDatabase(),
       collectInfra(),
       collectMailQueue(),
+      readDiagnosticQueueStats(),
       collectEvents(),
       isAdminRecoveryConfigured(),
       loadSmtpConfig(),
@@ -496,10 +519,12 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
         recoveryConfigured,
         smtpConfigured: Boolean(smtp),
         smtpPreset: smtp ? smtpPresetOf(smtp.host) : null,
+        diagnosticWorkerProtected: Boolean(diagnosticWorkerSecret()),
       },
       database,
       infra,
       mailQueue,
+      diagnosticQueue,
       events,
       requestStats: readLocalRequestStats(),
     });
@@ -509,6 +534,44 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
 }
 
 // ── /api/email-worker（Cron 消费） ──────────────────────────────────
+/** 可选的 Cron 共享密钥；配置后要求调用方携带，未配置时保持与 email-worker 一致的开放行为。 */
+function diagnosticWorkerSecret(): string {
+  return (process.env.DIAGNOSTIC_WORKER_SECRET ?? '').trim();
+}
+
+function diagnosticWorkerAuthorized(req: VercelRequest): boolean {
+  const secret = diagnosticWorkerSecret();
+  if (!secret) return true;
+  const bearer = String(req.headers.authorization ?? '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+  const header = String(req.headers['x-cron-secret'] ?? '').trim();
+  return bearer === secret || header === secret;
+}
+
+// ── /api/diagnostic-worker（Cron 消费诊断包重试队列） ─────────────────
+async function handleDiagnosticWorker(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'GET') {
+    res.status(405).json({ ok: false, code: 'METHOD_NOT_ALLOWED', error: 'Method not allowed' });
+    return;
+  }
+  if (!diagnosticWorkerAuthorized(req)) {
+    res.status(401).json({ ok: false, code: 'WORKER_UNAUTHORIZED', error: '诊断队列 worker 密钥不正确' });
+    return;
+  }
+  try {
+    // worker 可能是部署后的第一个请求，先确保诊断表存在（模块级 Promise，仅首次真正执行 DDL）。
+    await ensureTableOnce();
+    const result = await drainDiagnosticQueue({
+      limit: clampDrainLimit(req.query?.limit),
+      deadlineMs: 8_000,
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    sendDatabaseError(req, res, error, 'write');
+  }
+}
+
 async function handleWorker(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     res.status(405).json({ ok: false, code: 'METHOD_NOT_ALLOWED', error: 'Method not allowed' });
@@ -537,6 +600,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return handleStatus(req, res);
     case 'email-worker':
       return handleWorker(req, res);
+    case 'diagnostic-worker':
+      return handleDiagnosticWorker(req, res);
+    case 'time':
+      return handleTime(req, res);
+    case 'update-check':
+      return handleUpdateCheck(req, res);
+    case 'redeploy':
+      return handleRedeploy(req, res);
     default:
       res.status(404).json({ ok: false, code: 'NOT_FOUND', error: 'Not found' });
   }

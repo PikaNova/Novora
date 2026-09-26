@@ -36,9 +36,32 @@ export interface MajorExam {
   temporary?: boolean;
   /** 仅临时统一考试可用：在同一时间段优先展示本次安排。 */
   priorityOverSchedule?: boolean;
+  /**
+   * 复制出来的考试会带上这个标记，服务端投影据此强制把它留在草稿，
+   * 即使科目时间已经齐全也不自动发布；管理员执行「发布」后标记被清除。
+   */
+  draft?: boolean;
   createdAt?: number;
   createdBy?: number;
+  /**
+   * 考试窗口（毫秒时间戳）。正式考试由「开始/结束时间」写入，快速考试在发布时按科目时间算出；
+   * 服务端据此推导 `exam_records.start_at / end_at`，记录层（列表、进行中判定、延长）都靠它。
+   */
+  startAt?: number | null;
+  endAt?: number | null;
+  /** 实际开考时刻；服务端生命周期操作写入，用于「已进行时长」口径。 */
+  actualStartAt?: number | null;
+  /** 实际结束时刻；快速考试提前结束时写入，与服务端 record-end 的 actual_end_at 对齐。 */
+  actualEndAt?: number | null;
+  /** 暂停起始时刻；非空表示当前处于暂停中，倒计时冻结并顺延结束时间。 */
+  pausedAt?: number | null;
+  /** 累计暂停时长（毫秒）；倒计时按 `endAt + pausedMs` 计算。 */
+  pausedMs?: number;
+  /** 发布时刻；非空表示这场考试已经下发到教室大屏。 */
+  publishedAt?: number | null;
   endedAt?: number | null;
+  /** 归档时刻；非空表示这场考试已进入只读历史，需先取消归档才能再编辑。 */
+  archivedAt?: number | null;
 }
 
 /** 六种内置提醒状态（与设计思路文档一一对应）。 */

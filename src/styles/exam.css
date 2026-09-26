@@ -280,15 +280,6 @@
   }
 }
 
-.exam-design-loading {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: #101216;
-  color: #f4f7fb;
-  font: 600 16px var(--font-region-content, system-ui);
-}
 /* Responsive safety rail: design internals may scale, but never grow the viewport. */
 .exam-root,
 .exam-root * {
@@ -437,124 +428,236 @@
   }
 }
 
-/* 无操作自动全屏的引导浮层：静置 1 分钟且浏览器阻止自动全屏时出现，
-   由用户轻触完成手势授权。任意点击遮罩即进入全屏。 */
-.exam-fs-prompt {
+/* ===== 静置提示条：不再自动/强制全屏，用非阻塞提示条给出建议 ===== */
+.exam-fs-hint {
   position: fixed;
-  inset: 0;
-  width: 100%;
-  min-height: 100dvh;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, calc(env(safe-area-inset-bottom) + 12px));
   z-index: 60;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  background: rgba(6, 10, 18, 0.72);
-  backdrop-filter: blur(6px);
-  animation: exam-fs-fade 0.25s ease;
-  cursor: pointer;
-  overflow: auto;
-}
-.exam-fs-prompt__card {
-  width: min(100%, 420px);
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: clamp(24px, 4vw, 40px);
-  border-radius: 20px;
-  text-align: center;
-  color: #eaf3ff;
-  background: rgba(16, 26, 44, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
-  cursor: default;
-}
-.exam-fs-prompt__icon {
   display: flex;
-  justify-content: center;
-  line-height: 1;
-  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  max-width: min(92vw, 540px);
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(11, 18, 32, 0.95);
+  color: #eaf3ff;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: exam-fs-hint-in 0.24s ease both;
 }
-.exam-fs-prompt__icon svg {
-  width: clamp(40px, 7vw, 60px);
-  height: clamp(40px, 7vw, 60px);
-}
-.exam-fs-prompt__title {
-  margin: 0 0 8px;
-  font:
-    700 clamp(19px, 2.4vw, 26px)/1.3 system-ui,
-    sans-serif;
-}
-.exam-fs-prompt__hint {
-  margin: 0 auto 20px;
-  max-width: 28em;
-  font:
-    500 clamp(13px, 1.4vw, 15px)/1.6 system-ui,
-    sans-serif;
-  color: rgba(214, 228, 247, 0.72);
-  text-wrap: balance;
-  word-break: normal;
-}
-.exam-fs-prompt__actions {
+.exam-fs-hint__body {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  width: min(100%, 300px);
-  margin-inline: auto;
+  gap: 4px;
+  min-width: 0;
 }
-.exam-fs-prompt__go,
-.exam-fs-prompt__later {
-  min-height: 46px;
-  padding: 0 22px;
-  border-radius: 12px;
+
+/*
+ * 后台动作的常驻提示条（暂停中 / 已申请停止）：顶栏下方居中，任何设计都能看到。
+ * 以前后台暂停只让倒计时冻结、结束只让考试消失，教室端没有任何文字说明。
+ */
+.exam-pause-hint {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(560px, calc(100vw - 28px));
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid rgba(241, 196, 95, 0.65);
+  border-radius: 10px;
+  background: rgba(43, 34, 20, 0.96);
+  color: #fff0c5;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  animation: exam-fs-hint-in 0.24s ease both;
+}
+.exam-pause-hint > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: #f1c45f;
+}
+.exam-pause-hint__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.exam-pause-hint__body strong {
   font:
-    700 15px/1 system-ui,
+    600 14px/1.4 system-ui,
+    sans-serif;
+}
+.exam-pause-hint__body span {
+  color: #f3dcae;
+  font:
+    500 12.5px/1.45 system-ui,
+    sans-serif;
+}
+@media (prefers-reduced-motion: reduce) {
+  .exam-pause-hint {
+    animation: none;
+  }
+}
+
+/*
+ * 右下角还停着临时考试按钮（.temp-exam-fab，right/bottom 18px、高 44px、z-index 68）：
+ * 它和这条提示条原来都钉在同一个角上，同时出现时互相压住。
+ * 按钮在的宽度档（<701px 时它 display:none）把提示条抬到按钮之上，
+ * 按钮不在时保持原来的贴角位置。
+ */
+@media (min-width: 701px) {
+  body:has(.temp-exam-fab) .exam-fs-hint {
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 56px);
+  }
+}
+.exam-fs-hint__title {
+  font:
+    600 14px/1.4 system-ui,
+    sans-serif;
+}
+.exam-fs-hint__error {
+  font:
+    500 12px/1.5 system-ui,
+    sans-serif;
+  color: #ffb4a8;
+}
+.exam-fs-hint__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exam-fs-hint__actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dbe6f7;
+  font:
+    600 13px/1 system-ui,
     sans-serif;
   cursor: pointer;
 }
-.exam-fs-prompt__go {
-  border: 0;
-  color: #04121f;
-  background: #5db4ff;
+.exam-fs-hint__actions button:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
-.exam-fs-prompt__go:hover {
+.exam-fs-hint__actions .exam-fs-hint__go {
+  border: 0;
+  background: #5db4ff;
+  color: #04121f;
+}
+.exam-fs-hint__actions .exam-fs-hint__go:hover {
   background: #7cc4ff;
 }
-.exam-fs-prompt__later {
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: transparent;
-  color: #c7d6ea;
+.exam-fs-hint__actions svg {
+  width: 16px;
+  height: 16px;
 }
-.exam-fs-prompt__later:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-@media (max-width: 480px) {
-  .exam-fs-prompt {
-    place-items: center;
-    padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+@keyframes exam-fs-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
   }
-  .exam-fs-prompt__card {
-    padding: 26px 20px;
-    border-radius: 16px;
-  }
-  .exam-fs-prompt__icon {
-    font-size: 42px;
-  }
-  .exam-fs-prompt__title {
-    font-size: 20px;
-  }
-  .exam-fs-prompt__actions {
-    width: 100%;
-    gap: 10px;
-  }
-  .exam-fs-prompt__go,
-  .exam-fs-prompt__later {
-    width: 100%;
-    padding: 0 12px;
-    white-space: nowrap;
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
-@keyframes exam-fs-fade {
+@media (max-width: 620px) {
+  /* 移动端贴着底部安全区，避免被浏览器工具栏挡住 */
+  .exam-fs-hint {
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, calc(env(safe-area-inset-bottom) + 10px));
+    max-width: none;
+    justify-content: space-between;
+  }
+  .exam-fs-hint__actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* ===== 双击指引：聚光圈套在真实的全屏按钮上，箭头从点击点指过去 ===== */
+.exam-fs-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(4, 8, 16, 0.42);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+  animation: exam-fs-guide-fade 0.18s ease both;
+}
+.exam-fs-guide__ring {
+  position: fixed;
+  border: 3px solid #ffd166;
+  border-radius: 14px;
+  box-shadow: 0 0 22px rgba(255, 209, 102, 0.8);
+  animation: exam-fs-guide-pulse 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.exam-fs-guide__arrow {
+  position: fixed;
+  inset: 0;
+  color: #ffd166;
+  pointer-events: none;
+}
+.exam-fs-guide__arrow line {
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 8 6;
+}
+.exam-fs-guide__bubble {
+  position: fixed;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 209, 102, 0.42);
+  border-radius: 12px;
+  background: rgba(14, 20, 34, 0.96);
+  color: #f4f8ff;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+.exam-fs-guide__title {
+  margin: 0;
+  font:
+    700 14px/1.3 system-ui,
+    sans-serif;
+}
+.exam-fs-guide__hint {
+  margin: 0;
+  font:
+    500 12px/1.5 system-ui,
+    sans-serif;
+  color: rgba(226, 236, 250, 0.78);
+}
+.exam-fs-guide__ok {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #ffd166;
+  color: #21160a;
+  font:
+    700 12px/1 system-ui,
+    sans-serif;
+  cursor: pointer;
+}
+@keyframes exam-fs-guide-fade {
   from {
     opacity: 0;
   }
@@ -562,19 +665,82 @@
     opacity: 1;
   }
 }
+@keyframes exam-fs-guide-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 16px rgba(255, 209, 102, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 209, 102, 0.95);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .exam-fs-hint,
+  .exam-fs-guide,
+  .exam-fs-guide__ring {
+    animation: none;
+  }
+}
 
 /* ===== 考试结束退出全屏浮层 + 手机端提示 ===== */
-/* 考试结束后 15 分钟内单独弹出的退出全屏浮层：独立于结束提醒浮层，层级高于 .eao(4000) 以保证可点 */
+/* 第一层：考试结束且仍全屏时的中央高对比弹窗，自动聚焦退出按钮，数秒后收缩为提醒条 */
+.exam-ended-dialog {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4300;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(92vw, 460px);
+  box-sizing: border-box;
+  padding: clamp(22px, 4vw, 34px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  background: #0b1220f7;
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: exam-ended-dialog-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.exam-ended-dialog__title {
+  margin: 0;
+  font:
+    800 clamp(20px, 2.6vw, 28px)/1.3 system-ui,
+    sans-serif;
+}
+.exam-ended-dialog__desc {
+  margin: 0;
+  font:
+    500 13px/1.6 system-ui,
+    sans-serif;
+  color: rgba(219, 230, 247, 0.78);
+}
+@keyframes exam-ended-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* 第二层：常驻提醒条。桌面在顶部（不挡底部操作区），移动端贴底部安全区 */
 .exam-ended-exit {
   position: fixed;
   left: 50%;
-  bottom: max(28px, calc(env(safe-area-inset-bottom) + 20px));
+  top: max(14px, env(safe-area-inset-top));
   transform: translateX(-50%);
   z-index: 4200;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 16px 12px 20px;
+  gap: 10px;
+  padding: 10px 12px 10px 18px;
   border: 1px solid #ffffff2e;
   border-radius: 16px;
   background: #0b1220f2;
@@ -582,7 +748,7 @@
   box-shadow: 0 18px 50px #000a;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
-  animation: exam-ended-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  animation: exam-ended-pop-top 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 .exam-ended-exit__text {
   font-size: 14px;
@@ -591,6 +757,7 @@
   color: #dbe6f7;
   white-space: nowrap;
 }
+.exam-ended-dialog__btn,
 .exam-ended-exit__btn {
   display: inline-flex;
   align-items: center;
@@ -609,17 +776,69 @@
   width: 18px;
   height: 18px;
 }
+.exam-ended-dialog__btn {
+  min-height: 48px;
+  padding: 12px 28px;
+  font-size: 16px;
+}
+.exam-ended-dialog__btn svg {
+  width: 18px;
+  height: 18px;
+}
+.exam-ended-dialog__btn:hover,
 .exam-ended-exit__btn:hover {
   background: #f2555a;
 }
+.exam-ended-dialog__btn:focus-visible,
 .exam-ended-exit__btn:focus-visible {
   outline: 3px solid #ffd0d2;
   outline-offset: 2px;
 }
-@keyframes exam-ended-pop {
+/* 收起后的小图标：点它可以把提醒条重新展开 */
+.exam-ended-exit__collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd8ea;
+  cursor: pointer;
+}
+.exam-ended-exit__collapse:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.exam-ended-exit__collapse svg {
+  width: 16px;
+  height: 16px;
+}
+.exam-ended-exit__peek {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  top: max(14px, env(safe-area-inset-top));
+  z-index: 4200;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid #ffffff2e;
+  border-radius: 50%;
+  background: #0b1220f2;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 12px 30px #0009;
+}
+.exam-ended-exit__peek svg {
+  width: 18px;
+  height: 18px;
+}
+@keyframes exam-ended-pop-top {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(16px) scale(0.96);
+    transform: translateX(-50%) translateY(-16px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -627,6 +846,7 @@
   }
 }
 @media (pointer: coarse) {
+  .exam-ended-dialog__btn,
   .exam-ended-exit__btn {
     padding: 13px 24px;
     font-size: 16px;
@@ -636,10 +856,15 @@
   .exam-ended-exit {
     left: 12px;
     right: 12px;
+    top: auto;
     transform: none;
     justify-content: space-between;
     bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
     animation: exam-ended-pop-m 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+  .exam-ended-exit__peek {
+    top: auto;
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
   }
 }
 @keyframes exam-ended-pop-m {
@@ -653,6 +878,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .exam-ended-dialog,
   .exam-ended-exit {
     animation: none;
   }

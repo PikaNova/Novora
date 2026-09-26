@@ -25,11 +25,8 @@ export interface MajorTabPanelProps {
   orderedScopedMajors: MajorExam[];
   activeMajor: MajorExam | null | undefined;
   items: ExamItem[];
-  canQuickPublish: boolean;
   can: (permission: string) => boolean;
-  switchMajor: (id: string) => void;
   isOwnQuickTemporaryMajor: (major: MajorExam) => boolean;
-  setQuickMajorOpen: (open: boolean) => void;
   setMajorModal: React.Dispatch<React.SetStateAction<MajorModal | null>>;
   setMajorError: (message: string) => void;
   hasScopedMajor: boolean;
@@ -86,11 +83,8 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
     orderedScopedMajors,
     activeMajor,
     items,
-    canQuickPublish,
     can,
-    switchMajor,
     isOwnQuickTemporaryMajor,
-    setQuickMajorOpen,
     setMajorModal,
     setMajorError,
     hasScopedMajor,
@@ -159,42 +153,13 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
               {items.length} 个分考试 · {items.filter((i) => i.enabled).length} 个启用
             </span>
           </div>
-          {orderedScopedMajors.length > 0 && (
-            <label className="admin-major-card__switch">
-              <span className="admin-major-card__switch-k">切换考试</span>
-              <InlineSelect
-                className="admin-input admin-major-select"
-                value={activeMajor?.id ?? ''}
-                onChange={switchMajor}
-                disabled={orderedScopedMajors.length === 1}
-                options={orderedScopedMajors.map((m) => ({
-                  value: m.id,
-                  label: `${m.name}（${m.items.length} 科）${!m.targetGradeIds?.length ? ' · 全校统一' : ''}`,
-                }))}
-              />
-            </label>
-          )}
+          {/*
+           * 这里不再提供「切换考试 / 快速发布 / 新建大型考试」三个入口：
+           * 编辑器现在只服务「编辑这一场考试的科目与时间」——从考试中心列表或新建向导进来，
+           * 改完回到列表。切考试、快速发布、新建都从考试中心的「创建考试」菜单走，
+           * 免得在这条流程里点到别的考试上去。
+           */}
           <div className="admin-major-card__btns">
-            {canQuickPublish && (
-              <button className="admin-btn admin-btn--primary" onClick={() => setQuickMajorOpen(true)}>
-                快速发布
-              </button>
-            )}
-            {can('major.create') && (
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={() => {
-                  setMajorModal({
-                    mode: 'add',
-                    name: '',
-                    targetGradeIds: selectedGradeId ? [selectedGradeId] : [],
-                  });
-                  setMajorError('');
-                }}
-              >
-                + 新建
-              </button>
-            )}
             {hasScopedMajor && can('major.edit') && (
               <button
                 className="admin-btn"
@@ -206,6 +171,8 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
                   });
                   setMajorError('');
                 }}
+                disabled={activeMajor?.archivedAt != null}
+                title={activeMajor?.archivedAt != null ? '已归档的考试需要先取消归档才能修改' : undefined}
               >
                 设置
               </button>
@@ -214,7 +181,15 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
               <button
                 className="admin-btn admin-btn--danger"
                 onClick={() => setDeleteMajorOpen(true)}
-                disabled={majors.length <= 1}
+                disabled={majors.length <= 1 || activeMajor?.archivedAt != null}
+                title={
+                  // 禁用时要说清原因：以前只剩一场时按钮变灰但没有任何说明，看着像"删不掉"。
+                  majors.length <= 1
+                    ? '至少要保留一场大型考试：先新建一场，再删这一场'
+                    : activeMajor?.archivedAt != null
+                      ? '已归档的考试需要先取消归档才能删除'
+                      : undefined
+                }
               >
                 删除
               </button>
@@ -223,6 +198,14 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
           <p className="admin-major-card__hint">
             切换年级只改变后台管理内容；大屏始终按设备绑定班级所属年级自动匹配适用考试。
           </p>
+          {activeMajor?.archivedAt != null && (
+            <div className="admin-warning-banner">
+              <span>
+                <strong>已归档</strong>
+                这场考试是只读历史，不能修改或删除。需要调整请先到「考试中心」取消归档。
+              </span>
+            </div>
+          )}
           {activeMajorTrackSubjects.length > 0 && (
             <div className="admin-warning-banner admin-warning-banner--structured">
               {subjectTrackModeEnabled ? (
@@ -261,12 +244,17 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
               const running =
                 item && new Date(item.startTime).getTime() <= adminNow && new Date(item.endTime).getTime() > adminNow;
               const displayStatus = getQuickMajorDisplayStatus(major, orderedScopedMajors, adminNow, visibleClasses);
+              // 已归档即只读：延长 / 结束 / 转正式 / 删除全部按只读处理（服务端同样会冻结）。
+              const quickMajorReadOnly = major.archivedAt != null;
               const canManageQuickMajor =
-                can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major));
+                !quickMajorReadOnly &&
+                (can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major)));
               const canEndQuickMajor =
-                can('major.edit') || (can('major.quick_create') && canEndQuickTemporaryMajorInScope(major));
+                !quickMajorReadOnly &&
+                (can('major.edit') || (can('major.quick_create') && canEndQuickTemporaryMajorInScope(major)));
               const canDeleteQuickMajor =
-                can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major));
+                !quickMajorReadOnly &&
+                (can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(major)));
               return (
                 <article key={major.id}>
                   <div>

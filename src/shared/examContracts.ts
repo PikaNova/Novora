@@ -14,6 +14,7 @@ import { normalizeDesignPolicy } from '../utils/settings/design.js';
 import { normalizeMajorBatchSettings, type MajorBatchSettings } from '../utils/settings/majorBatch.js';
 import { normalizeAlerts } from '../utils/appSettings.js';
 import { asRecord } from './typeGuards.js';
+import { parseExamRevisions } from './examSaveDiff.js';
 import { parseDeviceBinding, type DeviceBinding } from './deviceContracts.js';
 
 export interface ExamPayload {
@@ -35,6 +36,11 @@ export interface ExamPayload {
   majorBatchPresets?: MajorBatchSettings & { updatedAt: number };
   metadata?: Record<string, unknown>;
   lifecycle?: Record<string, unknown>;
+  /**
+   * 域级修订号（v2.8.8）：服务端为每个「修订域」维护的自增号，客户端保存时回传作为并发基线。
+   * 老服务端不返回该字段时为空对象，客户端会退回整行版本号（updatedAt）比较。
+   */
+  revisions?: Record<string, number>;
   binding?: DeviceBinding | null;
   updatedAt: number;
 }
@@ -42,6 +48,58 @@ export interface ExamPayload {
 export function examEtag(updatedAt: unknown): string {
   const value = Number(updatedAt);
   return `"exam-${Number.isFinite(value) ? value : 0}"`;
+}
+
+/**
+ * `If-None-Match` 是否命中当前 ETag（用于 304 协商）。
+ *
+ * 必须按 RFC 9110 的弱比较语义处理，不能严格相等：
+ * 反代（openresty / nginx）在 gzip 之后会把响应的强 ETag 改写成弱 ETag
+ * （`"exam-1"` → `W/"exam-1"`），客户端随后把带 `W/` 的值原样回传，
+ * 而应用侧比较的是自己生成的强 ETag —— 严格相等永远不命中，表现就是
+ * 「每次轮询都重新传整份快照」（dev 上实测每次 137 KB）。
+ *
+ * 同时支持逗号分隔的列表与 `*`（多代理链路上都合法）。
+ */
+export function matchesIfNoneMatch(header: unknown, etag: string): boolean {
+  const raw = Array.isArray(header) ? header.join(',') : typeof header === 'string' ? header : '';
+  if (!raw.trim()) return false;
+  const strip = (value: string) => value.trim().replace(/^W\//i, '');
+  const target = strip(etag);
+  return raw.split(',').some((part) => {
+    const value = part.trim();
+    if (!value) return false;
+    if (value === '*') return true;
+    return strip(value) === target;
+  });
+}
+
+/** 快照版本号转成整数，非法值一律归零。 */
+export function parseExamVersion(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+/**
+ * 版本化快照的查询串。版本号同时是边缘缓存的键：数据没变就一直是同一个 URL，
+ * 因此可以把整份快照长期缓存，只有写入后版本变化才会产生新的 URL。
+ */
+export function examSnapshotQuery(version: unknown): string {
+  return `resource=snapshot&v=${parseExamVersion(version)}`;
+}
+
+/**
+ * 是否用“长期可缓存的版本化快照”回应这次读取。只有 Vercel 部署、且请求里的版本
+ * 与当前版本一致时成立；版本过期时按老路径返回且不缓存，避免把新内容缓存到旧版本 URL 下。
+ */
+export function isCurrentSnapshotRequest(input: {
+  edgeDeployment: boolean;
+  requestedVersion: unknown;
+  currentVersion: unknown;
+}): boolean {
+  if (!input.edgeDeployment) return false;
+  const requested = parseExamVersion(input.requestedVersion);
+  return requested > 0 && requested === parseExamVersion(input.currentVersion);
 }
 
 /** The complete exam fields that admin save hooks compose before a version is assigned. */
@@ -185,6 +243,9 @@ export function parseExamPayload(raw: unknown): ExamPayload {
     majorBatchPresets: parseMajorBatchPresets(source.majorBatchPresets),
     ...(source.metadata === undefined ? {} : { metadata: asRecord(source.metadata) }),
     ...(source.lifecycle === undefined ? {} : { lifecycle: asRecord(source.lifecycle) }),
+    // 只有服务端真的给了修订号表才带上该字段：`{}` 与「没有这个字段」在保存时语义不同
+    // （前者是「各域都是 0」，后者是「不知道，只能整行比较」）。
+    ...(source.revisions === undefined ? {} : { revisions: parseExamRevisions(source.revisions) }),
     binding: source.binding == null ? null : parseDeviceBinding(source.binding),
     updatedAt: Number(source.updatedAt ?? 0) || 0,
   };

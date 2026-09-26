@@ -1,23 +1,27 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createVercelRequest, createVercelResponse, readBody } from './adapter.js';
 
-// Vercel 文件路由 → handler 模块名。health/status/email-worker 已合并进 system.ts，
-// 由 system handler 按 URL 段 / ?sys= 区分（与 vercel.json rewrites 行为一致）。
+// Vercel 文件路由 → handler 模块名。合并进同一个入口的 URL 在这里指向那个入口，
+// 由 handler 按 URL 末段 / ?sys= 区分（与 vercel.json rewrites 行为一致）：
+// - system.ts：health、status、email-worker、diagnostic-worker、time、update-check、redeploy
+// - announcements.ts：announcements、announcement-images
+// - telemetry.ts：telemetry、error-report
 const MODULE_FOR_NAME: Record<string, string> = {
-  'announcement-images': 'announcement-images',
+  'announcement-images': 'announcements',
   announcements: 'announcements',
   'email-worker': 'system',
-  emailAuth: 'emailAuth',
-  'error-report': 'error-report',
+  'diagnostic-worker': 'system',
+  'error-report': 'telemetry',
+  'diagnostic-logs': 'diagnostic-logs',
   exams: 'exams',
   health: 'system',
   login: 'login',
-  redeploy: 'redeploy',
+  redeploy: 'system',
   status: 'system',
   system: 'system',
   telemetry: 'telemetry',
-  time: 'time',
-  'update-check': 'update-check',
+  time: 'system',
+  'update-check': 'system',
   users: 'users',
 };
 

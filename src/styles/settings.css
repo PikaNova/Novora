@@ -1,3 +1,5 @@
+@import './controls.css';
+
 /* 文档自然滚动（v1.16.1）：不再用 height:100%+内部滚动，改跟随文档滚动，修复移动端地址栏/键盘下无法下滑；大屏页由 body.lock-scroll 单独锁定 */
 .set-page {
   min-height: 100dvh;
@@ -68,6 +70,115 @@
   gap: 18px;
 }
 
+/* ―― 设置页外壳（v2.8）：桌面用左侧分组栏 + 分组独立视图；移动端退回单列 + 吸顶分组条 ―― */
+.set-rail {
+  display: none;
+}
+.set-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* 内容列居中，避免宽屏下整列贴左 */
+  align-items: center;
+  gap: 18px;
+  padding: 24px;
+}
+.set-content > * {
+  width: 100%;
+  max-width: 900px;
+}
+.set-rail__list,
+.set-rail__footer {
+  display: grid;
+  gap: 4px;
+}
+.set-rail__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #93a0ad;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.set-rail__item svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.set-rail__item:hover {
+  color: #e9edf2;
+  background: rgba(255, 255, 255, 0.06);
+}
+.set-rail__item.is-active {
+  color: #fff;
+  background: #3498db;
+  border-color: #3498db;
+}
+
+@media (min-width: 701px) {
+  /* 固定外壳：页头与左栏不动，只有右侧内容滚动（与后台一致，避免 sticky 偏移错位）。
+     只作用于带分组栏的系统设置页（.set-page--shell）：本地设置、只读偏好页没有左栏，
+     套上 100dvh + overflow:hidden 会把首屏之后的内容直接裁掉且无法滚动。 */
+  .set-page--shell {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+  .set-page--shell .set-header {
+    position: relative;
+    flex: none;
+  }
+  .set-workspace {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+  }
+  .set-rail {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 0;
+    padding: 16px 12px;
+    overflow-y: auto;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: #111419;
+  }
+  .set-content {
+    min-height: 0;
+    overflow: auto;
+  }
+  /* 桌面用左栏；分组条只留给移动端（提高特异性，覆盖下方的基础样式） */
+  .set-page--shell .set-group-nav {
+    display: none;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 900px) {
+  .set-workspace {
+    grid-template-columns: 208px minmax(0, 1fr);
+  }
+  .set-content {
+    padding: 20px 16px;
+  }
+}
+
 .set-card {
   background: #16181c;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -94,6 +205,20 @@
   font-size: 12.5px;
   line-height: 1.7;
   color: #93a0ad;
+}
+.set-card__subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #c4ccd4;
+}
+.set-card__subtitle svg {
+  width: 16px;
+  height: 16px;
 }
 
 .set-fieldset {
@@ -149,10 +274,11 @@
   width: clamp(220px, 48%, 360px);
 }
 .set-date-time-field .tdp-field {
-  min-height: 38px;
-  padding: 0 11px;
-  border-radius: 6px;
-  font-size: 13px;
+  /* 与后台同一套控件令牌（controls.css 的 :root），只保留按上下文的宽度差异 */
+  min-height: var(--adm-ctl-h, 36px);
+  padding: 0 9px;
+  border-radius: var(--adm-ctl-radius, 6px);
+  font-size: 0.85rem;
 }
 @media (max-width: 620px) {
   .set-date-time-field {
@@ -251,42 +377,7 @@ select.set-input {
   font-weight: 500;
 }
 
-.set-btn {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e9edf2;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  padding: 8px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-.set-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.set-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.set-btn--primary {
-  background: #3498db;
-  border-color: #3498db;
-  color: #fff;
-}
-.set-btn--primary:hover:not(:disabled) {
-  background: #2f8bcc;
-}
-.set-btn--danger {
-  background: rgba(231, 76, 60, 0.12);
-  border-color: rgba(231, 76, 60, 0.4);
-  color: #ff8a7d;
-}
-.set-btn--danger:hover {
-  background: rgba(231, 76, 60, 0.2);
-}
+/* 设置页按钮：外观统一在 styles/controls.css（本文件顶部 @import），这里只留图标尺寸与排布。 */
 
 .set-about {
   display: flex;
@@ -332,45 +423,7 @@ select.set-input {
   overflow-y: auto;
 }
 
-/* 开关 */
-.set-switch {
-  position: relative;
-  display: inline-block;
-  width: 42px;
-  height: 24px;
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-.set-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.set-switch span {
-  position: absolute;
-  inset: 0;
-  background: #3a3f47;
-  border-radius: 999px;
-  transition: background 0.2s;
-}
-.set-switch span::before {
-  content: '';
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  left: 3px;
-  top: 3px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.2s;
-}
-.set-switch input:checked + span {
-  background: #2ecc71;
-}
-.set-switch input:checked + span::before {
-  transform: translateX(18px);
-}
+/* 开关：统一实现在 styles/controls.css（写在文件开头的 @import）。 */
 
 /* Markdown 正文 */
 .md-body {
@@ -615,11 +668,7 @@ select.set-input {
     min-height: 44px;
   }
 }
-.set-btn--ghost {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #bdc7d2;
-}
+/* .set-btn--ghost 同上：统一在 styles/controls.css。 */
 .set-font-preview {
   display: block;
   overflow: hidden;
@@ -1483,4 +1532,84 @@ select.set-input {
   overflow-wrap: anywhere;
   color: #9fd8ff;
   font-size: 12px;
+}
+
+/* ===== 动效：设备只读的考试安排预览（2026-09-25） =====
+ * 这块 14 格日历此前是整块硬出现的，格子也没有任何指针反馈——
+ * 这一页在被投影的教室设备上很常见，所以补的是「逐格到达」和「哪一格被指到」。
+ * 注意 .client-calendar 是 overflow-x: auto，任何向外的 transform / 外阴影都会被裁掉，
+ * 因此 hover 只动 border / background 和 inset 阴影。
+ */
+
+@keyframes client-cell-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes client-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.client-readonly__summary {
+  animation: client-cell-in var(--motion-medium) var(--motion-ease-out-expo) backwards;
+}
+
+.client-calendar > article {
+  /* fill-mode: backwards，不是 both：both 会把 transform: none 永久按住，
+     格子以后加任何 hover 位移都会静默失效。 */
+  animation: client-cell-in var(--motion-medium) var(--motion-spring-snappy) backwards;
+  /* sibling-index() 是 1 起的，减 1 让第一格立刻出发。
+     无 sibling-index() 的浏览器上这条声明整体失效，退化成不延迟（stagger 为 0），不会出错。 */
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-fast) var(--motion-ease-standard);
+}
+
+.client-calendar > article:hover {
+  border-color: #9fb6c4;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px rgb(52 152 219 / 22%);
+}
+
+.client-calendar > article.has-events:hover {
+  border-color: #4f9ed4;
+  background: #e6f3fc;
+  box-shadow: inset 0 0 0 2px rgb(52 152 219 / 34%);
+}
+
+/* 日期下面的事件块比格子晚一拍出现，读起来是「格子立住了，安排落进去」。 */
+.client-calendar article > div {
+  animation: client-chip-in var(--motion-fast) var(--motion-ease-out-expo) backwards;
+  animation-delay: calc((sibling-index() - 1) * var(--motion-stagger));
+}
+
+.client-calendar article > small {
+  animation: client-chip-in var(--motion-fast) var(--motion-ease-out-expo) 120ms backwards;
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .client-readonly__summary,
+  html:not([data-motion='best-effects']) .client-calendar > article,
+  html:not([data-motion='best-effects']) .client-calendar article > div,
+  html:not([data-motion='best-effects']) .client-calendar article > small {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
 }

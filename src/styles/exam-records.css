@@ -31,9 +31,334 @@
   align-items: center;
   gap: 6px;
 }
-.exam-records-filters {
+.exam-records-panel__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.exam-records-panel__create {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-records-create {
+  position: relative;
+}
+.exam-records-create__menu {
+  position: absolute;
+  right: 0;
+  z-index: 30;
   display: grid;
-  grid-template-columns: minmax(220px, 1.7fr) repeat(5, minmax(120px, 0.8fr));
+  gap: 4px;
+  min-width: 240px;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 10px;
+  background: var(--adm-card, #0c1219);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.exam-records-create__menu button {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--adm-text-2, #a9bdd0);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-records-create__menu button:hover {
+  background: rgba(148, 180, 208, 0.1);
+}
+.exam-records-create__menu strong {
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.exam-records-create__menu span {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+}
+
+/* ―― 新建考试向导第 2 步：科目与时间 ―― */
+.major-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.major-wizard-items {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.major-wizard-items li {
+  display: grid;
+  /* 一行里有 5 个子元素（科目名 / 时间 / 启用 / 改时间 / 删除），列数必须跟着是 5：
+     只写 4 列时最后一个按钮会掉到第二行、压在科目名下面，看起来就是控件重叠。 */
+  grid-template-columns: minmax(80px, 1.2fr) minmax(120px, 1.4fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+@media (max-width: 820px) {
+  .major-wizard-items li {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+  }
+  .major-wizard-items li > span {
+    grid-column: 1 / -1;
+    order: 5;
+  }
+}
+.major-wizard-items strong {
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.major-wizard-items__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.major-wizard-item-form {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 10px;
+  background: rgba(148, 180, 208, 0.04);
+}
+.major-wizard-item-form .admin-date-time-field {
+  width: 100%;
+}
+.major-wizard-checklist {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.major-wizard-checklist li {
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 13px;
+}
+.major-wizard-checklist li.is-ok::before {
+  margin-right: 6px;
+  color: var(--adm-success, #4cbe8c);
+  content: '✓';
+}
+/* 发布前检查的设备提示：只提示不阻断，用琥珀色与阻断项区分开。 */
+.major-wizard-checklist li.is-warn {
+  border-color: rgba(230, 162, 60, 0.4);
+  background: rgba(230, 162, 60, 0.08);
+  color: #e6a23c;
+}
+.major-wizard-checklist li.is-warn::before {
+  margin-right: 6px;
+  content: '!';
+  font-weight: 700;
+}
+.major-wizard-checklist li.is-bad::before {
+  margin-right: 6px;
+  color: #f3a0a0;
+  content: '!';
+}
+
+/*
+ * ―― 考试中心板块导航 ――
+ * 桌面端这三个板块是左侧主导航里的缩进子项（见 admin.css 的 .admin-subnav），
+ * 内容区不再有横条；移动端左栏整体收起，这里作为顶部分段条兜底。
+ */
+.exam-center-nav {
+  display: none;
+}
+.exam-center-nav__item {
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--adm-text-3, #879caf);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.exam-center-nav__item:hover {
+  color: var(--adm-text, #eaf2f8);
+  background: rgba(148, 180, 208, 0.08);
+}
+.exam-center-nav__item.is-active {
+  color: #fff;
+  background: var(--adm-accent, #3b8fd0);
+  border-color: var(--adm-accent, #3b8fd0);
+}
+@media (max-width: 700px) {
+  .exam-center-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 0 12px 10px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  }
+  .exam-center-nav__item {
+    white-space: nowrap;
+  }
+}
+.exam-records-toggle {
+  /* 尺寸、字号、颜色由 admin.css 的统一控件那一条负责，这里只留页面内的间距。 */
+  margin: 0 0 12px;
+}
+.exam-records-drafts {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+}
+/* ―― 考试安排里的周测（只读实例）―― */
+.exam-records-weekly {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 10px;
+  background: rgba(148, 180, 208, 0.03);
+}
+.exam-records-weekly__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.exam-records-weekly__head h3 {
+  margin: 0;
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.exam-records-weekly__hint {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-records-weekly__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-records-weekly__list li {
+  display: grid;
+  grid-template-columns: 52px minmax(120px, 1.6fr) minmax(90px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+.exam-records-weekly__when {
+  color: var(--adm-accent, #3b8fd0);
+  white-space: nowrap;
+}
+.exam-records-weekly__list strong {
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-weekly__list em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+  white-space: nowrap;
+}
+.exam-records-drafts__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-records-drafts__toggle svg.is-open {
+  transform: rotate(90deg);
+}
+.exam-records-drafts__hint {
+  margin: 8px 0 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-records-drafts__list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* 每条草稿是「整行可点开详情」+ 一个独立的「编辑」按钮（:not(.admin-btn) 把两种按钮分开：
+   整行那张卡片样式只给行按钮，编辑按钮继续用 admin-btn 的通用外观）。 */
+.exam-records-drafts__list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.exam-records-drafts__list > li > button:not(.admin-btn) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 8px;
+  background: var(--adm-card, #0c1219);
+  color: var(--adm-text-2, #a9bdd0);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-records-drafts__list button:hover {
+  border-color: var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+}
+.exam-records-drafts__list strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-drafts__list em {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.12);
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+}
+.exam-records-filters {
+  /* 用 flex 换行代替固定列数：控件数量会随「更多筛选」变化，固定列数一旦对不上
+     就会出现空列或者控件被挤出格子（之前三个选择框重叠就是这么来的）。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 10px;
   margin-bottom: 16px;
   padding: 12px;
@@ -44,9 +369,27 @@
 .exam-records-filters label {
   display: grid;
   gap: 5px;
+  flex: 1 1 160px;
   min-width: 0;
   color: var(--adm-text-3, #879caf);
   font-size: 11px;
+}
+.exam-records-filters > label.exam-records-search {
+  flex: 2.2 1 260px;
+}
+/* 「视图 / 密度 / 更多筛选」工具区：固定在右侧，不参与筛选控件的伸缩。 */
+.exam-records-filters__tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+.exam-records-filters__tools label {
+  flex: 0 0 auto;
+}
+.exam-records-filters__tools .inline-select {
+  min-width: 104px;
 }
 .exam-records-filters select,
 .exam-records-filters input,
@@ -62,6 +405,21 @@
 .exam-records-filters select {
   padding: 0 9px;
 }
+/* 选择器（InlineSelect）与输入框用同一套外观与高度，不再借用设置页的 .set-input。 */
+.exam-records-filters .inline-select {
+  width: 100%;
+  min-width: 0;
+}
+.exam-records-filters .inline-select__trigger {
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 6px;
+  background: var(--adm-bg2, #10171f);
+  color: var(--adm-text, #eaf2f8);
+  font: inherit;
+  font-size: 12px;
+}
 .exam-records-creator-input {
   padding: 0 9px;
 }
@@ -71,6 +429,17 @@
   gap: 8px;
   padding: 0 10px;
 }
+/* 搜索标签本人也是 .exam-records-filters > label，默认会被通用 label 规则改成单列 grid，
+ * 图标、标签文字、输入框就各占一行（表现为搜索框又高又错位）。这里用更高的选择器锁回一行。 */
+.exam-records-filters > label.exam-records-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+.exam-records-search svg {
+  flex: none;
+}
 .exam-records-search:focus-within,
 .exam-records-filters select:focus-visible,
 .exam-records-filters label > input:focus-visible {
@@ -78,6 +447,7 @@
   outline-offset: 2px;
 }
 .exam-records-search input {
+  flex: 1 1 auto;
   width: 100%;
   min-width: 0;
   border: 0;
@@ -114,11 +484,13 @@
   background: var(--adm-card, #0c1219);
 }
 .exam-records-table {
-  min-width: 760px;
+  min-width: 860px;
 }
 .exam-records-table__row {
   display: grid;
-  grid-template-columns: minmax(210px, 1.5fr) 100px minmax(130px, 1fr) minmax(190px, 1.2fr) 100px 80px;
+  /* 六列：考试 / 状态 / 适用范围 / 时间 / 科目 / 操作。
+     「创建人」列已移进详情抽屉（列表里几乎都是同一个管理员），列数 7 → 6。 */
+  grid-template-columns: minmax(210px, 1.5fr) 96px minmax(140px, 1fr) minmax(180px, 1.1fr) 96px 72px;
   align-items: center;
   gap: 14px;
   min-height: 64px;
@@ -133,6 +505,48 @@
   background: rgba(148, 180, 208, 0.05);
   color: var(--adm-text-3, #879caf);
   font-size: 11px;
+}
+/* 分组表头（安排页：今天/明天/本周内/更晚；历史页：自然月） */
+.exam-records-table__group {
+  padding: 10px 14px 6px;
+  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  background: rgba(148, 180, 208, 0.04);
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+/* 分组头现在可点：折叠后只留标题 + 数量。 */
+.exam-records-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.exam-records-group-toggle:hover {
+  background: rgba(148, 180, 208, 0.08);
+}
+.exam-records-group-toggle svg {
+  transition: transform 0.15s;
+}
+.exam-records-group-toggle svg.is-open {
+  transform: rotate(90deg);
+}
+.exam-records-group-toggle em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.12);
+  color: var(--adm-text-2, #a9bdd0);
+  font-style: normal;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .exam-records-name {
   display: grid;
@@ -174,21 +588,645 @@
 .exam-records-status.is-ended {
   color: var(--adm-text-3, #879caf);
 }
+/* P1-⑤ 时间已调整提示：琥珀色小胶囊，悬停看新旧时间原文。 */
+.exam-records-time-note {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+  font-size: 11px;
+  font-style: normal;
+  cursor: help;
+}
+
 .exam-records-time {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
-.exam-records-count {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+/* 刷新时列表保持原样：状态只体现在刷新按钮上（见 components/admin/RefreshButton）。 */
+/* 「考试安排」的时间窗切换条：今天 / 明天 / 本周 / 未来两周 / 全部。 */
+.exam-records-window {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 3px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 999px;
+  background: var(--adm-bg1, #0c1219);
 }
-.exam-records-creator {
+.exam-records-window__item {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.exam-records-window__item:hover {
+  color: var(--adm-text, #eaf2f8);
+}
+.exam-records-window__item.is-active {
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+  color: #9fd0f2;
+}
+/*
+ * 新建向导第 3 步直接进编辑器时的常驻提示（回向导确认步骤的唯一入口）。
+ * 固定在右下角：左下角是后台的导航 rail / 移动端导航条，放那里会挡住用户接下来的操作。
+ */
+.admin-draft-hint {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  /* 草稿提示条也是提醒：带着「下一步」这个必须能点的入口，不能被弹窗盖住。 */
+  z-index: var(--z-reminder, 20000);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 10px;
+  background: var(--adm-card, #0c1219);
+  box-shadow: var(--adm-shadow-2, 0 18px 40px rgba(0, 0, 0, 0.3));
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.admin-draft-hint__body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.admin-draft-hint__body strong {
+  font-size: 13px;
+}
+.admin-draft-hint__body span {
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.admin-draft-hint__actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+@media (max-width: 700px) {
+  .admin-draft-hint {
+    right: 12px;
+    left: 12px;
+    bottom: 76px;
+    flex-wrap: wrap;
+    max-width: none;
+  }
+}
+.exam-records-count {
+  /* 科目数 + 来源合成一个小徽标，代替原来占一整列的裸文本。 */
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-2, #a9bdd0);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.exam-records-row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.exam-records-row-actions .admin-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+/* 紧凑密度：行高与留白收一档，并隐藏「科目」列（第 5 列）。 */
+.exam-records-table-wrap.is-compact .exam-records-table__row {
+  grid-template-columns: minmax(200px, 1.5fr) 88px minmax(140px, 1fr) minmax(170px, 1.1fr) 72px;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 12px;
+}
+.exam-records-table-wrap.is-compact .exam-records-table__row > :nth-child(5) {
+  display: none;
+}
+.exam-records-table-wrap.is-compact .exam-records-table__group {
+  padding: 6px 12px 4px;
+}
+/* 按班级视图：班级一行，展开看这个班的考试列表。 */
+.exam-records-classview .exam-records-table__row {
+  grid-template-columns: minmax(140px, 1.2fr) 96px 88px minmax(160px, 1fr) 82px;
+}
+.exam-records-classrow__name {
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-classrow__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 14px 12px;
+  border-top: 1px dashed var(--adm-line, rgba(148, 180, 208, 0.12));
+  list-style: none;
+}
+.exam-records-classrow__list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+.exam-records-classrow__list li strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--adm-text, #eaf2f8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-records-classrow__list li em {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+}
+/* 周测区默认只列前 5 条。 */
+.exam-records-weekly__more {
+  margin-top: 8px;
+}
+
+/* ── 考试详情抽屉 ───────────────────────────────────────────── */
+.exam-announce-dialog {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+.exam-announce-dialog__row {
+  display: grid;
+  /* 四个字段（样式 / 级别 / 范围 / 有效期）：两列排布，窄屏再退回单列。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .exam-announce-dialog__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.exam-announce-dialog textarea.admin-input {
+  min-height: 96px;
+  padding: 8px 9px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.exam-record-detail__time-note {
+  display: block;
+  margin-top: 4px;
+  color: #e6a23c;
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
+.exam-record-detail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* 同时挂着 .admin-modal--wide（max-width: 620px），不覆盖 max-width 的话这里的宽度根本不起作用。 */
+  width: min(1120px, 100%);
+  max-width: min(1120px, calc(100vw - 48px));
+  max-height: min(88vh, 820px);
+}
+.exam-record-detail__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.exam-record-detail__head-main {
+  min-width: 0;
+}
+.exam-record-detail__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.exam-record-detail__title-row .admin-modal__title {
+  margin: 0;
+}
+.exam-record-detail__head-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: none;
+}
+.exam-record-detail__id {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+}
+.exam-record-detail__body {
+  display: grid;
+  gap: 18px;
+  overflow-y: auto;
+  margin: 14px 0;
+  padding-right: 4px;
+}
+.exam-record-detail__facts dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  margin: 10px 0 0;
+}
+.exam-record-detail__facts dt {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+}
+.exam-record-detail__facts dd {
+  margin: 3px 0 0;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 13px;
+}
+.exam-record-detail h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--adm-text, #eaf2f8);
+  font-size: 13px;
+}
+.exam-record-detail__timeline ol,
+.exam-record-detail__operations ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-record-detail__timeline li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: var(--adm-text-3, #879caf);
+}
+.exam-record-detail__timeline li.is-done {
+  color: var(--adm-text-2, #a9bdd0);
+}
+.exam-record-detail__dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: rgba(148, 180, 208, 0.28);
+}
+.exam-record-detail__timeline li.is-done .exam-record-detail__dot {
+  background: var(--adm-accent, #3b8fd0);
+}
+.exam-record-detail__timeline li div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.exam-record-detail__timeline li strong {
+  min-width: 42px;
+  color: var(--adm-text, #eaf2f8);
+}
+.exam-record-detail__timeline li em,
+.exam-record-detail__operations li em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+}
+.exam-record-detail__operations li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 6px;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-record-detail__operations li strong {
+  color: var(--adm-text, #eaf2f8);
+}
+.exam-record-detail__devices ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-record-detail__devices li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 6px;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-record-detail__devices li strong {
+  color: var(--adm-text, #eaf2f8);
+}
+.exam-record-detail__devices li em {
+  grid-column: 1 / -1;
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+}
+.exam-record-detail__device-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+.exam-record-detail__device-summary span,
+.exam-record-detail__device-summary button {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+  font: inherit;
+}
+.exam-record-detail__device-summary button {
+  cursor: pointer;
+}
+.exam-record-detail__device-summary button:hover {
+  border-color: var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+}
+.exam-record-detail__device-summary button.is-active {
+  border-color: var(--adm-accent, #3b8fd0);
+  color: var(--adm-accent, #3b8fd0);
+}
+.exam-record-detail__device-summary span.is-online,
+.exam-record-detail__device-summary button.is-online {
+  background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
+  color: var(--adm-success, #4cbe8c);
+}
+.exam-record-detail__device-summary span.is-warn,
+.exam-record-detail__device-summary button.is-warn {
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+}
+/* 展开全部之后设备面板自己滚动，不把整个抽屉撑长。 */
+.exam-record-detail__devices ul.is-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.exam-record-detail__devices-more {
+  margin-top: 8px;
+}
+.exam-record-detail__devices li span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.exam-record-detail__devices li span.is-online {
+  background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
+  color: var(--adm-success, #4cbe8c);
+}
+.exam-record-detail__devices li span.is-offline {
+  background: rgba(148, 180, 208, 0.1);
+  color: var(--adm-text-3, #879caf);
+}
+.exam-record-detail__hint {
+  margin: 0;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-record-detail__hint.is-error,
+.exam-record-detail__feedback.is-error {
+  color: #f3a0a0;
+}
+.exam-record-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+}
+.exam-record-detail__actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-record-detail__minutes .admin-input {
+  width: 72px;
+}
+.exam-record-detail__reason .admin-input {
+  width: 190px;
+}
+.exam-record-detail__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.exam-record-detail__feedback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 12px;
+}
+
+/* 宽屏：信息与设备并排，生命周期和操作记录吃整幅宽度（窄屏保持原来的竖排）。 */
+@media (min-width: 1120px) {
+  .exam-record-detail__body {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 16px 18px;
+    align-items: start;
+  }
+  .exam-record-detail__facts {
+    grid-area: 1 / 1;
+  }
+  .exam-record-detail__devices {
+    grid-area: 1 / 2;
+  }
+  /* 5 个阶段挤在半栏里每段只剩 ~97px，「2026/09/19 17:38」这种时间会折行，所以让这两段横跨整幅。 */
+  .exam-record-detail__timeline {
+    grid-area: 2 / 1 / 3 / 3;
+  }
+  .exam-record-detail__operations {
+    grid-area: 3 / 1 / 4 / 3;
+  }
+  .exam-record-detail__facts,
+  .exam-record-detail__devices,
+  .exam-record-detail__timeline,
+  .exam-record-detail__operations {
+    padding: 12px 14px;
+    border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+    border-radius: 10px;
+    background: rgba(148, 180, 208, 0.03);
+  }
+  .exam-record-detail__facts dl {
+    margin-top: 8px;
+  }
+
+  /* 生命周期改横向 stepper：节点一行，节点之间连线，已完成的段用主色。 */
+  .exam-record-detail__timeline ol {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+  }
+  .exam-record-detail__timeline li {
+    display: block;
+    position: relative;
+    padding: 14px 10px 0 0;
+  }
+  .exam-record-detail__timeline li::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 10px;
+    right: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: rgba(148, 180, 208, 0.18);
+  }
+  .exam-record-detail__timeline li:last-child::after {
+    display: none;
+  }
+  .exam-record-detail__timeline li.is-done::after {
+    background: var(--adm-accent, #3b8fd0);
+    opacity: 0.55;
+  }
+  .exam-record-detail__dot {
+    position: absolute;
+    top: 2px;
+    left: 1px;
+    margin-top: 0;
+  }
+  .exam-record-detail__timeline li div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: 4px;
+  }
+  .exam-record-detail__timeline li strong {
+    min-width: 0;
+  }
+
+  /* 操作记录：时间 / 动作 / 操作者 一行，状态变化与原因另起一行。 */
+  .exam-record-detail__operations li {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr) auto;
+    gap: 3px 10px;
+  }
+  .exam-record-detail__operations li strong {
+    grid-area: 1 / 2;
+  }
+  .exam-record-detail__operations li > span:nth-child(2) {
+    grid-area: 1 / 1;
+  }
+  .exam-record-detail__operations li > span:nth-child(3) {
+    grid-area: 1 / 3;
+    text-align: right;
+  }
+  .exam-record-detail__operations li em {
+    grid-column: 2 / -1;
+  }
+
+  /* 底栏：抽屉变宽后备注框跟着铺开，不再固定 190px。 */
+  .exam-record-detail__reason {
+    flex: 1;
+  }
+  .exam-record-detail__reason .admin-input {
+    width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .exam-record-detail__buttons {
+    margin-left: 0;
+  }
+  .exam-record-detail__reason .admin-input {
+    width: 100%;
+  }
+}
+
+/*
+ * 手机端考试详情：桌面版头部是「标题区 | 动作区」两栏并排，窄屏下两栏互相挤——
+ * 实测 390px 时标题区只剩 48px 宽，标题「高三阶段测试（演示）」被压成一列一个字（高 83px），
+ * 而四个动作按钮挤在一条 27px 高的行里。这里窄屏改成上下两段：
+ * 标题独占整行，动作按钮排成两列换行网格并抬到可点大小，底部操作区同样两列。
+ */
+@media (max-width: 760px) {
+  .exam-record-detail {
+    width: 100%;
+    max-width: 100%;
+    height: 92dvh;
+    max-height: 92dvh;
+    border-radius: 14px 14px 0 0;
+    padding: 18px 16px max(16px, env(safe-area-inset-bottom));
+  }
+  .exam-record-detail__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .exam-record-detail__head-main {
+    width: 100%;
+  }
+  .exam-record-detail__title-row .admin-modal__title {
+    font-size: 19px;
+    line-height: 1.3;
+  }
+  .exam-record-detail__id {
+    display: block;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+  }
+  .exam-record-detail__head-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .exam-record-detail__head-actions .admin-btn {
+    flex: 1 1 calc(50% - 4px);
+    max-width: calc(50% - 4px);
+    min-height: 42px;
+  }
+  .exam-record-detail__head-actions .admin-btn[aria-label='关闭详情'] {
+    flex: 0 0 auto;
+    max-width: none;
+    min-width: 42px;
+  }
+  .exam-record-detail__body {
+    gap: 16px;
+    margin: 12px 0;
+  }
+  .exam-record-detail__facts dl {
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  }
+  .exam-record-detail__minutes .admin-input {
+    width: 64px;
+    min-height: 42px;
+  }
+  .exam-record-detail__buttons {
+    width: 100%;
+  }
+  .exam-record-detail__buttons .admin-btn {
+    flex: 1 1 calc(50% - 4px);
+    min-height: 44px;
+  }
+}
+
 .exam-records-pagination {
   display: flex;
   align-items: center;
@@ -216,18 +1254,46 @@
   height: 34px;
   padding: 0;
 }
+.exam-records-pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.exam-records-pagination__size .inline-select {
+  min-width: 104px;
+}
 
 @media (max-width: 900px) {
-  .exam-records-filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .exam-records-filters > label.exam-records-search {
+    flex: 1 1 100%;
   }
-  .exam-records-search {
-    grid-column: 1 / -1;
+  .exam-records-filters__tools {
+    flex: 1 1 100%;
+    margin-left: 0;
   }
 }
 @media (max-width: 700px) {
   .exam-records-panel {
     padding: 16px 12px 28px;
+  }
+  .exam-records-panel__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+  .exam-records-panel__header > div:first-child {
+    min-width: 0;
+  }
+  .exam-records-panel__header h2 {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .exam-records-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0;
   }
   .exam-records-panel__header h2 {
     font-size: 21px;

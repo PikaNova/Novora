@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validateEmailFormat } from '../api/_auth.js';
 import { presetSmtpConfig, SMTP_PRESETS } from '../src/services/emailSender.js';
-import { normalizeInitBindPolicy } from '../api/emailAuth.js';
+import { normalizeInitBindPolicy } from '../api/_emailAuth.js';
 
 test('validateEmailFormat: accepts common valid admin emails', () => {
   assert.equal(validateEmailFormat('admin@school.com'), true);

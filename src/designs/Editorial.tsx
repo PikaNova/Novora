@@ -76,6 +76,7 @@ export default function Editorial({
             </button>
             <button
               className="ed__ghost"
+              data-fullscreen-toggle
               onClick={onToggleFullscreen}
               aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
               title={isFullscreen ? '退出全屏' : '进入全屏'}

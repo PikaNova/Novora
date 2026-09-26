@@ -10,7 +10,12 @@ export const NOVORA_SCHEMA_VERSION = 3;
 
 export const SCHEMA_COMPONENT_VERSIONS: Record<SchemaComponent, number> = {
   auth: 3,
-  exams: 4,
+  // 5：新增学校侧考试公告表 exam_announcements（与 0005 迁移同一步）。
+  // 6：公告增加展示样式 style 与公告图片表 exam_announcement_images（与 0006 迁移同一步）。
+  // 7：新增公告回执表 exam_announcement_receipts（与 0007 迁移同一步）。
+  // 8：公告增加静默/提醒字段与模板表 exam_announcement_templates（与 0008 迁移同一步）。
+  // 9：exam_data 增加域级修订号 revisions，用于按域判定并发冲突（与 0009 迁移同一步）。
+  exams: 9,
 };
 
 export type SchemaComponent = 'auth' | 'exams';

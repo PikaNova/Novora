@@ -93,6 +93,7 @@ export default function CommandDeck({
           </button>
           <button
             className="cd__ghost"
+            data-fullscreen-toggle
             onClick={onToggleFullscreen}
             aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
             title={isFullscreen ? '退出全屏' : '进入全屏'}

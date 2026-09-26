@@ -65,6 +65,7 @@ export function ensureTableOnce(): Promise<void> {
           classes JSONB NOT NULL DEFAULT '[]',
           initialization JSONB NOT NULL DEFAULT '{}',
           design_policy JSONB NOT NULL DEFAULT '{"rules":[],"updatedAt":0}',
+          revisions JSONB NOT NULL DEFAULT '{}',
           updated_at BIGINT NOT NULL DEFAULT 0,
           CHECK (id = 1)
         )`,
@@ -83,6 +84,8 @@ export function ensureTableOnce(): Promise<void> {
           transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS major_batch_presets JSONB NOT NULL DEFAULT '{"subjectGroups":[],"timeGroups":[],"updatedAt":0}'`,
           transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS exam_metadata JSONB NOT NULL DEFAULT '{}'`,
           transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS lifecycle JSONB NOT NULL DEFAULT '{"status":"draft","createdAt":0,"startedAt":null,"endedAt":null}'`,
+          // v7：域级修订号。老行默认 '{}'（各域按 0 处理），老客户端不看该列，读契约不变。
+          transaction`ALTER TABLE exam_data ADD COLUMN IF NOT EXISTS revisions JSONB NOT NULL DEFAULT '{}'`,
           transaction`CREATE TABLE IF NOT EXISTS exam_records (
           id TEXT PRIMARY KEY,
           runtime_major_id TEXT NOT NULL,
@@ -103,6 +106,8 @@ export function ensureTableOnce(): Promise<void> {
           end_at BIGINT,
           actual_start_at BIGINT,
           actual_end_at BIGINT,
+          paused_at BIGINT,
+          paused_ms BIGINT NOT NULL DEFAULT 0,
           published_at BIGINT,
           ended_at BIGINT,
           archived_at BIGINT,
@@ -111,14 +116,89 @@ export function ensureTableOnce(): Promise<void> {
         )`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_records_status ON exam_records(status)`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_records_updated ON exam_records(updated_at DESC)`,
+          transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_at BIGINT`,
+          transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS paused_ms BIGINT NOT NULL DEFAULT 0`,
+          // 手动「结束」现在只是申请：真正落 ended 由系统判定（到点优先 → 全员回执 → 无设备宽限）。
+          // 加字段而不是加状态，是为了不动上面那条 status 的 CHECK 约束。
+          transaction`ALTER TABLE exam_records ADD COLUMN IF NOT EXISTS stop_requested_at BIGINT`,
           transaction`CREATE TABLE IF NOT EXISTS exam_record_operations (
           idempotency_key TEXT PRIMARY KEY,
           action TEXT NOT NULL,
           source_record_id TEXT NOT NULL,
           result_record_id TEXT NOT NULL,
+          actor_id BIGINT,
+          from_status TEXT NOT NULL DEFAULT '',
+          to_status TEXT NOT NULL DEFAULT '',
+          reason TEXT NOT NULL DEFAULT '',
           created_at BIGINT NOT NULL
         )`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS actor_id BIGINT`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS from_status TEXT NOT NULL DEFAULT ''`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS to_status TEXT NOT NULL DEFAULT ''`,
+          transaction`ALTER TABLE exam_record_operations ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT ''`,
           transaction`CREATE INDEX IF NOT EXISTS idx_exam_record_operations_created ON exam_record_operations(created_at DESC)`,
+          // 学校侧考试公告（作者端统一公告是另一条通道，不复用这张表）。
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcements (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          level TEXT NOT NULL DEFAULT 'normal',
+          exam_id TEXT,
+          scope_type TEXT NOT NULL DEFAULT 'all',
+          scope_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_by BIGINT,
+          created_at BIGINT NOT NULL,
+          expires_at BIGINT,
+          status TEXT NOT NULL DEFAULT 'sent'
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcements_created ON exam_announcements(created_at DESC)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcements_status ON exam_announcements(status, expires_at)`,
+          // 6：公告增加大屏展示样式；正文改为 Markdown 后需要图片存储（与作者端公告图片同一套做法）。
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS style TEXT NOT NULL DEFAULT 'card'`,
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcement_images (
+          id BIGSERIAL PRIMARY KEY,
+          filename TEXT NOT NULL DEFAULT '',
+          mime_type TEXT NOT NULL DEFAULT '',
+          data BYTEA NOT NULL,
+          size_bytes INTEGER NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_images_created ON exam_announcement_images(created_at DESC)`,
+          // 7：公告回执（哪台设备拉到过、哪台设备真正看过以及看了多久）。
+          // 一台设备一条公告只有一行：重复上报走 upsert，只累加时长与次数，不写流水。
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcement_receipts (
+          announcement_id TEXT NOT NULL,
+          instance_id TEXT NOT NULL,
+          grade_id TEXT NOT NULL DEFAULT '',
+          class_id TEXT NOT NULL DEFAULT '',
+          delivered_at BIGINT,
+          first_seen_at BIGINT,
+          last_seen_at BIGINT,
+          seen_count INTEGER NOT NULL DEFAULT 0,
+          seen_ms BIGINT NOT NULL DEFAULT 0,
+          client_version TEXT NOT NULL DEFAULT '',
+          updated_at BIGINT NOT NULL,
+          PRIMARY KEY (announcement_id, instance_id)
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_receipts_announcement ON exam_announcement_receipts(announcement_id, first_seen_at)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_receipts_instance ON exam_announcement_receipts(instance_id, updated_at DESC)`,
+          // 8：公告的运营字段与模板。
+          // - silent：发布时选择"只进列表、不自动弹"（静默时段/免打扰）；
+          // - remind_at + remind_scope：管理端"提醒未读教室"一次，大屏据此重新弹一次。
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS silent BOOLEAN NOT NULL DEFAULT FALSE`,
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS remind_at BIGINT`,
+          transaction`ALTER TABLE exam_announcements ADD COLUMN IF NOT EXISTS remind_scope TEXT NOT NULL DEFAULT 'unseen'`,
+          transaction`CREATE TABLE IF NOT EXISTS exam_announcement_templates (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          style TEXT NOT NULL DEFAULT 'card',
+          level TEXT NOT NULL DEFAULT 'normal',
+          created_by BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_exam_announcement_templates_updated ON exam_announcement_templates(updated_at DESC)`,
           transaction`CREATE TABLE IF NOT EXISTS device_instances (
           instance_id TEXT PRIMARY KEY,
           grade_id TEXT NOT NULL DEFAULT '',
@@ -178,7 +258,54 @@ export function ensureTableOnce(): Promise<void> {
           transaction`UPDATE device_commands SET status='acknowledged' WHERE acknowledged_at IS NOT NULL AND status='pending'`,
           transaction`CREATE UNIQUE INDEX IF NOT EXISTS device_commands_idempotency_idx ON device_commands(instance_id, idempotency_key) WHERE idempotency_key <> ''`,
           transaction`CREATE INDEX IF NOT EXISTS device_commands_pending_idx ON device_commands(instance_id, status, created_at)`,
+          transaction`CREATE TABLE IF NOT EXISTS app_diagnostic_settings (
+          id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+          capture_on_error BOOLEAN NOT NULL DEFAULT TRUE,
+          before_seconds INTEGER NOT NULL DEFAULT 60,
+          after_seconds INTEGER NOT NULL DEFAULT 30,
+          retention_days INTEGER NOT NULL DEFAULT 7,
+          max_bundle_bytes INTEGER NOT NULL DEFAULT 8388608,
+          updated_at BIGINT NOT NULL DEFAULT 0
+        )`,
+          transaction`CREATE TABLE IF NOT EXISTS app_diagnostic_bundles (
+          id BIGSERIAL PRIMARY KEY,
+          bundle_id TEXT NOT NULL UNIQUE,
+          mode TEXT NOT NULL CHECK (mode IN ('date', 'error')),
+          instance_id TEXT NOT NULL,
+          device_id TEXT,
+          error_event_id TEXT,
+          fingerprint TEXT,
+          error_code TEXT,
+          from_ts BIGINT NOT NULL,
+          to_ts BIGINT NOT NULL,
+          entries JSONB NOT NULL DEFAULT '[]',
+          entry_count INTEGER NOT NULL DEFAULT 0,
+          content_bytes INTEGER NOT NULL DEFAULT 0,
+          app_version TEXT,
+          commit_sha TEXT,
+          status TEXT NOT NULL DEFAULT 'retained' CHECK (status IN ('retained', 'queued', 'sending', 'sent', 'failed', 'expired')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT NOT NULL DEFAULT '',
+          requested_by BIGINT,
+          created_at BIGINT NOT NULL,
+          expires_at BIGINT,
+          sent_at BIGINT,
+          next_attempt_at BIGINT
+        )`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_time ON app_diagnostic_bundles(from_ts, to_ts)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_error ON app_diagnostic_bundles(error_event_id, fingerprint)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_status ON app_diagnostic_bundles(status, created_at DESC)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_retry_due ON app_diagnostic_bundles(status, next_attempt_at, created_at)`,
+          transaction`CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_expiry ON app_diagnostic_bundles(status, expires_at)`,
+          // 保留日志改为默认开启：仅把仍是出厂默认设置、且从未被管理员改过的那一行翻正。
+          transaction`UPDATE app_diagnostic_settings SET capture_on_error=TRUE, updated_at=${Date.now()}
+            WHERE id=1 AND capture_on_error=FALSE AND before_seconds=60 AND after_seconds=30
+              AND retention_days=7 AND max_bundle_bytes=1048576`,
+          // 单包上限放宽到 8 MB（与作者端一致）：仍停留在旧出厂值 1 MB 的行一次性升上来。
+          transaction`UPDATE app_diagnostic_settings SET max_bundle_bytes=8388608, updated_at=${Date.now()}
+            WHERE id=1 AND max_bundle_bytes=1048576`,
         ]);
+        await sql`INSERT INTO app_diagnostic_settings (id, updated_at) VALUES (1, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
         await Promise.all([
           ensureUpdatedAtBigIntOnce(),
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`,
@@ -187,6 +314,10 @@ export function ensureTableOnce(): Promise<void> {
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_role_name TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_scope_label TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS client_secret_hash TEXT NOT NULL DEFAULT ''`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS next_attempt_at BIGINT`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS part_no INTEGER NOT NULL DEFAULT 1`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS part_total INTEGER NOT NULL DEFAULT 1`,
+          sql`ALTER TABLE app_diagnostic_bundles ADD COLUMN IF NOT EXISTS truncated_count INTEGER NOT NULL DEFAULT 0`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_token_hash TEXT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS pair_expires_at BIGINT`,
           sql`ALTER TABLE classisland_plugin_instances ADD COLUMN IF NOT EXISTS grade_id TEXT NOT NULL DEFAULT ''`,
@@ -210,14 +341,16 @@ export function ensureTableOnce(): Promise<void> {
         await sql.transaction((transaction) => [projectCurrentExamRecords(transaction)]);
         await recordSchemaMigration(sql, {
           component: 'exams',
-          version: 4,
-          description: 'exam snapshot, devices, plugins, commands, and write throttle',
+          version: 9,
+          description:
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles, images, read receipts, quiet mode and templates, per-domain revisions',
           startedAt: migrationStartedAt,
         });
       } catch (error) {
         await recordSchemaMigration(sql, {
           component: 'exams',
-          description: 'exam snapshot, devices, plugins, commands, and write throttle',
+          description:
+            'exam snapshot, devices, plugins, commands, write throttle, school announcements with styles, images, read receipts, quiet mode and templates, per-domain revisions',
           startedAt: migrationStartedAt,
           error,
         }).catch(() => undefined);

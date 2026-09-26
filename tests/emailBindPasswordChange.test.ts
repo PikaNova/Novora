@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import path from 'node:path';
 
-const emailAuthSource = readFileSync(path.join(process.cwd(), 'api/emailAuth.ts'), 'utf8');
+// 该模块没有 default export，不是 HTTP 入口，改名带下划线以免占用 Vercel 函数名额。
+const emailAuthSource = readFileSync(path.join(process.cwd(), 'api/_emailAuth.ts'), 'utf8');
 
 function firstActorBindCall(source: string, handlerName: string): string {
   const start = source.indexOf(`async function ${handlerName}`);

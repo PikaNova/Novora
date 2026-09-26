@@ -13,7 +13,7 @@ import {
   writeAudit,
 } from './_auth.js';
 import { assertRows, isBoolean, isString, rowShape } from './_validation.js';
-import { handleEmailAuth, loadSmtpConfig } from './emailAuth.js';
+import { handleEmailAuth, loadSmtpConfig } from './_emailAuth.js';
 import { opportunisticDrain } from './_emailQueue.js';
 import { requestId, sendDatabaseError, sendRateLimited } from './_apiError.js';
 import { consumeRateLimit } from './_rateLimiter.js';

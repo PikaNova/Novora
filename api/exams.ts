@@ -28,7 +28,11 @@ import {
 import { handleDeviceBinding, handleDeviceHeartbeat } from './_exams/routes/deviceSelfRoutes.js';
 import { handleDesignPolicy, handleMajorBatchPresets, handleResetData } from './_exams/routes/settingsRoutes.js';
 import { handleDashboard } from './_exams/routes/dashboardRoutes.js';
-import { handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
+import { EXAM_RECORD_GET_RESOURCES, handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
+import {
+  EXAM_ANNOUNCEMENT_GET_RESOURCES,
+  handleExamAnnouncementRoute,
+} from './_exams/routes/examAnnouncementRoutes.js';
 
 type RouteHandler = (req: VercelRequest, res: VercelResponse, startedAt: number) => Promise<void>;
 
@@ -62,7 +66,32 @@ const POST_ONLY_ROUTES: Record<string, RouteHandler> = {
   'reset-data': (req, res) => handleResetData(req, res),
 };
 
-const RECORD_ACTIONS = new Set(['record-publish', 'record-end', 'record-archive', 'record-unarchive', 'record-copy']);
+const RECORD_ACTIONS = new Set([
+  'record-publish',
+  'record-end',
+  'record-archive',
+  'record-unarchive',
+  'record-copy',
+  'record-pause',
+  'record-resume',
+  'record-extend',
+  // 开考由系统按计划时间完成，所以没有 record-start；
+  // 结束就是立即结束（record-end），不再有「申请停止 / 强制结束」那一层。
+]);
+
+/** 公告相关的写操作（发送 / 撤回 / 正文图片上传与删除）。 */
+const ANNOUNCEMENT_WRITE_ACTIONS = new Set([
+  'announce-send',
+  'announce-revoke',
+  // 教室大屏的"看过"回执：设备上报，不是管理员操作，但仍走同一条公告路由。
+  'announce-ack',
+  // 未读强提醒与常用模板：管理端操作。
+  'announce-remind',
+  'announce-template-save',
+  'announce-template-delete',
+  'announce-image-upload',
+  'announce-image-delete',
+]);
 
 const GENERAL_RATE_LIMIT_WINDOW_MS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_WINDOW_MS, 10_000);
 const GENERAL_RATE_LIMIT_MAX_REQUESTS = readRateLimitSetting(process.env.ENTRY_RATE_LIMIT_MAX_REQUESTS, 30);
@@ -128,6 +157,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await handleExamRecordRoute(req, res, action);
         return;
       }
+      // 公告写操作：发送 / 撤回 / 正文图片上传与删除，都在同一个路由文件里按 action 分发。
+      if (ANNOUNCEMENT_WRITE_ACTIONS.has(action)) {
+        await handleExamAnnouncementRoute(req, res, action);
+        return;
+      }
       const postOnlyHandler = POST_ONLY_ROUTES[action];
       if (postOnlyHandler) {
         await postOnlyHandler(req, res, startedAt);
@@ -136,8 +170,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      if (String(req.query?.resource ?? '') === 'records') {
+      const resource = String(req.query?.resource ?? '');
+      // 归属列表来自记录路由模块本身（EXAM_RECORD_GET_RESOURCES）：这里再也不手写白名单——
+      // record-precheck / record-consistency / record 都各因为漏写而静默掉到快照接口过。
+      if (EXAM_RECORD_GET_RESOURCES.has(resource)) {
         await handleExamRecordRoute(req, res);
+        return;
+      }
+      // 同上：归属名单来自公告路由模块，入口不再手写。
+      if (EXAM_ANNOUNCEMENT_GET_RESOURCES.has(resource)) {
+        await handleExamAnnouncementRoute(req, res);
         return;
       }
       await handleExamDataGet(req, res, startedAt);

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatClockInZone, getZonedParts } from '../utils/zonedTime';
 import { logoutAdmin } from '../services/examService';
+import { authHeaders } from '../services/auth/session';
+import { isAbortError } from '../shared/abortError';
 import Mascot from './Mascot';
 import {
   Activity,
@@ -59,7 +61,6 @@ type DashboardPayload = {
   updatedAt: number;
 };
 
-const TOKEN_KEY = 'admin_auth_token';
 const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 
 function useCountUp(value: number, duration = 700): number {
@@ -157,35 +158,41 @@ export default function DashboardPanel() {
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
-      const token = localStorage.getItem(TOKEN_KEY) || '';
-      const res = await fetch('/api/exams?action=dashboard', {
-        headers: token ? { Authorization: 'Bearer ' + token } : {},
-        signal,
-      });
-      if (res.status === 401) {
-        logoutAdmin();
-        navigate('/login?next=/settings', { replace: true });
-        return;
+      try {
+        const res = await fetch('/api/exams?action=dashboard', {
+          headers: authHeaders(),
+          signal,
+        });
+        if (res.status === 401) {
+          logoutAdmin();
+          navigate('/login?next=/settings', { replace: true });
+          return;
+        }
+        if (res.status === 403) {
+          setError('当前账号没有查看数据大屏的权限');
+          return;
+        }
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body?.ok) {
+          setError(body?.error || '数据读取失败');
+          return;
+        }
+        setData(body as DashboardPayload);
+        setError('');
+      } catch (err) {
+        // 离开大屏时 cleanup 会 abort 在途请求，30 秒轮询也可能遇到网络失败；两者
+        // 都必须在组件内接住，否则会变成 unhandledrejection 上报到遥测台。
+        if (isAbortError(err)) return;
+        setError('数据读取失败，请稍后重试');
       }
-      if (res.status === 403) {
-        setError('当前账号没有查看数据大屏的权限');
-        return;
-      }
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.ok) {
-        setError(body?.error || '数据读取失败');
-        return;
-      }
-      setData(body as DashboardPayload);
-      setError('');
     },
     [navigate],
   );
 
   useEffect(() => {
     const controller = new AbortController();
-    refresh(controller.signal);
-    const timer = window.setInterval(() => refresh(), 30_000);
+    void refresh(controller.signal);
+    const timer = window.setInterval(() => void refresh(), 30_000);
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => {
       controller.abort();

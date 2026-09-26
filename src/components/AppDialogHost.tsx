@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CircleAlert, Info, X } from 'lucide-react';
-import { APP_DIALOG_EVENT, type AppDialogRequest } from '../services/appDialog';
+import { APP_DIALOG_EVENT, setAppDialogOpenCount, type AppDialogRequest } from '../services/appDialog';
 
 const ICONS = { info: Info, warning: AlertTriangle, danger: CircleAlert };
 
@@ -10,6 +10,11 @@ export default function AppDialogHost() {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const active = queue[0];
+
+  // 让弹窗层知道「还有确认框开着」：它们的 Esc 要先关确认框，不能连自己一起关。
+  useEffect(() => {
+    setAppDialogOpenCount(queue.length);
+  }, [queue.length]);
 
   const settle = useCallback(
     (confirmed: boolean) => {

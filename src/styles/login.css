@@ -131,7 +131,9 @@
   border: 1px solid rgba(189, 207, 255, 0.15);
   border-radius: 12px;
   background: rgba(4, 8, 17, 0.42);
-  transition: 0.2s ease;
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-fast) var(--motion-ease-standard);
 }
 .login-form__field:focus-within {
   border-color: #6092ff;
@@ -484,4 +486,134 @@
 .login-card__guest:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* ===== 动效（2026-09-25） =====
+ * 此前这一页只有 `.login-form` 一条 180ms 的入场，卡片本身是硬出现的；
+ * 三处 hover（返回首页 / 忘记密码 / 班级访客）改颜色却没有 transition，是硬切。
+ * 这一页只补两件事：卡片「落到台上」的过程，和指针反馈的连续性。
+ */
+
+@keyframes login-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes login-brand-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes login-ambient-drift-a {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(22px, 26px, 0);
+  }
+}
+
+@keyframes login-ambient-drift-b {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-26px, -18px, 0);
+  }
+}
+
+.login-card {
+  animation: login-card-in var(--motion-medium) var(--motion-spring-gentle) backwards;
+}
+
+.login-card__brand {
+  animation: login-brand-in var(--motion-medium) var(--motion-spring-snappy) 120ms backwards;
+  transform-origin: center;
+}
+
+/* 背景光晕缓慢漂移：页面在无人操作时也是活的。
+   26s 的周期小到不会被注意到在动，但截图对比时看得见位移。 */
+.login-page__ambient--one {
+  animation: login-ambient-drift-a 26s ease-in-out infinite alternate;
+}
+
+.login-page__ambient--two {
+  animation: login-ambient-drift-b 31s ease-in-out infinite alternate;
+}
+
+/* 报错/提示/成功块都是条件渲染，出现即入场，不再凭空出现。 */
+.login-form__error,
+.login-form__notice,
+.login-form__success,
+.login-email-bind__error,
+.login-email-bind__done {
+  /* fill-mode 用 backwards：both 会把 transform: none 永久按住，卡片上后续任何
+     hover / :active 位移都会失效（动画填充态优先级高于普通声明）。 */
+  animation: app-panel-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
+}
+
+/* 三处硬切 hover 补上过渡。 */
+.login-card__back,
+.login-form__link,
+.login-card__guest {
+  transition:
+    color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.login-form__tabs button {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-fast) var(--motion-ease-standard);
+}
+
+.login-form__submit {
+  transition:
+    transform var(--motion-fast) var(--motion-ease-standard),
+    filter var(--motion-fast) var(--motion-ease-standard);
+}
+
+.login-form__submit:active:not(:disabled) {
+  transform: translateY(0) scale(0.988);
+}
+
+.login-card__guest:active:not(:disabled),
+.login-form__send-code:active:not(:disabled),
+.login-email-bind__send:active:not(:disabled),
+.login-email-bind__confirm:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .login-card,
+  html:not([data-motion='best-effects']) .login-card__brand,
+  html:not([data-motion='best-effects']) .login-form__error,
+  html:not([data-motion='best-effects']) .login-form__notice,
+  html:not([data-motion='best-effects']) .login-form__success,
+  html:not([data-motion='best-effects']) .login-email-bind__error,
+  html:not([data-motion='best-effects']) .login-email-bind__done {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  html:not([data-motion='best-effects']) .login-page__ambient--one,
+  html:not([data-motion='best-effects']) .login-page__ambient--two {
+    animation: none !important;
+  }
 }

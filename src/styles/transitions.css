@@ -233,6 +233,14 @@ body:has(.schedule-preview) {
   z-index: 16000 !important;
 }
 
+/*
+ * 打印预览：从编辑器弹窗（以及周测的打印选择弹窗）里再打开的整屏面板，
+ * 必须高于 .admin-modal-overlay(15000)，否则整块盖在弹窗底下——点不到、也关不掉。
+ */
+.schedule-preview {
+  z-index: 16000 !important;
+}
+
 .time-range-overlay,
 .quick-major-time-overlay {
   z-index: 17000 !important;

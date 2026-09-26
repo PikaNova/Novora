@@ -1,6 +1,7 @@
 import { getInstanceId } from './telemetry';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { runQueued } from './syncQueue';
+import { authHeaders } from './auth/session';
 import {
   parseDeviceBinding,
   parseDeviceBindingInfo,
@@ -14,13 +15,13 @@ import {
   type DeviceSetupConflict,
   type PluginBindingInfo,
 } from '../shared/deviceContracts';
+import { parseExamVersion } from '../shared/examContracts';
 
 const API_URL = '/api/exams';
 const CLASS_CHOICE_KEY = 'exam_board_class_choice_confirmed';
 const BINDING_CACHE_KEY = 'exam_board_device_binding_cache';
 const DEVICE_PURPOSE_KEY = 'exam_board_device_purpose_confirmed';
 const PENDING_MANAGEMENT_SETUP_KEY = 'novora_pending_management_setup';
-const ADMIN_TOKEN_KEY = 'admin_auth_token';
 let heartbeatInFlight = false;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -303,11 +304,6 @@ export async function saveDeviceBinding(
   }
 }
 
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY) ?? '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export async function fetchDeviceBindings(): Promise<{
   bindings: DeviceBindingInfo[];
   plugins: PluginBindingInfo[];
@@ -369,7 +365,12 @@ export async function sendDeviceCommand(
   instanceId: string,
   commandAction: DeviceCommand['action'],
   minutes?: number,
-): Promise<void> {
+): Promise<{
+  /** 目标设备当时是否在线；离线时指令会保留到设备上线（最多 24 小时）。 */
+  deviceOnline: boolean;
+  /** 离线时的说明文案（由服务端给出）。 */
+  deliveryHint: string;
+}> {
   const { response, data } = await sendWithRateLimitRetry(() =>
     runQueued(
       () =>
@@ -394,11 +395,19 @@ export async function sendDeviceCommand(
           ? '当前账号无权管理此设备'
           : errorMessage(source, '临时考试指令发送失败'),
     );
+  return {
+    deviceOnline: source.deviceOnline !== false,
+    deliveryHint: typeof source.deliveryHint === 'string' ? source.deliveryHint : '',
+  };
 }
 
-export async function sendDeviceHeartbeat(
-  input: DeviceHeartbeatInput,
-): Promise<{ revoked: boolean; binding: DeviceBinding | null; command: DeviceCommand | null }> {
+export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<{
+  revoked: boolean;
+  binding: DeviceBinding | null;
+  command: DeviceCommand | null;
+  /** 服务端当前快照版本号；只有启用了该优化的部署（Vercel）才会返回。 */
+  version?: number;
+}> {
   if (heartbeatInFlight) return { revoked: false, binding: null, command: null };
   heartbeatInFlight = true;
   try {
@@ -441,7 +450,8 @@ export async function sendDeviceHeartbeat(
       }
     }
     const command = parseDeviceCommand(data.command);
-    return { revoked: false, binding, command };
+    const version = parseExamVersion(data.version);
+    return { revoked: false, binding, command, ...(version > 0 ? { version } : {}) };
   } catch {
     return { revoked: false, binding: null, command: null };
   } finally {

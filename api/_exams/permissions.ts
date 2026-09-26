@@ -11,6 +11,79 @@ import { asRecord } from '../../src/shared/typeGuards.js';
 
 export const allScope = (actor: AdminActor) => sharedHasAllScope(actor);
 
+/**
+ * 归档只读的比较口径：**忽略纯排序字段**（`order` 与 `items[].order`）。
+ *
+ * 客户端每次保存都会把 majors 按 order 重新编号（新增/删除一场考试就会让后面的序号整体前移/后移），
+ * 那是列表排版，不是内容修改。以前用整对象深比较，于是**每一次普通保存**都会把归档考试
+ * 报成「被改过」：后台频繁弹「已归档：这次修改没有生效」的提示，客户端还会白做一次回灌。
+ * 真实的内容改动（改名、删减科目、改范围、清空归档标记等）仍然会被拦下。
+ */
+function sameArchivedContent(submitted: unknown, frozen: unknown): boolean {
+  const stripOrder = (value: unknown): unknown => {
+    const record = asRecord(value);
+    const { order: _order, ...rest } = record;
+    if (Array.isArray(rest.items)) {
+      rest.items = rest.items.map((item) => {
+        const { order: _itemOrder, ...itemRest } = asRecord(item);
+        return itemRest;
+      });
+    }
+    return rest;
+  };
+  return sameJson(stripOrder(submitted), stripOrder(frozen));
+}
+
+/**
+ * 已归档的考试是只读历史（T-284-01）：快照里对应条目一律回退到服务端当前值，
+ * 也不允许从快照中移除——记录层靠快照里的条目做运行时投影，移除会让记录失去载体、
+ * 审计链出现孤儿。要修改必须先 unarchive。
+ *
+ * 返回被冻结的考试 id，路由会随保存响应回传，便于排查「改了却没生效」。
+ */
+export function freezeArchivedMajors(
+  current: ExamPayload,
+  body: Record<string, unknown>,
+): { body: Record<string, unknown>; frozenIds: string[]; frozenMajors: unknown[] } {
+  if (!Array.isArray(body.majors)) return { body, frozenIds: [], frozenMajors: [] };
+  const archivedById = new Map<string, unknown>();
+  for (const major of current.majors) {
+    const record = asRecord(major);
+    if (record.archivedAt == null) continue;
+    archivedById.set(String(record.id ?? ''), major);
+  }
+  if (!archivedById.size) return { body, frozenIds: [], frozenMajors: [] };
+
+  const frozenIds: string[] = [];
+  // 连同服务端版本一起回传：客户端据此把本地副本纠正回服务端版本，否则会出现
+  // 「本机显示删除/改名成功，刷新后又变回来」的幽灵改动。
+  const frozenMajors: unknown[] = [];
+  const submittedIds = new Set<string>();
+  const majors: unknown[] = [];
+  for (const raw of body.majors) {
+    const id = String(asRecord(raw).id ?? '');
+    submittedIds.add(id);
+    const frozen = archivedById.get(id);
+    if (!frozen) {
+      majors.push(raw);
+      continue;
+    }
+    if (!sameArchivedContent(raw, frozen)) {
+      frozenIds.push(id);
+      frozenMajors.push(frozen);
+    }
+    majors.push(frozen);
+  }
+  // 被删掉的归档考试按原相对顺序补回，避免历史记录凭空消失。
+  for (const [id, major] of archivedById) {
+    if (submittedIds.has(id)) continue;
+    frozenIds.push(id);
+    frozenMajors.push(major);
+    majors.push(major);
+  }
+  return { body: { ...body, majors }, frozenIds, frozenMajors };
+}
+
 const isOwnedQuickTemporaryMajor = (actor: AdminActor, major: unknown) => {
   const source = asRecord(major);
   return source.source === 'quick' && source.temporary === true && source.createdBy === actor.id;
@@ -348,9 +421,14 @@ export function validateMutation(
   };
   const nextMajors = (Array.isArray(body.majors) ? body.majors : current.majors) as Array<{ id?: unknown }>;
   const nextClasses: readonly unknown[] = Array.isArray(body.classes) ? body.classes : current.classes;
+  // 省略安全：客户端现在只提交改动的域，未携带的域一律按服务器当前值参与比对。
+  // 否则「只发周测」会被 recordDiff 当成「把大型考试全删了」，触发无谓的权限拒绝。
+  const nextItems = (Array.isArray(body.items) ? body.items : current.items) as Array<{ id?: unknown }>;
+  const nextTitle = typeof body.title === 'string' ? body.title : current.title;
+  const nextActiveMajorId = typeof body.activeMajorId === 'string' ? body.activeMajorId : current.activeMajorId;
 
   const majorDiff = recordDiff(current.majors, nextMajors);
-  const itemDiff = recordDiff(current.items, (body.items as Array<{ id?: unknown }> | undefined) ?? []);
+  const itemDiff = recordDiff(current.items, nextItems);
   const majorChanged =
     majorDiff.added.length > 0 ||
     majorDiff.removed.length > 0 ||
@@ -358,15 +436,14 @@ export function validateMutation(
     itemDiff.added.length > 0 ||
     itemDiff.removed.length > 0 ||
     itemDiff.updated.length > 0 ||
-    current.title !== String(body.title ?? '') ||
-    current.activeMajorId !== String(body.activeMajorId ?? '');
+    current.title !== nextTitle ||
+    current.activeMajorId !== nextActiveMajorId;
   if (majorChanged) {
     const currentMajorsById = new Map(current.majors.map((major) => [String(major?.id ?? ''), major]));
-    const nextMajorId = String(body.activeMajorId ?? current.activeMajorId ?? '');
+    const nextMajorId = String(nextActiveMajorId ?? '');
     const nextActiveMajor = nextMajors.map(asRecord).find((major) => String(major.id ?? '') === nextMajorId);
     const payloadMatchesNextActiveMajor =
-      sameJson(body.items ?? [], nextActiveMajor?.items ?? []) &&
-      String(body.title ?? '') === String(nextActiveMajor?.name ?? '');
+      sameJson(nextItems, nextActiveMajor?.items ?? []) && nextTitle === String(nextActiveMajor?.name ?? '');
     const onlyOwnedQuickTemporaryChanges =
       majorDiff.added.every((major: unknown) => isOwnedQuickTemporaryMajor(actor, major)) &&
       majorDiff.removed.every((major: unknown) => isOwnedQuickTemporaryMajor(actor, major)) &&
@@ -414,8 +491,8 @@ export function validateMutation(
       majorDiff.updated.length ||
       itemDiff.added.length ||
       itemDiff.updated.length ||
-      current.title !== String(body.title ?? '') ||
-      current.activeMajorId !== String(body.activeMajorId ?? '')
+      current.title !== nextTitle ||
+      current.activeMajorId !== nextActiveMajorId
     ) {
       const denied = needEither(
         'major.edit',

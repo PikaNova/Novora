@@ -1,6 +1,11 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createDbClient } from '../api/_dbAdapter.js';
 import { buildSeoDescription, buildSeoTitle } from '../src/shared/seo.js';
+import {
+  MISSING_ASSET_CACHE_CONTROL,
+  cacheControlForStaticRequest,
+  resolveStaticRequestKind,
+} from '../src/shared/staticAssetPolicy.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -140,16 +145,25 @@ export function serveStatic(req: IncomingMessage, res: ServerResponse, pathname:
     return;
   }
 
-  if (requestPath === '/service-worker.js' || requestPath === '/manifest.webmanifest') {
-    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
-  } else if (requestPath.startsWith('/assets/') || requestPath.startsWith('/fonts/')) {
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  } else {
-    res.setHeader('Cache-Control', 'no-cache');
-  }
-
   const safePath = resolveSafePath(requestPath);
   const candidate = safePath && existsSync(safePath) && statSync(safePath).isFile() ? safePath : null;
+
+  // 旧页面请求已被新版本删除的哈希分包时必须 404：把 index.html 当成 200 的 JS
+  // 回退会让浏览器抛出 “Failed to fetch dynamically imported module”，并把这份
+  // HTML 按 immutable 缓存住，详见 src/shared/staticAssetPolicy.ts。
+  if (resolveStaticRequestKind(requestPath, Boolean(candidate)) === 'missing-asset') {
+    res.statusCode = 404;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', MISSING_ASSET_CACHE_CONTROL);
+    res.end('Not Found');
+    return;
+  }
+
+  if (requestPath === '/service-worker.js' || requestPath === '/manifest.webmanifest') {
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+  } else {
+    res.setHeader('Cache-Control', cacheControlForStaticRequest(requestPath, Boolean(candidate)));
+  }
 
   const filePath = candidate ?? path.join(DIST_DIR, 'index.html');
   const ext = path.extname(filePath).toLowerCase();

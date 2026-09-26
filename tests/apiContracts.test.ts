@@ -107,3 +107,15 @@ test('exam payload contract: drops malformed records and normalizes valid domain
   );
   assert.equal(payload.updatedAt, 200);
 });
+
+test('exam payload contract: 修订号只跟随服务端字段出现，"没有该字段"与"全为 0"必须可区分', () => {
+  // 老服务端不返回 revisions：解析结果不能凭空造出 {}，否则客户端会以为「各域都是 0」，
+  // 从而不再退回整行版本比较（那是跨版本部署时的唯一保护）。
+  assert.equal('revisions' in parseExamPayload({ items: [], updatedAt: 0 }), false);
+  assert.deepEqual(parseExamPayload({ revisions: { major: 2, weekly: '3' }, updatedAt: 0 }).revisions, {
+    major: 2,
+    weekly: 3,
+  });
+  assert.deepEqual(parseExamPayload({ revisions: {}, updatedAt: 0 }).revisions, {});
+  assert.deepEqual(parseExamPayload({ revisions: 'nope', updatedAt: 0 }).revisions, {});
+});

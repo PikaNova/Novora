@@ -60,5 +60,7 @@ test('RATE_LIMITED has a specific fallback message and notification title', asyn
   const error = await apiErrorFromResponse(response, 'Save failed');
   assert.equal(error.code, 'RATE_LIMITED');
   assert.notEqual(error.message, 'Save failed');
-  assert.equal(getSyncNotifyTitle('RATE_LIMITED'), '多设备同步繁忙');
+  // 写槽是全局单个：自己连着写两次也会被挡，文案不能再甩锅给「其他设备 / 多设备」。
+  assert.doesNotMatch(error.message, /其他设备|多设备/);
+  assert.equal(getSyncNotifyTitle('RATE_LIMITED'), '同步繁忙');
 });

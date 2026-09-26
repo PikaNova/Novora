@@ -48,6 +48,10 @@ export const ALL_PERMISSIONS = [
   'role.manage',
   'audit.read',
   'deployment.trigger',
+  'diagnostics.read',
+  'diagnostics.upload',
+  'diagnostics.download',
+  'diagnostics.settings',
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number] | '*';

@@ -1,8 +1,10 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { fetchSystemStatus, type SystemStatusPayload } from '../../services/systemStatus';
 import { APP_VERSION } from '../../services/telemetry';
+import { auditActionLabel } from '../../constants/auditActions';
 import SettingsCollapsibleCard from './SettingsCollapsibleCard';
+import RefreshButton from '../admin/RefreshButton';
 
 function formatUptime(seconds: number): string {
   const s = Math.max(0, seconds);
@@ -125,9 +127,7 @@ function SystemStatusBody() {
     <div className="system-status">
       <div className="set-card__head">
         <p className="set-card__lead">仅超管可见 · 每 10 秒自动刷新，折叠时暂停。</p>
-        <button className="set-btn" disabled={loading} onClick={() => void load()}>
-          <RefreshCw size={15} aria-hidden="true" /> {loading ? '刷新中…' : '刷新'}
-        </button>
+        <RefreshButton className="set-btn" busy={loading} onRefresh={() => void load()} title="刷新系统状态" />
       </div>
 
       <div className="system-status__summary">
@@ -264,7 +264,8 @@ function SystemStatusBody() {
               {events.map((event, index) => (
                 <li key={index}>
                   <span className="system-status__event-time">{formatClock(event.createdAt)}</span>
-                  <code>{event.action}</code>
+                  {/* 显示中文名，原始码只留在悬停提示里给排查用。 */}
+                  <code title={event.action}>{auditActionLabel(event.action)}</code>
                   <span className="system-status__event-user">{event.username || '系统'}</span>
                 </li>
               ))}

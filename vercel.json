@@ -77,6 +77,30 @@
       "destination": "/api/system?sys=email-worker"
     },
     {
+      "source": "/api/diagnostic-worker",
+      "destination": "/api/system?sys=diagnostic-worker"
+    },
+    {
+      "source": "/api/time",
+      "destination": "/api/system?sys=time"
+    },
+    {
+      "source": "/api/update-check",
+      "destination": "/api/system?sys=update-check"
+    },
+    {
+      "source": "/api/redeploy",
+      "destination": "/api/system?sys=redeploy"
+    },
+    {
+      "source": "/api/error-report",
+      "destination": "/api/telemetry?sys=error-report"
+    },
+    {
+      "source": "/api/announcement-images",
+      "destination": "/api/announcements"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },

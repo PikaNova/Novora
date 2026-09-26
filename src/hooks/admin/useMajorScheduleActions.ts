@@ -1,13 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { AlertsSettings, ExamItem, MajorExam } from '../../types';
 import type { SchoolClass, SchoolGrade } from '../../types/school';
 import { isTrackSubject, normalizeSubjectName } from '../../data/subjects';
 import { classesInMajorScope as sharedClassesInMajorScope, computeAutoTrackClassIds } from '../../utils/trackClassIds';
+import { majorAppliesToGrade as sharedMajorAppliesToGrade } from '../../utils/examRecordEditTarget';
 import type { InitializationState } from '../../utils/settings/school';
-import { getAppSettings, updateExamSettings, updateAlertsSettings, genMajorId } from '../../utils/appSettings';
-import { getCloudSnapshot, saveExamsToServer, type AdminUserContext } from '../../services/examService';
+import {
+  getAppSettings,
+  updateExamSettings,
+  updateAlertsSettings,
+  genMajorId,
+  normalizeConflictPolicy,
+} from '../../utils/appSettings';
+import {
+  applyFrozenArchivedMajors,
+  getCloudSnapshot,
+  saveExamsToServer,
+  takeFrozenArchivedMajors,
+  type AdminUserContext,
+} from '../../services/examService';
 import type { ExamSavePayload } from '../../shared/examContracts';
 import { threeWayMergeExam } from '../../utils/examMerge';
 import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '../../services/examOutbox';
@@ -18,7 +31,7 @@ import { normalizeExamItems } from '../../utils/examSchedule';
 import type { QuickMajorPublishInput } from '../../components/QuickMajorPublishModal';
 import type { WeeklyState } from './useWeeklyScheduleSync';
 import type { SyncState } from './adminPageUtils';
-import { makeId, syncMajorStateRef, toLocalInput } from './adminPageUtils';
+import { makeId, shouldResetWizardStepOnOpen, syncMajorStateRef, toLocalInput } from './adminPageUtils';
 
 export type MajorModal = {
   mode: 'add' | 'rename';
@@ -100,8 +113,30 @@ export function useMajorScheduleActions(params: {
   const [quickMajorOpen, setQuickMajorOpen] = useState(false);
   const [majorBatchAddOpen, setMajorBatchAddOpen] = useState(false);
 
+  // 只在弹窗「刚打开」时回到第一步：以前的依赖是整个 majorModal 对象，
+  // 于是弹窗内任何一次 setMajorModal（改名称、改范围、向导中途写草稿）都会把步骤打回 0。
+  const majorModalOpenRef = useRef(false);
+  /**
+   * 恢复路径（草稿提示条「下一步」）自己会把步骤设成确认步，这里给它一个「保留步骤」的开关：
+   * 否则上面那条「刚打开就回到第一步」会把它压回 0，用户点「下一步」永远落在「考试名称」。
+   */
+  const keepStepOnNextOpenRef = useRef(false);
+  const keepWizardStepOnNextOpen = useCallback(() => {
+    keepStepOnNextOpenRef.current = true;
+  }, []);
   useEffect(() => {
-    if (majorModal) setMajorModalStep(0);
+    const open = Boolean(majorModal);
+    if (
+      shouldResetWizardStepOnOpen({
+        opened: open,
+        wasOpen: majorModalOpenRef.current,
+        keepStep: keepStepOnNextOpenRef.current,
+      })
+    ) {
+      setMajorModalStep(0);
+    }
+    keepStepOnNextOpenRef.current = false;
+    majorModalOpenRef.current = open;
   }, [majorModal]);
 
   useEffect(() => {
@@ -139,14 +174,8 @@ export function useMajorScheduleActions(params: {
   });
 
   const majorAppliesToGrade = (major: MajorExam, gradeId: string) => {
-    if (!gradeId) return false;
-    if (major.targetGradeIds?.length) return major.targetGradeIds.includes(gradeId);
-    if (major.targetClassIds?.length) {
-      return major.targetClassIds.some((classId) =>
-        classes.some((item) => item.id === classId && item.gradeId === gradeId),
-      );
-    }
-    return true;
+    // 判定规则只有一份实现（详情抽屉定位「编辑考试」时要用同一条），这里只补上当前班级列表。
+    return sharedMajorAppliesToGrade(major, gradeId, classes);
   };
 
   const scopedMajors = selectedGradeId
@@ -242,7 +271,15 @@ export function useMajorScheduleActions(params: {
       }
       setSync('saving');
       const queued = getPendingExamSync();
-      const payload = queued?.payload ?? buildPayload(ms, activeId);
+      /**
+       * 一律用调用方现场构造的这份 payload。
+       *
+       * 以前这里是 `queued?.payload ?? buildPayload(ms, activeId)`：上一次失败留在待同步队列里的
+       * 旧快照会盖掉之后的本地改动——最典型的是「删掉一场考试，推送里还带着它」，
+       * 于是服务端一直是 8 场、界面删了又回来，用户看到的现象就是「删不掉」。
+       * 队列仍然有用：它提供 baseSnapshot 与 savedAt（三方合并与重试节流），只是不再提供 payload。
+       */
+      const payload = buildPayload(ms, activeId);
       const baseSnapshot = getCloudSnapshot();
       const baseUpdatedAt = Math.max(queued?.baseSnapshot?.updatedAt ?? 0, baseSnapshot?.updatedAt ?? 0);
       let expectedSavedAt = queued?.savedAt;
@@ -277,11 +314,14 @@ export function useMajorScheduleActions(params: {
           const merged = threeWayMergeExam(currentBaseline ?? result.remote, local, result.remote);
           if (merged.conflictCount) void recordSyncConflict(merged.conflictCount, local, result.remote);
           const { alerts: mergedAlerts, ...mergedExam } = merged.payload;
+          // 云端契约里 weeklyConflictPolicy 可以是 null（老快照没有这个字段），
+          // 本地设置要的是已规范化的策略对象：统一在这里过一遍规范化，缺字段就沿用当前值。
           const normalizedMergedExam = {
             ...mergedExam,
-            weeklyConflictPolicy:
+            weeklyConflictPolicy: normalizeConflictPolicy(
               (mergedExam as { weeklyConflictPolicy?: unknown }).weeklyConflictPolicy ??
-              weeklyStateRef.current.weeklyConflictPolicy,
+                weeklyStateRef.current.weeklyConflictPolicy,
+            ),
           };
           if (isStalePush()) return;
           const mergedQueuedAt = Date.now();
@@ -339,12 +379,35 @@ export function useMajorScheduleActions(params: {
         }
         pendingRef.current = false;
         clearPendingExamSync(expectedSavedAt);
+        // 服务端把已归档考试回退成了它自己的版本（含"本地删了但服务端仍在"）。
+        // 本地必须跟着回灌 + 告诉用户，否则就是「本机删掉了、刷新又回来」的幽灵改动。
+        const frozenMajors = takeFrozenArchivedMajors();
+        if (frozenMajors.length) {
+          const currentMajors = stateRef.current.majors;
+          const restored = frozenMajors.filter(
+            (major) => !currentMajors.some((item) => String(item.id) === String(major.id)),
+          );
+          const mergedMajors = applyFrozenArchivedMajors(currentMajors, frozenMajors);
+          syncMajorStateRef(stateRef, mergedMajors, stateRef.current.activeMajorId);
+          setMajors(mergedMajors);
+          updateExamSettings({ majors: mergedMajors, updatedAt: result });
+          const names = frozenMajors.map((major) => major.name || major.id).join('、');
+          notify(
+            'warning',
+            restored.length
+              ? `「${names}」已归档：服务端不接受删除，已按服务端版本放回。需要先「取消归档」再删除或修改。`
+              : `「${names}」已归档：这次修改没有生效，已按服务端版本还原。需要先「取消归档」再修改。`,
+            '改动没有生效',
+            { id: 'exam-frozen-archived' },
+          );
+        }
         const { alerts: pAlerts, ...examPayload } = currentPayload;
         updateExamSettings({
           ...examPayload,
-          weeklyConflictPolicy:
+          weeklyConflictPolicy: normalizeConflictPolicy(
             (examPayload as { weeklyConflictPolicy?: unknown }).weeklyConflictPolicy ??
-            weeklyStateRef.current.weeklyConflictPolicy,
+              weeklyStateRef.current.weeklyConflictPolicy,
+          ),
           updatedAt: result,
         });
         if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: result });
@@ -367,13 +430,17 @@ export function useMajorScheduleActions(params: {
   );
 
   const commit = useCallback(
-    (ms: MajorExam[], activeId: string, immediate = false, syncLabel = '保存考试安排') => {
+    (ms: MajorExam[], activeId: string, immediate = false, syncLabel = '保存考试安排'): Promise<void> | void => {
       syncMajorStateRef(stateRef, ms, activeId);
       setMajors(ms);
       setActiveMajorId(activeId);
       const now = Date.now();
       const { alerts: pAlerts, ...examPayload } = buildPayload(ms, activeId);
-      updateExamSettings({ ...examPayload, updatedAt: now });
+      updateExamSettings({
+        ...examPayload,
+        weeklyConflictPolicy: normalizeConflictPolicy(examPayload.weeklyConflictPolicy),
+        updatedAt: now,
+      });
       if (pAlerts) updateAlertsSettings({ ...pAlerts, updatedAt: now });
       queuePendingExamSync({
         payload: { ...examPayload, alerts: pAlerts ?? null },
@@ -383,8 +450,8 @@ export function useMajorScheduleActions(params: {
       pendingRef.current = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (immediate) {
-        void pushToServer(ms, activeId, syncLabel);
-        return;
+        // 返回推送 Promise：删除草稿这类需要"服务端确认过才算数"的调用方可以 await 它。
+        return pushToServer(ms, activeId, syncLabel);
       }
       setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'saving');
       saveTimer.current = setTimeout(() => {
@@ -442,9 +509,11 @@ export function useMajorScheduleActions(params: {
     setMajorError('');
     if (continueToImport) onContinueToImport();
   };
-  const removeMajor = () => {
+  /** 删除当前大型考试：等服务端确认后再报成功（与「删除草稿」同口径）。 */
+  const removeMajor = async () => {
     if (majors.length <= 1) return;
     const removedId = activeMajor.id;
+    const removedName = activeMajor.name || removedId;
     const ms = majors.filter((m) => m.id !== removedId).map((m, i) => ({ ...m, order: i }));
     const nextActiveId = removedId === activeMajorId ? ms[0].id : activeMajorId;
     const nextEditing = ms.find((major) => majorAppliesToGrade(major, selectedGradeId)) ?? ms[0];
@@ -455,10 +524,22 @@ export function useMajorScheduleActions(params: {
       if (selectedGradeId) next[selectedGradeId] = nextEditing.id;
       return next;
     });
-    commit(ms, nextActiveId, true, `删除大型考试「${activeMajor.name}」`);
     setDeleteMajorOpen(false);
+    const pushed = commit(ms, nextActiveId, true, `删除大型考试「${removedName}」`);
+    if (pushed) await pushed;
+    // 已归档的考试会被服务端冻结并回灌，那条路径由 hook 的「改动没有生效」提示说明原因。
+    if (getAppSettings().exam.majors.some((item) => item.id === removedId)) return;
+    const stillPending = Boolean(getPendingExamSync());
+    notify(
+      stillPending ? 'warning' : 'success',
+      stillPending
+        ? `「${removedName}」已从本机移除，但还没同步到服务器（离线或网络不稳）；联网后会自动同步。`
+        : `已删除「${removedName}」。教室端会在下一次同步时移除它。`,
+      stillPending ? '待同步' : '考试已删除',
+    );
   };
-  const removeQuickMajor = (major: MajorExam) => {
+  /** 按 id 删掉一场考试（草稿、临时考试都走这里），并推送快照。 */
+  const removeMajorById = (major: MajorExam, syncLabel: string): Promise<void> | void => {
     const ms = majors.filter((item) => item.id !== major.id).map((item, index) => ({ ...item, order: index }));
     const nextActiveId = activeMajorId === major.id ? (ms[0]?.id ?? '') : activeMajorId;
     const nextEditing = ms.find((item) => majorAppliesToGrade(item, selectedGradeId)) ?? ms[0];
@@ -471,9 +552,27 @@ export function useMajorScheduleActions(params: {
       if (selectedGradeId && nextEditing) next[selectedGradeId] = nextEditing.id;
       return next;
     });
-    commit(ms, nextActiveId, true, `删除临时考试「${major.name}」`);
-    setQuickMajorDeleteTarget(null);
+    return commit(ms, nextActiveId, true, syncLabel);
   };
+  /** 删除临时统一考试：同样等服务端确认后再报成功。 */
+  const removeQuickMajor = async (major: MajorExam) => {
+    const name = major.name || major.id;
+    setQuickMajorDeleteTarget(null);
+    const pushed = removeMajorById(major, `删除临时考试「${name}」`);
+    if (pushed) await pushed;
+    if (getAppSettings().exam.majors.some((item) => item.id === major.id)) return;
+    const stillPending = Boolean(getPendingExamSync());
+    notify(
+      stillPending ? 'warning' : 'success',
+      stillPending
+        ? `「${name}」已从本机移除，但还没同步到服务器（离线或网络不稳）；联网后会自动同步。`
+        : `已删除临时考试「${name}」。`,
+      stillPending ? '待同步' : '临时考试已删除',
+    );
+  };
+  /** 关闭创建向导时丢弃空草稿（A 方案：只删还没填科目的那一场）。 */
+  const discardDraftMajor = (major: MajorExam): Promise<void> | void =>
+    removeMajorById(major, `丢弃草稿「${major.name}」`);
   const publishQuickMajor = (input: QuickMajorPublishInput) => {
     const start = new Date(input.startTime).getTime();
     if (!Number.isFinite(start)) {
@@ -502,6 +601,9 @@ export function useMajorScheduleActions(params: {
       priorityOverSchedule: input.priorityOverSchedule,
       createdAt: now,
       createdBy: adminUser?.id,
+      // 记录层需要考试窗口：快速考试没有单独的「开始/结束时间」输入，按首个科目时间与时长算出。
+      startAt: start,
+      endAt: start + input.durationMinutes * 60_000,
       endedAt: null,
     };
     const next = [...majors, quick];
@@ -517,7 +619,11 @@ export function useMajorScheduleActions(params: {
     commit(next, activeMajorId, true, successMessage);
     notify('success', successMessage, '临时统一考试已更新');
   };
-  const extendQuickMajor = (major: MajorExam) =>
+  const extendQuickMajor = (major: MajorExam) => {
+    const itemEnds = major.items.map((item) => new Date(item.endTime).getTime()).filter(Number.isFinite);
+    // 老数据没有 major.endAt，从最后一科结束时间推导，避免延长后两个口径不一致。
+    const currentEndAt = major.endAt ?? (itemEnds.length ? Math.max(...itemEnds) : null);
+    const nextEndAt = currentEndAt == null ? null : currentEndAt + 5 * 60_000;
     updateQuickMajor(
       major.id,
       {
@@ -525,18 +631,23 @@ export function useMajorScheduleActions(params: {
           ...item,
           endTime: toLocalInput(new Date(item.endTime).getTime() + 5 * 60_000),
         })),
+        ...(nextEndAt == null ? {} : { endAt: nextEndAt }),
       },
       `「${major.name}」已延长 5 分钟。`,
     );
-  const endQuickMajor = (major: MajorExam) =>
+  };
+  const endQuickMajor = (major: MajorExam) => {
+    const endedAt = Date.now();
     updateQuickMajor(
       major.id,
       {
-        endedAt: Date.now(),
+        endedAt,
+        actualEndAt: endedAt,
         items: major.items.map((item) => ({ ...item, enabled: false })),
       },
       `「${major.name}」已提前结束。`,
     );
+  };
   const promoteQuickMajor = (major: MajorExam) =>
     updateQuickMajor(
       major.id,
@@ -561,6 +672,7 @@ export function useMajorScheduleActions(params: {
     setMajorModal,
     majorModalStep,
     setMajorModalStep,
+    keepWizardStepOnNextOpen,
     majorError,
     setMajorError,
     deleteMajorOpen,
@@ -598,6 +710,7 @@ export function useMajorScheduleActions(params: {
     commitMajorModal,
     removeMajor,
     removeQuickMajor,
+    discardDraftMajor,
     publishQuickMajor,
     updateQuickMajor,
     extendQuickMajor,

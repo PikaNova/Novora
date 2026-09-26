@@ -48,6 +48,29 @@ test('buildExamRecordProjection marks quick and ended majors with lifecycle defa
   assert.equal(ended.endedAt, 180);
 });
 
+test('buildExamRecordProjection keeps a copied major in draft even when its window is complete', () => {
+  // 复制考试带 draft 标记：科目时间齐全也不能被「创建即发布」自动推成已发布。
+  const items = [
+    {
+      id: 'i1',
+      name: '语文',
+      startTime: '2026-10-08T08:30:00',
+      endTime: '2026-10-08T10:30:00',
+      enabled: true,
+      order: 0,
+    },
+  ];
+  const copied = buildExamRecordProjection(
+    { id: 'copy', name: '第二次月考（复制）', items, order: 1, draft: true },
+    0,
+    200,
+    200,
+  );
+  const normal = buildExamRecordProjection({ id: 'normal', name: '第一次月考', items, order: 2 }, 0, 200, 200);
+  assert.equal(copied.status, 'draft');
+  assert.equal(normal.status, 'published');
+});
+
 test('transitionExamRecordStatus accepts only the v2.8 lifecycle edges', () => {
   assert.equal(transitionExamRecordStatus('draft', 'publish'), 'published');
   assert.equal(transitionExamRecordStatus('published', 'end'), 'ended');

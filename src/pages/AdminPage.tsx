@@ -1,5 +1,5 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Watermark from '../components/Watermark';
 import {
   isOwnQuickTemporaryMajor as isOwnQuickTemporaryMajorCheck,
@@ -8,7 +8,7 @@ import {
 import type { MajorExam } from '../types';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
 import { adminCan, getCloudSnapshot, saveExamsToServer, takeGeneratedRecoveryKey } from '../services/examService';
-import { clearPendingExamSync } from '../services/examOutbox';
+import { clearPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import AdminDeviceSetupPrompt from '../components/AdminDeviceSetupPrompt';
 import InitializationWizard, {
   type InitializationCompletion,
@@ -19,28 +19,51 @@ import SchedulePrintPreview from '../components/SchedulePrintPreview';
 import LoadingState from '../components/LoadingState';
 import QuickMajorPublishModal from '../components/QuickMajorPublishModal';
 import MajorBatchAddModal from '../components/MajorBatchAddModal';
+import MajorEditorModal from '../components/major/MajorEditorModal';
+import NoticePortal from '../components/NoticePortal';
 import TimeRangePickerModal from '../components/TimeRangePickerModal';
 import { notify } from '../services/notify';
 import { formatApiError } from '../services/apiError';
+import { runExamRecordAction, type ExamRecordListEntry } from '../services/examRecords';
+import { genWeeklyOverrideId, getShanghaiDateKey, isoWeekdayOfDateKey } from '../utils/weeklySchedule';
+import type { WeeklyOccurrenceActionInput } from '../components/ExamRecordsPanel';
+import { examWindowFromItems } from '../utils/examWindow';
+import { resolveExamEditTarget } from '../utils/examRecordEditTarget';
+import { confirmDialog } from '../services/appDialog';
 import { changeOwnPassword } from '../services/adminUsers';
 import type { InitializationResult } from '../utils/initializationData';
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
-import type { AdminTab } from '../types/exam';
+import type { AdminTab, ExamCenterView, WeeklyExamOverride } from '../types/exam';
 import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
 import '../styles/admin-track-additions.css';
-import { fmtAnnTime, phase, syncMajorStateRef } from '../hooks/admin/adminPageUtils';
+import '../styles/admin-design.css';
+import {
+  fmtAnnTime,
+  phase,
+  readPendingWizardDraft,
+  shouldShowWizardDraftHint,
+  syncMajorStateRef,
+  writePendingWizardDraft,
+} from '../hooks/admin/adminPageUtils';
 import { findMajorConflicts, findMajorConflictItemKeys } from '../utils/examConflicts';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
 import { useAdminAuthSession } from '../hooks/admin/useAdminAuthSession';
 import { useAnnouncements } from '../hooks/admin/useAnnouncements';
-import { useAdminModals, ADMIN_NAV } from '../hooks/admin/useAdminModals';
+import { useAdminModals } from '../hooks/admin/useAdminModals';
+import {
+  ADMIN_TAB_LABELS,
+  ADMIN_TAB_PERMISSIONS,
+  adminSectionUrl,
+  firstPermittedAdminTab,
+  resolveAdminRoute,
+} from '../hooks/admin/adminRoutes';
 import { useInitializationWizard } from '../hooks/admin/useInitializationWizard';
 import { useAlertsSettings } from '../hooks/admin/useAlertsSettings';
 import { useWeeklyScheduleSync } from '../hooks/admin/useWeeklyScheduleSync';
-import { useMajorScheduleActions } from '../hooks/admin/useMajorScheduleActions';
+import { useMajorScheduleActions, type MajorModal } from '../hooks/admin/useMajorScheduleActions';
 import { useExamItemActions } from '../hooks/admin/useExamItemActions';
 import { useSchoolStructureActions } from '../hooks/admin/useSchoolStructureActions';
 import { useMajorImportExport } from '../hooks/admin/useMajorImportExport';
@@ -51,6 +74,9 @@ import { AdminHeader, AdminMobileNav, SYNC_META } from '../components/admin/Admi
 import { MajorModalWizard } from '../components/admin/MajorModalWizard';
 import { AlertsSettingsModal } from '../components/admin/AlertsSettingsModal';
 import { AdminTabBar } from '../components/admin/AdminTabBar';
+import ExamCenterNav, { examCenterViews } from '../components/exam-center/ExamCenterNav';
+import CurrentExamPanel from '../components/exam-center/CurrentExamPanel';
+import { AdminContextBar } from '../components/admin/AdminContextBar';
 import { AdminAnnounceDialog } from '../components/admin/AdminAnnounceDialog';
 import { AdminIncompletePrompt } from '../components/admin/AdminIncompletePrompt';
 import { AiImportModal } from '../components/admin/AiImportModal';
@@ -69,6 +95,7 @@ const WeeklyPanel = lazy(() => import('../components/WeeklyPanel'));
 const ClassManagementPanel = lazy(() => import('../components/ClassManagementPanel'));
 const DeviceStatusPanel = lazy(() => import('../components/DeviceStatusPanel'));
 const UserManagementPanel = lazy(() => import('../components/UserManagementPanel'));
+const SchoolAnnouncementsPanel = lazy(() => import('../components/SchoolAnnouncementsPanel'));
 
 const MAJOR_DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
 
@@ -76,7 +103,33 @@ export default function AdminPage() {
   const backdropProps = useBackdropDismiss();
   const navigate = useNavigate();
   const location = useLocation();
+  const { section: sectionParam, view: viewParam } = useParams<{ section?: string; view?: string }>();
   const initial = getAppSettings().exam;
+  // 未初始化学校结构时先落到「年级与班级」，其余情况默认仪表盘。
+  const defaultTab: AdminTab = initial.grades.length === 0 || initial.classes.length === 0 ? 'classes' : 'overview';
+  /**
+   * 当前板块与考试中心视图都来自 URL（`/admin/<板块>[/<视图>]`）。
+   *
+   * 这里只解析 URL 请求了什么；未指定板块（`/admin`、旧 `?tab=` 链接）时先用 `defaultTab`
+   * 占位，等权限就绪后再按 `firstPermittedAdminTab` 决定落点（见下面的 adminTab）。
+   * 解析失败/写法不规范时由 URL 规范化 effect 改写成规范路径。
+   */
+  const route = useMemo(
+    () =>
+      resolveAdminRoute({
+        section: sectionParam,
+        view: viewParam,
+        legacyTab: new URLSearchParams(location.search).get('tab') ?? undefined,
+        legacyView: new URLSearchParams(location.search).get('view') ?? undefined,
+        fallbackTab: defaultTab,
+      }),
+    [sectionParam, viewParam, location.search, defaultTab],
+  );
+  // 兼容旧签名：年级管理员引导弹窗与「去配置班级」只要「切到某板块」，实际由路由完成。
+  const setAdminTab = useCallback(
+    (tab: AdminTab) => navigate(adminSectionUrl({ tab, search: location.search })),
+    [navigate, location.search],
+  );
 
   // ---- 跨领域基础设施：indirection refs（打破 Hook 间的初始化顺序环依赖）----
   const stateRef = useRef<{ majors: MajorExam[]; activeMajorId: string }>({
@@ -91,7 +144,9 @@ export default function AdminPage() {
   const commitRef = useRef<(ms: MajorExam[], activeId: string, immediate?: boolean, syncLabel?: string) => void>(
     () => {},
   );
-  const buildPayloadRef = useRef<(ms: MajorExam[], activeId: string) => ExamSavePayload>(() => ({}));
+  // 占位实现：真实 buildPayload 在下面 `buildPayloadRef.current = buildPayload` 处回填，
+  // 调用方都在挂载后的回调里使用，所以这里只需要一个类型正确的空壳。
+  const buildPayloadRef = useRef<(ms: MajorExam[], activeId: string) => ExamSavePayload>(() => ({}) as ExamSavePayload);
   const setMajorsRef = useRef<(ms: MajorExam[]) => void>(() => {});
   const setActiveMajorIdRef = useRef<(id: string) => void>(() => {});
   const editingRef = useRef<{ name: string } | null>(null);
@@ -103,6 +158,19 @@ export default function AdminPage() {
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
   const [adminNow, setAdminNow] = useState(() => Date.now());
+  const [publishBusy, setPublishBusy] = useState(false);
+  /**
+   * 「分考试编辑器」的弹窗开关。编辑器面板本体（MajorTabPanel）与整页兜底
+   * （深链 /admin/exam/editor）都不变，弹窗只是它的第二个容器：
+   * 从考试中心或向导进来时叠在当前视图上，关掉即回到原处。
+   */
+  const [editorModalOpen, setEditorModalOpen] = useState(false);
+  // 向导第 1 步会把草稿写进库、收起弹窗并直接进编辑器；用这个标记避免重复建草稿，
+  // 同时记住这次的填写内容（wizardSnapshotRef），好在右下角提示里点「下一步」回到确认步骤。
+  const [wizardDraftCreated, setWizardDraftCreated] = useState(false);
+  /** 第 1 步建出来的那条草稿 id；用户之后在编辑器里切换考试时，提示条仍指向它。 */
+  const wizardDraftIdRef = useRef('');
+  const wizardSnapshotRef = useRef<NonNullable<MajorModal> | null>(null);
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
@@ -123,16 +191,38 @@ export default function AdminPage() {
   const announcements = useAnnouncements();
   const { announceOpen, setAnnounceOpen, anns, annLoading } = announcements;
 
-  const defaultTab: AdminTab = initial.grades.length === 0 || initial.classes.length === 0 ? 'classes' : 'overview';
+  /**
+   * URL 是否明确指定了板块（含旧 `?tab=` 深链）。没有指定时才做「第一个有权限的板块」
+   * 兜底——明确指定的板块即使没权限也按「无权访问」处理，不静默改到别的页。
+   */
+  const adminTab = useMemo(
+    () =>
+      route.explicit ? route.tab : firstPermittedAdminTab((permission) => adminCan(permission, adminUser), defaultTab),
+    [route.explicit, route.tab, adminUser, defaultTab],
+  );
+  const examView = adminTab === 'exam' ? route.examView : null;
+  /**
+   * URL 规范化：补上默认视图（`/admin/exam` → `/admin/exam/current`）、把旧 `?tab=` 深链
+   * 改写成路径、纠正无效板块，并把强制改密改到「用户与权限」。
+   *
+   * 用 replace 不占历史记录，且只在当前地址与规范形态不一致时跳一次，不会来回抖。
+   * 必须等权限就绪后再猜落点，否则会把没权限的用户送到默认板块的无权页。
+   */
+  useEffect(() => {
+    if (!ready || !adminUser) return;
+    const target =
+      adminUser.mustChangePassword && adminTab !== 'users'
+        ? adminSectionUrl({ tab: 'users', search: location.search, extra: { password: '1' } })
+        : adminSectionUrl({ tab: adminTab, view: examView, search: location.search });
+    if (`${location.pathname}${location.search}` !== target) navigate(target, { replace: true });
+  }, [ready, adminUser, adminTab, examView, location.pathname, location.search, navigate]);
+
   const modals = useAdminModals({
     adminUser,
-    defaultTab,
     navigate,
     locationSearch: location.search,
   });
   const {
-    adminTab,
-    setAdminTab,
     deniedModule,
     setDeniedModule,
     moreOpen,
@@ -140,11 +230,12 @@ export default function AdminPage() {
     moreMenuStyle,
     moreTriggerRef,
     placeMoreMenu,
+    selectAdminTab,
+    openMyAccount,
   } = modals;
 
   const wizard = useInitializationWizard({
     initialValue: initial.initialization,
-    setAdminTab,
     navigate,
   });
   const { initialization, setInitialization, initializationRef, wizardOpen, setWizardOpen, finalizeInitialization } =
@@ -256,6 +347,7 @@ export default function AdminPage() {
     setMajorModal,
     majorModalStep,
     setMajorModalStep,
+    keepWizardStepOnNextOpen,
     majorError,
     setMajorError,
     deleteMajorOpen,
@@ -286,10 +378,10 @@ export default function AdminPage() {
     commit,
     commitItems,
     commitBatchMajorItems,
-    switchMajor,
     commitMajorModal,
     removeMajor,
     removeQuickMajor,
+    discardDraftMajor,
     publishQuickMajor,
     extendQuickMajor,
     endQuickMajor,
@@ -408,10 +500,7 @@ export default function AdminPage() {
     initializationCompletedAt: initialization.completedAt,
     gradesLength: grades.length,
     classesLength: classes.length,
-    adminTab,
-    setAdminTab,
     setAlertsOpen,
-    setDeniedModule,
     setAnnounceOpen,
     setWizardOpen,
     setAlerts,
@@ -513,20 +602,69 @@ export default function AdminPage() {
     return { ok: true, recoveryKey: takeGeneratedRecoveryKey() || undefined };
   };
 
+  /**
+   * 刷新后恢复「向导还没走完」的状态。向导的快照与标记只在内存里，Service Worker 更新
+   * 或手动刷新都会丢；丢了以后提示条不再出现、`resumeMajorWizard` 也因快照为空静默返回，
+   * 用户编辑完科目就回不到确认步骤（新流程下草稿已无发布入口）。
+   */
+  useEffect(() => {
+    const pending = readPendingWizardDraft();
+    if (!pending) return;
+    wizardDraftIdRef.current = pending.id;
+    wizardSnapshotRef.current = { mode: 'add', name: pending.name, targetGradeIds: pending.targetGradeIds };
+    setWizardDraftCreated(true);
+  }, []);
+
+  /**
+   * 向导第 3 步建的草稿：先记住它的 id（并落到 localStorage，供刷新后恢复），用户之后在
+   * 编辑器里切换考试时提示条也不会指错；一旦这条草稿被删掉（用户在考试安排里删了它），
+   * 立刻结束向导流程——否则提示条上的「下一步」会把当时正在编辑的另一场考试当成它来发布。
+   */
+  useEffect(() => {
+    // 标记为 false 时不在这里清 ref/storage：挂起状态要活到向导真正结束（发布、取消、草稿被删），
+    // 而这些路径都会显式清理；在这里清会误伤「刷新后刚恢复」的那一帧。
+    if (!wizardDraftCreated) return;
+    if (!wizardDraftIdRef.current) {
+      if (!editingMajorId) return;
+      wizardDraftIdRef.current = editingMajorId;
+      const snapshot = wizardSnapshotRef.current;
+      if (snapshot) {
+        writePendingWizardDraft({
+          id: editingMajorId,
+          name: snapshot.name,
+          targetGradeIds: snapshot.targetGradeIds,
+        });
+      }
+      return;
+    }
+    // 快照还没载入时 majors 会是空的，先不动，否则会把挂起状态误清掉。
+    if (!majors.length) return;
+    if (majors.some((item) => item.id === wizardDraftIdRef.current)) return;
+    wizardDraftIdRef.current = '';
+    wizardSnapshotRef.current = null;
+    writePendingWizardDraft(null);
+    setWizardDraftCreated(false);
+  }, [editingMajorId, majors, wizardDraftCreated]);
+
   if (!ready || !adminUser)
     return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;
-  if (deniedModule)
-    return (
-      <AccessDenied
-        moduleName={deniedModule}
-        onBack={() => {
-          setDeniedModule('');
-          navigate('/admin', { replace: true });
-        }}
-      />
-    );
 
   const can = (permission: string) => adminCan(permission, adminUser);
+  const backToAdmin = () => {
+    setDeniedModule('');
+    navigate('/admin', { replace: true });
+  };
+  /**
+   * 深链到没有权限的板块（`/admin/devices` 或旧 `?tab=devices`）时保留「无权访问」提示，
+   * 不静默改到别的页。强制改密例外：那条路径由 URL 规范化改成「用户与权限」。
+   */
+  const deniedTab =
+    route.explicit && !adminUser.mustChangePassword && adminTab !== 'users' && !can(ADMIN_TAB_PERMISSIONS[adminTab])
+      ? adminTab
+      : null;
+  const deniedLabel = deniedModule || (deniedTab ? ADMIN_TAB_LABELS[deniedTab] : '');
+  if (deniedLabel) return <AccessDenied moduleName={deniedLabel} onBack={backToAdmin} />;
+
   const isOwnQuickTemporaryMajor = (major: MajorExam) => isOwnQuickTemporaryMajorCheck(major, adminUser?.id);
   const canEndQuickTemporaryMajorInScope = (major: MajorExam) =>
     isQuickTemporaryMajorFullyInScope(
@@ -534,27 +672,291 @@ export default function AdminPage() {
       (classId) => visibleClasses.some((item) => item.id === classId),
       (gradeId) => visibleGrades.some((item) => item.id === gradeId),
     );
-  const canEditActiveMajor = can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
+  // 已归档的考试是只读历史（T-284-01）：即便有编辑权限也不给编辑，需先取消归档。
+  const canEditActiveMajor =
+    activeMajor?.archivedAt == null &&
+    (can('major.edit') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor)));
   const canDeleteActiveMajor =
     can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
   const canQuickPublish = can('major.create') || can('major.quick_create');
-  const openMyAccount = () => {
+  // 考试中心的内部板块：前三个是同一份列表的三个口径，weekly/editor 复用现有面板。
+  const availableExamViews = examCenterViews(can);
+  const selectExamView = (view: ExamCenterView) => {
     setDeniedModule('');
-    navigate('/admin?tab=users&account=1');
-    setAdminTab('users');
-    setMoreOpen(false);
+    navigate(adminSectionUrl({ tab: 'exam', view, search: location.search }));
   };
-  const selectAdminTab = (item: (typeof ADMIN_NAV)[number]) => {
-    if (item.id === 'users' && !can(item.permission)) {
-      openMyAccount();
+  const examViewActive = adminTab === 'exam' ? (examView ?? availableExamViews[0]) : availableExamViews[0];
+  const examListView: 'current' | 'schedule' | 'history' =
+    examViewActive === 'schedule' || examViewActive === 'history' ? examViewActive : 'current';
+  // 「创建考试」按类型分流到已有的创建流程：大型考试进编辑器并直接开新建向导。
+  const openExamCreate = (kind: 'major' | 'quick' | 'weekly') => {
+    if (kind === 'weekly') {
+      selectExamView('weekly');
       return;
     }
-    if (!can(item.permission)) {
-      setDeniedModule(item.label);
+    if (kind === 'quick') {
+      setQuickMajorOpen(true);
       return;
     }
-    setDeniedModule('');
-    setAdminTab(item.id);
+    setMajorModal({ mode: 'add', name: '', targetGradeIds: selectedGradeId ? [selectedGradeId] : [] });
+    setWizardDraftCreated(false);
+    setMajorModalStep(0);
+    setMajorError('');
+  };
+  // 科目时间 → 考试窗口：启用科目里最早的开始、最晚的结束。大型考试此前从不写窗口，
+  // 导致「当前考试」为空、延长也用不了；向导第 3 步补上这个字段。
+  const majorWindow = examWindowFromItems(items);
+  const createDraftAndContinue = () => {
+    if (majorModal?.mode !== 'add') return;
+    if (wizardDraftCreated) {
+      setMajorModalStep(3);
+      return;
+    }
+    const snapshot = { ...majorModal };
+    wizardSnapshotRef.current = snapshot;
+    // 新一轮向导：先清掉上一次可能留下的 id/挂起记录，等这条草稿落库后再记下它的 id。
+    wizardDraftIdRef.current = '';
+    writePendingWizardDraft(null);
+    commitMajorModal(() => {});
+    setWizardDraftCreated(true);
+    // 第 3 步（科目与时间）不在向导里编辑：草稿已经落库，收起向导、用编辑器弹窗填科目，
+    // 右下角留一条常驻提示；填完点提示里的「下一步」回到向导的「确认」步骤，再保存或发布。
+    // 弹窗关掉后人还停在原视图（不再换页），提示条就在原地不动。
+    setMajorModal(null);
+    setMajorModalStep(3);
+    setEditorModalOpen(true);
+  };
+  /**
+   * 提示条里的「下一步」：把向导恢复到确认步骤。
+   * 快照通常还在内存里；真丢了（例如恢复流程只找回了草稿 id）就用那条草稿本身的
+   * 名称与适用范围重建一份——确认步骤只需要这两项加科目清单，其余来自实时数据。
+   */
+  const resumeMajorWizard = () => {
+    const snapshot =
+      wizardSnapshotRef.current ??
+      (() => {
+        const draft = majors.find((item) => item.id === wizardDraftIdRef.current);
+        if (!draft) return null;
+        return { mode: 'add' as const, name: draft.name, targetGradeIds: draft.targetGradeIds ?? [] };
+      })();
+    if (!snapshot) return;
+    wizardSnapshotRef.current = snapshot;
+    setMajorError('');
+    setMajorModalStep(3);
+    // 告诉 hook：这次打开是「恢复」而不是「新开向导」，别把步骤打回第一步。
+    keepWizardStepOnNextOpen();
+    setMajorModal(snapshot);
+  };
+  /**
+   * 编辑器弹窗底部那枚「去确认并发布」：先关掉弹窗再恢复向导，
+   * 否则向导会开在弹窗之上、看起来像两层套娃。
+   */
+  const goToWizardConfirmFromEditor = () => {
+    setEditorModalOpen(false);
+    resumeMajorWizard();
+  };
+  /**
+   * 删除一条草稿。入口在考试安排的草稿行与草稿详情抽屉里——以前只有「关向导时空草稿丢弃」
+   * 这一条删除路径，草稿一旦留下就只能发布或一直躺着（dev 上积的那几条就是这么来的）。
+   * 删除只动快照里的这场考试并推送，教室端不受影响（草稿还没发布）。
+   */
+  const discardExamDraft = async (record: ExamRecordListEntry): Promise<boolean> => {
+    const draft = majors.find((item) => item.id === record.id);
+    if (!draft) {
+      notify('warning', `「${record.name || record.id}」已不在本地考试数据里，刷新列表后再试。`, '找不到这场草稿');
+      return false;
+    }
+    const confirmed = await confirmDialog({
+      title: '删除这场草稿',
+      message: `「${draft.name || draft.id}」会从考试中心移除；它还没发布，教室端不受影响。`,
+      tone: 'danger',
+      confirmLabel: '删除草稿',
+    });
+    if (!confirmed) return false;
+    // 等一次真实推送：删除必须"服务端确认过"才算数。已归档的草稿会被服务端冻结，
+    // 推送成功后本地也会被回灌回来（那时 hook 已经给过提示），这里就不再报"已删除"。
+    const pushed = discardDraftMajor(draft);
+    if (pushed) await pushed;
+    const name = draft.name || draft.id;
+    if (getAppSettings().exam.majors.some((item) => item.id === draft.id)) {
+      // 被冻结回灌：具体原因由 useMajorScheduleActions 的"改动没有生效"提示说明。
+      return false;
+    }
+    const stillPending = Boolean(getPendingExamSync());
+    notify(
+      stillPending ? 'warning' : 'success',
+      stillPending
+        ? `「${name}」已从本机移除，但还没同步到服务器（离线或网络不稳）；联网后会自动同步。`
+        : `草稿「${name}」已删除。`,
+      stillPending ? '待同步' : '已删除草稿',
+    );
+    return true;
+  };
+  /**
+   * 「考试安排」里对某一次周测做单次调整：取消本次 / 临时调课 / 冲突仍然进行。
+   *
+   * 一条周测行可能覆盖多个班级（每个班一份计划），所以按 planIds 一起写 overrides；
+   * 每份计划有自己的科目 id，按「星期几 + 原开始时间」匹配到各自的源科目。
+   * 只动 overrides，周期规则本身不变——这与周测计划里的「例外日期管理」是同一套语义。
+   */
+  const applyWeeklyOccurrenceAction = (input: WeeklyOccurrenceActionInput) => {
+    const weekday = isoWeekdayOfDateKey(input.dateKey);
+    let touched = 0;
+    const nextPlans = weeklyPlans.map((plan) => {
+      if (!input.planIds.includes(plan.id)) return plan;
+      const item = plan.items.find((entry) => entry.weekday === weekday && entry.startTime === input.startClock);
+      if (!item) return plan;
+      touched += 1;
+      const overrideId = genWeeklyOverrideId(item.id, input.dateKey);
+      const override: WeeklyExamOverride = {
+        id: overrideId,
+        sourceItemId: item.id,
+        date: input.dateKey,
+        action: input.action === 'cancel' ? 'cancel' : 'replace',
+        ...(input.action === 'reschedule'
+          ? {
+              startTime: input.newStart ?? item.startTime,
+              endTime: input.newEnd ?? item.endTime,
+              targetDate: input.targetDate,
+            }
+          : {}),
+        ...(input.action === 'force' ? { forceRunDuringMajorExam: true } : {}),
+      };
+      const exists = plan.overrides.some((entry) => entry.id === overrideId);
+      const overrides = exists
+        ? plan.overrides.map((entry) => (entry.id === overrideId ? override : entry))
+        : [...plan.overrides, override];
+      return { ...plan, overrides };
+    });
+    if (!touched) {
+      notify('warning', '找不到对应的周测科目，可能计划刚被改过；刷新列表后再试。', '无法调整这次周测');
+      return;
+    }
+    const ownerClassId = weeklyPlans.find((plan) => input.planIds.includes(plan.id))?.classId ?? selectedClassId;
+    handleSaveWeeklyPlans(nextPlans, activeWeeklyPlanId, ownerClassId, true, activeWeeklyPlanIdByClassId);
+    notify(
+      'success',
+      input.action === 'cancel'
+        ? `已取消 ${input.dateKey} 这一次周测，周期规则不变。`
+        : input.action === 'force'
+          ? '这次周测会在大型考试期间照常进行。'
+          : `已把这次周测改到 ${input.targetDate} ${input.newStart}–${input.newEnd}。`,
+      '周测已调整',
+    );
+  };
+
+  /**
+   * 向导第 2 步的「打开编辑器 / 去编辑器逐项调整」：不再收起向导、也不再换页，
+   * 改成把编辑器弹窗叠在向导之上——关掉弹窗就回到刚才那一步，草稿与填写进度都还在。
+   * （以前这里会把向导整个关掉再跳页，回来后只能靠右下角提示条找回去。）
+   */
+  const openMajorEditor = () => {
+    setMajorError('');
+    setEditorModalOpen(true);
+  };
+  /**
+   * 关闭创建向导（A 方案）。第 1 步「创建并继续」会把草稿真正落库，所以直接关掉就会在草稿区
+   * 留一条空考试——dev 上攒下的那几条 111/11/77 就是这么来的。这里只对「本次向导建出来、
+   * 且还没有任何科目」的草稿追问一次：保留可下次接着填，丢弃就从草稿里删掉。
+   * 有科目的草稿不打扰用户，照旧保留。
+   */
+  const closeMajorWizard = () => {
+    const draft = activeMajor;
+    const isBlankDraft = wizardDraftCreated && Boolean(draft?.id) && items.length === 0;
+    const reset = () => {
+      setMajorModal(null);
+      setWizardDraftCreated(false);
+      wizardDraftIdRef.current = '';
+      wizardSnapshotRef.current = null;
+      writePendingWizardDraft(null);
+      setMajorModalStep(0);
+      setMajorError('');
+    };
+    if (!isBlankDraft) {
+      reset();
+      return;
+    }
+    void confirmDialog({
+      title: '这场草稿还没有科目',
+      message: `「${draft.name}」还没填科目时间。保留它，下次可以接着填；丢弃会把它从草稿里删掉。`,
+      tone: 'warning',
+      confirmLabel: '丢弃草稿',
+      cancelLabel: '保留',
+    }).then((discard) => {
+      if (discard) discardDraftMajor(draft);
+      reset();
+    });
+  };
+  // 详情抽屉的「编辑考试」：先定位到那一场（必要时把年级切过去），再进编辑器。
+  // 编辑器展示的是「当前年级范围内按 editingMajorId 命中的那一场」，少了定位这一步，
+  // 用户点开的就是当前范围的第一场——也就是巡检里反馈过的「这根本不是我点的那场考试」。
+  const openExamRecordEditor = (recordId: string, recordName = '') => {
+    const target = resolveExamEditTarget({
+      majors,
+      recordId,
+      currentGradeId: selectedGradeId,
+      classes: visibleClasses,
+    });
+    if (!target) {
+      notify(
+        'warning',
+        `「${recordName || recordId}」已不在本地考试数据里（可能刚被删除），刷新列表后再试。`,
+        '找不到这场考试',
+      );
+      return;
+    }
+    if (target.gradeId) changeSelectedGrade(target.gradeId);
+    setEditingMajorId(target.majorId);
+    // 已经在编辑器整页（深链打开）时就地切换那一场；其余场景叠弹窗，关掉即回到原视图，
+    // 筛选与滚动位置都不会丢——以前这里会换页，回来要重新找。
+    if (examViewActive !== 'editor') setEditorModalOpen(true);
+  };
+  // 「当前考试」态势页只带得过来考试 id 与名称，复用同一套定位逻辑，避免两处各写一份。
+  const editExamFromCurrent = (majorId: string, examName: string) => openExamRecordEditor(majorId, examName);
+  const finishMajorWizard = async (publish: boolean) => {
+    if (!activeMajor?.id) return;
+    setMajorError('');
+    if (!publish) {
+      setMajorModal(null);
+      setWizardDraftCreated(false);
+      wizardDraftIdRef.current = '';
+      wizardSnapshotRef.current = null;
+      writePendingWizardDraft(null);
+      setMajorModalStep(0);
+      selectExamView('schedule');
+      return;
+    }
+    if (majorWindow.start == null || majorWindow.end == null) {
+      setMajorError('科目时间不完整，无法发布');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setMajorError('当前离线，联网后再发布');
+      return;
+    }
+    setPublishBusy(true);
+    try {
+      const next = majors.map((major) =>
+        major.id === activeMajor.id ? { ...major, startAt: majorWindow.start, endAt: majorWindow.end } : major,
+      );
+      // 先把考试窗口写进快照（服务端据此推导 start_at/end_at），再发布，避免竞态。
+      commit(next, activeMajor.id, false, '更新考试窗口');
+      await pushToServer(next, activeMajor.id, '更新考试窗口');
+      await runExamRecordAction({ id: activeMajor.id, action: 'publish' });
+      notify('success', `「${activeMajor.name}」已发布，教室大屏将在下一次同步时收到安排。`, '考试已发布');
+      const todayEnd = new Date(`${getShanghaiDateKey(Date.now())}T23:59:59+08:00`).getTime();
+      setMajorModal(null);
+      setWizardDraftCreated(false);
+      wizardDraftIdRef.current = '';
+      wizardSnapshotRef.current = null;
+      writePendingWizardDraft(null);
+      setMajorModalStep(0);
+      selectExamView(majorWindow.start < todayEnd ? 'current' : 'schedule');
+    } catch (error) {
+      setMajorError(formatApiError(error, '发布失败'));
+    } finally {
+      setPublishBusy(false);
+    }
   };
   const editDurationMs =
     editing?.startTime && editing?.endTime
@@ -575,6 +977,94 @@ export default function AdminPage() {
       major.temporary &&
       !major.endedAt &&
       major.items.some((item) => item.enabled && new Date(item.endTime).getTime() >= adminNow),
+  );
+  // 提示条上的考试名取向导建出来的那条草稿；草稿被删掉后提示条一并撤下。
+  const wizardDraftId = wizardDraftIdRef.current;
+  const wizardDraft = wizardDraftId ? majors.find((item) => item.id === wizardDraftId) : undefined;
+  const wizardDraftName = wizardDraft?.name || wizardSnapshotRef.current?.name || activeMajor?.name || '新考试';
+  const showWizardDraftHint = shouldShowWizardDraftHint({
+    draftCreated: wizardDraftCreated,
+    draftId: wizardDraftId,
+    draftExists: Boolean(wizardDraft),
+    modalOpen: Boolean(majorModal),
+    tabIsExam: adminTab === 'exam',
+  });
+  /**
+   * 分考试编辑器面板。同一份元素用在两处：整页兜底（深链 /admin/exam/editor）与编辑器弹窗
+   * （从考试中心或向导打开）。两者互斥，不会同时挂载。
+   */
+  /**
+   * 编辑器弹窗内部还会再开一批子弹窗（批量添加 / AI 导入 / 时间选择器 / 打印预览 / 删除确认）。
+   * 它们开着时，编辑器弹窗自己的 Esc 与遮罩点击要让位，避免一次关掉两层。
+   */
+  const editorNestedModalOpen = Boolean(
+    majorBatchAddOpen ||
+    majorPrintOpen ||
+    majorTimeFlowOpen ||
+    deleteSelectedOpen ||
+    deleteMajorOpen ||
+    deleteTarget ||
+    quickMajorDeleteTarget ||
+    importOpen,
+  );
+
+  const majorTabPanelElement = (
+    <MajorTabPanel
+      grades={grades}
+      selectedGradeId={selectedGradeId}
+      orderedScopedMajors={orderedScopedMajors}
+      activeMajor={activeMajor}
+      items={items}
+      can={can}
+      isOwnQuickTemporaryMajor={isOwnQuickTemporaryMajor}
+      setMajorModal={setMajorModal}
+      setMajorError={setMajorError}
+      hasScopedMajor={hasScopedMajor}
+      canDeleteActiveMajor={canDeleteActiveMajor}
+      majors={majors}
+      setDeleteMajorOpen={setDeleteMajorOpen}
+      activeMajorTrackSubjects={activeMajorTrackSubjects}
+      subjectTrackModeEnabled={subjectTrackModeEnabled}
+      activeMajorTrackScopedCount={activeMajorTrackScopedCount}
+      activeMajorUnsetTrackClassCount={activeMajorUnsetTrackClassCount}
+      quickScopedMajors={quickScopedMajors}
+      adminNow={adminNow}
+      visibleClasses={visibleClasses}
+      canEndQuickTemporaryMajorInScope={canEndQuickTemporaryMajorInScope}
+      extendQuickMajor={extendQuickMajor}
+      endQuickMajor={endQuickMajor}
+      promoteQuickMajor={promoteQuickMajor}
+      setQuickMajorDeleteTarget={setQuickMajorDeleteTarget}
+      canEditActiveMajor={canEditActiveMajor}
+      editing={editing}
+      editError={editError}
+      customSubjectActive={customSubjectActive}
+      setCustomSubjectActive={setCustomSubjectActive}
+      setEditing={setEditing}
+      setEditError={setEditError}
+      majorTimeFlowAnchorRef={majorTimeFlowAnchorRef}
+      openMajorStartTimeFlow={openMajorStartTimeFlow}
+      isLongEdit={isLongEdit}
+      longDurationConfirmed={longDurationConfirmed}
+      setLongDurationConfirmed={setLongDurationConfirmed}
+      commitEdit={commitEdit}
+      setMajorTimeFlowOpen={setMajorTimeFlowOpen}
+      setMajorTimeFlowInitialEnd={setMajorTimeFlowInitialEnd}
+      setMajorBatchAddOpen={setMajorBatchAddOpen}
+      majorConflictLabels={majorConflictLabels}
+      selectedItemIds={selectedItemIds}
+      collapsedList={collapsedList}
+      setDeleteSelectedOpen={setDeleteSelectedOpen}
+      openMajorImport={openMajorImport}
+      setMajorPrintOpen={setMajorPrintOpen}
+      setCollapsedList={setCollapsedList}
+      lastDeletedExam={lastDeletedExam}
+      restoreExam={restoreExam}
+      majorConflictItemKeys={majorConflictItemKeys}
+      setSelectedItemIds={setSelectedItemIds}
+      setExamEnabled={setExamEnabled}
+      setDeleteTarget={setDeleteTarget}
+    />
   );
 
   return (
@@ -603,11 +1093,11 @@ export default function AdminPage() {
             can('alerts.edit') ||
             can('initialization.run'))
         }
-        canExportMajor={adminTab === 'major' && can('major.export')}
+        canExportMajor={adminTab === 'exam' && examViewActive === 'editor' && can('major.export')}
         showInitialization={
           can('initialization.run') && (!initialization.completedAt || grades.length === 0 || classes.length === 0)
         }
-        showMajorChip={hasScopedMajor && adminTab === 'major'}
+        showMajorChip={hasScopedMajor && adminTab === 'exam' && examViewActive === 'editor'}
         currentDeviceBinding={currentDeviceBinding}
         adminTab={adminTab}
         activeMajorName={activeMajor.name}
@@ -622,8 +1112,7 @@ export default function AdminPage() {
         onSelectAdminTab={selectAdminTab}
         onOpenMyAccount={openMyAccount}
         onOpenBatchAdd={() => {
-          navigate('/admin?tab=users&batch=1');
-          setAdminTab('users');
+          navigate(adminSectionUrl({ tab: 'users', search: location.search, extra: { batch: '1' } }));
         }}
         onQuickMajorOpen={() => setQuickMajorOpen(true)}
         onAlertsOpen={() => setAlertsOpen(true)}
@@ -636,20 +1125,36 @@ export default function AdminPage() {
           adminTab={adminTab}
           can={can}
           selectAdminTab={selectAdminTab}
-          visibleWeeklyPlans={visibleWeeklyPlans}
-          scheduleMode={scheduleMode}
-          handleScheduleModeChange={handleScheduleModeChange}
-          selectedGradeId={selectedGradeId}
-          changeSelectedGrade={changeSelectedGrade}
-          visibleGrades={visibleGrades}
-          selectedClassId={selectedClassId}
-          changeSelectedClass={changeSelectedClass}
-          visibleClasses={visibleClasses}
+          examView={examViewActive}
+          onSelectExamView={selectExamView}
         />
         <div className="admin-content">
+          {/* 桌面端三个板块已经在左栏里（AdminTabBar 的缩进子项）；这里只在移动端兜底。 */}
+          {adminTab === 'exam' && <ExamCenterNav view={examViewActive} can={can} onSelect={selectExamView} />}
+          {adminTab === 'exam' && (examViewActive === 'weekly' || examViewActive === 'editor') && (
+            <AdminContextBar
+              showClassPicker={examViewActive === 'weekly'}
+              can={can}
+              scheduleMode={scheduleMode}
+              handleScheduleModeChange={handleScheduleModeChange}
+              selectedGradeId={selectedGradeId}
+              changeSelectedGrade={changeSelectedGrade}
+              visibleGrades={visibleGrades}
+              selectedClassId={selectedClassId}
+              changeSelectedClass={changeSelectedClass}
+              visibleClasses={visibleClasses}
+            />
+          )}
           <div
-            key={adminTab}
-            className={`admin-body admin-tab-transition${(['overview', 'dashboard', 'records', 'classes', 'devices', 'users'] as AdminTab[]).includes(adminTab) ? ' admin-body--wide' : ''}`}
+            key={`${adminTab}:${examViewActive}`}
+            className={`admin-body admin-tab-transition${
+              (['overview', 'dashboard', 'announcements', 'classes', 'devices', 'users'] as AdminTab[]).includes(
+                adminTab,
+              ) ||
+              (adminTab === 'exam' && ['current', 'schedule', 'history'].includes(examViewActive))
+                ? ' admin-body--wide'
+                : ''
+            }`}
           >
             <Suspense fallback={<LoadingState kind="loading" layout="panel" />}>
               {adminTab === 'overview' ? (
@@ -659,15 +1164,14 @@ export default function AdminPage() {
                   classes={visibleClasses}
                   majors={visibleMajors}
                   weeklyPlans={visibleWeeklyPlans}
+                  syncState={sync}
                   syncLabel={SYNC_META[sync].label}
                   online={online}
                   onQuickPublish={canQuickPublish ? () => setQuickMajorOpen(true) : undefined}
                 />
               ) : adminTab === 'dashboard' ? (
                 <DashboardPanel />
-              ) : adminTab === 'records' ? (
-                <ExamRecordsPanel grades={visibleGrades} classes={visibleClasses} />
-              ) : adminTab === 'weekly' ? (
+              ) : adminTab === 'exam' && examViewActive === 'weekly' ? (
                 <fieldset className="admin-permission-fieldset" disabled={!can('weekly.edit')}>
                   <WeeklyPanel
                     weeklyPlans={visibleWeeklyPlans}
@@ -695,6 +1199,48 @@ export default function AdminPage() {
                     allowBatchApply={can('weekly.copy') && visibleClasses.length > 1}
                   />
                 </fieldset>
+              ) : adminTab === 'exam' && examViewActive === 'current' ? (
+                // 「当前考试」是实时态势页：只读现在，不承担创建与列表管理。
+                <CurrentExamPanel
+                  majors={visibleMajors}
+                  weeklyPlans={visibleWeeklyPlans}
+                  grades={visibleGrades}
+                  classes={visibleClasses}
+                  scheduleMode={scheduleMode}
+                  weeklyConflictPolicy={weeklyConflictPolicy}
+                  activeWeeklyPlanId={activeWeeklyPlanId}
+                  activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+                  subjectTrackModeEnabled={subjectTrackModeEnabled}
+                  syncLabel={SYNC_META[sync].label}
+                  syncTone={sync === 'saved' ? 'ok' : sync === 'loading' || sync === 'saving' ? 'busy' : 'warn'}
+                  online={online}
+                  can={can}
+                  onEditExam={editExamFromCurrent}
+                  onGoSchedule={() => selectExamView('schedule')}
+                />
+              ) : adminTab === 'exam' && examViewActive !== 'editor' ? (
+                <ExamRecordsPanel
+                  grades={visibleGrades}
+                  classes={visibleClasses}
+                  preset={examListView}
+                  can={can}
+                  onCreate={openExamCreate}
+                  weeklyPlans={visibleWeeklyPlans}
+                  weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+                  onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
+                  onEditRecord={
+                    can('major.edit') ? (record) => openExamRecordEditor(record.id, record.name) : undefined
+                  }
+                  onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
+                  // 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突、列出科目。
+                  majors={visibleMajors}
+                  scheduleMode={scheduleMode}
+                  weeklyConflictPolicy={weeklyConflictPolicy}
+                  activeWeeklyPlanId={activeWeeklyPlanId}
+                  activeWeeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
+                  subjectTrackModeEnabled={subjectTrackModeEnabled}
+                  onWeeklyOccurrenceAction={can('weekly.edit') ? applyWeeklyOccurrenceAction : undefined}
+                />
               ) : adminTab === 'classes' ? (
                 <ClassManagementPanel
                   grades={visibleGrades}
@@ -717,6 +1263,8 @@ export default function AdminPage() {
                   canBind={can('device.bind')}
                   canEditDesign={hasAllScope && can('settings.edit')}
                 />
+              ) : adminTab === 'announcements' ? (
+                <SchoolAnnouncementsPanel can={can} />
               ) : adminTab === 'users' ? (
                 <UserManagementPanel
                   grades={visibleGrades}
@@ -728,77 +1276,63 @@ export default function AdminPage() {
                   openBatchCreate={new URLSearchParams(location.search).get('batch') === '1'}
                 />
               ) : (
-                <MajorTabPanel
-                  grades={grades}
-                  selectedGradeId={selectedGradeId}
-                  orderedScopedMajors={orderedScopedMajors}
-                  activeMajor={activeMajor}
-                  items={items}
-                  canQuickPublish={canQuickPublish}
-                  can={can}
-                  switchMajor={switchMajor}
-                  isOwnQuickTemporaryMajor={isOwnQuickTemporaryMajor}
-                  setQuickMajorOpen={setQuickMajorOpen}
-                  setMajorModal={setMajorModal}
-                  setMajorError={setMajorError}
-                  hasScopedMajor={hasScopedMajor}
-                  canDeleteActiveMajor={canDeleteActiveMajor}
-                  majors={majors}
-                  setDeleteMajorOpen={setDeleteMajorOpen}
-                  activeMajorTrackSubjects={activeMajorTrackSubjects}
-                  subjectTrackModeEnabled={subjectTrackModeEnabled}
-                  activeMajorTrackScopedCount={activeMajorTrackScopedCount}
-                  activeMajorUnsetTrackClassCount={activeMajorUnsetTrackClassCount}
-                  quickScopedMajors={quickScopedMajors}
-                  adminNow={adminNow}
-                  visibleClasses={visibleClasses}
-                  canEndQuickTemporaryMajorInScope={canEndQuickTemporaryMajorInScope}
-                  extendQuickMajor={extendQuickMajor}
-                  endQuickMajor={endQuickMajor}
-                  promoteQuickMajor={promoteQuickMajor}
-                  setQuickMajorDeleteTarget={setQuickMajorDeleteTarget}
-                  canEditActiveMajor={canEditActiveMajor}
-                  editing={editing}
-                  editError={editError}
-                  customSubjectActive={customSubjectActive}
-                  setCustomSubjectActive={setCustomSubjectActive}
-                  setEditing={setEditing}
-                  setEditError={setEditError}
-                  majorTimeFlowAnchorRef={majorTimeFlowAnchorRef}
-                  openMajorStartTimeFlow={openMajorStartTimeFlow}
-                  isLongEdit={isLongEdit}
-                  longDurationConfirmed={longDurationConfirmed}
-                  setLongDurationConfirmed={setLongDurationConfirmed}
-                  commitEdit={commitEdit}
-                  setMajorTimeFlowOpen={setMajorTimeFlowOpen}
-                  setMajorTimeFlowInitialEnd={setMajorTimeFlowInitialEnd}
-                  setMajorBatchAddOpen={setMajorBatchAddOpen}
-                  majorConflictLabels={majorConflictLabels}
-                  selectedItemIds={selectedItemIds}
-                  collapsedList={collapsedList}
-                  setDeleteSelectedOpen={setDeleteSelectedOpen}
-                  openMajorImport={openMajorImport}
-                  setMajorPrintOpen={setMajorPrintOpen}
-                  setCollapsedList={setCollapsedList}
-                  lastDeletedExam={lastDeletedExam}
-                  restoreExam={restoreExam}
-                  majorConflictItemKeys={majorConflictItemKeys}
-                  setSelectedItemIds={setSelectedItemIds}
-                  setExamEnabled={setExamEnabled}
-                  setDeleteTarget={setDeleteTarget}
-                />
+                majorTabPanelElement
               )}
             </Suspense>
           </div>
         </div>
       </div>
       <AdminMobileNav adminTab={adminTab} can={can} onSelectAdminTab={selectAdminTab} onOpenMyAccount={openMyAccount} />
+      {/*
+        新建向导第 3 步：科目与时间在编辑器里填，弹窗先收起。这条右下角提示是回到向导
+        「确认」步骤的唯一入口，所以它必须常驻——以前带「知道了」可以关掉，关掉之后
+        用户就再也回不到下一步，只能去考试安排里重新找这场草稿。
+        编辑器之外的考试中心板块也保留，用户顺手去查别的考试时不会丢掉回程路。
+      */}
+      {/*
+        提醒层：永远在弹窗之上（--z-reminder），并且必须走 NoticePortal 挂到 body——
+        挂在页面树里会被页面自己的层叠上下文压在弹窗下面，z-index 再高也点不到。
+      */}
+      {showWizardDraftHint && (
+        <NoticePortal>
+          <div className="admin-draft-hint" role="status" aria-live="polite">
+            <div className="admin-draft-hint__body">
+              <strong>「{wizardDraftName}」的科目还没填完</strong>
+              <span>
+                {examViewActive === 'editor'
+                  ? '在编辑器里添加或修改科目与时间，编辑完成后点「下一步」继续确认并发布。'
+                  : '回到「编辑考试」继续填科目与时间，或直接点「下一步」回到向导的确认步骤。'}
+              </span>
+            </div>
+            <div className="admin-draft-hint__actions">
+              <button className="admin-btn admin-btn--primary" type="button" onClick={goToWizardConfirmFromEditor}>
+                下一步
+              </button>
+            </div>
+          </div>
+        </NoticePortal>
+      )}
       {gradeAdminSetupPromptOpen && (
         <GradeAdminSetupPromptModal
           visibleGrades={visibleGrades}
           setGradeAdminSetupPromptOpen={setGradeAdminSetupPromptOpen}
           setAdminTab={setAdminTab}
         />
+      )}
+      {/*
+        编辑器弹窗：考试中心的行、日程轴的行、当前考试面板、向导第 2 步都打开这一份面板。
+        关掉即回到原视图（筛选与滚动位置不动）；深链 /admin/exam/editor 仍然是整页兜底，
+        所以这里用 examViewActive 互斥，避免同一份面板同时挂载两次。
+      */}
+      {editorModalOpen && examViewActive !== 'editor' && (
+        <MajorEditorModal
+          title={`编辑考试 · ${activeMajor?.name || '未命名考试'}`}
+          hint="科目与时间改完直接关闭即可，修改会自动保存并同步到云"
+          nestedModalOpen={editorNestedModalOpen}
+          onClose={() => setEditorModalOpen(false)}
+        >
+          {majorTabPanelElement}
+        </MajorEditorModal>
       )}
       {majorModal && (
         <MajorModalWizard
@@ -813,6 +1347,19 @@ export default function AdminPage() {
           backdropProps={backdropProps}
           commitMajorModal={commitMajorModal}
           setImportOpen={setImportOpen}
+          items={items}
+          windowStart={majorWindow.start}
+          windowEnd={majorWindow.end}
+          canManageItems={can('major.edit')}
+          onToggleItem={setExamEnabled}
+          onRemoveItem={remove}
+          onOpenBatchAdd={() => setMajorBatchAddOpen(true)}
+          onOpenEditor={openMajorEditor}
+          onCreateAndContinue={createDraftAndContinue}
+          publishBusy={publishBusy}
+          onFinish={(publish) => void finishMajorWizard(publish)}
+          onClose={closeMajorWizard}
+          recordId={activeMajor?.id}
         />
       )}
       {quickMajorOpen && (
@@ -980,14 +1527,16 @@ export default function AdminPage() {
           grades.length === 0 ||
           classes.length === 0 ||
           recoveryConfigured === false) && (
-          <AdminIncompletePrompt
-            initialization={initialization}
-            grades={grades}
-            classes={classes}
-            recoveryConfigured={recoveryConfigured}
-            onContinue={() => setWizardOpen(true)}
-            onOpenClasses={() => setAdminTab('classes')}
-          />
+          <NoticePortal>
+            <AdminIncompletePrompt
+              initialization={initialization}
+              grades={grades}
+              classes={classes}
+              recoveryConfigured={recoveryConfigured}
+              onContinue={() => setWizardOpen(true)}
+              onOpenClasses={() => setAdminTab('classes')}
+            />
+          </NoticePortal>
         )}
     </div>
   );
