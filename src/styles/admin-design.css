@@ -884,14 +884,19 @@
     overflow-x: auto;
   }
   .weekly-calendar__week {
-    min-width: 150px;
+    /* Keep every day column usable; the parent scroll container handles the overflow. */
+    min-width: calc(var(--weekly-day-count, 5) * var(--weekly-day-min, 112px) + (var(--weekly-day-count, 5) - 1) * 8px);
   }
-  .admin-item {
-    grid-template-columns: 26px 34px 1fr;
+  .weekly-groups .admin-item {
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
-  .admin-item__actions {
-    grid-column: 1 / -1;
+  .weekly-groups .admin-item__order {
+    display: none;
+  }
+  .weekly-groups .admin-item__actions {
+    grid-column: 1;
+    width: 100%;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;

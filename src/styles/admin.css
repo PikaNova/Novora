@@ -4463,7 +4463,8 @@
 
 @media (max-width: 700px) {
   .admin-page {
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    /* 给固定底部导航留出完整的可滚动空间，避免预览卡片被导航盖住。 */
+    padding-bottom: calc(104px + env(safe-area-inset-bottom));
     overflow-x: hidden;
   }
   .admin-header {
@@ -4578,6 +4579,33 @@
   .admin-body--wide {
     padding: 14px 12px 24px;
   }
+  .admin-body {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+  }
+  .admin-sidebar,
+  .admin-main {
+    width: 100%;
+    min-width: 0;
+  }
+  /* 周测行左侧的星期序号已由分组标题表达，手机上隐藏它以释放科目内容宽度。 */
+  .weekly-groups .admin-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .weekly-groups .admin-item__order {
+    display: none;
+  }
+  .weekly-groups .admin-item__actions {
+    grid-column: 1;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .weekly-groups .admin-item__name {
+    max-width: 100%;
+  }
   .admin-mobile-nav {
     position: fixed;
     z-index: 90;
@@ -4631,6 +4659,19 @@
   .admin-page > .app-watermark {
     bottom: calc(84px + env(safe-area-inset-bottom)) !important;
     z-index: 20 !important;
+  }
+  .admin-content {
+    width: 100%;
+    min-width: 0;
+  }
+  .admin-list-header {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 8px;
+  }
+  .admin-list-header > .admin-btn {
+    flex: 1 1 180px;
+    min-height: 42px;
   }
   .user-management__heading {
     display: grid;
