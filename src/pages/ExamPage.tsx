@@ -6,6 +6,7 @@ import { getResolvedExamItems } from '../utils/appSchedule';
 import { examSyncIntervalMs } from '../utils/examPolling';
 import {
   nowMs,
+  monotonicNowMs,
   formatClockInZone,
   getZonedParts,
   parseZonedTime,
@@ -88,7 +89,7 @@ function isFsHintSuppressed(): boolean {
   try {
     if (localStorage.getItem(FS_HINT_DISABLED_KEY) === '1') return true;
     const until = Number(localStorage.getItem(FS_HINT_SNOOZE_KEY) || 0);
-    return Number.isFinite(until) && until > Date.now();
+    return Number.isFinite(until) && until > nowMs();
   } catch {
     return false;
   }
@@ -623,17 +624,17 @@ function BoundExamPage() {
     }
     if (raw.phase === 'ended') return; // 考试结束后不再自动进入全屏，便于监考离场操作
     if (isFsHintSuppressed()) return;
-    let deadline = Date.now() + AUTO_FULLSCREEN_IDLE_MS;
+    let deadline = monotonicNowMs() + AUTO_FULLSCREEN_IDLE_MS;
     let armed = true;
     const bump = () => {
-      deadline = Date.now() + AUTO_FULLSCREEN_IDLE_MS;
+      deadline = monotonicNowMs() + AUTO_FULLSCREEN_IDLE_MS;
       armed = true;
     };
     const events: Array<keyof WindowEventMap> = ['pointerdown', 'pointermove', 'keydown', 'touchstart', 'wheel'];
     events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
     const id = window.setInterval(() => {
       if (!armed || document.hidden) return;
-      if (Date.now() >= deadline) {
+      if (monotonicNowMs() >= deadline) {
         armed = false;
         setFsHintOpen(true);
       }
@@ -731,7 +732,7 @@ function BoundExamPage() {
 
   const snoozeFullscreenHint = useCallback(() => {
     try {
-      localStorage.setItem(FS_HINT_SNOOZE_KEY, String(Date.now() + FS_HINT_SNOOZE_MS));
+      localStorage.setItem(FS_HINT_SNOOZE_KEY, String(nowMs() + FS_HINT_SNOOZE_MS));
     } catch {
       /* 忽略存储异常 */
     }
@@ -754,7 +755,7 @@ function BoundExamPage() {
       const target = event.target as HTMLElement | null;
       if (target?.closest('button, a, input, select, textarea, [role="button"], [data-fs-guide-ignore]')) return;
       const point = { x: event.clientX, y: event.clientY };
-      const now = Date.now();
+      const now = monotonicNowMs();
       const last = lastTapRef.current;
       lastTapRef.current = { at: now, x: point.x, y: point.y };
       if (

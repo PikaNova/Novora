@@ -28,6 +28,7 @@ import { recordSyncConflict } from '../../services/offlineStore';
 import { notify } from '../../services/notify';
 import { formatApiError } from '../../services/apiError';
 import { normalizeExamItems } from '../../utils/examSchedule';
+import { nowMs } from '../../utils/timeSource';
 import type { QuickMajorPublishInput } from '../../components/QuickMajorPublishModal';
 import type { WeeklyState } from './useWeeklyScheduleSync';
 import type { SyncState } from './adminPageUtils';
@@ -185,7 +186,7 @@ export function useMajorScheduleActions(params: {
     const aSpecific = a.targetGradeIds?.includes(selectedGradeId) ? 0 : 1;
     const bSpecific = b.targetGradeIds?.includes(selectedGradeId) ? 0 : 1;
     if (aSpecific !== bSpecific) return aSpecific - bSpecific;
-    const now = Date.now();
+    const now = nowMs();
     const score = (major: MajorExam) => {
       const enabled = major.items.filter((item) => item.enabled);
       const start = Math.min(...enabled.map((item) => new Date(item.startTime).getTime()));
@@ -325,7 +326,7 @@ export function useMajorScheduleActions(params: {
             ),
           };
           if (isStalePush()) return;
-          const mergedQueuedAt = Date.now();
+          const mergedQueuedAt = nowMs();
           queuePendingExamSync({
             payload: merged.payload,
             baseSnapshot: result.remote,
@@ -435,7 +436,7 @@ export function useMajorScheduleActions(params: {
       syncMajorStateRef(stateRef, ms, activeId);
       setMajors(ms);
       setActiveMajorId(activeId);
-      const now = Date.now();
+      const now = nowMs();
       const { alerts: pAlerts, ...examPayload } = buildPayload(ms, activeId);
       updateExamSettings({
         ...examPayload,
@@ -601,7 +602,7 @@ export function useMajorScheduleActions(params: {
       notify('error', '开始时间无效，请重新设置。', '无法发布');
       return;
     }
-    const now = Date.now();
+    const now = nowMs();
     const quick: MajorExam = {
       id: genMajorId(),
       name: input.name,
@@ -659,7 +660,7 @@ export function useMajorScheduleActions(params: {
     );
   };
   const endQuickMajor = (major: MajorExam) => {
-    const endedAt = Date.now();
+    const endedAt = nowMs();
     updateQuickMajor(
       major.id,
       {

@@ -68,6 +68,7 @@ import { useExamItemActions } from '../hooks/admin/useExamItemActions';
 import { useSchoolStructureActions } from '../hooks/admin/useSchoolStructureActions';
 import { useMajorImportExport } from '../hooks/admin/useMajorImportExport';
 import { useAdminSyncEngine } from '../hooks/admin/useAdminSyncEngine';
+import { nowMs } from '../utils/timeSource';
 
 import MajorTabPanel, { STATUS } from '../components/major/MajorTabPanel';
 import { AdminHeader, AdminMobileNav, SYNC_META } from '../components/admin/AdminChrome';
@@ -157,7 +158,7 @@ export default function AdminPage() {
   const [cloudReadConfirmed, setCloudReadConfirmed] = useState(false);
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
-  const [adminNow, setAdminNow] = useState(() => Date.now());
+  const [adminNow, setAdminNow] = useState(() => nowMs());
   const [publishBusy, setPublishBusy] = useState(false);
   /**
    * 「分考试编辑器」的弹窗开关。编辑器面板本体（MajorTabPanel）与整页兜底
@@ -174,7 +175,7 @@ export default function AdminPage() {
   const wizardDraftIdRef = useRef('');
   const wizardSnapshotRef = useRef<NonNullable<MajorModal> | null>(null);
   useEffect(() => {
-    const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
+    const timer = window.setInterval(() => setAdminNow(nowMs()), 10_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -979,7 +980,7 @@ export default function AdminPage() {
       await pushToServer(next, targetMajor.id, '更新考试窗口');
       await runExamRecordAction({ id: targetMajor.id, action: 'publish' });
       notify('success', `「${targetMajor.name}」已发布，教室大屏将在下一次同步时收到安排。`, '考试已发布');
-      const todayEnd = new Date(`${getShanghaiDateKey(Date.now())}T23:59:59+08:00`).getTime();
+      const todayEnd = new Date(`${getShanghaiDateKey(nowMs())}T23:59:59+08:00`).getTime();
       setMajorModal(null);
       setWizardDraftCreated(false);
       setWizardTargetMajorId('');

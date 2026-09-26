@@ -29,7 +29,12 @@ export function useTimeSyncSettings() {
   };
 
   const ready = isTimeSyncReady();
-  const lastSyncLabel = ts.lastSyncAt > 0 ? formatDateTimeInZone(ts.lastSyncAt) : '尚未校时';
+  const lastSyncLabel =
+    ts.lastSyncServerAt && ts.lastSyncServerAt > 0
+      ? formatDateTimeInZone(ts.lastSyncServerAt)
+      : ts.lastSyncAt > 0
+        ? formatDateTimeInZone(ts.lastSyncAt)
+        : '尚未校时';
 
   return { ts, syncing, ready, lastSyncLabel, patchTs, syncNow };
 }

@@ -1,4 +1,5 @@
 import type { ExamItem, MajorExam } from '../../types';
+import { nowMs } from '../../utils/timeSource';
 
 export type SyncState = 'loading' | 'saving' | 'saved' | 'offline' | 'error';
 
@@ -42,7 +43,7 @@ export function duration(start: string, end: string) {
 }
 
 export function phase(item: ExamItem): 'waiting' | 'ongoing' | 'ended' {
-  const now = Date.now();
+  const now = nowMs();
   if (now < new Date(item.startTime).getTime()) return 'waiting';
   if (now <= new Date(item.endTime).getTime()) return 'ongoing';
   return 'ended';
