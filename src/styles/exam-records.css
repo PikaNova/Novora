@@ -1277,6 +1277,24 @@
   .exam-records-panel {
     padding: 16px 12px 28px;
   }
+  .exam-records-panel__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+  .exam-records-panel__header > div:first-child {
+    min-width: 0;
+  }
+  .exam-records-panel__header h2 {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .exam-records-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0;
+  }
   .exam-records-panel__header h2 {
     font-size: 21px;
   }
