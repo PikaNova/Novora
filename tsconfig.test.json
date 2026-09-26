@@ -18,6 +18,7 @@
     "src/utils/safeNavigation.ts",
     "api/_cors.ts",
     "src/utils/appSettings.ts",
+    "src/utils/timeSource.ts",
     "src/utils/settings/school.ts",
     "src/utils/settings/weekly.ts",
     "src/utils/settings/design.ts",

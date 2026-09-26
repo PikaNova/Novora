@@ -8,6 +8,18 @@ export {
   type ZonedParts,
 } from './zonedTime';
 
+/**
+ * Date.now() can jump when the device clock is corrected.  performance.now()
+ * is monotonic, so anchor it once and use that timeline for all live clocks.
+ * The persisted network offset then remains valid even if the device clock is
+ * changed while the page is open.
+ */
+const sessionEpochAtMonotonicZero = Date.now() - (typeof performance !== 'undefined' ? performance.now() : 0);
+
+export function monotonicNowMs(): number {
+  return sessionEpochAtMonotonicZero + (typeof performance !== 'undefined' ? performance.now() : Date.now());
+}
+
 export function isNetworkTimeEnabled(): boolean {
   try {
     return !!getAppSettings().general?.timeSync?.enabled;
@@ -20,12 +32,16 @@ function isNetworkOffsetFresh(ts: {
   autoSyncEnabled?: boolean;
   autoSyncIntervalSec?: number;
   lastSyncAt?: number;
+  lastSyncMonotonicMs?: number;
   offsetMs?: number;
 }): boolean {
   if (!Number.isFinite(ts.offsetMs) || !Number.isFinite(ts.lastSyncAt) || !ts.lastSyncAt) return false;
   const intervalMs = Math.max(10, Number(ts.autoSyncIntervalSec) || 900) * 1000;
   const maxAgeMs = ts.autoSyncEnabled === false ? 2 * 60 * 60 * 1000 : Math.max(10 * 60 * 1000, intervalMs * 2);
-  return Date.now() - ts.lastSyncAt <= maxAgeMs;
+  const ageMs = Number.isFinite(ts.lastSyncMonotonicMs)
+    ? monotonicNowMs() - Number(ts.lastSyncMonotonicMs)
+    : Date.now() - ts.lastSyncAt;
+  return ageMs >= 0 && ageMs <= maxAgeMs;
 }
 
 export function isTimeSyncReady(): boolean {
@@ -39,10 +55,8 @@ export function isTimeSyncReady(): boolean {
 }
 
 export function nowMs(): number {
-  const base =
-    typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.timeOrigin + performance.now()
-      : Date.now();
+  const base = monotonicNowMs();
+  if (typeof localStorage === 'undefined') return base;
   try {
     const ts = getAppSettings().general?.timeSync;
     if (ts?.enabled) {

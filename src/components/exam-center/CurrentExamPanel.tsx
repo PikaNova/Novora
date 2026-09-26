@@ -8,7 +8,7 @@ import { DEVICE_ONLINE_WINDOW_MS, isDeviceInExam } from '../../shared/deviceCont
 import type { MajorExam } from '../../types';
 import type { ScheduleMode, WeeklyConflictPolicy, WeeklyPlan } from '../../types/exam';
 import type { SchoolClass, SchoolGrade } from '../../types/school';
-import { nowMs } from '../../utils/timeSource';
+import { isTimeSyncReady, nowMs } from '../../utils/timeSource';
 import { getShanghaiDateKey } from '../../utils/weeklySchedule';
 import {
   buildExamCenterView,
@@ -294,7 +294,7 @@ export default function CurrentExamPanel({
       const result = await fetchExamRecords({ page: 1, pageSize: 100, preset: 'current' });
       setRecords(result.data);
       setRecordsError('');
-      setLastSyncedAt(Date.now());
+      setLastSyncedAt(nowMs());
     } catch (caught) {
       // 记录层只是状态权威源：读不到时保留上一批状态（首次失败才退回「状态未知」），
       // 清空会让整页状态闪一下再恢复。
@@ -314,7 +314,7 @@ export default function CurrentExamPanel({
     try {
       const result = await fetchDeviceBindings();
       const active = result.bindings.filter((item) => !item.revoked);
-      const stamp = Date.now();
+      const stamp = nowMs();
       setDevices({
         online: active.filter((item) => stamp - item.lastSeenAt <= DEVICE_ONLINE_WINDOW_MS).length,
         total: active.length,
@@ -334,6 +334,7 @@ export default function CurrentExamPanel({
   }, [loadDevices]);
 
   const dayKey = getShanghaiDateKey(now);
+  const timeReady = isTimeSyncReady();
   // 收集层随班级数放大，只在数据或日期变化时重算；每秒变化的时间交给下面的 view。
   const scheduleKey = useMemo(
     () =>
@@ -590,6 +591,10 @@ export default function CurrentExamPanel({
         <span className={`exam-now-status is-${online ? 'ok' : 'warn'}`}>
           <span className="exam-now-status__dot" />
           服务端 {online ? '正常' : '离线'}
+        </span>
+        <span className={`exam-now-status is-${timeReady ? 'ok' : 'warn'}`}>
+          <span className="exam-now-status__dot" />
+          时间 {timeReady ? '已校准' : '未校准'}
         </span>
         <span className={`exam-now-status is-${devices && devices.total > 0 && devices.online === 0 ? 'warn' : 'ok'}`}>
           <span className="exam-now-status__dot" />
