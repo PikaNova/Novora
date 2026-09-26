@@ -6606,6 +6606,68 @@
   color: #7fd7a6;
   font-size: 0.8rem;
 }
+
+@media (max-width: 700px) {
+  .admin-list-header {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .admin-list-header > .admin-list-title,
+  .admin-list-header > .weekly-list-actions {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .admin-list-header > .admin-list-title {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .admin-list-header > .admin-list-count {
+    min-width: 0;
+  }
+  .admin-list-header > .admin-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .admin-list-header > .admin-btn:last-child {
+    grid-column: 1 / -1;
+  }
+  .admin-list-header > .weekly-list-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+  }
+  .admin-list-header > .weekly-list-actions .admin-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .device-status__heading:not(.user-management__heading) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+  }
+  .device-status__heading:not(.user-management__heading) > div:first-child {
+    min-width: 0;
+  }
+  .device-status__heading:not(.user-management__heading) h2,
+  .device-status__heading:not(.user-management__heading) p {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+}
 .account-email-binding__head span {
   color: rgba(240, 240, 240, 0.55);
   font-size: 0.78rem;

@@ -33,7 +33,6 @@ import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import { getQuickMajorDisplayStatus } from '../utils/majorDisplayStatus';
 import { DEVICE_ONLINE_WINDOW_MS } from '../shared/deviceContracts';
-import '../styles/admin-design.css';
 
 const ONLINE_MS = DEVICE_ONLINE_WINDOW_MS;
 type OverviewDetail = 'online' | 'majors' | 'database' | 'attention';

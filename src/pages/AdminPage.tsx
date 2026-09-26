@@ -38,6 +38,7 @@ import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
 import '../styles/admin-track-additions.css';
+import '../styles/admin-design.css';
 import {
   fmtAnnTime,
   phase,
