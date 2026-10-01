@@ -1,0 +1,74 @@
+{
+  "items": [
+    {
+      "name": "周一语文周测",
+      "weekday": 1,
+      "startTime": "19:00",
+      "endTime": "20:00",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    },
+    {
+      "name": "周二数学周测",
+      "weekday": 2,
+      "startTime": "19:00",
+      "endTime": "20:00",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    },
+    {
+      "name": "周三英语周测",
+      "weekday": 3,
+      "startTime": "19:00",
+      "endTime": "20:00",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    },
+    {
+      "name": "周四物理周测",
+      "weekday": 4,
+      "startTime": "19:00",
+      "endTime": "20:00",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    },
+    {
+      "name": "周五化学周测",
+      "weekday": 5,
+      "startTime": "19:00",
+      "endTime": "20:00",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    },
+    {
+      "name": "周六生物周测",
+      "weekday": 6,
+      "startTime": "09:00",
+      "endTime": "10:00",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    },
+    {
+      "name": "周日综合周测",
+      "weekday": 7,
+      "startTime": "09:00",
+      "endTime": "10:30",
+      "enabled": true,
+      "weekType": "all",
+      "location": "本班教室",
+      "note": "V2 每日周测测试数据"
+    }
+  ]
+}

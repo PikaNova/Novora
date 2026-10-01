@@ -99,8 +99,8 @@ test('平台用量采样挂在每天一次的 cron 上', async () => {
 
 test('service worker uses the current shell cache and removes stale Novora caches', async () => {
   const worker = await readFile('public/service-worker.js', 'utf8');
-  assert.match(worker, /novora-shell-v2\.8\.1/);
-  assert.match(worker, /novora-runtime-v2\.8\.1/);
+  assert.match(worker, /novora-shell-v2\.8\.0/);
+  assert.match(worker, /novora-runtime-v2\.8\.0/);
   assert.match(worker, /key\.startsWith\('novora-shell-'\)/);
   assert.match(worker, /key\.startsWith\('novora-runtime-'\)/);
 });

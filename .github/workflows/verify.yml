@@ -1,0 +1,77 @@
+name: Verify
+
+on:
+  push:
+    branches: ['main', 'upload/main']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # 单测 + 构建：本地会话不再需要每轮背这套全量，交给这里跑。
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Unit tests（全量、每文件独立进程）
+        run: npm test
+      - name: Front-end build
+        run: npm run build
+      - name: API typecheck
+        run: npm run typecheck:api
+      - name: Server build
+        run: npm run serve:build
+
+  # src 全量类型检查。那 5 条既有错误已经清掉（normalizeConflictPolicy 那批），
+  # 所以这里改成真正的闸门——再冒出类型错误会直接拦住。
+  src-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck src
+        run: npx tsc -p tsconfig.json --noEmit
+
+  # 真实数据库集成测试。
+  #
+  # 这一条是补课：本周两次线上故障（列表 SQL 的 42702 歧义、resource=record 漏登记）
+  # 都是集成测试能抓到、但当时只跑了单测就推上去的。单元测试用桩，永远测不出
+  # 「SQL 本身写错」「入口没把请求分发到正确的 handler」这类问题。
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: novora
+          POSTGRES_PASSWORD: novora
+          POSTGRES_DB: novora_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U novora -d novora_integration"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # 用例按上海时区构造「今天/明天/本周」这些概念，CI 的 UTC 会算错。
+      TZ: Asia/Shanghai
+      INTEGRATION_TEST_CONFIRM: novora-disposable
+      INTEGRATION_DATABASE_URL: postgres://novora:novora@127.0.0.1:5432/novora_integration?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Real-DB integration suite
+        run: npm run test:integration

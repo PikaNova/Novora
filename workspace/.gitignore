@@ -1,0 +1,25 @@
+# Novora workspace tracking repo
+# Old Novora repo - do not include
+novora-remote-audit/
+
+# Other projects
+work/
+
+# Dependencies and build artifacts
+node_modules/
+deliveries/
+outputs/
+notion-audit/
+
+# System/runtime directories
+.agents/
+.appdata/
+.codex/
+.codex-migration/
+.dotnet-home/
+.nuget-packages/
+.tmp/
+.tmp-log-analysis/
+.tmp-novora-remote-audit/
+.codex-home/
+nas-repo/

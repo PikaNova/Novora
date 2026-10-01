@@ -1,0 +1,12 @@
+const fs = require('fs');
+const flat = JSON.parse(fs.readFileSync('share1.router.txt','utf8'));
+console.log('total', flat.length);
+console.log('114:', JSON.stringify(flat[114]));
+console.log('115:', JSON.stringify(flat[115]));
+console.log('116:', JSON.stringify(flat[116]));
+console.log('117:', JSON.stringify(flat[117]));
+console.log('118:', JSON.stringify(flat[118]));
+console.log('119:', JSON.stringify(flat[119]));
+console.log('34:', JSON.stringify(flat[34]));
+console.log('81:', JSON.stringify(flat[81]));
+console.log('82-90:', flat.slice(82,91).map(x=>JSON.stringify(x).slice(0,80)));

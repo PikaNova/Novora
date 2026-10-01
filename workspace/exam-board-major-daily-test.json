@@ -1,0 +1,54 @@
+{
+  "title": "V2 连续七天测试考试",
+  "items": [
+    {
+      "name": "第一天语文测试",
+      "startTime": "2026-07-25T09:00:00",
+      "endTime": "2026-07-25T10:30:00",
+      "enabled": true,
+      "order": 0
+    },
+    {
+      "name": "第二天数学测试",
+      "startTime": "2026-07-26T09:00:00",
+      "endTime": "2026-07-26T10:30:00",
+      "enabled": true,
+      "order": 1
+    },
+    {
+      "name": "第三天英语测试",
+      "startTime": "2026-07-27T09:00:00",
+      "endTime": "2026-07-27T10:30:00",
+      "enabled": true,
+      "order": 2
+    },
+    {
+      "name": "第四天物理测试",
+      "startTime": "2026-07-28T09:00:00",
+      "endTime": "2026-07-28T10:30:00",
+      "enabled": true,
+      "order": 3
+    },
+    {
+      "name": "第五天化学测试",
+      "startTime": "2026-07-29T09:00:00",
+      "endTime": "2026-07-29T10:30:00",
+      "enabled": true,
+      "order": 4
+    },
+    {
+      "name": "第六天生物测试",
+      "startTime": "2026-07-30T09:00:00",
+      "endTime": "2026-07-30T10:30:00",
+      "enabled": true,
+      "order": 5
+    },
+    {
+      "name": "第七天综合测试",
+      "startTime": "2026-07-31T09:00:00",
+      "endTime": "2026-07-31T10:30:00",
+      "enabled": true,
+      "order": 6
+    }
+  ]
+}
