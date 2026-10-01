@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 全流程统一按上海时区跑：用例用「今天 / 明天 / 本周」和朴素的
+# `YYYY-MM-DDTHH:mm:ss` 构造时间，runner 默认的 UTC 会把它们算错
+# （开发机在上海，本地跑不出来，所以必须在这里钉住）。
+env:
+  TZ: Asia/Shanghai
+
 jobs:
   # 单测 + 构建：本地会话不再需要每轮背这套全量，交给这里跑。
   verify:
@@ -62,8 +68,6 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      # 用例按上海时区构造「今天/明天/本周」这些概念，CI 的 UTC 会算错。
-      TZ: Asia/Shanghai
       INTEGRATION_TEST_CONFIRM: novora-disposable
       INTEGRATION_DATABASE_URL: postgres://novora:novora@127.0.0.1:5432/novora_integration?sslmode=disable
     steps:

@@ -108,12 +108,16 @@ test('公告看过计时：重复 setVisible(true) 不会重复计时或提前�
 });
 
 // 唯一一条用真实计时器的用例：验证"停在屏幕上不动，到点也会自己上报"。
-// 阈值压到 20ms、等待 300ms，留足余量，避免机器繁忙时抖动。
+// 阈值压到 20ms，然后轮询等到报告出现为止——CI 上并发跑 900 多个用例时
+// 事件循环可能被饿住，固定睡 300ms 会把「慢」当成「没上报」。
 test('公告看过计时：一直亮着也会在门槛到点后自动上报', async () => {
   const { seen, onSeen } = collect();
   const tracker = createSeenTracker({ id: 'ann_live', minMs: 20, onSeen });
   tracker.setVisible(true);
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  const deadline = Date.now() + 5_000;
+  while (seen.length === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   assert.ok(seen.length >= 1, '阈值计时器到点要自动上报');
   assert.equal(seen[0].id, 'ann_live');
   assert.ok(seen[0].seenMs >= 20);
