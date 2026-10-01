@@ -2,8 +2,8 @@
 // 2026-09-18 改过静态资源策略（缺失资源 404、SPA 回退只服务无扩展名路由），
 // 这一次发布必须换缓存版本，否则老壳缓存会让用户继续吃到旧的兜底行为。
 const CACHE_VERSION = '20260930-1';
-const SHELL_CACHE = `novora-shell-v2.8.1-pwa-${CACHE_VERSION}`;
-const RUNTIME_CACHE = `novora-runtime-v2.8.1-pwa-${CACHE_VERSION}`;
+const SHELL_CACHE = `novora-shell-v2.8.0-pwa-${CACHE_VERSION}`;
+const RUNTIME_CACHE = `novora-runtime-v2.8.0-pwa-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
 
 /**
