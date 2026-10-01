@@ -4481,7 +4481,8 @@
 
 @media (max-width: 700px) {
   .admin-page {
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    /* 给固定底部导航留出完整的可滚动空间，避免预览卡片被导航盖住。 */
+    padding-bottom: calc(104px + env(safe-area-inset-bottom));
     overflow-x: hidden;
   }
   .admin-header {
@@ -4596,6 +4597,33 @@
   .admin-body--wide {
     padding: 14px 12px 24px;
   }
+  .admin-body {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+  }
+  .admin-sidebar,
+  .admin-main {
+    width: 100%;
+    min-width: 0;
+  }
+  /* 周测行左侧的星期序号已由分组标题表达，手机上隐藏它以释放科目内容宽度。 */
+  .weekly-groups .admin-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .weekly-groups .admin-item__order {
+    display: none;
+  }
+  .weekly-groups .admin-item__actions {
+    grid-column: 1;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .weekly-groups .admin-item__name {
+    max-width: 100%;
+  }
   .admin-mobile-nav {
     position: fixed;
     z-index: 90;
@@ -4649,6 +4677,19 @@
   .admin-page > .app-watermark {
     bottom: calc(84px + env(safe-area-inset-bottom)) !important;
     z-index: 20 !important;
+  }
+  .admin-content {
+    width: 100%;
+    min-width: 0;
+  }
+  .admin-list-header {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 8px;
+  }
+  .admin-list-header > .admin-btn {
+    flex: 1 1 180px;
+    min-height: 42px;
   }
   .user-management__heading {
     display: grid;
@@ -6515,8 +6556,15 @@
   }
   .class-management__row {
     grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: 'check main track' '. actions actions';
+    grid-template-areas: 'check main track' 'check main actions';
     padding: 13px 12px;
+  }
+  .class-management__row--readonly {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'main track';
+  }
+  .class-management__row .class-management__delete {
+    justify-self: end;
   }
   .class-management__track-tag {
     max-width: 76px;
@@ -6582,6 +6630,72 @@
 .account-email-binding__bound {
   color: #7fd7a6;
   font-size: 0.8rem;
+}
+
+@media (max-width: 700px) {
+  .admin-list-header {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .admin-list-header > .admin-list-title,
+  .admin-list-header > .weekly-list-actions {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .admin-list-header > .admin-list-title {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .admin-list-header > .admin-list-count {
+    min-width: 0;
+  }
+  .admin-list-header > .admin-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .admin-list-header > .admin-btn:last-child {
+    grid-column: 1 / -1;
+  }
+  .admin-list-header > .weekly-list-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+  }
+  .admin-list-header > .weekly-list-actions .admin-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .device-status__heading:not(.user-management__heading) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+  }
+  .device-status__heading:not(.user-management__heading) > div:first-child {
+    min-width: 0;
+  }
+  .device-status__heading:not(.user-management__heading) h2,
+  .device-status__heading:not(.user-management__heading) p {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  /* 班级管理的标题说明需要完整宽度，操作区在窄屏下单独换行。 */
+  .class-management .device-status__heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .account-email-binding__head span {
   color: rgba(240, 240, 240, 0.55);

@@ -7,7 +7,13 @@ import {
 } from '../utils/majorOwnership';
 import type { MajorExam } from '../types';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
-import { adminCan, getCloudSnapshot, saveExamsToServer, takeGeneratedRecoveryKey } from '../services/examService';
+import {
+  adminCan,
+  fetchExamsFromServer,
+  getCloudSnapshot,
+  saveExamsToServer,
+  takeGeneratedRecoveryKey,
+} from '../services/examService';
 import { clearPendingExamSync, getPendingExamSync } from '../services/examOutbox';
 import AdminDeviceSetupPrompt from '../components/AdminDeviceSetupPrompt';
 import InitializationWizard, {
@@ -38,6 +44,7 @@ import { subjectAppliesToClass } from '../types/school';
 import '../styles/admin.css';
 import '../styles/admin-wizard-mobile-fix.css';
 import '../styles/admin-track-additions.css';
+import '../styles/admin-design.css';
 import {
   fmtAnnTime,
   phase,
@@ -54,7 +61,7 @@ import { useAnnouncements } from '../hooks/admin/useAnnouncements';
 import { useAdminModals } from '../hooks/admin/useAdminModals';
 import {
   ADMIN_TAB_LABELS,
-  ADMIN_TAB_PERMISSIONS,
+  canAccessAdminTab,
   adminSectionUrl,
   firstPermittedAdminTab,
   resolveAdminRoute,
@@ -67,6 +74,7 @@ import { useExamItemActions } from '../hooks/admin/useExamItemActions';
 import { useSchoolStructureActions } from '../hooks/admin/useSchoolStructureActions';
 import { useMajorImportExport } from '../hooks/admin/useMajorImportExport';
 import { useAdminSyncEngine } from '../hooks/admin/useAdminSyncEngine';
+import { nowMs } from '../utils/timeSource';
 
 import MajorTabPanel, { STATUS } from '../components/major/MajorTabPanel';
 import { AdminHeader, AdminMobileNav, SYNC_META } from '../components/admin/AdminChrome';
@@ -153,10 +161,14 @@ export default function AdminPage() {
 
   // ---- 云同步基础状态（多个领域 Hook 都需要写入，故不归属单个 Hook）----
   const [sync, setSync] = useState<SyncState>('loading');
+  const [examScheduleRevision, setExamScheduleRevision] = useState(0);
+  const handleExamScheduleChanged = useCallback((phase: 'local' | 'saved') => {
+    if (phase === 'saved') setExamScheduleRevision((value) => value + 1);
+  }, []);
   const [cloudReadConfirmed, setCloudReadConfirmed] = useState(false);
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(null);
-  const [adminNow, setAdminNow] = useState(() => Date.now());
+  const [adminNow, setAdminNow] = useState(() => nowMs());
   const [publishBusy, setPublishBusy] = useState(false);
   /**
    * 「分考试编辑器」的弹窗开关。编辑器面板本体（MajorTabPanel）与整页兜底
@@ -167,11 +179,13 @@ export default function AdminPage() {
   // 向导第 1 步会把草稿写进库、收起弹窗并直接进编辑器；用这个标记避免重复建草稿，
   // 同时记住这次的填写内容（wizardSnapshotRef），好在右下角提示里点「下一步」回到确认步骤。
   const [wizardDraftCreated, setWizardDraftCreated] = useState(false);
+  // 向导创建后的唯一编辑目标。不能从 selectedGradeId/列表首项反推，否则跨年级创建时会串场。
+  const [wizardTargetMajorId, setWizardTargetMajorId] = useState('');
   /** 第 1 步建出来的那条草稿 id；用户之后在编辑器里切换考试时，提示条仍指向它。 */
   const wizardDraftIdRef = useRef('');
   const wizardSnapshotRef = useRef<NonNullable<MajorModal> | null>(null);
   useEffect(() => {
-    const timer = window.setInterval(() => setAdminNow(Date.now()), 10_000);
+    const timer = window.setInterval(() => setAdminNow(nowMs()), 10_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -328,6 +342,7 @@ export default function AdminPage() {
     saveTimer,
     stateRef,
     setSync,
+    onScheduleChanged: handleExamScheduleChanged,
     editingRef,
     setEditingRef,
   });
@@ -610,6 +625,7 @@ export default function AdminPage() {
     const pending = readPendingWizardDraft();
     if (!pending) return;
     wizardDraftIdRef.current = pending.id;
+    setWizardTargetMajorId(pending.id);
     wizardSnapshotRef.current = { mode: 'add', name: pending.name, targetGradeIds: pending.targetGradeIds };
     setWizardDraftCreated(true);
   }, []);
@@ -640,15 +656,26 @@ export default function AdminPage() {
     if (!majors.length) return;
     if (majors.some((item) => item.id === wizardDraftIdRef.current)) return;
     wizardDraftIdRef.current = '';
+    setWizardTargetMajorId('');
     wizardSnapshotRef.current = null;
     writePendingWizardDraft(null);
     setWizardDraftCreated(false);
   }, [editingMajorId, majors, wizardDraftCreated]);
 
+  const can = (permission: string) => Boolean(adminUser && adminCan(permission, adminUser));
+  const availableExamViews = examCenterViews(can);
+  useEffect(() => {
+    if (!ready || !adminUser || adminTab !== 'exam' || !route.examView) return;
+    if (!availableExamViews.includes(route.examView)) {
+      navigate(adminSectionUrl({ tab: 'exam', view: availableExamViews[0], search: location.search }), {
+        replace: true,
+      });
+    }
+  }, [ready, adminUser, adminTab, route.examView, availableExamViews, navigate, location.search]);
+
   if (!ready || !adminUser)
     return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;
 
-  const can = (permission: string) => adminCan(permission, adminUser);
   const backToAdmin = () => {
     setDeniedModule('');
     navigate('/admin', { replace: true });
@@ -658,7 +685,7 @@ export default function AdminPage() {
    * 不静默改到别的页。强制改密例外：那条路径由 URL 规范化改成「用户与权限」。
    */
   const deniedTab =
-    route.explicit && !adminUser.mustChangePassword && adminTab !== 'users' && !can(ADMIN_TAB_PERMISSIONS[adminTab])
+    route.explicit && !adminUser.mustChangePassword && adminTab !== 'users' && !canAccessAdminTab(adminTab, can)
       ? adminTab
       : null;
   const deniedLabel = deniedModule || (deniedTab ? ADMIN_TAB_LABELS[deniedTab] : '');
@@ -678,13 +705,23 @@ export default function AdminPage() {
   const canDeleteActiveMajor =
     can('major.delete') || (can('major.quick_create') && isOwnQuickTemporaryMajor(activeMajor));
   const canQuickPublish = can('major.create') || can('major.quick_create');
+  const canEditExamRecord = (record: { source: 'regular' | 'quick'; createdBy: number | null }) =>
+    can('major.edit') ||
+    (can('major.quick_create') &&
+      record.source === 'quick' &&
+      record.createdBy != null &&
+      record.createdBy === adminUser?.id);
   // 考试中心的内部板块：前三个是同一份列表的三个口径，weekly/editor 复用现有面板。
-  const availableExamViews = examCenterViews(can);
   const selectExamView = (view: ExamCenterView) => {
     setDeniedModule('');
     navigate(adminSectionUrl({ tab: 'exam', view, search: location.search }));
   };
-  const examViewActive = adminTab === 'exam' ? (examView ?? availableExamViews[0]) : availableExamViews[0];
+  const examViewActive =
+    adminTab === 'exam'
+      ? examView && availableExamViews.includes(examView)
+        ? examView
+        : availableExamViews[0]
+      : availableExamViews[0];
   const examListView: 'current' | 'schedule' | 'history' =
     examViewActive === 'schedule' || examViewActive === 'history' ? examViewActive : 'current';
   // 「创建考试」按类型分流到已有的创建流程：大型考试进编辑器并直接开新建向导。
@@ -698,13 +735,17 @@ export default function AdminPage() {
       return;
     }
     setMajorModal({ mode: 'add', name: '', targetGradeIds: selectedGradeId ? [selectedGradeId] : [] });
+    setWizardTargetMajorId('');
     setWizardDraftCreated(false);
     setMajorModalStep(0);
     setMajorError('');
   };
   // 科目时间 → 考试窗口：启用科目里最早的开始、最晚的结束。大型考试此前从不写窗口，
   // 导致「当前考试」为空、延长也用不了；向导第 3 步补上这个字段。
-  const majorWindow = examWindowFromItems(items);
+  const wizardTargetMajor = wizardTargetMajorId ? majors.find((major) => major.id === wizardTargetMajorId) : undefined;
+  const wizardActiveMajor = wizardTargetMajor ?? activeMajor;
+  const wizardItems = wizardActiveMajor?.items ?? [];
+  const majorWindow = examWindowFromItems(wizardItems);
   const createDraftAndContinue = () => {
     if (majorModal?.mode !== 'add') return;
     if (wizardDraftCreated) {
@@ -716,7 +757,15 @@ export default function AdminPage() {
     // 新一轮向导：先清掉上一次可能留下的 id/挂起记录，等这条草稿落库后再记下它的 id。
     wizardDraftIdRef.current = '';
     writePendingWizardDraft(null);
-    commitMajorModal(() => {});
+    const createdId = commitMajorModal(() => {});
+    if (!createdId) return;
+    setWizardTargetMajorId(createdId);
+    wizardDraftIdRef.current = createdId;
+    writePendingWizardDraft({
+      id: createdId,
+      name: snapshot.name,
+      targetGradeIds: snapshot.targetGradeIds,
+    });
     setWizardDraftCreated(true);
     // 第 3 步（科目与时间）不在向导里编辑：草稿已经落库，收起向导、用编辑器弹窗填科目，
     // 右下角留一条常驻提示；填完点提示里的「下一步」回到向导的「确认」步骤，再保存或发布。
@@ -739,6 +788,7 @@ export default function AdminPage() {
         return { mode: 'add' as const, name: draft.name, targetGradeIds: draft.targetGradeIds ?? [] };
       })();
     if (!snapshot) return;
+    setWizardTargetMajorId(wizardDraftIdRef.current);
     wizardSnapshotRef.current = snapshot;
     setMajorError('');
     setMajorModalStep(3);
@@ -755,12 +805,33 @@ export default function AdminPage() {
     resumeMajorWizard();
   };
   /**
+   * 复制/记录动作走的是记录接口，完成后记录列表会先更新，而后台编辑器使用的 majors 快照
+   * 可能还没收到同一轮云端同步。编辑或删除刚复制的草稿前按需强制读一次，避免把「尚未回灌」
+   * 误报成「考试已丢失」。
+   */
+  const refreshMajorSnapshot = async (): Promise<MajorExam[] | null> => {
+    const remote = await fetchExamsFromServer(undefined, { fresh: true });
+    if (!remote) return null;
+    const nextActiveMajorId = remote.activeMajorId || remote.majors[0]?.id || '';
+    syncMajorStateRef(stateRef, remote.majors, nextActiveMajorId);
+    setMajors(remote.majors);
+    setActiveMajorId(nextActiveMajorId);
+    setEditingMajorId((current) => (remote.majors.some((item) => item.id === current) ? current : nextActiveMajorId));
+    updateExamSettings({ majors: remote.majors, activeMajorId: nextActiveMajorId, updatedAt: remote.updatedAt });
+    return remote.majors;
+  };
+
+  /**
    * 删除一条草稿。入口在考试安排的草稿行与草稿详情抽屉里——以前只有「关向导时空草稿丢弃」
    * 这一条删除路径，草稿一旦留下就只能发布或一直躺着（dev 上积的那几条就是这么来的）。
    * 删除只动快照里的这场考试并推送，教室端不受影响（草稿还没发布）。
    */
   const discardExamDraft = async (record: ExamRecordListEntry): Promise<boolean> => {
-    const draft = majors.find((item) => item.id === record.id);
+    let draft = majors.find((item) => item.id === record.id);
+    if (!draft) {
+      const refreshed = await refreshMajorSnapshot();
+      draft = refreshed?.find((item) => item.id === record.id);
+    }
     if (!draft) {
       notify('warning', `「${record.name || record.id}」已不在本地考试数据里，刷新列表后再试。`, '找不到这场草稿');
       return false;
@@ -860,11 +931,19 @@ export default function AdminPage() {
    * 有科目的草稿不打扰用户，照旧保留。
    */
   const closeMajorWizard = () => {
-    const draft = activeMajor;
-    const isBlankDraft = wizardDraftCreated && Boolean(draft?.id) && items.length === 0;
+    // 编辑器里的「设置」复用这个弹窗，但它只是重命名设置，不是新建向导。
+    // 关闭设置应回到当前分考试编辑器，不能把正在编辑的考试当成空草稿追问。
+    if (majorModal?.mode !== 'add') {
+      setMajorModal(null);
+      setMajorError('');
+      return;
+    }
+    const draft = wizardActiveMajor;
+    const isBlankDraft = wizardDraftCreated && Boolean(draft?.id) && wizardItems.length === 0;
     const reset = () => {
       setMajorModal(null);
       setWizardDraftCreated(false);
+      setWizardTargetMajorId('');
       wizardDraftIdRef.current = '';
       wizardSnapshotRef.current = null;
       writePendingWizardDraft(null);
@@ -889,13 +968,26 @@ export default function AdminPage() {
   // 详情抽屉的「编辑考试」：先定位到那一场（必要时把年级切过去），再进编辑器。
   // 编辑器展示的是「当前年级范围内按 editingMajorId 命中的那一场」，少了定位这一步，
   // 用户点开的就是当前范围的第一场——也就是巡检里反馈过的「这根本不是我点的那场考试」。
-  const openExamRecordEditor = (recordId: string, recordName = '') => {
-    const target = resolveExamEditTarget({
-      majors,
+  const openExamRecordEditor = async (recordId: string, recordName = '') => {
+    let editMajors = majors;
+    let target = resolveExamEditTarget({
+      majors: editMajors,
       recordId,
       currentGradeId: selectedGradeId,
       classes: visibleClasses,
     });
+    if (!target) {
+      const refreshed = await refreshMajorSnapshot();
+      if (refreshed) {
+        editMajors = refreshed;
+        target = resolveExamEditTarget({
+          majors: editMajors,
+          recordId,
+          currentGradeId: selectedGradeId,
+          classes: visibleClasses,
+        });
+      }
+    }
     if (!target) {
       notify(
         'warning',
@@ -904,7 +996,7 @@ export default function AdminPage() {
       );
       return;
     }
-    if (target.gradeId) changeSelectedGrade(target.gradeId);
+    if (target.gradeId && !changeSelectedGrade(target.gradeId)) return;
     setEditingMajorId(target.majorId);
     // 已经在编辑器整页（深链打开）时就地切换那一场；其余场景叠弹窗，关掉即回到原视图，
     // 筛选与滚动位置都不会丢——以前这里会换页，回来要重新找。
@@ -913,11 +1005,13 @@ export default function AdminPage() {
   // 「当前考试」态势页只带得过来考试 id 与名称，复用同一套定位逻辑，避免两处各写一份。
   const editExamFromCurrent = (majorId: string, examName: string) => openExamRecordEditor(majorId, examName);
   const finishMajorWizard = async (publish: boolean) => {
-    if (!activeMajor?.id) return;
+    const targetMajor = wizardActiveMajor;
+    if (!targetMajor?.id) return;
     setMajorError('');
     if (!publish) {
       setMajorModal(null);
       setWizardDraftCreated(false);
+      setWizardTargetMajorId('');
       wizardDraftIdRef.current = '';
       wizardSnapshotRef.current = null;
       writePendingWizardDraft(null);
@@ -936,16 +1030,17 @@ export default function AdminPage() {
     setPublishBusy(true);
     try {
       const next = majors.map((major) =>
-        major.id === activeMajor.id ? { ...major, startAt: majorWindow.start, endAt: majorWindow.end } : major,
+        major.id === targetMajor.id ? { ...major, startAt: majorWindow.start, endAt: majorWindow.end } : major,
       );
       // 先把考试窗口写进快照（服务端据此推导 start_at/end_at），再发布，避免竞态。
-      commit(next, activeMajor.id, false, '更新考试窗口');
-      await pushToServer(next, activeMajor.id, '更新考试窗口');
-      await runExamRecordAction({ id: activeMajor.id, action: 'publish' });
-      notify('success', `「${activeMajor.name}」已发布，教室大屏将在下一次同步时收到安排。`, '考试已发布');
-      const todayEnd = new Date(`${getShanghaiDateKey(Date.now())}T23:59:59+08:00`).getTime();
+      commit(next, targetMajor.id, false, '更新考试窗口');
+      await pushToServer(next, targetMajor.id, '更新考试窗口');
+      await runExamRecordAction({ id: targetMajor.id, action: 'publish' });
+      notify('success', `「${targetMajor.name}」已发布，教室大屏将在下一次同步时收到安排。`, '考试已发布');
+      const todayEnd = new Date(`${getShanghaiDateKey(nowMs())}T23:59:59+08:00`).getTime();
       setMajorModal(null);
       setWizardDraftCreated(false);
+      setWizardTargetMajorId('');
       wizardDraftIdRef.current = '';
       wizardSnapshotRef.current = null;
       writePendingWizardDraft(null);
@@ -985,7 +1080,9 @@ export default function AdminPage() {
     draftCreated: wizardDraftCreated,
     draftId: wizardDraftId,
     draftExists: Boolean(wizardDraft),
-    modalOpen: Boolean(majorModal),
+    // 左侧“设置”打开的是重命名弹窗，不应隐藏创建流程的回程入口。
+    // 只有创建向导本身打开时才让提示条让位，避免用户无法继续到确认步骤。
+    modalOpen: majorModal?.mode === 'add',
     tabIsExam: adminTab === 'exam',
   });
   /**
@@ -1065,6 +1162,9 @@ export default function AdminPage() {
       setDeleteTarget={setDeleteTarget}
     />
   );
+  // 向导创建草稿后，编辑器可能在年级切换状态提交前先渲染一帧；标题直接取向导目标，
+  // 避免这一帧把用户误导成正在编辑原年级的考试。保存归属仍由 editingMajorId 锁定。
+  const editorTitleMajor = wizardDraftCreated && wizardTargetMajor ? wizardTargetMajor : activeMajor;
 
   return (
     <div className="admin-page">
@@ -1228,9 +1328,14 @@ export default function AdminPage() {
                   weeklyPlanIdByClassId={activeWeeklyPlanIdByClassId}
                   onOpenWeeklyEditor={can('weekly.read') ? () => selectExamView('weekly') : undefined}
                   onEditRecord={
-                    can('major.edit') ? (record) => openExamRecordEditor(record.id, record.name) : undefined
+                    canEditExamRecord({ source: 'quick', createdBy: adminUser?.id ?? null })
+                      ? (record) =>
+                          canEditExamRecord(record) ? openExamRecordEditor(record.id, record.name) : undefined
+                      : undefined
                   }
+                  canEditRecord={canEditExamRecord}
                   onDeleteDraft={can('major.delete') ? discardExamDraft : undefined}
+                  scheduleRevision={examScheduleRevision}
                   // 「考试安排」日程轴：本地快照 + 周测规则，用来展开场次、抑制冲突、列出科目。
                   majors={visibleMajors}
                   scheduleMode={scheduleMode}
@@ -1325,7 +1430,7 @@ export default function AdminPage() {
       */}
       {editorModalOpen && examViewActive !== 'editor' && (
         <MajorEditorModal
-          title={`编辑考试 · ${activeMajor?.name || '未命名考试'}`}
+          title={`编辑考试 · ${editorTitleMajor?.name || '未命名考试'}`}
           hint="科目与时间改完直接关闭即可，修改会自动保存并同步到云"
           nestedModalOpen={editorNestedModalOpen}
           onClose={() => setEditorModalOpen(false)}
@@ -1346,7 +1451,7 @@ export default function AdminPage() {
           backdropProps={backdropProps}
           commitMajorModal={commitMajorModal}
           setImportOpen={setImportOpen}
-          items={items}
+          items={wizardItems}
           windowStart={majorWindow.start}
           windowEnd={majorWindow.end}
           canManageItems={can('major.edit')}
@@ -1358,7 +1463,7 @@ export default function AdminPage() {
           publishBusy={publishBusy}
           onFinish={(publish) => void finishMajorWizard(publish)}
           onClose={closeMajorWizard}
-          recordId={activeMajor?.id}
+          recordId={wizardActiveMajor?.id}
         />
       )}
       {quickMajorOpen && (

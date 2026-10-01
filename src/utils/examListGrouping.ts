@@ -62,11 +62,18 @@ export function groupHistoryEntries<T extends { endedAt: number | null; actualEn
   entries: T[],
 ): Array<{ key: string; label: string; items: T[] }> {
   const groups: Array<{ key: string; label: string; items: T[] }> = [];
+  const groupsByKey = new Map<string, (typeof groups)[number]>();
   for (const entry of entries) {
     const label = monthLabelOf(entry.actualEndAt ?? entry.endedAt) || '未记录时间';
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(entry);
-    else groups.push({ key: label, label, items: [entry] });
+    // 不能只比较上一个分组：接口排序按结束时间，但历史数据可能混有
+    // 不同时间来源（实际结束时间 / 状态结束时间），同月记录因此不一定相邻。
+    const existing = groupsByKey.get(label);
+    if (existing) existing.items.push(entry);
+    else {
+      const group = { key: label, label, items: [entry] };
+      groups.push(group);
+      groupsByKey.set(label, group);
+    }
   }
   return groups;
 }

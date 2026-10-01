@@ -7,6 +7,7 @@ export default function SettingsCollapsibleCard({
   icon,
   badge,
   danger = false,
+  defaultOpen = false,
   children,
 }: {
   storageKey: string;
@@ -14,15 +15,31 @@ export default function SettingsCollapsibleCard({
   icon?: ReactNode;
   badge?: string;
   danger?: boolean;
+  /** 存储里没有用户偏好时的初始展开状态；数据到达后才确定时可配合自动展开。 */
+  defaultOpen?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(() => {
     try {
-      return localStorage.getItem(storageKey) === '1';
+      const stored = localStorage.getItem(storageKey);
+      if (stored === '1') return true;
+      if (stored === '0') return false;
     } catch {
-      return false;
+      /* 忽略存储异常 */
     }
+    return defaultOpen;
   });
+  // 需要「首次进入就展开」的场景（例如平台凭据尚未配置）时，展开条件要等数据加载后才成立，
+  // 因此这里补一次自动展开；用户手动收起过（存了 '0'）就不再打扰。
+  useEffect(() => {
+    if (!defaultOpen) return;
+    try {
+      if (localStorage.getItem(storageKey) === '0') return;
+    } catch {
+      /* 忽略存储异常 */
+    }
+    setOpen(true);
+  }, [defaultOpen, storageKey]);
   useEffect(() => {
     try {
       localStorage.setItem(storageKey, open ? '1' : '0');

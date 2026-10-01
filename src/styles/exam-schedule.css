@@ -45,6 +45,28 @@
   display: grid;
   gap: 2px;
 }
+.exam-schedule__conflict-banner li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+}
+.exam-schedule__conflict-banner li strong {
+  color: var(--adm-text, #eaf2f8);
+  font-weight: 600;
+}
+.exam-schedule__conflict-date {
+  font-variant-numeric: tabular-nums;
+}
+.exam-schedule__conflict-status {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid rgba(224, 96, 96, 0.48);
+  border-radius: 999px;
+  color: #f0a5a5;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 .exam-schedule__stats {
   display: flex;
@@ -203,6 +225,9 @@
   color: #f0a5a5;
   font-size: 11px;
 }
+.exam-schedule__main > .exam-schedule__conflict-status {
+  align-self: center;
+}
 .exam-schedule__suppressed-flag {
   flex: none;
   padding: 1px 7px;
@@ -235,18 +260,61 @@
   background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
   color: #9fd0f2;
 }
+.exam-schedule__status.is-paused,
+.exam-grid__chip.is-paused {
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+}
 .exam-schedule__status.is-suppressed,
+.exam-schedule__status.is-archived,
 .exam-schedule__status.is-ended {
   color: var(--adm-text-3, #879caf);
 }
 .exam-schedule__status.is-suppressed {
   border-style: dashed;
 }
+.exam-schedule__status.is-archived {
+  border-style: dashed;
+  opacity: 0.86;
+}
 .exam-schedule__subjects-count {
   flex: none;
   color: var(--adm-text-3, #879caf);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+.exam-schedule__detail-status,
+.exam-grid__detail-status {
+  width: fit-content;
+  padding: 2px 7px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 999px;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.exam-schedule__detail-status.is-ongoing,
+.exam-grid__detail-status.is-ongoing {
+  border-color: rgba(59, 143, 208, 0.5);
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
+  color: #9fd0f2;
+}
+.exam-schedule__detail-status.is-paused,
+.exam-grid__detail-status.is-paused {
+  border-color: rgba(230, 162, 60, 0.5);
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+}
+.exam-schedule__detail-status.is-suppressed,
+.exam-grid__detail-status.is-suppressed {
+  border-style: dashed;
+}
+.exam-schedule__detail-status.is-archived,
+.exam-grid__detail-status.is-archived {
+  border-style: dashed;
+  color: var(--adm-text-3, #879caf);
+  opacity: 0.86;
 }
 
 /* 未排期分组内的小标题：草稿（未发布） / 已发布·待排期。 */
@@ -507,6 +575,11 @@
 .exam-grid__chip.is-suppressed {
   border-style: dashed;
   color: var(--adm-text-3, #879caf);
+}
+.exam-grid__chip.is-archived {
+  border-style: dashed;
+  color: var(--adm-text-3, #879caf);
+  opacity: 0.86;
 }
 .exam-grid__chip.has-conflict {
   border-color: rgba(224, 96, 96, 0.5);

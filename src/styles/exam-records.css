@@ -446,6 +446,11 @@
   outline: 2px solid rgba(59, 143, 208, 0.55);
   outline-offset: 2px;
 }
+.exam-records-search:focus-within {
+  /* 搜索框由容器统一绘制焦点态，避免容器和内部 input 叠出双层边框。 */
+  outline: none;
+  border-color: rgba(89, 184, 241, 0.72);
+}
 .exam-records-search input {
   flex: 1 1 auto;
   width: 100%;
@@ -455,6 +460,9 @@
   background: transparent;
   color: inherit;
   font: inherit;
+}
+.exam-records-search input:focus-visible {
+  outline: none;
 }
 .exam-records-feedback,
 .exam-records-empty {
@@ -579,6 +587,14 @@
 .exam-records-status.is-ongoing {
   background: var(--adm-success-soft, rgba(76, 190, 140, 0.12));
   color: var(--adm-success, #4cbe8c);
+}
+.exam-records-status.is-paused {
+  background: rgba(230, 162, 60, 0.14);
+  color: #e6a23c;
+}
+.exam-records-status__note {
+  margin-left: 5px;
+  font-size: 10px;
 }
 .exam-records-status.is-published {
   background: var(--adm-accent-soft, rgba(59, 143, 208, 0.14));
@@ -1276,6 +1292,24 @@
 @media (max-width: 700px) {
   .exam-records-panel {
     padding: 16px 12px 28px;
+  }
+  .exam-records-panel__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+  .exam-records-panel__header > div:first-child {
+    min-width: 0;
+  }
+  .exam-records-panel__header h2 {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .exam-records-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0;
   }
   .exam-records-panel__header h2 {
     font-size: 21px;

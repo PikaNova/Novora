@@ -1,5 +1,6 @@
 import { getAppSettings, updateTimeSyncSettings } from './appSettings';
 import { logger } from './logger';
+import { monotonicNowMs } from './timeSource';
 
 export type TimeSyncProvider = 'httpDate' | 'timeApi' | 'ntp';
 
@@ -54,7 +55,7 @@ async function measureOnce(opts: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    const t0 = Date.now();
+    const t0 = monotonicNowMs();
     if (opts.provider === 'httpDate') {
       const resp = await fetch(opts.url, {
         method: 'GET',
@@ -63,7 +64,7 @@ async function measureOnce(opts: {
         signal: controller.signal,
       });
       const dateHeader = resp.headers.get('Date');
-      const t1 = Date.now();
+      const t1 = monotonicNowMs();
       if (!dateHeader) throw new Error('Missing Date header');
       const serverEpochMs = Date.parse(dateHeader);
       if (!Number.isFinite(serverEpochMs)) throw new Error('Invalid Date header');
@@ -71,7 +72,7 @@ async function measureOnce(opts: {
       return { offsetMs: Math.round(serverEpochMs - (t0 + t1) / 2), rttMs, serverEpochMs, measuredAt: t1 };
     }
     const body = await fetchJson(opts.url, controller.signal);
-    const t1 = Date.now();
+    const t1 = monotonicNowMs();
     const serverEpochMs = parseTimeApiBody(body);
     const rttMs = Math.max(0, t1 - t0);
     return { offsetMs: Math.round(serverEpochMs - (t0 + t1) / 2), rttMs, serverEpochMs, measuredAt: t1 };
@@ -86,6 +87,7 @@ export function getTimeSyncSettings() {
 
 export async function syncTime(): Promise<TimeSyncRunResult> {
   const s = getTimeSyncSettings();
+  if (s.provider === 'ntp') throw new Error('浏览器无法直连 NTP，请使用时间接口或 HTTP Date');
   const primaryUrl = (s.provider === 'httpDate' ? s.httpDateUrl : s.timeApiUrl).trim();
   if (!primaryUrl) throw new Error('No sync URL configured');
   // Parallel sampling avoids turning three trans-Pacific RTTs into a sequential wait.
@@ -140,7 +142,15 @@ export function startTimeSyncManager(): () => void {
     syncing = true;
     try {
       const r = await syncTime();
-      updateTimeSyncSettings({ offsetMs: r.offsetMs, lastSyncAt: Date.now(), lastRttMs: r.rttMs, lastError: '' });
+      const syncedAt = monotonicNowMs();
+      updateTimeSyncSettings({
+        offsetMs: r.offsetMs,
+        lastSyncAt: Date.now(),
+        lastSyncServerAt: r.serverEpochMs,
+        lastSyncMonotonicMs: syncedAt,
+        lastRttMs: r.rttMs,
+        lastError: '',
+      });
       window.dispatchEvent(new CustomEvent('timeSync:updated'));
       logger.info(`校时成功(${reason}): offset=${r.offsetMs}ms rtt=${r.rttMs}ms`);
     } catch (e: unknown) {
@@ -155,7 +165,10 @@ export function startTimeSyncManager(): () => void {
   };
 
   const onSyncNow = () => void persist('manual');
-  const onReschedule = () => schedule();
+  const onReschedule = () => {
+    schedule();
+    void persist('settings');
+  };
   const onOnline = () => void persist('online');
   const onVisible = () => {
     if (document.visibilityState === 'visible') void persist('visible');

@@ -19,6 +19,12 @@ import { handleTime } from './_system/time.js';
 import { handleUpdateCheck } from './_system/updateCheck.js';
 import { handleRedeploy } from './_system/redeploy.js';
 import { resolveBuildCommit } from './_buildInfo.js';
+import {
+  handlePlatformUsage,
+  handlePlatformUsageConfig,
+  handlePlatformUsageRefresh,
+  handlePlatformUsageWorker,
+} from './_platformUsage/service.js';
 
 let cachedVersion: string | null = null;
 function readVersionFrom(url: URL): string | null {
@@ -48,6 +54,10 @@ const SYSTEM_ROUTES = [
   'time',
   'update-check',
   'redeploy',
+  'platform-usage',
+  'platform-usage-config',
+  'platform-usage-refresh',
+  'platform-usage-worker',
 ] as const;
 
 function sysRoute(req: VercelRequest): string {
@@ -608,6 +618,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return handleUpdateCheck(req, res);
     case 'redeploy':
       return handleRedeploy(req, res);
+    case 'platform-usage':
+      return handlePlatformUsage(req, res);
+    case 'platform-usage-config':
+      return handlePlatformUsageConfig(req, res);
+    case 'platform-usage-refresh':
+      return handlePlatformUsageRefresh(req, res);
+    case 'platform-usage-worker':
+      return handlePlatformUsageWorker(req, res);
     default:
       res.status(404).json({ ok: false, code: 'NOT_FOUND', error: 'Not found' });
   }

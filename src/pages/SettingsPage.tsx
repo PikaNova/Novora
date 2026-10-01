@@ -28,6 +28,7 @@ import SettingsRail, { type SettingsRailGroup } from '../components/settings/Set
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import SettingsCollapsibleCard from '../components/settings/SettingsCollapsibleCard';
 import SystemStatusSection from '../components/settings/SystemStatusSection';
+import PlatformUsageSection from '../components/settings/PlatformUsageSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
 import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School } from 'lucide-react';
 
@@ -209,6 +210,7 @@ export default function SettingsPage() {
                   />
                 ) : null}
                 {canResetDatabase && <SystemStatusSection />}
+                {canResetDatabase && <PlatformUsageSection />}
                 <DiagnosticLogsSection
                   canRead={canReadDiagnostics}
                   canUpload={canUploadDiagnostics}

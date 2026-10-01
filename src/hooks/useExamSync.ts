@@ -52,6 +52,8 @@ export function useExamSync({
   const lastApplied = useRef(0);
   const lastPullAt = useRef(0);
   const pulling = useRef(false);
+  const queuedForceRefresh = useRef(false);
+  const refreshRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
   const staleFirstSyncRetryDone = useRef(false);
   const bootstrapResolved = useRef(false);
   const versionDriven = useRef(false);
@@ -109,8 +111,9 @@ export function useExamSync({
       title: payload.title,
       updatedAt: payload.updatedAt,
     };
-    if (payload.majors && payload.majors.length) updates.majors = payload.majors;
-    if (payload.activeMajorId) updates.activeMajorId = payload.activeMajorId;
+    // 空数组/空 ID 也是权威快照的一部分：结束或删除最后一场考试时，必须覆盖掉本地旧数据。
+    if (payload.majors !== undefined) updates.majors = payload.majors;
+    if (payload.activeMajorId !== undefined) updates.activeMajorId = payload.activeMajorId;
     if (payload.scheduleMode !== undefined) updates.scheduleMode = payload.scheduleMode;
     if (payload.weeklyPlans !== undefined) updates.weeklyPlans = payload.weeklyPlans;
     if (payload.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = payload.activeWeeklyPlanId;
@@ -130,7 +133,11 @@ export function useExamSync({
 
   const refresh = useCallback(
     async (force = false) => {
-      if (pulling.current) return;
+      if (pulling.current) {
+        // 心跳版本通知可能与首次拉取同时到达；把强制刷新排队，避免这次更新被吞掉。
+        if (force) queuedForceRefresh.current = true;
+        return;
+      }
       const pullStartedAt = Date.now();
       if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < minRefreshMs) return;
       applyLocal();
@@ -186,7 +193,7 @@ export function useExamSync({
         }
 
         const bootstrapId = bootstrapResolved.current ? undefined : bootstrapInstanceIdRef.current;
-        const remote = await fetchExamsFromServer(bootstrapId);
+        const remote = await fetchExamsFromServer(bootstrapId, { fresh: force });
         if (bootstrapId && remote) {
           onBootstrapBindingRef.current?.(remote.binding ?? null);
           bootstrapResolved.current = true;
@@ -228,6 +235,12 @@ export function useExamSync({
         setPasswordChangeRequired(false);
       } finally {
         pulling.current = false;
+        if (queuedForceRefresh.current) {
+          queuedForceRefresh.current = false;
+          window.setTimeout(() => {
+            void refreshRef.current?.(true);
+          }, 0);
+        }
       }
     },
     [applyLocal, applyPayload, reportSyncError, minRefreshMs],
@@ -271,7 +284,7 @@ export function useExamSync({
       const version = parseExamVersion((event as CustomEvent<{ version?: unknown }>).detail?.version);
       if (!version) return;
       versionDriven.current = true;
-      if (version !== getCloudVersion()) void refresh(true);
+      if (version > getCloudVersion()) void refresh(true);
     };
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
@@ -292,6 +305,8 @@ export function useExamSync({
       window.removeEventListener(CLOUD_VERSION_EVENT, onCloudVersion);
     };
   }, [intervalMs, refresh, applyLocal]);
+
+  refreshRef.current = refresh;
 
   return {
     refresh,

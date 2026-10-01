@@ -211,17 +211,22 @@ export async function fetchExamRecords(query: ExamRecordListQuery): Promise<Exam
   }
 
   let response: Response;
-  try {
-    // 走统一封装：同一个查询在一屏里被多处分头拉取时只发一次网络请求
-    // （高延迟链路上每条请求都是几百毫秒，合并后等待时间只付一次）。
-    response = await fetchWithTimeout(`/api/exams?${params.toString()}`, {
-      headers: authHeaders(),
-      cache: 'no-store',
-    });
-  } catch {
-    throw networkApiError();
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      // 走统一封装：同一个查询在一屏里被多处分头拉取时只发一次网络请求
+      // （高延迟链路上每条请求都是几百毫秒，合并后等待时间只付一次）。
+      response = await fetchWithTimeout(`/api/exams?${params.toString()}`, {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+    } catch {
+      throw networkApiError();
+    }
+    if (response.ok) break;
+    const error = await apiErrorFromResponse(response, '考试列表读取失败');
+    if (error.code !== 'RATE_LIMITED' || attempt >= RECORD_READ_MAX_ATTEMPTS) throw error;
+    await sleep(readRetryWaitMs(error.retryAfterMs));
   }
-  if (!response.ok) throw await apiErrorFromResponse(response, '考试列表读取失败');
   const payload = (await response.json().catch(() => null)) as {
     ok?: boolean;
     data?: unknown;
@@ -363,6 +368,15 @@ function parseLastOperation(raw: unknown): { action: string; reason: string; at:
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return { 'Content-Type': 'application/json', ...sessionAuthHeaders(extra) };
+}
+
+const RECORD_READ_MAX_ATTEMPTS = 3;
+const RECORD_READ_FALLBACK_WAIT_MS = 900;
+const RECORD_READ_MAX_WAIT_MS = 5_000;
+
+function readRetryWaitMs(retryAfterMs: number | undefined): number {
+  const suggested = retryAfterMs && retryAfterMs > 0 ? retryAfterMs : RECORD_READ_FALLBACK_WAIT_MS;
+  return Math.min(RECORD_READ_MAX_WAIT_MS, suggested);
 }
 
 export type ExamRecordActionRequest = {

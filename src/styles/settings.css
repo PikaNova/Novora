@@ -1613,3 +1613,177 @@ select.set-input {
     transform: none;
   }
 }
+
+/* 2026-10-01 平台额度面板（Vercel / Neon 免费额度，仅超管 + 仅 Vercel 运行时可见） */
+.platform-usage__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+.platform-usage__card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.platform-usage__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.platform-usage__head strong {
+  color: #e9edf2;
+  font-size: 13px;
+}
+.platform-usage__status {
+  color: #8b95a1;
+  font-size: 12px;
+}
+.platform-usage__hint {
+  margin-left: auto;
+  color: #93a0ad;
+  font-size: 12px;
+}
+.platform-usage__metrics {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.platform-usage__metrics li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: #93a0ad;
+}
+.platform-usage__metrics li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.platform-usage__metrics li > b {
+  color: #e9edf2;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.platform-usage__metrics li > .platform-usage__bar {
+  grid-column: 1 / -1;
+}
+.platform-usage__note {
+  display: block;
+  color: #8b95a1;
+  font-size: 11px;
+  font-style: normal;
+}
+.platform-usage__percent {
+  margin-left: 6px;
+  color: #93a0ad;
+  font-size: 12px;
+  font-style: normal;
+}
+.platform-usage__bar {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.platform-usage__bar b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2ecc71;
+  transition: width 0.6s ease;
+}
+.platform-usage__bar.is-warn b {
+  background: #f1c40f;
+}
+.platform-usage__bar.is-err b {
+  background: #e74c3c;
+}
+.platform-usage__bar.is-idle b {
+  background: #8b95a1;
+}
+.platform-usage__wizard {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+.platform-usage__field {
+  display: grid;
+  gap: 4px;
+}
+.platform-usage__hint-text {
+  color: #8b95a1;
+  font-size: 11.5px;
+  font-style: normal;
+}
+.platform-usage__meta {
+  margin-top: 6px;
+}
+.platform-usage__reconfigure {
+  margin-top: 8px;
+}
+.platform-usage__reconfigure > summary {
+  cursor: pointer;
+  color: #93a0ad;
+  font-size: 12px;
+}
+.platform-usage__forecast {
+  grid-column: 1 / -1;
+  color: #8b95a1;
+  font-size: 11.5px;
+  font-style: normal;
+}
+.platform-usage__settings {
+  margin-top: 8px;
+}
+.platform-usage__settings > summary {
+  cursor: pointer;
+  color: #93a0ad;
+  font-size: 12px;
+}
+/* .set-input 自带 min-width: 220px，在窄栏里必须解除，否则整块溢出到卡片外面。 */
+.platform-usage__wizard .set-input {
+  width: 100%;
+  min-width: 0;
+}
+.platform-usage__custom-row {
+  display: grid;
+  /* 名称独占一行，其余两两一排：五个字段横排在这个宽度下必然溢出。 */
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.platform-usage__custom-row > * {
+  min-width: 0;
+}
+.platform-usage__custom-row > :first-child {
+  grid-column: 1 / -1;
+}
+.platform-usage__custom-row > button {
+  grid-column: 2;
+  justify-self: end;
+}
+@media (max-width: 620px) {
+  .platform-usage__grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform-usage__bar b {
+    transition: none;
+  }
+}
