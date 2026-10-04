@@ -8,7 +8,7 @@ import test from 'node:test';
  * 日期 / 时间控件统一性（P2）。
  *
  * 背景：项目里已经有一套统一控件（`src/components/touch-datetime-picker` 的 `DateTimeField`），
- * AGENTS.md 也写明了用法。但「考试安排 → 日程轴 → 临时调整这次周测」曾经用的是原生
+ * 项目约定也写明了用法。但「考试安排 → 日程轴 → 临时调整这次周测」曾经用的是原生
  * `<input type="date">` / `<input type="time">`，`TimeRangePickerModal` 的日期字段则漏了
  * className、落回 44px 的触屏默认档 —— 同一页里三套外观。这里把口径钉住：
  *

@@ -7,4 +7,3 @@ coverage
 package-lock.json
 *.png
 *.zip
-workspace

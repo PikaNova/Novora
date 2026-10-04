@@ -20,7 +20,6 @@ export default tseslint.config(
       'outputs/**',
       'notion-audit/**',
       'public/**',
-      'workspace/**',
     ],
   },
   js.configs.recommended,

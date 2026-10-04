@@ -30,7 +30,7 @@ const EXPLICIT_FILES = process.argv.slice(2).filter((arg) => !arg.startsWith('--
 const LINTABLE = /\.(ts|tsx|js|cjs|mjs)$/;
 const FORMATTABLE = /\.(ts|tsx|js|cjs|mjs|json|css|md|yml|yaml)$/;
 /** 文档类改动不影响测试选择，但仍参与格式化检查。 */
-const DOC_LIKE = /(^|\/)[^/]*\.md$|^docs\/|^workspace\/|^deliverables\//;
+const DOC_LIKE = /(^|\/)[^/]*\.md$|^docs\/|^deliverables\//;
 /** 改了这些就退回全量：它们改变测试怎么跑，而不是被测代码本身。 */
 const INFRA = [
   /^package(-lock)?\.json$/,
