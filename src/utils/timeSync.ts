@@ -1,6 +1,6 @@
 import { getAppSettings, updateTimeSyncSettings } from './appSettings';
 import { logger } from './logger';
-import { monotonicNowMs } from './timeSource';
+import { monotonicNowMs, calibratedNowMs, hasTimeCalibration, applyTimeCalibration, nowMs } from './timeSource';
 
 export type TimeSyncProvider = 'httpDate' | 'timeApi' | 'ntp';
 
@@ -13,6 +13,28 @@ export interface TimeSyncSampleResult {
 
 export interface TimeSyncRunResult extends TimeSyncSampleResult {
   samples: TimeSyncSampleResult[];
+}
+
+const LEASE_KEY = 'novora_time_sync_lease_v1';
+const LEASE_MS = 45_000;
+const REQUEST_KEY = 'novora_time_sync_request_v1';
+const CALIBRATION_KEY = 'novora_time_calibration_v1';
+const isClassroom = () => location.pathname === '/' || location.pathname === '/exam';
+const instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+function holdsLease(): boolean {
+  try {
+    const now = Date.now();
+    const raw = localStorage.getItem(LEASE_KEY);
+    const current = raw ? (JSON.parse(raw) as { id?: string; expiresAt?: number }) : null;
+    if (current?.id && current.id !== instanceId && Number(current.expiresAt) > now) return false;
+    localStorage.setItem(LEASE_KEY, JSON.stringify({ id: instanceId, expiresAt: now + LEASE_MS }));
+    const confirmed = JSON.parse(localStorage.getItem(LEASE_KEY) || '{}') as { id?: string };
+    return confirmed.id === instanceId;
+  } catch {
+    logger.warn('校时租约不可用: 暂停写入共享校时结果');
+    return false;
+  }
 }
 
 function clampInt(n: number, min: number, max: number): number {
@@ -31,6 +53,7 @@ async function fetchJson(url: string, signal: AbortSignal): Promise<unknown> {
   const resp = await fetch(url, { method: 'GET', cache: 'no-store', credentials: 'omit', signal });
   const text = await resp.text();
   if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+  if (Number(resp.headers.get('Age') || 0) > 0) throw new Error('Cached time response');
   if (!text) throw new Error('Empty response');
   return JSON.parse(text);
 }
@@ -56,13 +79,16 @@ async function measureOnce(opts: {
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
     const t0 = monotonicNowMs();
+    const url = new URL(opts.url, location.href);
+    url.searchParams.set('novoraTimeSync', Math.random().toString(36).slice(2));
     if (opts.provider === 'httpDate') {
-      const resp = await fetch(opts.url, {
+      const resp = await fetch(url.href, {
         method: 'GET',
         cache: 'no-store',
         credentials: 'omit',
         signal: controller.signal,
       });
+      if (!resp.ok || Number(resp.headers.get('Age') || 0) > 0) throw new Error('Cached or failed time response');
       const dateHeader = resp.headers.get('Date');
       const t1 = monotonicNowMs();
       if (!dateHeader) throw new Error('Missing Date header');
@@ -71,9 +97,11 @@ async function measureOnce(opts: {
       const rttMs = Math.max(0, t1 - t0);
       return { offsetMs: Math.round(serverEpochMs - (t0 + t1) / 2), rttMs, serverEpochMs, measuredAt: t1 };
     }
-    const body = await fetchJson(opts.url, controller.signal);
+    const body = await fetchJson(url.href, controller.signal);
     const t1 = monotonicNowMs();
     const serverEpochMs = parseTimeApiBody(body);
+    if (!Number.isFinite(serverEpochMs) || serverEpochMs <= 0 || serverEpochMs > 8.64e15)
+      throw new Error('Invalid server epoch');
     const rttMs = Math.max(0, t1 - t0);
     return { offsetMs: Math.round(serverEpochMs - (t0 + t1) / 2), rttMs, serverEpochMs, measuredAt: t1 };
   } finally {
@@ -100,13 +128,10 @@ export async function syncTime(): Promise<TimeSyncRunResult> {
       .filter((r): r is PromiseFulfilledResult<TimeSyncSampleResult> => r.status === 'fulfilled')
       .map((r) => r.value);
   };
-  let samples = await collect(s.provider, primaryUrl, 3);
-  // Redundant same-origin fallback: when /api/time is unavailable, use Vercel's Date header.
-  if (samples.length === 0 && s.provider === 'timeApi') {
-    const fallbackUrl = s.httpDateUrl.trim() || '/';
-    samples = await collect('httpDate', fallbackUrl, 2);
-  }
-  if (samples.length === 0) throw new Error('All time sources unavailable; keeping last successful offset');
+  const samples = await collect(s.provider, primaryUrl, 3);
+  if (samples.length < 2) throw new Error('Insufficient independent time samples; keeping last reliable clock');
+  const offsets = samples.map((sample) => sample.offsetMs);
+  if (Math.max(...offsets) - Math.min(...offsets) > 2_000) throw new Error('Inconsistent time samples');
   const fastest = [...samples].sort((a, b) => a.rttMs - b.rttMs).slice(0, Math.min(3, samples.length));
   return {
     offsetMs: median(fastest.map((x) => x.offsetMs)),
@@ -135,38 +160,130 @@ export function startTimeSyncManager(): () => void {
     timer = window.setInterval(() => void persist('auto'), ms);
   };
 
-  const persist = async (reason: string) => {
-    if (stopped || syncing) return;
-    const s = getTimeSyncSettings();
-    if (!s.enabled) return;
-    syncing = true;
+  const receiveCalibration = () => {
     try {
-      const r = await syncTime();
-      const syncedAt = monotonicNowMs();
+      const raw = localStorage.getItem(CALIBRATION_KEY);
+      if (!raw) return;
+      const message = JSON.parse(raw) as {
+        epochMs: number;
+        sentAt: number;
+        revision: number;
+        instanceId: string;
+        source: string;
+      };
+      if (message.instanceId === instanceId || !message.source || !message.instanceId) return;
+      const elapsed = Date.now() - message.sentAt;
+      if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > LEASE_MS) return;
+      applyTimeCalibration(message.epochMs + elapsed, message.revision, elapsed);
+      window.dispatchEvent(new CustomEvent('timeSync:updated'));
+    } catch {
+      /* Invalid messages must not change the live clock. */
+    }
+  };
+
+  const perform = async (reason: string) => {
+    if (!isClassroom() || !getTimeSyncSettings().enabled || !holdsLease()) return;
+    const s = getTimeSyncSettings();
+    try {
+      let r = await syncTime();
+      if (hasTimeCalibration() && Math.abs(monotonicNowMs() + r.offsetMs - calibratedNowMs()) > 300_000) {
+        logger.warn(
+          '校时大幅变化: 等待独立确认 ' +
+            JSON.stringify({ instanceId, previous: nowMs(), offsetMs: r.offsetMs, source: s.provider }),
+        );
+        const confirmation = await syncTime();
+        if (Math.abs(confirmation.offsetMs - r.offsetMs) > 2_000)
+          throw new Error('Large clock correction was not confirmed');
+        r = confirmation;
+      }
+      if (stopped || !isClassroom() || !holdsLease()) return;
+      const sentAt = Date.now();
+      const previousRevision = getTimeSyncSettings().calibrationRevision || 0;
+      const revision = Math.max(sentAt, previousRevision + 1);
+      const epochMs = monotonicNowMs() + r.offsetMs;
+      applyTimeCalibration(epochMs, revision);
       updateTimeSyncSettings({
         offsetMs: r.offsetMs,
-        lastSyncAt: Date.now(),
-        lastSyncServerAt: r.serverEpochMs,
-        lastSyncMonotonicMs: syncedAt,
+        lastSyncAt: sentAt,
+        lastSyncServerAt: epochMs,
+        calibrationRevision: revision,
+        calibrationSource: s.provider,
+        calibrationInstanceId: instanceId,
         lastRttMs: r.rttMs,
         lastError: '',
       });
+      localStorage.setItem(
+        CALIBRATION_KEY,
+        JSON.stringify({ epochMs, sentAt, revision, instanceId, source: s.provider }),
+      );
       window.dispatchEvent(new CustomEvent('timeSync:updated'));
-      logger.info(`校时成功(${reason}): offset=${r.offsetMs}ms rtt=${r.rttMs}ms`);
+      logger.info(
+        '校时成功(' +
+          reason +
+          '): ' +
+          JSON.stringify({
+            instanceId,
+            page: location.pathname,
+            source: s.provider,
+            epochMs,
+            offsetMs: r.offsetMs,
+            rttMs: r.rttMs,
+            revision,
+          }),
+      );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      // Preserve lastSyncAt and offsetMs after a failed attempt: the monotonic local clock keeps running on the last good calibration.
+      if (stopped || !isClassroom() || !holdsLease()) return;
       updateTimeSyncSettings({ lastError: msg });
       window.dispatchEvent(new CustomEvent('timeSync:updated'));
-      logger.warn(`校时失败(${reason}): ${msg}`);
+      logger.warn('校时失败(' + reason + '): 保留可靠时间; ' + msg);
+    }
+  };
+
+  const persist = async (reason: string) => {
+    if (stopped || syncing || !getTimeSyncSettings().enabled) return;
+    if (!isClassroom()) return;
+    syncing = true;
+    try {
+      // Web Locks serializes lease acquisition and in-flight writes across tabs.
+      if (navigator.locks) {
+        await navigator.locks.request('novora-time-sync', { ifAvailable: true }, async (lock) => {
+          if (lock) await perform(reason);
+        });
+      } else {
+        await perform(reason);
+      }
     } finally {
       syncing = false;
     }
   };
 
-  const onSyncNow = () => void persist('manual');
+  const onSyncNow = () => {
+    localStorage.setItem(REQUEST_KEY, instanceId + ':' + Date.now());
+    void persist('manual');
+  };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === CALIBRATION_KEY) receiveCalibration();
+    if (event.key === REQUEST_KEY) void persist('requested');
+  };
+  window.addEventListener('storage', onStorage);
+  // Renew only from a classroom page; a newly opened classroom can take over
+  // when the previous owner is closed, navigates to administration or sleeps.
+  const leaseTimer = window.setInterval(() => {
+    if (!isClassroom() || !getTimeSyncSettings().enabled) return;
+    try {
+      const lease = JSON.parse(localStorage.getItem(LEASE_KEY) || '{}') as { id?: string; expiresAt?: number };
+      if (lease.id === instanceId && Number(lease.expiresAt) > Date.now()) holdsLease();
+      else if (!lease.id || Number(lease.expiresAt) <= Date.now()) void persist('takeover');
+    } catch {
+      void persist('takeover');
+    }
+  }, 10_000);
+  receiveCalibration();
+
   const onReschedule = () => {
     schedule();
+    localStorage.setItem(REQUEST_KEY, instanceId + ':' + Date.now());
     void persist('settings');
   };
   const onOnline = () => void persist('online');
@@ -189,6 +306,14 @@ export function startTimeSyncManager(): () => void {
     }
     window.removeEventListener('timeSync:syncNow', onSyncNow as EventListener);
     window.removeEventListener('timeSync:reschedule', onReschedule as EventListener);
+    window.clearInterval(leaseTimer);
+    window.removeEventListener('storage', onStorage);
+    try {
+      const lease = JSON.parse(localStorage.getItem(LEASE_KEY) || '{}') as { id?: string };
+      if (lease.id === instanceId) localStorage.removeItem(LEASE_KEY);
+    } catch {
+      /* Best effort lease release. */
+    }
     window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisible);
     managerStop = null;

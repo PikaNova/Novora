@@ -15,8 +15,10 @@ export interface TimeSyncSettings {
   lastSyncAt: number;
   /** 最近一次成功校时对应的服务端时间，用于跨设备时钟异常时展示可靠时间。 */
   lastSyncServerAt?: number;
-  /** 最近一次成功校时对应的会话单调时钟读数。 */
-  lastSyncMonotonicMs?: number;
+  /** 跨窗口可比较的校时版本与来源。 */
+  calibrationRevision?: number;
+  calibrationSource?: string;
+  calibrationInstanceId?: string;
   lastRttMs?: number;
   lastError?: string;
 }

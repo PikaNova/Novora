@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExamItem, AlertState, AlertsSettings, AlertStateConfig } from '../types';
 import type { ExamNotification, NotifyPhase } from './useExamNotify';
-import { nowMs, parseZonedTime, getZonedParts, DISPLAY_TIME_ZONE } from '../utils/timeSource';
+import { subscribeClock, nowMs, parseZonedTime, getZonedParts, DISPLAY_TIME_ZONE } from '../utils/timeSource';
 
 /** 浮层当前展示项。 */
 export interface AlertOverlayItem {
@@ -225,8 +225,8 @@ export function useAlertOverlay(input: DriverInput): AlertOverlayItem | null {
       }
     };
     scan();
-    const id = setInterval(scan, 1000);
-    return () => clearInterval(id);
+    const id = subscribeClock(scan);
+    return () => id();
   }, [settings.enabled, settings.custom, buildContext, enqueue]);
 
   // 总开关关闭时立即清空

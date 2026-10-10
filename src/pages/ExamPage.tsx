@@ -6,6 +6,7 @@ import { getResolvedExamItems } from '../utils/appSchedule';
 import { examSyncIntervalMs } from '../utils/examPolling';
 import {
   nowMs,
+  subscribeClock,
   monotonicNowMs,
   formatClockInZone,
   getZonedParts,
@@ -277,7 +278,6 @@ function BoundExamPage() {
   const [schoolAnnouncementHistory, setSchoolAnnouncementHistory] = useState<SchoolExamAnnouncement[]>([]);
   const [schoolHistoryLoading, setSchoolHistoryLoading] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const examSyncInterval = useMemo(() => examSyncIntervalMs(items, nowMs()), [items]);
 
   // 数据链接：考试前端保持快速同步，后台切换分科模式后无需手动刷新。
@@ -475,10 +475,7 @@ function BoundExamPage() {
   const tick = useCallback(() => setNow(nowMs()), []);
   useEffect(() => {
     tick();
-    timerRef.current = setInterval(tick, 500);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return subscribeClock(tick);
   }, [tick]);
 
   // 状态胶囊反映当下真实网络状态：监听 online/offline，断网立即变“离线”。

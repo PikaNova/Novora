@@ -363,6 +363,8 @@ export function getAppSettings(): AppSettings {
     const raw = localStorage.getItem(APP_SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
+    // Old page-relative anchors have no meaning in a new page session.
+    if (parsed.general?.timeSync) delete parsed.general.timeSync.lastSyncMonotonicMs;
     const settings = {
       ...DEFAULT_SETTINGS,
       ...parsed,

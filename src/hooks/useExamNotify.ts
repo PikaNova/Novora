@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ExamItem } from '../types';
-import { nowMs, parseZonedTime } from '../utils/timeSource';
+import { subscribeClock, nowMs, parseZonedTime } from '../utils/timeSource';
 
 export type NotifyPhase = 'before15' | 'before5' | 'started' | 'ending15' | 'ended';
 export type NotifyLevel = 'info' | 'warning' | 'critical' | 'success';
@@ -127,9 +127,9 @@ export function useExamNotify(exam: ExamItem | null) {
       }
     };
     check();
-    const id = setInterval(check, 1000);
+    const id = subscribeClock(check);
     return () => {
-      clearInterval(id);
+      id();
       if (timer.current) {
         clearTimeout(timer.current);
         timer.current = null;

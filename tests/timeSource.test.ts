@@ -24,35 +24,55 @@ class MemoryStorage {
 
 (globalThis as unknown as { localStorage: Storage }).localStorage = new MemoryStorage() as unknown as Storage;
 
-const { getAppSettings, updateTimeSyncSettings } = await import('../src/utils/appSettings.js');
-const { isTimeSyncReady, monotonicNowMs, nowMs } = await import('../src/utils/timeSource.js');
+const { updateTimeSyncSettings } = await import('../src/utils/appSettings.js');
+const originalNow = Date.now;
+let wall = Date.parse('2026-10-10T09:00:00+08:00');
+Date.now = () => wall;
+const { isTimeSyncReady, monotonicNowMs, nowMs, applyTimeCalibration } = await import('../src/utils/timeSource.js');
+let revision = 1;
 
-test('nowMs uses the monotonic session clock plus a fresh network offset', () => {
+test('server calibration corrects a three-hour device error', () => {
   localStorage.removeItem(APP_SETTINGS_KEY);
-  const before = monotonicNowMs();
-  updateTimeSyncSettings({
-    enabled: true,
-    offsetMs: 120_000,
-    lastSyncAt: Date.now(),
-    lastSyncServerAt: before + 120_000,
-    lastSyncMonotonicMs: before,
-  });
-
-  const corrected = nowMs();
-  assert.ok(corrected - monotonicNowMs() > 119_000);
+  updateTimeSyncSettings({ enabled: true, lastSyncAt: 0 });
+  const base = monotonicNowMs();
+  applyTimeCalibration(base + 10_800_000, revision++);
+  assert.ok(Math.abs(nowMs() - monotonicNowMs() - 10_800_000) < 20);
   assert.equal(isTimeSyncReady(), true);
 });
 
-test('expired monotonic calibration is rejected instead of silently showing green', () => {
-  const stale = monotonicNowMs() - 3 * 60 * 60 * 1000;
+test('expired calibration changes status without reverting by three hours', () => {
+  applyTimeCalibration(monotonicNowMs() + 10_800_000, revision++, 3_600_000);
+  assert.equal(isTimeSyncReady(), false);
+  assert.ok(Math.abs(nowMs() - monotonicNowMs() - 10_800_000) < 20);
+});
+
+test('another window shared offset cannot overwrite the page clock', () => {
   updateTimeSyncSettings({
     enabled: true,
-    offsetMs: 120_000,
-    lastSyncAt: Date.now(),
-    lastSyncMonotonicMs: stale,
+    offsetMs: 0,
+    lastSyncAt: wall + 10_800_000,
+    lastSyncServerAt: wall + 10_800_000,
   });
+  assert.ok(Math.abs(nowMs() - monotonicNowMs() - 10_800_000) < 20);
+});
 
-  assert.equal(isTimeSyncReady(), false);
-  assert.ok(Math.abs(nowMs() - monotonicNowMs()) < 2_000);
-  assert.equal(getAppSettings().general.timeSync.lastSyncMonotonicMs, stale);
+test('system time corrections do not alter an anchored clock or freshness', () => {
+  applyTimeCalibration(monotonicNowMs() + 10_800_000, revision++);
+  const before = nowMs();
+  wall += 10_800_000;
+  assert.ok(Math.abs(nowMs() - before) < 20);
+  assert.equal(isTimeSyncReady(), true);
+});
+
+test('out-of-order cross-window calibration is ignored', () => {
+  const before = nowMs();
+  applyTimeCalibration(monotonicNowMs(), 1);
+  assert.ok(Math.abs(nowMs() - before) < 20);
+});
+
+test('manual correction remains explicit and is not lost during outages', () => {
+  updateTimeSyncSettings({ manualOffsetMs: 60_000, lastError: 'offline' });
+  assert.ok(Math.abs(nowMs() - monotonicNowMs() - 10_860_000) < 20);
+  updateTimeSyncSettings({ manualOffsetMs: 0 });
+  Date.now = originalNow;
 });
