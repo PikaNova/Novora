@@ -380,7 +380,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   const storedPayload = currentPayload ?? examPayload({});
   const currentWeekly = Array.isArray(storedPayload.weeklyPlans) ? storedPayload.weeklyPlans : [];
   const nextWeekly = Array.isArray(weeklyPlans) ? weeklyPlans : currentWeekly;
-  const currentWeeklyIds = new Set(currentWeekly.map((item) => String((item as Record<string, unknown>)?.id ?? '')));
+  const currentWeeklyIds = new Set(currentWeekly.map((item) => String(item.id ?? '')));
   const addedWeekly = nextWeekly.filter(
     (item) => !currentWeeklyIds.has(String((item as Record<string, unknown>)?.id ?? '')),
   );
@@ -388,7 +388,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     ? majors.some((raw) => {
         const item = raw as Record<string, unknown>;
         const id = String(item?.id ?? '');
-        const existed = (storedPayload.majors ?? []).some((old) => String((old as Record<string, unknown>)?.id ?? '') === id);
+        const existed = storedPayload.majors.some((old) => String(old.id ?? '') === id);
         return !existed && (item.source === 'quick' || item.temporary === true);
       })
     : false;
