@@ -1,0 +1,219 @@
+.runtime-dashboard {
+  min-width: 0;
+}
+.runtime-header,
+.runtime-detail header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.runtime-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.runtime-header p {
+  color: var(--text-muted, #888);
+  font-size: 13px;
+}
+.runtime-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.runtime-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.runtime-cards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+.runtime-cards > div,
+.runtime-cards > button {
+  background: var(--set-surface, rgba(127, 127, 127, 0.07));
+  border: 1px solid rgba(127, 127, 127, 0.18);
+  border-radius: 14px;
+  padding: 18px;
+  text-align: left;
+  color: inherit;
+}
+.runtime-cards span,
+.runtime-cards strong,
+.runtime-cards small {
+  display: block;
+}
+.runtime-cards span {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.runtime-cards strong {
+  font-size: 24px;
+  margin: 10px 0;
+}
+.runtime-cards small {
+  font-size: 11px;
+  opacity: 0.65;
+}
+.runtime-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: end;
+  padding: 16px 0;
+  border-block: 1px solid rgba(127, 127, 127, 0.15);
+}
+.runtime-filters label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  min-width: 140px;
+  flex: 1;
+}
+.runtime-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 20px 0;
+}
+.runtime-overview > section,
+.runtime-detail {
+  padding: 18px;
+  border: 1px solid rgba(127, 127, 127, 0.18);
+  border-radius: 12px;
+  min-width: 0;
+}
+.runtime-trend {
+  display: flex;
+  gap: 4px;
+  height: 130px;
+  align-items: end;
+  overflow-x: auto;
+}
+.runtime-trend > div {
+  height: 100%;
+  min-width: 18px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  align-items: center;
+}
+.runtime-trend i {
+  display: block;
+  width: 100%;
+  background: #647ceb;
+  border-radius: 4px 4px 0 0;
+}
+.runtime-trend small {
+  font-size: 10px;
+  opacity: 0.7;
+}
+.runtime-issue {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.15);
+  width: 100%;
+  color: inherit;
+  padding: 10px 0;
+  gap: 5px;
+  cursor: pointer;
+}
+.runtime-issue span {
+  font-size: 13px;
+}
+.runtime-issue small {
+  opacity: 0.65;
+}
+.runtime-table-wrap {
+  overflow: auto;
+}
+.runtime-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.runtime-table th {
+  font-weight: 600;
+  color: var(--text-muted, #888);
+  padding: 12px 10px;
+  white-space: nowrap;
+}
+.runtime-table td {
+  padding: 12px 10px;
+  border-top: 1px solid rgba(127, 127, 127, 0.14);
+  max-width: 350px;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.runtime-table small {
+  display: block;
+  opacity: 0.6;
+  margin-top: 6px;
+}
+.runtime-event-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #8095ff;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.runtime-level {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(127, 127, 127, 0.1);
+}
+.runtime-level.is-error {
+  color: #ff7474;
+  background: rgba(255, 80, 80, 0.12);
+}
+.runtime-level.is-warn {
+  color: #dc9e33;
+  background: rgba(220, 158, 51, 0.12);
+}
+.runtime-detail {
+  margin: 20px 0;
+}
+.runtime-detail pre {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.runtime-detail p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1000px) {
+  .runtime-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .runtime-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .runtime-overview {
+    grid-template-columns: 1fr;
+  }
+  .runtime-filters label {
+    min-width: 100%;
+  }
+  .runtime-header {
+    align-items: start;
+  }
+}

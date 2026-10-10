@@ -27,7 +27,8 @@ import DataMaintenanceSection from '../components/settings/DataMaintenanceSectio
 import SettingsRail, { type SettingsRailGroup } from '../components/settings/SettingsRail';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import SettingsCollapsibleCard from '../components/settings/SettingsCollapsibleCard';
-import SystemStatusSection from '../components/settings/SystemStatusSection';
+import RuntimeDashboard from '../components/settings/RuntimeDashboard';
+import { hasAllScope } from '../shared/permissionRules';
 import PlatformUsageSection from '../components/settings/PlatformUsageSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
 import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School } from 'lucide-react';
@@ -87,6 +88,8 @@ export default function SettingsPage() {
   const canEditSchool = adminUser ? adminCan('initialization.run', adminUser) : !hasValidLocalToken();
   const canResetDatabase = adminUser ? adminUser.permissions.includes('*') : !hasValidLocalToken();
   const canReadDiagnostics = adminUser ? adminCan('diagnostics.read', adminUser) : !hasValidLocalToken();
+  const canReadRuntime = !!adminUser && canReadDiagnostics && hasAllScope(adminUser);
+  const canExportRuntime = !!adminUser && adminCan('diagnostics.download', adminUser);
   const canUploadDiagnostics = adminUser ? adminCan('diagnostics.upload', adminUser) : !hasValidLocalToken();
   const canEditDiagnostics = adminUser ? adminCan('diagnostics.settings', adminUser) : !hasValidLocalToken();
   const hasAnyEditable =
@@ -201,6 +204,14 @@ export default function SettingsPage() {
             <section id="set-group-runtime" className="set-group" data-group="runtime">
               <h2 className="set-group__title">运行与诊断</h2>
               <div className="set-group__body">
+                {canReadRuntime && (
+                  <RuntimeDashboard
+                    canCollect={canUploadDiagnostics}
+                    canApprove={canEditDiagnostics}
+                    canExport={canExportRuntime}
+                    canSystem={canResetDatabase}
+                  />
+                )}
                 {canEditSettings && <TimeSyncSection canEditSettings={canEditSettings} />}
                 {canEditAlerts ? (
                   <AlertsAdvancedSection
@@ -209,7 +220,6 @@ export default function SettingsPage() {
                     canEditSettings={canEditSettings}
                   />
                 ) : null}
-                {canResetDatabase && <SystemStatusSection />}
                 {canResetDatabase && <PlatformUsageSection />}
                 <DiagnosticLogsSection
                   canRead={canReadDiagnostics}

@@ -27,6 +27,8 @@
     "serve:build": "tsc -p tsconfig.server.json",
     "start": "node server-build/server/serve.js",
     "serve": "npm run build && npm run serve:build && node server-build/server/serve.js",
+    "windows:stage": "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build.ps1",
+    "windows:package": "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build.ps1",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "update:local": "node scripts/update-local.cjs"

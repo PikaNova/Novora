@@ -1,3 +1,4 @@
+import { journal } from '../utils/runtimeJournal.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExamItem, AlertState, AlertsSettings, AlertStateConfig } from '../types';
 import type { ExamNotification, NotifyPhase } from './useExamNotify';
@@ -147,6 +148,13 @@ export function useAlertOverlay(input: DriverInput): AlertOverlayItem | null {
       if (firedRef.current.has(it.key)) continue;
       firedRef.current.add(it.key);
       queueRef.current.push(it);
+      journal(
+        'notice.overlay_queued',
+        { state: it.state, queueCount: queueRef.current.length },
+        'info',
+        'notice',
+        '提醒浮层入队',
+      );
     }
     // 触发调度：用 pump 计数强制调度器 effect 重跑。
     // 注意：旧写法 setCurrent(c => c) 返回同一引用，React 会 bailout 不重渲染，
@@ -163,6 +171,13 @@ export function useAlertOverlay(input: DriverInput): AlertOverlayItem | null {
     }
     const next = queueRef.current.shift()!;
     setCurrent(next);
+    journal(
+      'notice.overlay_shown',
+      { state: next.state, queueCount: queueRef.current.length },
+      'info',
+      'notice',
+      '提醒浮层开始展示',
+    );
     const base = inputRef.current.settings.durationSec * 1000;
     // start / ended 适当停留更久
     const dur = next.state === 'start' || next.state === 'ended' ? Math.max(base, 10000) : base;
@@ -232,6 +247,13 @@ export function useAlertOverlay(input: DriverInput): AlertOverlayItem | null {
   // 总开关关闭时立即清空
   useEffect(() => {
     if (!settings.enabled && current) {
+      journal(
+        'notice.overlay_cancelled',
+        { state: current.state, reason: 'disabled' },
+        'info',
+        'notice',
+        '提醒关闭，清空浮层',
+      );
       setCurrent(null);
       queueRef.current = [];
     }

@@ -64,6 +64,9 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   // 运维
   'database.reset': '重置数据库数据',
   'deployment.trigger': '触发重新部署',
+  'diagnostics.runtime.approve': '审批设备日志凭证',
+  'diagnostics.runtime.collect': '收集设备运行日志',
+  'diagnostics.runtime.export': '导出学校运行日志',
   'diagnostics.settings.update': '修改诊断日志设置',
   'diagnostics.bundle.send': '上传诊断日志包',
 };

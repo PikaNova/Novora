@@ -27,7 +27,7 @@
   "mode": "error",
   "fromTs": 1710000000000,
   "toTs": 1710000060000,
-  "appVersion": "2.9.0",
+  "appVersion": "2.8.0",
   "commitSha": "abc123",
   "entries": [{ "at": 1710000000100, "level": "error", "message": "sync failed", "source": "sync" }]
 }

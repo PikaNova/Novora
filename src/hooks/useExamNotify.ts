@@ -1,3 +1,5 @@
+import { journal } from '../utils/runtimeJournal.js';
+import { runtimeReference } from '../utils/runtimeDisplayState.js';
 import { useEffect, useRef, useState } from 'react';
 import type { ExamItem } from '../types';
 import { subscribeClock, nowMs, parseZonedTime } from '../utils/timeSource';
@@ -106,10 +108,24 @@ export function useExamNotify(exam: ExamItem | null) {
         if (now < triggerAt) continue;
         if (now - triggerAt > 60000) {
           fired.current.add(key);
+          journal(
+            'notice.reminder_skipped',
+            { phase, reason: 'trigger_expired', targetRef: runtimeReference(currentExam.id) },
+            'info',
+            'notice',
+            '提醒时间窗已过，跳过播放',
+          );
           continue;
         }
         fired.current.add(key);
         const cfg = NOTIFY_CONFIG[phase];
+        journal(
+          'notice.reminder_triggered',
+          { phase, targetRef: runtimeReference(currentExam.id) },
+          'info',
+          'notice',
+          '考试提醒触发',
+        );
         setNotification({
           phase,
           level: cfg.level,

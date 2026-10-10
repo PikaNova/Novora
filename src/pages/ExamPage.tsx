@@ -1,3 +1,11 @@
+import { journal } from '../utils/runtimeJournal.js';
+import {
+  updateRuntimeDisplay,
+  runtimeReference,
+  getRuntimeDataAnchor,
+  noteRuntimeRenderCommit,
+  clearRuntimeDisplay,
+} from '../utils/runtimeDisplayState.js';
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import type { ExamItem, AlertsSettings } from '../types';
@@ -569,6 +577,61 @@ function BoundExamPage() {
     online,
     notification: inDesignNotification,
   };
+
+  const displayDiagnosticKey = JSON.stringify({
+    phase: raw.phase,
+    currentRef: runtimeReference(raw.currentExam?.id),
+    nextRef: runtimeReference(raw.nextExam?.id),
+    design: designId,
+    itemCount: items.length,
+    dataVersion: getAppSettings().exam.updatedAt || 0,
+    syncState: examDataSyncState,
+    bound: !!getAppSettings().exam.selectedClassId,
+    reason: raw.currentExam
+      ? 'current_selected'
+      : raw.nextExam
+        ? 'waiting_next'
+        : items.length
+          ? 'no_current_candidate'
+          : 'no_resolved_items',
+    paused: !!classroomSnapshot?.pausedAt,
+  });
+  const lastDisplayDiagnostic = useRef('');
+  useEffect(() => {
+    void nowTick;
+    noteRuntimeRenderCommit();
+  }, [nowTick]);
+  useEffect(
+    () => () => {
+      lastDisplayDiagnostic.current = '';
+      clearRuntimeDisplay();
+    },
+    [],
+  );
+  useEffect(() => {
+    if (lastDisplayDiagnostic.current === displayDiagnosticKey) return;
+    lastDisplayDiagnostic.current = displayDiagnosticKey;
+    updateRuntimeDisplay(JSON.parse(displayDiagnosticKey));
+  }, [displayDiagnosticKey]);
+  useEffect(() => {
+    journal(
+      'notice.overlay_state',
+      { active: !!overlayItem, state: overlayItem?.state || 'none' },
+      'info',
+      'notice',
+      '提醒浮层展示状态变化',
+      getRuntimeDataAnchor().operationId,
+    );
+  }, [overlayItem?.key, overlayItem?.state]);
+  useEffect(() => {
+    journal(
+      'notice.announcement_state',
+      { open: announcementsOpen, schoolOpen: schoolAnnouncementsOpen, count: schoolAnnouncements.length },
+      'info',
+      'notice',
+      '公告展示状态变化',
+    );
+  }, [announcementsOpen, schoolAnnouncementsOpen, schoolAnnouncements.length]);
 
   const Design = getDesign(designId).component;
 

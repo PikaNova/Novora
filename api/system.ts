@@ -48,6 +48,7 @@ function appVersion(): string {
 /** 本入口承载的全部对外路由（rewrite 别名 → 查询串里的 sys）。 */
 const SYSTEM_ROUTES = [
   'health',
+  'local-status',
   'status',
   'email-worker',
   'diagnostic-worker',
@@ -169,6 +170,39 @@ async function handleHealth(req: VercelRequest, res: VercelResponse): Promise<vo
     });
   } catch (error) {
     sendDatabaseError(req, res, error, 'read');
+  }
+}
+
+// Loopback-only diagnostics for the Windows tray and monitoring window. Do not
+// expose process or memory details to LAN clients or hosted deployments.
+async function handleLocalStatus(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== 'GET') {
+    res.status(405).json({ ok: false, error: 'Method not allowed' });
+    return;
+  }
+  const remoteAddress = (req.socket.remoteAddress ?? '').replace(/^::ffff:/i, '');
+  if (remoteAddress !== '127.0.0.1' && remoteAddress !== '::1') {
+    res.status(404).json({ ok: false, error: 'Not found' });
+    return;
+  }
+  try {
+    const started = Date.now();
+    await authSql()`SELECT 1`;
+    const memory = process.memoryUsage();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      service: 'running',
+      database: 'running',
+      version: appVersion(),
+      pid: process.pid,
+      uptimeSeconds: Math.floor(process.uptime()),
+      databaseLatencyMs: Date.now() - started,
+      memoryBytes: { rss: memory.rss, heapUsed: memory.heapUsed, heapTotal: memory.heapTotal, external: memory.external },
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {
+    res.status(503).json({ ok: false, service: 'running', database: 'unavailable' });
   }
 }
 
@@ -606,6 +640,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   switch (sysRoute(req)) {
     case 'health':
       return handleHealth(req, res);
+    case 'local-status':
+      return handleLocalStatus(req, res);
     case 'status':
       return handleStatus(req, res);
     case 'email-worker':

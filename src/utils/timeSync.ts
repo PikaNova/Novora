@@ -1,4 +1,6 @@
 import { getAppSettings, updateTimeSyncSettings } from './appSettings';
+import { journal } from './runtimeJournal.js';
+import { runtimeId } from '../shared/runtimeLog.js';
 import { logger } from './logger';
 import { monotonicNowMs, calibratedNowMs, hasTimeCalibration, applyTimeCalibration, nowMs } from './timeSource';
 
@@ -75,6 +77,8 @@ async function measureOnce(opts: {
   url: string;
   timeoutMs: number;
 }): Promise<TimeSyncSampleResult> {
+  const operationId = runtimeId('sample');
+  journal('time.sample_start', { source: opts.provider }, 'debug', 'time', '开始获取校时样本', operationId);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
@@ -95,6 +99,14 @@ async function measureOnce(opts: {
       const serverEpochMs = Date.parse(dateHeader);
       if (!Number.isFinite(serverEpochMs)) throw new Error('Invalid Date header');
       const rttMs = Math.max(0, t1 - t0);
+      journal(
+        'time.sample_received',
+        { source: opts.provider, rttMs, serverEpochMs },
+        'debug',
+        'time',
+        '收到校时样本',
+        operationId,
+      );
       return { offsetMs: Math.round(serverEpochMs - (t0 + t1) / 2), rttMs, serverEpochMs, measuredAt: t1 };
     }
     const body = await fetchJson(url.href, controller.signal);
@@ -103,7 +115,25 @@ async function measureOnce(opts: {
     if (!Number.isFinite(serverEpochMs) || serverEpochMs <= 0 || serverEpochMs > 8.64e15)
       throw new Error('Invalid server epoch');
     const rttMs = Math.max(0, t1 - t0);
+    journal(
+      'time.sample_received',
+      { source: opts.provider, rttMs, serverEpochMs },
+      'debug',
+      'time',
+      '收到校时样本',
+      operationId,
+    );
     return { offsetMs: Math.round(serverEpochMs - (t0 + t1) / 2), rttMs, serverEpochMs, measuredAt: t1 };
+  } catch (error) {
+    journal(
+      'time.sample_failed',
+      { source: opts.provider },
+      'warn',
+      'time',
+      error instanceof Error ? error.message : '校时样本获取失败',
+      operationId,
+    );
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

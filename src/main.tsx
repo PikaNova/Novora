@@ -14,6 +14,8 @@ import './styles/brand.css';
 import './styles/scrollbars.css';
 import './styles/transitions.css';
 import './styles/loading-state.css';
+import { startRuntimeLogClient } from './services/runtimeLogClient.js';
+import { startRuntimeTracking } from './utils/runtimeTracking.js';
 import { startTimeSyncManager } from './utils/timeSync';
 import { registerPwa } from './services/pwa';
 import { bindTypographySettings } from './utils/typographySettings';
@@ -38,6 +40,8 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+startRuntimeTracking();
+startRuntimeLogClient();
 startTimeSyncManager();
 bindTypographySettings();
 bindMotionSettings();

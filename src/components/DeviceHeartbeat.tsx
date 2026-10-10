@@ -1,3 +1,4 @@
+import { journal } from '../utils/runtimeJournal.js';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getClassBindingInstanceId } from '../services/classBinding';
@@ -35,6 +36,7 @@ export default function DeviceHeartbeat() {
         void sendPluginViewerHeartbeat(pluginInstanceFromSearch(searchRef.current), getClassBindingInstanceId());
       },
       onRevoked: () => {
+        journal('device.revoked', {}, 'warn', 'device', '设备已被撤销');
         logoutAdmin();
         const current = pathnameRef.current;
         const managementRoute = current === '/admin' || current.startsWith('/admin/') || current === '/settings';
@@ -49,8 +51,16 @@ export default function DeviceHeartbeat() {
       onBinding: (binding) => {
         if (binding.revoked) return;
         const currentBinding = getAppSettings().exam;
-        if (currentBinding.selectedGradeId !== binding.gradeId || currentBinding.selectedClassId !== binding.classId)
+        if (currentBinding.selectedGradeId !== binding.gradeId || currentBinding.selectedClassId !== binding.classId) {
+          journal(
+            'device.binding_changed',
+            { bound: !!binding.classId, management: !!binding.isManagement },
+            'info',
+            'device',
+            '设备绑定发生变化',
+          );
           updateExamSettings({ selectedGradeId: binding.gradeId, selectedClassId: binding.classId });
+        }
         if (binding.isManagement && pathnameRef.current === '/exam') {
           navigate('/', { replace: true });
         }
@@ -61,7 +71,16 @@ export default function DeviceHeartbeat() {
       onCommand: (command) => {
         const receipt = resolveDeviceCommandReceipt(command, '');
         if (!receipt) return;
+        journal('device.command_received', { action: command.action }, 'info', 'device', '收到后台指令', command.id);
         const outcome = applyTemporaryExamCommand(command);
+        journal(
+          outcome.ok ? 'device.command_applied' : 'device.command_failed',
+          { action: command.action },
+          outcome.ok ? 'info' : 'error',
+          'device',
+          outcome.ok ? '后台指令执行成功' : outcome.reason,
+          command.id,
+        );
         if (!outcome.ok) {
           // 没执行就如实报失败：后台会显示「失败：原因」，不再把 no-op 当成功。
           transport.noteCommandFailed(command.id, outcome.reason);
