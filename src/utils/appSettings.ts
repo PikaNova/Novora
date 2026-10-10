@@ -82,6 +82,8 @@ export interface ExamSettings {
   initialization: InitializationState;
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
+  /** 大型考试期间是否锁定新建周测/临时考试。 */
+  majorExamCreationLockEnabled: boolean;
   designPolicy: DesignPolicy;
   majorBatchPresets: MajorBatchPresets;
   alertEnabled: boolean;
@@ -218,6 +220,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     selectedClassId: '',
     initialization: DEFAULT_INITIALIZATION,
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
+    majorExamCreationLockEnabled: false,
     designPolicy: DEFAULT_DESIGN_POLICY,
     majorBatchPresets: { subjectGroups: [], timeGroups: [], updatedAt: 0 },
     alertEnabled: true,
@@ -335,6 +338,7 @@ export function normalizeExam(raw: unknown): ExamSettings {
     updatedAt: Number(rawPresets.updatedAt ?? 0),
   };
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
+  const majorExamCreationLockEnabled = src.majorExamCreationLockEnabled === true;
 
   return {
     ...base,
@@ -350,6 +354,7 @@ export function normalizeExam(raw: unknown): ExamSettings {
     selectedClassId,
     initialization,
     weeklyConflictPolicy,
+    majorExamCreationLockEnabled,
     // items/title 始终镜像激活大型考试，保证展示端无需改动。
     title: active.name,
     items: active.items,

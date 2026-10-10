@@ -27,6 +27,8 @@ import DataMaintenanceSection from '../components/settings/DataMaintenanceSectio
 import SettingsRail, { type SettingsRailGroup } from '../components/settings/SettingsRail';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import SettingsCollapsibleCard from '../components/settings/SettingsCollapsibleCard';
+import { getAppSettings, updateExamSettings, APP_SETTINGS_CHANGED_EVENT } from '../utils/appSettings';
+import { Switch } from '../components/settings/Switch';
 import SystemStatusSection from '../components/settings/SystemStatusSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
 import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School } from 'lucide-react';
@@ -45,6 +47,14 @@ export default function SettingsPage() {
   const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() => getAdminUser());
   const [denied, setDenied] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [creationLockEnabled, setCreationLockEnabled] = useState(
+    () => getAppSettings().exam.majorExamCreationLockEnabled === true,
+  );
+  useEffect(() => {
+    const refresh = () => setCreationLockEnabled(getAppSettings().exam.majorExamCreationLockEnabled === true);
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, refresh);
+  }, []);
   useEffect(() => {
     if (hasValidLocalToken()) {
       refreshAdminUser().then((user) => {
@@ -177,6 +187,30 @@ export default function SettingsPage() {
               <h2 className="set-group__title">考试与排课</h2>
               <div className="set-group__body">
                 {canEditWeekly && <WeeklyCalendarSection canEditWeekly={canEditWeekly} adminUser={adminUser} />}
+                {canEditSettings && (
+                  <section className="set-card">
+                    <div className="set-card__head">
+                      <h2 className="set-card__title">大型考试期间创建控制</h2>
+                    </div>
+                    <p className="set-card__lead">
+                      开启后，大型考试进行中会锁定新建周测和临时考试，并自动结束本机正在运行的临时考试；已有周测计划仍保留。关闭后沿用当前自动调度规则。
+                    </p>
+                    <div className="set-row">
+                      <label className="set-label">启用大型考试创建锁定</label>
+                      <Switch
+                        checked={creationLockEnabled}
+                        disabled={!canEditSettings}
+                        onChange={(value) => {
+                          setCreationLockEnabled(value);
+                          updateExamSettings({ majorExamCreationLockEnabled: value });
+                        }}
+                      />
+                    </div>
+                    <p className="set-note" aria-live="polite">
+                      当前状态：{creationLockEnabled ? '大型考试期间锁定创建' : '仅按原有自动调度规则运行'}
+                    </p>
+                  </section>
+                )}
                 {canEditSettings && <SubjectTrackModeSection canEditSettings={canEditSettings} />}
 
                 {/* ―― 批量添加分考试预设 ―― */}

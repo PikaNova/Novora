@@ -48,6 +48,7 @@ import {
   writePendingWizardDraft,
 } from '../hooks/admin/adminPageUtils';
 import { findMajorConflicts, findMajorConflictItemKeys } from '../utils/examConflicts';
+import { getMajorExamLock } from '../utils/majorExamLock';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
 import { useAdminAuthSession } from '../hooks/admin/useAdminAuthSession';
@@ -978,6 +979,13 @@ export default function AdminPage() {
       !major.endedAt &&
       major.items.some((item) => item.enabled && new Date(item.endTime).getTime() >= adminNow),
   );
+  const weeklyCreationLock = useMemo(
+    () =>
+      getAppSettings().exam.majorExamCreationLockEnabled
+        ? getMajorExamLock(orderedScopedMajors.flatMap((major) => major.items))
+        : { locked: false, name: '', endAt: null },
+    [orderedScopedMajors, sync],
+  );
   // 提示条上的考试名取向导建出来的那条草稿；草稿被删掉后提示条一并撤下。
   const wizardDraftId = wizardDraftIdRef.current;
   const wizardDraft = wizardDraftId ? majors.find((item) => item.id === wizardDraftId) : undefined;
@@ -1189,6 +1197,7 @@ export default function AdminPage() {
                     weeklyConflictPolicy={weeklyConflictPolicy}
                     majorItems={orderedScopedMajors.flatMap((major) => major.items)}
                     majorName={orderedScopedMajors.map((major) => major.name).join('、')}
+                    creationLock={weeklyCreationLock}
                     onSavePlans={handleSaveWeeklyPlans}
                     onConflictPolicyChange={handleConflictPolicyChange}
                     canEditConflictPolicy={can('schedule.conflict_edit')}

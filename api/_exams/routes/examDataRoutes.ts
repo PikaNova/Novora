@@ -31,6 +31,7 @@ import { preserveServerLifecycleFields } from '../examSnapshotPatch.js';
 import { projectCurrentExamRecords } from '../examRecordProjection.js';
 import { quickMajorTransitions } from '../quickMajorTransitions.js';
 import { operationLogKey } from '../operationLog.js';
+import { creationBlockedResponse, findMajorExamLock } from '../scheduleCreationGuard.js';
 import type { ExamRow, UpdatedRow } from '../types.js';
 import {
   type AdminActor,
@@ -309,6 +310,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     activeWeeklyPlanId,
     activeWeeklyPlanIdByClassId,
     weeklyConflictPolicy,
+    majorExamCreationLockEnabled,
     grades,
     classes,
     initialization,
@@ -353,6 +355,39 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   const classesJson = Array.isArray(classes) ? JSON.stringify(classes) : null;
   const initializationJson =
     initialization && typeof initialization === 'object' ? JSON.stringify(initialization) : null;
+
+  // 大型考试进行中时，服务端禁止新增周测计划及快速/临时考试。
+  // 这里以“新增记录”判定，编辑已有周测、调整已存在考试仍可进行。
+  const currentWeekly = Array.isArray(currentPayload.weeklyPlans) ? currentPayload.weeklyPlans : [];
+  const nextWeekly = Array.isArray(weeklyPlans) ? weeklyPlans : currentWeekly;
+  const currentWeeklyIds = new Set(currentWeekly.map((item) => String((item as Record<string, unknown>)?.id ?? '')));
+  const addedWeekly = nextWeekly.filter(
+    (item) => !currentWeeklyIds.has(String((item as Record<string, unknown>)?.id ?? '')),
+  );
+  const quickMajorAdded = Array.isArray(majors)
+    ? majors.some((raw) => {
+        const item = raw as Record<string, unknown>;
+        const id = String(item?.id ?? '');
+        const existed = (currentPayload.majors ?? []).some((old) => String((old as Record<string, unknown>)?.id ?? '') === id);
+        return !existed && (item.source === 'quick' || item.temporary === true);
+      })
+    : false;
+  const lockTargetClassIds = addedWeekly
+    .map((item) => String((item as Record<string, unknown>)?.classId ?? ''))
+    .filter(Boolean);
+  if (majorExamCreationLockEnabled === true && (addedWeekly.length || quickMajorAdded)) {
+    const lock = await findMajorExamLock(
+      sql,
+      addedWeekly.length ? 'weekly' : 'temporary',
+      [],
+      lockTargetClassIds,
+      Date.now(),
+    );
+    if (lock) {
+      res.status(409).json({ ok: false, ...creationBlockedResponse(lock), requestId: res.getHeader('X-Request-Id') });
+      return;
+    }
+  }
   // ── 域级并发判定（v2.8.8）──
   // 客户端携带 baseRevisions 时，只校验「本次真要写的修订域」：改不同域的两台设备不再互相 409；
   // 同一个域被并发修改仍然冲突（修订号不等）。老客户端不带该字段，退回整行 updated_at 比较。
