@@ -1073,13 +1073,13 @@ export default function AdminPage() {
       !major.endedAt &&
       major.items.some((item) => item.enabled && new Date(item.endTime).getTime() >= adminNow),
   );
-  const weeklyCreationLock = useMemo(
-    () =>
-      getAppSettings().exam.majorExamCreationLockEnabled
-        ? getMajorExamLock(orderedScopedMajors.flatMap((major) => major.items))
-        : { locked: false, name: '', endAt: null },
-    [orderedScopedMajors, sync],
-  );
+  // This value is intentionally derived without a Hook.  AdminPage renders an
+  // auth loading state before the rest of the page, so a Hook here would only
+  // run on the ready render and violate React's invariant that Hook order is
+  // identical across renders (React error #310).
+  const weeklyCreationLock = getAppSettings().exam.majorExamCreationLockEnabled
+    ? getMajorExamLock(orderedScopedMajors.flatMap((major) => major.items))
+    : { locked: false, name: '', endAt: null };
   // 提示条上的考试名取向导建出来的那条草稿；草稿被删掉后提示条一并撤下。
   const wizardDraftId = wizardDraftIdRef.current;
   const wizardDraft = wizardDraftId ? majors.find((item) => item.id === wizardDraftId) : undefined;
