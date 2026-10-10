@@ -222,6 +222,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   }
   // 快速考试走本地优先保存管道，没有显式动作；这里留下旧 majors 以便保存后补记生命周期转换。
   let priorMajors: unknown = null;
+  let currentPayload: ReturnType<typeof examPayload> | null = null;
   /** 本次保存中被「归档只读」挡下的考试 id（仅用于回传提示，不影响写入）。 */
   let frozenArchivedIds: string[] = [];
   let frozenArchivedMajors: unknown[] = [];
@@ -236,7 +237,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       currentRows =
         (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, major_batch_presets, revisions, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
     }
-    const currentPayload = examPayload(currentRows[0] ?? {});
+    currentPayload = examPayload(currentRows[0] ?? {});
     priorMajors = currentPayload.majors;
     // Scope 删除后，旧 token 仍可能在有效期内；无 scope 的受限账号不得借助
     // stale-snapshot 清洗把越权写请求伪装成“无变化”并获得 200。
@@ -276,13 +277,13 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     if (actor) {
       // 归档只读优先于其它清洗：已归档的考试任何人都改不动，需要修改先取消归档。
       const archived = freezeArchivedMajors(
-        currentPayload,
-        isolateQuickMajorCreate(actor, currentPayload, req.body ?? {}),
+        currentPayload!,
+        isolateQuickMajorCreate(actor, currentPayload!, req.body ?? {}),
       );
       frozenArchivedIds = archived.frozenIds;
       frozenArchivedMajors = archived.frozenMajors;
-      const sanitized = sanitizeStaleSnapshot(actor, currentPayload, archived.body);
-      const permission = validateMutation(actor, currentPayload, sanitized);
+      const sanitized = sanitizeStaleSnapshot(actor, currentPayload!, archived.body);
+      const permission = validateMutation(actor, currentPayload!, sanitized);
       if (!permission.ok) {
         res.status(403).json({
           ...permission,
@@ -295,7 +296,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
       // 否则一次普通编辑就会把它们抹掉，教室端（读权威快照）永远看不到这些更改。
       // 放在权限校验之后：权限判定看的是客户端意图，不该被这次存储层修正影响。
       req.body = Array.isArray(sanitized.majors)
-        ? { ...sanitized, majors: preserveServerLifecycleFields(currentPayload.majors, sanitized.majors) }
+        ? { ...sanitized, majors: preserveServerLifecycleFields(currentPayload!.majors, sanitized.majors) }
         : sanitized;
     }
   }
@@ -358,7 +359,8 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
 
   // 大型考试进行中时，服务端禁止新增周测计划及快速/临时考试。
   // 这里以“新增记录”判定，编辑已有周测、调整已存在考试仍可进行。
-  const currentWeekly = Array.isArray(currentPayload.weeklyPlans) ? currentPayload.weeklyPlans : [];
+  const storedPayload = currentPayload ?? examPayload({});
+  const currentWeekly = Array.isArray(storedPayload.weeklyPlans) ? storedPayload.weeklyPlans : [];
   const nextWeekly = Array.isArray(weeklyPlans) ? weeklyPlans : currentWeekly;
   const currentWeeklyIds = new Set(currentWeekly.map((item) => String((item as Record<string, unknown>)?.id ?? '')));
   const addedWeekly = nextWeekly.filter(
@@ -368,7 +370,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     ? majors.some((raw) => {
         const item = raw as Record<string, unknown>;
         const id = String(item?.id ?? '');
-        const existed = (currentPayload.majors ?? []).some((old) => String((old as Record<string, unknown>)?.id ?? '') === id);
+        const existed = (storedPayload.majors ?? []).some((old) => String((old as Record<string, unknown>)?.id ?? '') === id);
         return !existed && (item.source === 'quick' || item.temporary === true);
       })
     : false;
