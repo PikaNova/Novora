@@ -34,6 +34,8 @@ import ConflictResolutionModal from './weekly/ConflictResolutionModal';
 import RescheduleModal from './weekly/RescheduleModal';
 import PrintPickerModal from './weekly/PrintPickerModal';
 import DeletePlanModals from './weekly/DeletePlanModals';
+import type { MajorExamLockView } from '../utils/majorExamLock';
+import { majorExamLockMessage } from '../utils/majorExamLock';
 
 export interface WeeklyPanelProps {
   weeklyPlans: WeeklyPlan[];
@@ -58,6 +60,7 @@ export interface WeeklyPanelProps {
   onSelectScope?: (gradeId: string, classId: string) => void;
   allowBatchApply?: boolean;
   canEditConflictPolicy?: boolean;
+  creationLock?: MajorExamLockView;
 }
 
 export default function WeeklyPanel({
@@ -77,7 +80,14 @@ export default function WeeklyPanel({
   onSelectScope,
   allowBatchApply = true,
   canEditConflictPolicy = false,
+  creationLock,
 }: WeeklyPanelProps) {
+  const creationBlocked = !!creationLock?.locked;
+  const creationMessage = creationLock ? majorExamLockMessage(creationLock, 'weekly') : '';
+  const guardedOpenNewPlan = () => {
+    if (creationBlocked) return;
+    openNewPlan();
+  };
   const backdropProps = useBackdropDismiss();
   const scopedPlans = weeklyPlans.filter((p) => p.classId === selectedClassId);
   const classActiveId = selectedClassId ? activeWeeklyPlanIdByClassId[selectedClassId] : activeWeeklyPlanId;
@@ -398,7 +408,7 @@ export default function WeeklyPanel({
             </div>
             <p>请先选择年级与班级</p>
             <span className="admin-major-card__hint">也可以直接新建计划，并在新建界面选择适用班级。</span>
-            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={openNewPlan}>
+            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={guardedOpenNewPlan} disabled={creationBlocked}>
               选择班级并新建周测计划
             </button>
           </div>
@@ -449,7 +459,7 @@ export default function WeeklyPanel({
               <CalendarDays />
             </div>
             <p>还没有周测计划</p>
-            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={openNewPlan}>
+            <button className="admin-btn admin-btn--primary" style={{ marginTop: 12 }} onClick={guardedOpenNewPlan} disabled={creationBlocked}>
               + 新建周测计划
             </button>
           </div>
@@ -518,18 +528,23 @@ export default function WeeklyPanel({
 
   return (
     <>
+      {creationBlocked && (
+        <div role="alert" className="admin-alert admin-alert--warning" style={{ margin: '0 16px 12px' }}>
+          {creationMessage}。已有计划仍会保留，考试结束后自动恢复创建。
+        </div>
+      )}
       <WeeklySidebar
         selectedClassName={selectedClassName}
         scopedPlans={scopedPlans}
         activePlan={activePlan}
         items={items}
         switchPlan={switchPlan}
-        openNewPlan={openNewPlan}
+        openNewPlan={guardedOpenNewPlan}
         openPlanSettings={openPlanSettings}
         setDeletePlanOpen={setDeletePlanOpen}
         togglePlanEnabled={togglePlanEnabled}
-        allowBatchApply={allowBatchApply}
-        setCopyModal={setCopyModal}
+        allowBatchApply={allowBatchApply && !creationBlocked}
+        setCopyModal={(value) => { if (!creationBlocked) setCopyModal(value); }}
         weeklyConflictPolicy={weeklyConflictPolicy}
         canEditConflictPolicy={canEditConflictPolicy}
         setPolicyOpen={setPolicyOpen}
@@ -578,7 +593,7 @@ export default function WeeklyPanel({
         commitPlanModal={commitPlanModal}
         classOptions={classOptions}
         pickerOptions={pickerOptions}
-        allowBatchApply={allowBatchApply}
+        allowBatchApply={allowBatchApply && !creationBlocked}
       />
       <DeletePlanModals
         backdropProps={backdropProps}
