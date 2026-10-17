@@ -35,10 +35,10 @@ import { Switch } from '../components/settings/Switch';
 import SystemStatusSection from '../components/settings/SystemStatusSection';
 import PlatformUsageSection from '../components/settings/PlatformUsageSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
-import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School } from 'lucide-react';
+import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School, ScrollText } from 'lucide-react';
 
 /** 设置分组只剩导航职责，具体权限在下面按分组判定；见 groups 计算。 */
-type SettingsGroupId = 'school' | 'account' | 'exam' | 'runtime' | 'release' | 'maintenance' | 'about';
+type SettingsGroupId = 'school' | 'account' | 'exam' | 'runtime' | 'logs' | 'release' | 'maintenance' | 'about';
 
 const ABOUT_GROUP: SettingsRailGroup = { id: 'about', label: '关于', icon: <Info size={16} /> };
 
@@ -126,6 +126,7 @@ export default function SettingsPage() {
       list.push({ id: 'exam', label: '考试与排课', icon: <ListChecks size={16} /> });
     if (canEditSettings || canReadAlerts || canResetDatabase || canReadDiagnostics)
       list.push({ id: 'runtime', label: '运行与诊断', icon: <Activity size={16} /> });
+    if (canReadRuntime) list.push({ id: 'logs', label: '运行日志', icon: <ScrollText size={16} /> });
     if (canEditSettings) list.push({ id: 'release', label: '版本与更新', icon: <RadioTower size={16} /> });
     if (canResetDatabase) list.push({ id: 'maintenance', label: '数据与维护', icon: <DatabaseZap size={16} /> });
     return list;
@@ -138,6 +139,7 @@ export default function SettingsPage() {
     canEditConflictPolicy,
     canReadAlerts,
     canReadDiagnostics,
+    canReadRuntime,
   ]);
   const availableGroups = useMemo(() => [...groups.map((item) => item.id), ABOUT_GROUP.id], [groups]);
   const activeGroup = (group ?? '') as SettingsGroupId;
@@ -170,21 +172,23 @@ export default function SettingsPage() {
           onSelect={(id) => navigate(`/settings/${id}`)}
         />
         <div className="set-content">
-          {!hasAnyEditable && (
+          {activeGroup !== 'logs' && !hasAnyEditable && (
             <div className="set-note set-note--warn">
               当前账号没有可修改的系统设置项，以下仅保留“我的账户/关于”等个人与只读板块。
             </div>
           )}
-          {!canEditSettings && (
+          {activeGroup !== 'logs' && !canEditSettings && (
             <div className="set-note set-note--warn">
               当前账号只能修改已授权的系统设置项，其余全局设置保持只读。如需修改登录密码，请前往“用户与权限”。
             </div>
           )}
-          <div className="set-note set-note--local-hint">
-            显示风格、动效与字体属于本机偏好，请前往
-            <Link to="/local-settings">本地设置</Link>
-            调整。
-          </div>
+          {activeGroup !== 'logs' && (
+            <div className="set-note set-note--local-hint">
+              显示风格、动效与字体属于本机偏好，请前往
+              <Link to="/local-settings">本地设置</Link>
+              调整。
+            </div>
+          )}
           {activeGroup === 'school' && (
             <section id="set-group-school" className="set-group" data-group="school">
               <h2 className="set-group__title">学校与基础</h2>
@@ -222,6 +226,9 @@ export default function SettingsPage() {
                     </div>
                     <p className="set-card__lead">
                       开启后，大型考试进行中会锁定新建周测和临时考试，并自动结束本机正在运行的临时考试；已有周测计划仍保留。关闭后沿用当前自动调度规则。
+                    </p>
+                    <p className="set-note">
+                      适用于高考、期中/期末考试、统一测评等需要临时冻结新增安排的场景，避免临时创建的考试干扰当前考务。此设置只影响创建入口，不影响已有安排的查看；大型考试结束后自动恢复创建。
                     </p>
                     <div className="set-row">
                       <label className="set-label">启用大型考试创建锁定</label>
@@ -262,7 +269,6 @@ export default function SettingsPage() {
             <section id="set-group-runtime" className="set-group" data-group="runtime">
               <h2 className="set-group__title">运行与诊断</h2>
               <div className="set-group__body">
-                {canReadRuntime && <RuntimeDashboard canExport={canExportRuntime} canSystem={canResetDatabase} />}
                 {canEditSettings && <TimeSyncSection canEditSettings={canEditSettings} />}
                 {canEditAlerts ? (
                   <AlertsAdvancedSection
@@ -287,6 +293,12 @@ export default function SettingsPage() {
                   </SettingsCollapsibleCard>
                 )}
               </div>
+            </section>
+          )}
+
+          {activeGroup === 'logs' && canReadRuntime && (
+            <section id="set-group-logs" className="set-group" data-group="logs">
+              <RuntimeDashboard canExport={canExportRuntime} canSystem={canResetDatabase} />
             </section>
           )}
 
