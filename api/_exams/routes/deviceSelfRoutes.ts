@@ -18,6 +18,8 @@ type DeviceHeartbeatRow = {
   is_management: boolean;
   temporary_command?: unknown;
   exam_version?: unknown;
+  time_control_revision?: number | string;
+  time_sync_request_id?: string;
 };
 
 export async function handleDeviceBinding(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -151,6 +153,13 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
     const acknowledgedCommandId = value('acknowledgedCommandId', 128);
     const failedCommandId = value('failedCommandId', 128);
     const commandFailureReason = value('commandFailureReason', 500);
+    const timeControlRevision = Math.max(0, Math.trunc(Number(req.body?.timeControlRevision) || 0));
+    const timeSyncRequestId = value('timeSyncRequestId', 128);
+    const timeSyncRequestStatus = ['synced', 'failed'].includes(value('timeSyncRequestStatus', 16))
+      ? value('timeSyncRequestStatus', 16)
+      : '';
+    const timeSyncRequestError = value('timeSyncRequestError', 500);
+    const timeSyncRequestAt = Math.max(0, Math.trunc(Number(req.body?.timeSyncRequestAt) || 0));
     if (acknowledgedCommandId) {
       await sql`UPDATE device_commands SET status='acknowledged', acknowledged_at=${now}, failure_reason='' WHERE id=${acknowledgedCommandId} AND instance_id=${instanceId} AND status IN ('pending','claimed')`;
       await sql`UPDATE device_instances SET temporary_command=NULL WHERE instance_id=${instanceId} AND temporary_command->>'id'=${acknowledgedCommandId}`;
@@ -163,9 +172,9 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
     // WHERE 不成立就不会真正写行（省掉一次 UPDATE 的 WAL 与死元组）；命中写入时用 RETURNING
     // 直接取回绑定与命令状态，省掉原来紧跟其后的那次 SELECT。
     const writtenRows =
-      (await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, last_seen_at, updated_at)
-      VALUES (${instanceId}, ${value('page')}, ${value('clientVersion', 40)}, ${value('status', 40)}, ${value('currentExam')}, ${value('currentSubject')}, ${value('examStart', 40)}, ${value('examEnd', 40)}, ${now}, ${now})
-      ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, last_seen_at=EXCLUDED.last_seen_at, updated_at=EXCLUDED.updated_at
+      (await sql`INSERT INTO device_instances (instance_id, page, client_version, status, current_exam, current_subject, exam_start, exam_end, time_control_revision, time_sync_request_id, time_sync_request_status, time_sync_request_error, time_sync_request_at, last_seen_at, updated_at)
+      VALUES (${instanceId}, ${value('page')}, ${value('clientVersion', 40)}, ${value('status', 40)}, ${value('currentExam')}, ${value('currentSubject')}, ${value('examStart', 40)}, ${value('examEnd', 40)}, ${timeControlRevision}, ${timeSyncRequestId}, ${timeSyncRequestStatus}, ${timeSyncRequestError}, ${timeSyncRequestAt}, ${now}, ${now})
+      ON CONFLICT (instance_id) DO UPDATE SET page=EXCLUDED.page, client_version=EXCLUDED.client_version, status=EXCLUDED.status, current_exam=EXCLUDED.current_exam, current_subject=EXCLUDED.current_subject, exam_start=EXCLUDED.exam_start, exam_end=EXCLUDED.exam_end, time_control_revision=GREATEST(device_instances.time_control_revision, EXCLUDED.time_control_revision), time_sync_request_id=CASE WHEN EXCLUDED.time_sync_request_id <> '' THEN EXCLUDED.time_sync_request_id ELSE device_instances.time_sync_request_id END, time_sync_request_status=CASE WHEN EXCLUDED.time_sync_request_id <> '' THEN EXCLUDED.time_sync_request_status ELSE device_instances.time_sync_request_status END, time_sync_request_error=CASE WHEN EXCLUDED.time_sync_request_id <> '' THEN EXCLUDED.time_sync_request_error ELSE device_instances.time_sync_request_error END, time_sync_request_at=CASE WHEN EXCLUDED.time_sync_request_id <> '' THEN EXCLUDED.time_sync_request_at ELSE device_instances.time_sync_request_at END, last_seen_at=EXCLUDED.last_seen_at, updated_at=EXCLUDED.updated_at
       WHERE device_instances.last_seen_at <= EXCLUDED.last_seen_at - ${DEVICE_HEARTBEAT_REFRESH_MS}
         OR device_instances.page IS DISTINCT FROM EXCLUDED.page
         OR device_instances.client_version IS DISTINCT FROM EXCLUDED.client_version
@@ -174,13 +183,15 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
         OR device_instances.current_subject IS DISTINCT FROM EXCLUDED.current_subject
         OR device_instances.exam_start IS DISTINCT FROM EXCLUDED.exam_start
         OR device_instances.exam_end IS DISTINCT FROM EXCLUDED.exam_end
-      RETURNING grade_id, class_id, revoked, is_management, temporary_command, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version`) as unknown as DeviceHeartbeatRow[];
+        OR device_instances.time_control_revision IS DISTINCT FROM EXCLUDED.time_control_revision
+        OR (EXCLUDED.time_sync_request_id <> '' AND (device_instances.time_sync_request_id IS DISTINCT FROM EXCLUDED.time_sync_request_id OR device_instances.time_sync_request_status IS DISTINCT FROM EXCLUDED.time_sync_request_status OR device_instances.time_sync_request_error IS DISTINCT FROM EXCLUDED.time_sync_request_error OR device_instances.time_sync_request_at IS DISTINCT FROM EXCLUDED.time_sync_request_at))
+      RETURNING grade_id, class_id, revoked, is_management, temporary_command, time_control_revision, time_sync_request_id, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version`) as unknown as DeviceHeartbeatRow[];
     // 跳过写入时拿不到 RETURNING 行；把这个补读并进下面同一个事务，避免多一次往返。
     const needsRowFallback = writtenRows.length === 0;
     const commandResults = await sql.transaction((transaction) => [
       ...(needsRowFallback
         ? [
-            transaction`SELECT grade_id, class_id, revoked, is_management, temporary_command, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version FROM device_instances WHERE instance_id=${instanceId}`,
+            transaction`SELECT grade_id, class_id, revoked, is_management, temporary_command, time_control_revision, time_sync_request_id, (SELECT updated_at FROM exam_data WHERE id=1) AS exam_version FROM device_instances WHERE instance_id=${instanceId}`,
           ]
         : []),
       transaction`UPDATE device_commands SET status='expired', failure_reason='命令已过期' WHERE instance_id=${instanceId} AND status IN ('pending','claimed') AND expires_at IS NOT NULL AND expires_at <= ${now}`,
@@ -215,6 +226,15 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
     // 仅 Vercel：把当前快照版本号随心跳带回，设备据此决定要不要再拉一次快照，
     // 这样常规轮询只剩心跳这一条请求；本地部署后续走 WSS 推送，不带这个字段。
     const examVersion = parseExamVersion(device?.exam_version);
+    const controls =
+      (await sql`SELECT offset_ms, revision, sync_request_id, sync_requested_at FROM app_time_control WHERE id=1`) as unknown as Array<{
+        offset_ms: number | string;
+        revision: number | string;
+        sync_request_id: string;
+        sync_requested_at: number | string;
+      }>;
+    const control = controls[0];
+    const syncRequestId = String(control?.sync_request_id ?? '');
     res.status(200).json({
       ok: true,
       revoked: device?.revoked === true,
@@ -227,6 +247,12 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
           }
         : null,
       command: queued ?? parseDeviceCommand(device?.temporary_command) ?? null,
+      timeControl: {
+        revision: Number(control?.revision ?? 1),
+        offsetMs: Number(control?.offset_ms ?? 0),
+        syncRequestId: device?.is_management || device?.time_sync_request_id === syncRequestId ? '' : syncRequestId,
+        syncRequestedAt: Number(control?.sync_requested_at ?? 0),
+      },
       ...(isEdgeDeployment() ? { version: examVersion } : {}),
     });
   };

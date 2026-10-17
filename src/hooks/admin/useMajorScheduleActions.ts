@@ -262,6 +262,7 @@ export function useMajorScheduleActions(params: {
         alerts: alertsRef.current,
         ...weeklyStateRef.current,
         initialization: initializationRef.current,
+        majorExamCreationLockEnabled: getAppSettings().exam.majorExamCreationLockEnabled,
       };
     },
     [alertsRef, weeklyStateRef, initializationRef],

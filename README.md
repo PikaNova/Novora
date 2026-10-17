@@ -1,4 +1,4 @@
-# Novora v2.8.0
+# Novora v2.8.1
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
@@ -241,6 +241,11 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 `/api/status`（仅超管）新增 `diagnosticQueue` 字段：`sending / sent / failed / expired / expiredWithEntries / dueNow / nextAttemptAt / lastError`，可直接判断队列是否积压、有多少过期正文待回收。
 
 ## 更新日志
+
+### V2.8.1
+
+- [v2.8.1 更新日志](docs/CHANGELOG-2.8.1.md)
+- [v2.8.1 升级说明](UPGRADE-NOTES.md#v281-升级说明)
 
 ### V2.8.0
 

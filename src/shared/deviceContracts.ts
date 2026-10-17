@@ -100,6 +100,11 @@ export type DeviceHeartbeatInput = {
   acknowledgedCommandId?: string;
   failedCommandId?: string;
   commandFailureReason?: string;
+  timeControlRevision?: number;
+  timeSyncRequestId?: string;
+  timeSyncRequestStatus?: 'synced' | 'failed';
+  timeSyncRequestError?: string;
+  timeSyncRequestAt?: number;
 };
 
 /**

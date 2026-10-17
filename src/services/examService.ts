@@ -337,6 +337,7 @@ export interface SaveExamsInput {
   classes?: SchoolClass[];
   initialization?: ExamSettings['initialization'];
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
+  majorExamCreationLockEnabled?: boolean;
 }
 
 export type SaveExamsResult =
@@ -449,6 +450,7 @@ function toSaveSnapshot(input: SaveExamsInput): ExamSaveSnapshot {
     classes: input.classes,
     initialization: input.initialization,
     weeklyConflictPolicy: input.weeklyConflictPolicy,
+    majorExamCreationLockEnabled: input.majorExamCreationLockEnabled,
   };
 }
 

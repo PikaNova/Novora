@@ -8,6 +8,8 @@ export interface TimeSyncSettings {
   ntpHost: string;
   ntpPort: number;
   manualOffsetMs: number;
+  broadcastOffsetMs?: number;
+  broadcastOffsetRevision?: number;
   offsetMs: number;
   autoSyncEnabled: boolean;
   autoSyncIntervalSec: number;
@@ -15,8 +17,10 @@ export interface TimeSyncSettings {
   lastSyncAt: number;
   /** 最近一次成功校时对应的服务端时间，用于跨设备时钟异常时展示可靠时间。 */
   lastSyncServerAt?: number;
-  /** 最近一次成功校时对应的会话单调时钟读数。 */
-  lastSyncMonotonicMs?: number;
+  /** 跨窗口可比较的校时版本与来源。 */
+  calibrationRevision?: number;
+  calibrationSource?: string;
+  calibrationInstanceId?: string;
   lastRttMs?: number;
   lastError?: string;
 }
@@ -29,6 +33,7 @@ export const DEFAULT_TIME_SYNC_SETTINGS: TimeSyncSettings = {
   ntpHost: 'ntp.aliyun.com',
   ntpPort: 123,
   manualOffsetMs: 0,
+  broadcastOffsetMs: 0,
   offsetMs: 0,
   autoSyncEnabled: true,
   autoSyncIntervalSec: 900,

@@ -31,9 +31,9 @@
   --adm-shadow-2: 0 2px 4px rgba(0, 0, 0, 0.32), 0 20px 44px rgba(0, 0, 0, 0.28);
   --adm-radius: 10px;
   --adm-radius-sm: 8px;
-  --adm-ease: cubic-bezier(0.25, 0.8, 0.3, 1);
-  --adm-dur-fast: 140ms;
-  --adm-dur-base: 240ms;
+  --adm-ease: var(--motion-ease-settle);
+  --adm-dur-fast: var(--motion-fast);
+  --adm-dur-base: var(--motion-standard);
 }
 
 .ovd {
@@ -524,7 +524,7 @@
 }
 .dashboard-bar__track i {
   transform-origin: left;
-  animation: dash-bar-grow 0.7s var(--adm-ease) both;
+  animation: dash-bar-grow var(--motion-slow) var(--motion-ease-out-expo) both;
 }
 @keyframes dash-bar-grow {
   from {
@@ -2249,27 +2249,27 @@
 /* ---- New content animations (2026-08-10) ---- */
 /* A1 分组展开 / 空状态 */
 .user-management__group-body {
-  animation: app-panel-in 180ms var(--adm-ease) both;
+  animation: app-panel-in var(--motion-standard) var(--motion-ease-out-expo) both;
 }
 .user-management__group-empty {
-  animation: app-fade-in 160ms ease-out both;
+  animation: app-fade-in var(--motion-fast) var(--motion-ease-out-expo) both;
 }
 /* A2/A3 菜单与遮罩 */
 .user-management__menu {
   transform-origin: top right;
-  animation: app-menu-in 120ms ease-out both;
+  animation: app-menu-in var(--motion-instant) var(--motion-ease-out-expo) both;
 }
 .user-management__menu-backdrop {
-  animation: app-fade-in 120ms ease-out both;
+  animation: app-fade-in var(--motion-instant) var(--motion-ease-out-expo) both;
 }
 /* A4 批量模式 / 工具栏 / 复选框 */
 .user-management__batch-entry,
 .user-management__toolbar {
-  animation: app-fade-in 160ms ease-out both;
+  animation: app-fade-in var(--motion-fast) var(--motion-ease-out-expo) both;
 }
 .user-management__group-select,
 .user-management__batch-check {
-  animation: app-fade-in 120ms ease-out both;
+  animation: app-fade-in var(--motion-instant) var(--motion-ease-out-expo) both;
 }
 /* A5 角色列表选中态过渡 */
 .user-management__role-item {
@@ -2286,7 +2286,7 @@
 }
 /* A7 角色面板切换 */
 .user-management__role-panel {
-  animation: app-panel-in 180ms var(--adm-ease) both;
+  animation: app-panel-in var(--motion-standard) var(--motion-ease-out-expo) both;
 }
 /* B1 状态点脉冲 */
 .system-status__dot.is-ok {
@@ -2309,12 +2309,12 @@
 }
 /* B3 状态区块入场 */
 .system-status {
-  animation: sw-rise var(--adm-dur-base) var(--adm-ease) both;
+  animation: sw-rise var(--motion-medium) var(--motion-ease-out-expo) both;
 }
 /* C1/C2 部署设置面板与更新说明 */
 .set-update-guide {
-  animation: app-panel-in 180ms var(--adm-ease) both;
+  animation: app-panel-in var(--motion-standard) var(--motion-ease-out-expo) both;
 }
 .set-readme {
-  animation: app-fade-in 180ms ease-out both;
+  animation: app-fade-in var(--motion-standard) var(--motion-ease-out-expo) both;
 }

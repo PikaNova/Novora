@@ -1,3 +1,6 @@
+import { setRuntimeDataAnchor } from '../utils/runtimeDisplayState.js';
+import { journal } from '../utils/runtimeJournal.js';
+import { runtimeId } from '../shared/runtimeLog.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExamItem, AlertsSettings } from '../types';
 import {
@@ -50,6 +53,8 @@ export function useExamSync({
   onBootstrapBinding,
 }: Options = {}) {
   const lastApplied = useRef(0);
+  const syncOperation = useRef('');
+  const lastJournalState = useRef('');
   const lastPullAt = useRef(0);
   const pulling = useRef(false);
   const queuedForceRefresh = useRef(false);
@@ -87,6 +92,14 @@ export function useExamSync({
     const outboxPending = getPendingExamSync();
     const message = error ? formatApiError(error) : (outboxPending?.lastError ?? fallback);
 
+    journal(
+      'sync.failed',
+      { code: error?.code || 'SYNC_FAILED', requestId: error?.requestId || '', pending: !!outboxPending },
+      'error',
+      'sync',
+      message,
+      syncOperation.current,
+    );
     setSyncError(message);
 
     // 仅用 code 去重（而非 code + requestId），避免相同类型错误连续弹出
@@ -106,6 +119,14 @@ export function useExamSync({
   }, []);
 
   const applyPayload = useCallback((payload: ExamPayload) => {
+    journal(
+      'sync.data_applying',
+      { dataVersion: payload.updatedAt, itemCount: payload.items.length },
+      'info',
+      'sync',
+      '应用远端数据',
+      syncOperation.current,
+    );
     const updates: Record<string, unknown> = {
       items: payload.items,
       title: payload.title,
@@ -127,6 +148,15 @@ export function useExamSync({
     if (payload.majorBatchPresets !== undefined) updates.majorBatchPresets = payload.majorBatchPresets;
     updateExamSettings(updates as Partial<ExamSettings>);
     if (payload.alerts) updateAlertsSettings(payload.alerts);
+    setRuntimeDataAnchor(payload.updatedAt, syncOperation.current);
+    journal(
+      'sync.data_applied',
+      { dataVersion: payload.updatedAt },
+      'info',
+      'sync',
+      '远端数据已写入本地',
+      syncOperation.current,
+    );
     const s = getAppSettings();
     onUpdateRef.current?.({ items: getResolvedExamItems(), title: s.exam.title, alerts: s.alerts });
   }, []);
@@ -139,11 +169,21 @@ export function useExamSync({
         return;
       }
       const pullStartedAt = Date.now();
+      const pullStartedMono = performance.now();
       if (!force && lastPullAt.current && pullStartedAt - lastPullAt.current < minRefreshMs) return;
       applyLocal();
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       lastPullAt.current = pullStartedAt;
       pulling.current = true;
+      syncOperation.current = runtimeId('sync');
+      journal(
+        'sync.pull_start',
+        { forced: force, dataVersion: getAppSettings().exam.updatedAt || 0 },
+        'debug',
+        'sync',
+        '开始读取远端数据',
+        syncOperation.current,
+      );
       setSyncState('syncing');
       try {
         const flushed = await flushPendingExamSync(force);
@@ -205,6 +245,18 @@ export function useExamSync({
         }
         const localAt = getAppSettings().exam?.updatedAt ?? 0;
         const baseline = Math.max(lastApplied.current, localAt);
+        journal(
+          'sync.data_received',
+          {
+            remoteVersion: remote.updatedAt,
+            localVersion: baseline,
+            result: remote.updatedAt > baseline ? 'apply' : 'not_newer',
+          },
+          'debug',
+          'sync',
+          '收到远端数据版本',
+          syncOperation.current,
+        );
         if (remote.updatedAt > baseline) {
           lastApplied.current = remote.updatedAt;
           applyPayload(remote);
@@ -234,6 +286,14 @@ export function useExamSync({
         setNeedsRelogin(false);
         setPasswordChangeRequired(false);
       } finally {
+        journal(
+          'sync.pull_finished',
+          { durationMs: Math.max(0, performance.now() - pullStartedMono) },
+          'debug',
+          'sync',
+          '数据拉取批次结束',
+          syncOperation.current,
+        );
         pulling.current = false;
         if (queuedForceRefresh.current) {
           queuedForceRefresh.current = false;
@@ -307,6 +367,23 @@ export function useExamSync({
   }, [intervalMs, refresh, applyLocal]);
 
   refreshRef.current = refresh;
+
+  useEffect(() => {
+    if (lastJournalState.current === syncState) return;
+    lastJournalState.current = syncState;
+    journal(
+      'sync.state',
+      { state: syncState, pending: hasPendingSync },
+      ['error', 'max-retries', 'auth-required'].includes(syncState)
+        ? 'error'
+        : syncState === 'offline'
+          ? 'warn'
+          : 'info',
+      'sync',
+      syncError || '数据同步状态变化',
+      syncOperation.current,
+    );
+  }, [syncState, hasPendingSync, syncError]);
 
   return {
     refresh,

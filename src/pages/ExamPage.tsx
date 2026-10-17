@@ -1,3 +1,11 @@
+import { journal } from '../utils/runtimeJournal.js';
+import {
+  updateRuntimeDisplay,
+  runtimeReference,
+  getRuntimeDataAnchor,
+  noteRuntimeRenderCommit,
+  clearRuntimeDisplay,
+} from '../utils/runtimeDisplayState.js';
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import type { ExamItem, AlertsSettings } from '../types';
@@ -6,6 +14,7 @@ import { getResolvedExamItems } from '../utils/appSchedule';
 import { examSyncIntervalMs } from '../utils/examPolling';
 import {
   nowMs,
+  subscribeClock,
   monotonicNowMs,
   formatClockInZone,
   getZonedParts,
@@ -30,7 +39,7 @@ import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
 import SchoolAnnouncementOverlay from '../components/SchoolAnnouncementOverlay';
 import LoadingState from '../components/LoadingState';
-import { fetchAnnouncements } from '../services/announcements';
+import { fetchAnnouncements, getLastAnnouncementFetchError } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import { fetchDeviceExamAnnouncements, type SchoolExamAnnouncement } from '../services/examAnnouncements';
 import { flushAnnouncementAcks, queueAnnouncementSeen } from '../services/announcementAcks';
@@ -107,7 +116,14 @@ function pickAutoOpenSchoolAnnouncements(list: SchoolExamAnnouncement[]): School
     seenLocally: readLocallySeenIds(),
     reminderMarks: readReminderMarks(),
   });
-  if (silent.length) markAnnouncementsShown(silent.map((item) => item.id));
+  if (silent.length) {
+    markAnnouncementsShown(silent.map((item) => item.id));
+    const message =
+      silent.length === 1
+        ? `收到公告「${silent[0].title || '未命名公告'}」，已放入公告列表。`
+        : `收到 ${silent.length} 条新公告，已放入公告列表。`;
+    notify('success', message, '收到新公告');
+  }
   return autoOpen;
 }
 
@@ -267,6 +283,7 @@ function BoundExamPage() {
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState('');
   /**
    * 学校侧考试公告（T-286-03）：与作者端公告分开拉，走另一扇更大的窗口。
    * 紧急公告立刻弹出、置顶且不可关闭；系统公告窗口在它打开期间让位（避免两扇窗口叠在一起）。
@@ -277,7 +294,6 @@ function BoundExamPage() {
   const [schoolAnnouncementHistory, setSchoolAnnouncementHistory] = useState<SchoolExamAnnouncement[]>([]);
   const [schoolHistoryLoading, setSchoolHistoryLoading] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const examSyncInterval = useMemo(() => examSyncIntervalMs(items, nowMs()), [items]);
 
   // 数据链接：考试前端保持快速同步，后台切换分科模式后无需手动刷新。
@@ -325,6 +341,7 @@ function BoundExamPage() {
       const list = await fetchAnnouncements(true);
       if (!alive) return;
       setAnnouncements(list);
+      setAnnouncementsError(getLastAnnouncementFetchError() ?? '');
       setAnnouncementsLoading(false);
       if (list.length === 0) return;
       const version = announcementVersion(list);
@@ -374,6 +391,7 @@ function BoundExamPage() {
         setAnnouncementsLoading(true);
         void fetchAnnouncements(true)
           .then(setAnnouncements)
+          .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
           .finally(() => setAnnouncementsLoading(false));
       });
       return;
@@ -382,6 +400,7 @@ function BoundExamPage() {
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
       .then(setAnnouncements)
+      .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
       .finally(() => setAnnouncementsLoading(false));
   }, []);
 
@@ -400,6 +419,7 @@ function BoundExamPage() {
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
       .then(setAnnouncements)
+      .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
       .finally(() => setAnnouncementsLoading(false));
   }, []);
 
@@ -475,10 +495,7 @@ function BoundExamPage() {
   const tick = useCallback(() => setNow(nowMs()), []);
   useEffect(() => {
     tick();
-    timerRef.current = setInterval(tick, 500);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return subscribeClock(tick);
   }, [tick]);
 
   // 状态胶囊反映当下真实网络状态：监听 online/offline，断网立即变“离线”。
@@ -572,6 +589,61 @@ function BoundExamPage() {
     online,
     notification: inDesignNotification,
   };
+
+  const displayDiagnosticKey = JSON.stringify({
+    phase: raw.phase,
+    currentRef: runtimeReference(raw.currentExam?.id),
+    nextRef: runtimeReference(raw.nextExam?.id),
+    design: designId,
+    itemCount: items.length,
+    dataVersion: getAppSettings().exam.updatedAt || 0,
+    syncState: examDataSyncState,
+    bound: !!getAppSettings().exam.selectedClassId,
+    reason: raw.currentExam
+      ? 'current_selected'
+      : raw.nextExam
+        ? 'waiting_next'
+        : items.length
+          ? 'no_current_candidate'
+          : 'no_resolved_items',
+    paused: !!classroomSnapshot?.pausedAt,
+  });
+  const lastDisplayDiagnostic = useRef('');
+  useEffect(() => {
+    void nowTick;
+    noteRuntimeRenderCommit();
+  }, [nowTick]);
+  useEffect(
+    () => () => {
+      lastDisplayDiagnostic.current = '';
+      clearRuntimeDisplay();
+    },
+    [],
+  );
+  useEffect(() => {
+    if (lastDisplayDiagnostic.current === displayDiagnosticKey) return;
+    lastDisplayDiagnostic.current = displayDiagnosticKey;
+    updateRuntimeDisplay(JSON.parse(displayDiagnosticKey));
+  }, [displayDiagnosticKey]);
+  useEffect(() => {
+    journal(
+      'notice.overlay_state',
+      { active: !!overlayItem, state: overlayItem?.state || 'none' },
+      'info',
+      'notice',
+      '提醒浮层展示状态变化',
+      getRuntimeDataAnchor().operationId,
+    );
+  }, [overlayItem?.key, overlayItem?.state]);
+  useEffect(() => {
+    journal(
+      'notice.announcement_state',
+      { open: announcementsOpen, schoolOpen: schoolAnnouncementsOpen, count: schoolAnnouncements.length },
+      'info',
+      'notice',
+      '公告展示状态变化',
+    );
+  }, [announcementsOpen, schoolAnnouncementsOpen, schoolAnnouncements.length]);
 
   const Design = getDesign(designId).component;
 
@@ -911,6 +983,7 @@ function BoundExamPage() {
         open={announcementsOpen && !schoolAnnouncementsOpen}
         announcements={announcements}
         loading={announcementsLoading}
+        error={announcementsError}
         onSwitchToSchool={
           schoolAnnouncements.length > 0 || schoolAnnouncementHistory.length > 0
             ? switchToSchoolAnnouncements

@@ -16,6 +16,8 @@ interface WeeklyItemsListProps {
   openImport: () => void;
   exportJson: () => void;
   allowBatchApply: boolean;
+  creationBlocked: boolean;
+  creationMessage: string;
   setBatchDeletePlanIds: (ids: string[]) => void;
   setBatchDeleteOpen: (value: boolean) => void;
   setCustomWeeklySubjectActive: (value: boolean) => void;
@@ -34,6 +36,8 @@ export default function WeeklyItemsList({
   openImport,
   exportJson,
   allowBatchApply,
+  creationBlocked,
+  creationMessage,
   setBatchDeletePlanIds,
   setBatchDeleteOpen,
   setCustomWeeklySubjectActive,
@@ -48,7 +52,12 @@ export default function WeeklyItemsList({
         <h2 className="admin-list-title">{activePlan.name} · 周测</h2>
         <span className="admin-list-count">{items.length} 项</span>
         <div className="weekly-list-actions">
-          <button className="admin-btn" onClick={openImport}>
+          <button
+            className="admin-btn"
+            onClick={openImport}
+            disabled={creationBlocked}
+            title={creationBlocked ? creationMessage : undefined}
+          >
             AI智能导入周测
           </button>
           <button className="admin-btn" onClick={exportJson}>
@@ -67,7 +76,10 @@ export default function WeeklyItemsList({
           )}
           <button
             className="admin-btn admin-btn--primary"
+            disabled={creationBlocked}
+            title={creationBlocked ? creationMessage : undefined}
             onClick={() => {
+              if (creationBlocked) return;
               setCustomWeeklySubjectActive(false);
               setEditing({
                 name: '',

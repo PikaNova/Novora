@@ -1,7 +1,9 @@
+import { journal } from '../utils/runtimeJournal.js';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getClassBindingInstanceId } from '../services/classBinding';
-import { getAppSettings, updateExamSettings } from '../utils/appSettings';
+import { getAppSettings, updateExamSettings, updateTimeSyncSettings } from '../utils/appSettings';
+import { runManualTimeSync } from '../utils/timeSync';
 import { applyTemporaryExamCommand } from '../services/temporaryExam';
 import { notify } from '../services/notify';
 import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
@@ -25,6 +27,7 @@ export default function DeviceHeartbeat() {
   // 回调里要读到最新的路由信息，用 ref 固定。
   const pathnameRef = useRef(pathname);
   const searchRef = useRef(search);
+  const seenTimeSyncRequests = useRef(new Set<string>());
   pathnameRef.current = pathname;
   searchRef.current = search;
 
@@ -35,6 +38,7 @@ export default function DeviceHeartbeat() {
         void sendPluginViewerHeartbeat(pluginInstanceFromSearch(searchRef.current), getClassBindingInstanceId());
       },
       onRevoked: () => {
+        journal('device.revoked', {}, 'warn', 'device', '设备已被撤销');
         logoutAdmin();
         const current = pathnameRef.current;
         const managementRoute = current === '/admin' || current.startsWith('/admin/') || current === '/settings';
@@ -49,8 +53,16 @@ export default function DeviceHeartbeat() {
       onBinding: (binding) => {
         if (binding.revoked) return;
         const currentBinding = getAppSettings().exam;
-        if (currentBinding.selectedGradeId !== binding.gradeId || currentBinding.selectedClassId !== binding.classId)
+        if (currentBinding.selectedGradeId !== binding.gradeId || currentBinding.selectedClassId !== binding.classId) {
+          journal(
+            'device.binding_changed',
+            { bound: !!binding.classId, management: !!binding.isManagement },
+            'info',
+            'device',
+            '设备绑定发生变化',
+          );
           updateExamSettings({ selectedGradeId: binding.gradeId, selectedClassId: binding.classId });
+        }
         if (binding.isManagement && pathnameRef.current === '/exam') {
           navigate('/', { replace: true });
         }
@@ -58,10 +70,48 @@ export default function DeviceHeartbeat() {
       onVersion: (version) => {
         window.dispatchEvent(new CustomEvent(CLOUD_VERSION_EVENT, { detail: { version } }));
       },
+      onTimeControl: (control) => {
+        const settings = getAppSettings().general.timeSync;
+        if (
+          settings.broadcastOffsetMs !== control.offsetMs ||
+          (settings.broadcastOffsetRevision ?? 0) !== control.revision
+        ) {
+          updateTimeSyncSettings({ broadcastOffsetMs: control.offsetMs, broadcastOffsetRevision: control.revision });
+          window.dispatchEvent(new CustomEvent('timeSync:updated'));
+        }
+        transport.noteTimeControlApplied(control.revision);
+        if (!control.syncRequestId || seenTimeSyncRequests.current.has(control.syncRequestId)) return;
+        const currentPath = pathnameRef.current;
+        const canSyncHere =
+          currentPath === '/' ||
+          currentPath === '/exam' ||
+          currentPath.startsWith('/settings') ||
+          currentPath.startsWith('/admin');
+        if (!canSyncHere) return;
+        seenTimeSyncRequests.current.add(control.syncRequestId);
+        notify('warning', '已收到全校校时请求，正在校时', '时间同步');
+        void new Promise((resolve) => window.setTimeout(resolve, Math.random() * 3000))
+          .then(() => runManualTimeSync())
+          .then((synced) => {
+            const latest = getAppSettings().general.timeSync;
+            const error = synced ? '' : latest.lastError || '设备未能完成校时';
+            transport.noteTimeSyncRequestResult(control.syncRequestId, synced ? 'synced' : 'failed', error, Date.now());
+            notify(synced ? 'success' : 'error', synced ? '全校统一校时完成' : `全校统一校时失败：${error}`);
+          });
+      },
       onCommand: (command) => {
         const receipt = resolveDeviceCommandReceipt(command, '');
         if (!receipt) return;
+        journal('device.command_received', { action: command.action }, 'info', 'device', '收到后台指令', command.id);
         const outcome = applyTemporaryExamCommand(command);
+        journal(
+          outcome.ok ? 'device.command_applied' : 'device.command_failed',
+          { action: command.action },
+          outcome.ok ? 'info' : 'error',
+          'device',
+          outcome.ok ? '后台指令执行成功' : outcome.reason,
+          command.id,
+        );
         if (!outcome.ok) {
           // 没执行就如实报失败：后台会显示「失败：原因」，不再把 no-op 当成功。
           transport.noteCommandFailed(command.id, outcome.reason);

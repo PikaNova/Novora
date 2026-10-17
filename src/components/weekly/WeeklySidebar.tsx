@@ -1,10 +1,10 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { CircleHelp } from 'lucide-react';
 import InlineSelect from '../InlineSelect';
 import HelpTip from '../HelpTip';
-import type { WeeklyConflictPolicy, WeeklyExamItem, WeeklyPlan } from '../../types/exam';
+import type { WeeklyExamItem, WeeklyPlan } from '../../types/exam';
 import { useWeeklyBatchOps } from '../../hooks/weekly/useWeeklyBatchOps';
-import { SCOPE_LABEL } from './weeklyShared';
 
 type BatchOpsState = ReturnType<typeof useWeeklyBatchOps>;
 
@@ -15,15 +15,14 @@ interface WeeklySidebarProps {
   items: WeeklyExamItem[];
   switchPlan: (planId: string) => void;
   openNewPlan: () => void;
+  creationBlocked: boolean;
+  creationMessage: string;
   openPlanSettings: () => void;
   setDeletePlanOpen: (value: boolean) => void;
   togglePlanEnabled: () => void;
   allowBatchApply: boolean;
   setCopyModal: BatchOpsState['setCopyModal'];
-  weeklyConflictPolicy: WeeklyConflictPolicy;
-  setPolicyOpen: (value: boolean) => void;
   setExceptionsOpen: (value: boolean) => void;
-  canEditConflictPolicy?: boolean;
 }
 
 export default function WeeklySidebar({
@@ -33,15 +32,14 @@ export default function WeeklySidebar({
   items,
   switchPlan,
   openNewPlan,
+  creationBlocked,
+  creationMessage,
   openPlanSettings,
   setDeletePlanOpen,
   togglePlanEnabled,
   allowBatchApply,
   setCopyModal,
-  weeklyConflictPolicy,
-  setPolicyOpen,
   setExceptionsOpen,
-  canEditConflictPolicy = false,
 }: WeeklySidebarProps) {
   return (
     <aside className="admin-sidebar">
@@ -81,7 +79,12 @@ export default function WeeklySidebar({
           </label>
         )}
         <div className="admin-major-card__btns">
-          <button className="admin-btn admin-btn--primary" onClick={openNewPlan}>
+          <button
+            className="admin-btn admin-btn--primary"
+            onClick={openNewPlan}
+            disabled={creationBlocked}
+            title={creationBlocked ? creationMessage : undefined}
+          >
             + 新建
           </button>
           <button className="admin-btn" onClick={openPlanSettings}>
@@ -122,19 +125,6 @@ export default function WeeklySidebar({
         </p>
       </div>
 
-      {canEditConflictPolicy && (
-        <div className="admin-form-card">
-          <h2 className="admin-form-card__title">大型考试冲突处理</h2>
-          <p className="admin-major-card__hint" style={{ margin: '0 0 10px' }}>
-            仅在运行模式为“自动”时生效：
-            {SCOPE_LABEL[weeklyConflictPolicy.scope]}
-          </p>
-          <button className="admin-btn" style={{ width: '100%' }} onClick={() => setPolicyOpen(true)}>
-            冲突处理设置
-          </button>
-        </div>
-      )}
-
       <div className="admin-form-card">
         <h2 className="admin-form-card__title">例外日期</h2>
         <p className="admin-major-card__hint" style={{ margin: '0 0 10px' }}>
@@ -155,6 +145,9 @@ export default function WeeklySidebar({
           <li>运行模式为“自动”时，大型考试期间会按策略自动暂停周测</li>
           <li>删除计划、周测项或单次实例后可立即撤销</li>
         </ul>
+        <Link className="admin-btn" style={{ width: '100%', marginTop: 10, textAlign: 'center' }} to="/settings/exam">
+          前往系统设置调整全局调度规则
+        </Link>
       </div>
     </aside>
   );

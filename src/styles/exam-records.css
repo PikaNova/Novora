@@ -506,6 +506,18 @@
   border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
   color: var(--adm-text-2, #a9bdd0);
   font-size: 12px;
+  animation: exam-record-row-in var(--motion-fast) var(--motion-ease-out-expo) both;
+}
+
+@keyframes exam-record-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .exam-records-table__row.is-head {
   min-height: 40px;
@@ -537,9 +549,15 @@
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-instant) var(--motion-ease-standard);
 }
 .exam-records-group-toggle:hover {
   background: rgba(148, 180, 208, 0.08);
+}
+.exam-records-group-toggle:active {
+  transform: scale(0.98);
 }
 .exam-records-group-toggle svg {
   transition: transform 0.15s;
@@ -1269,6 +1287,23 @@
   width: 34px;
   height: 34px;
   padding: 0;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-instant) var(--motion-ease-standard);
+}
+.exam-records-pagination .admin-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='best-effects']) .exam-records-table__row,
+  html:not([data-motion='best-effects']) .exam-records-group-toggle,
+  html:not([data-motion='best-effects']) .exam-records-pagination .admin-btn {
+    animation: none !important;
+    transition: none;
+    transform: none;
+  }
 }
 .exam-records-pagination__size {
   display: inline-flex;

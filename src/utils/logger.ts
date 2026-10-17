@@ -1,3 +1,4 @@
+import { journal } from './runtimeJournal.js';
 const isDev = typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
 
 export type LocalLogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -92,6 +93,13 @@ function record(level: LocalLogLevel, args: unknown[]): void {
     // eslint-disable-next-line no-control-regex -- security boundary for untrusted runtime log text
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .slice(0, MAX_MESSAGE_LENGTH);
+  journal(
+    /校时|时钟/.test(message) ? 'time.log' : 'page.log',
+    {},
+    level,
+    /校时|时钟/.test(message) ? 'time' : 'page',
+    message,
+  );
   entries.push({ at: Date.now(), level, message });
   pruneEntries();
   persist();

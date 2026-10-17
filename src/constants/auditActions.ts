@@ -59,11 +59,16 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'exam.announcement.remind': '提醒未读教室',
   'exam.announcement.template_save': '把公告存为模板',
   'settings.design-policy': '保存表格显示规则',
+  'settings.time-sync.broadcast': '向全校客户端下发校时',
+  'settings.time-sync.offset': '修改全校统一时间偏移',
   'settings.major-batch-presets': '保存批量考试预设',
 
   // 运维
   'database.reset': '重置数据库数据',
   'deployment.trigger': '触发重新部署',
+  'diagnostics.runtime.approve': '审批设备日志凭证',
+  'diagnostics.runtime.collect': '收集设备运行日志',
+  'diagnostics.runtime.export': '导出学校运行日志',
   'diagnostics.settings.update': '修改诊断日志设置',
   'diagnostics.bundle.send': '上传诊断日志包',
 };

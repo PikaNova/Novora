@@ -1,4 +1,5 @@
-import { Clock3, AlertTriangle } from 'lucide-react';
+import { Clock3, AlertTriangle, Radio, RefreshCw, Save } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import HelpTip from '../HelpTip';
 import InlineSelect from '../InlineSelect';
 import { Switch } from './Switch';
@@ -6,7 +7,29 @@ import type { TimeSyncSettings } from '../../utils/appSettings';
 import { useTimeSyncSettings } from '../../hooks/settings/useTimeSyncSettings';
 
 export default function TimeSyncSection({ canEditSettings }: { canEditSettings: boolean }) {
-  const { ts, syncing, ready, lastSyncLabel, patchTs, syncNow } = useTimeSyncSettings();
+  const {
+    ts,
+    syncing,
+    ready,
+    lastSyncLabel,
+    patchTs,
+    syncNow,
+    globalControl,
+    globalBusy,
+    globalLoadError,
+    offsetError,
+    syncError,
+    offsetSaveNotice,
+    syncNotice,
+    globalAction,
+    syncAllClients,
+    saveBroadcastOffset,
+  } = useTimeSyncSettings();
+  const [offsetDraft, setOffsetDraft] = useState('0');
+  const globalOffsetMs = globalControl?.offsetMs;
+  useEffect(() => {
+    if (globalOffsetMs != null) setOffsetDraft(String(globalOffsetMs / 1000));
+  }, [globalOffsetMs]);
 
   return (
     <section className="set-card">
@@ -139,9 +162,111 @@ export default function TimeSyncSection({ canEditSettings }: { canEditSettings: 
             </li>
           ) : null}
         </ul>
-        <button className="set-btn set-btn--primary" disabled={!ts.enabled || syncing} onClick={syncNow}>
-          {syncing ? '正在校时…' : '立即校时'}
-        </button>
+        <div className="set-sync-actions">
+          <button className="set-btn set-btn--primary" disabled={!ts.enabled || syncing} onClick={syncNow}>
+            {syncing ? <RefreshCw size={15} className="is-spinning" /> : <Clock3 size={15} />}
+            {syncing ? '正在校时…' : '立即校时'}
+          </button>
+          <span className="set-sync-actions__hint" aria-live="polite">
+            {syncing ? '正在获取独立时间样本…' : ready ? '本机时间基准正常' : '等待可靠时间基准'}
+          </span>
+        </div>
+        <div className="set-fieldset set-time-control">
+          <div className="set-time-control__offset">
+            <label className="set-label" htmlFor="global-time-offset">
+              全校统一偏移（秒）
+            </label>
+            <div className="set-time-control__offset-controls">
+              <input
+                id="global-time-offset"
+                className="set-input set-input--sm"
+                type="number"
+                min={-300}
+                max={300}
+                step={0.1}
+                inputMode="decimal"
+                disabled={!canEditSettings || globalBusy}
+                value={offsetDraft}
+                onChange={(event) => setOffsetDraft(event.target.value)}
+              />
+              <button
+                className="set-btn set-btn--sm"
+                disabled={
+                  !canEditSettings ||
+                  globalBusy ||
+                  !Number.isFinite(Number(offsetDraft)) ||
+                  Math.abs(Number(offsetDraft)) > 300
+                }
+                onClick={() => void saveBroadcastOffset(Number(offsetDraft))}
+              >
+                {globalAction === 'saving-offset' ? (
+                  <RefreshCw size={14} className="is-spinning" />
+                ) : (
+                  <Save size={14} />
+                )}
+                {globalAction === 'saving-offset' ? '保存中…' : '保存'}
+              </button>
+            </div>
+          </div>
+          <p className="set-card__lead">正值让客户端时钟、倒计时和提醒提前，负值让它们延后；服务端考试计划不变。</p>
+          <div className="set-inline-actions">
+            {offsetSaveNotice ? (
+              <span className="set-note set-note--success" aria-live="polite">
+                {offsetSaveNotice}
+              </span>
+            ) : null}
+            {offsetError ? (
+              <span className="set-note set-note--error" aria-live="polite">
+                {offsetError}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="set-fieldset set-time-control">
+          {ts.enabled ? null : <p className="set-card__lead">先开启本机统一校时，再下发全局校时。</p>}
+          <div className="set-inline-actions">
+            <button
+              className="set-btn set-btn--primary set-btn--sm"
+              disabled={!canEditSettings || !ts.enabled || globalBusy}
+              onClick={() => void syncAllClients()}
+            >
+              {globalAction === 'syncing-clients' ? (
+                <RefreshCw size={14} className="is-spinning" />
+              ) : (
+                <Radio size={14} />
+              )}
+              {globalAction === 'syncing-clients' ? '正在下发…' : '校时所有客户端'}
+            </button>
+            {syncNotice ? (
+              <span className="set-note set-note--success" aria-live="polite">
+                {syncNotice}
+              </span>
+            ) : null}
+            {syncError ? (
+              <span className="set-note set-note--error" aria-live="polite">
+                {syncError}
+              </span>
+            ) : null}
+          </div>
+          {globalControl?.sync ? (
+            <div className="set-time-control__result" aria-live="polite">
+              <span className="set-time-control__result-title">最近一次全校校时</span>
+              <span className="set-time-control__result-item is-success">
+                <b>{globalControl.sync.synced}</b> 台成功
+              </span>
+              <span className={`set-time-control__result-item${globalControl.sync.failed ? ' is-error' : ''}`}>
+                <b>{globalControl.sync.failed}</b> 台失败
+              </span>
+              <span className={`set-time-control__result-item${globalControl.sync.pending ? ' is-pending' : ''}`}>
+                <b>{globalControl.sync.pending}</b> 台待响应
+              </span>
+              <small>
+                在线 {globalControl.sync.online} / {globalControl.sync.total} · 每 5 秒刷新
+              </small>
+            </div>
+          ) : null}
+          {globalLoadError ? <p className="set-note set-note--warn">同步状态读取失败：{globalLoadError}</p> : null}
+        </div>
       </div>
     </section>
   );

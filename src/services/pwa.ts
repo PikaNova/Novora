@@ -1,3 +1,4 @@
+import { journal } from '../utils/runtimeJournal.js';
 export type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
@@ -27,7 +28,14 @@ export function registerPwa(): void {
             window.dispatchEvent(new Event(PWA_UPDATE_EVENT));
           }
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          journal(
+            'pwa.registration_failed',
+            {},
+            'warn',
+            'pwa',
+            error instanceof Error ? error.message : 'Service Worker 注册失败',
+          );
           /* PWA 注册失败不影响网页正常使用 */
         });
       navigator.serviceWorker.addEventListener('controllerchange', () => {

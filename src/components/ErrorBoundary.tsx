@@ -1,3 +1,4 @@
+import { journal } from '../utils/runtimeJournal.js';
 import React from 'react';
 import { reportError } from '../services/errorReport';
 import { isChunkLoadError } from '../shared/chunkLoadError';
@@ -24,6 +25,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     const chunkError = isChunkLoadError(error);
+    journal(
+      'display.render_failed',
+      { name: error.name, chunkError },
+      'error',
+      'display',
+      error.message || '页面渲染失败',
+    );
     void reportError({
       message: error.message || '页面渲染异常',
       errorName: error.name || 'ReactRenderError',

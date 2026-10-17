@@ -1,3 +1,4 @@
+import { journal } from '../utils/runtimeJournal.js';
 import {
   ANNOUNCEMENT_ACK_BATCH_MAX,
   mergeSeenItems,
@@ -64,6 +65,7 @@ export function queueAnnouncementSeen(
 ): void {
   const incoming = normalizeSeenItems(items);
   if (!incoming.length) return;
+  journal('notice.receipt_queued', { count: incoming.length }, 'info', 'notice', '公告阅读回执加入队列');
   writePending(mergeSeenItems(readPendingAnnouncementAcks(target), incoming), target);
 }
 
@@ -98,8 +100,10 @@ export async function flushAnnouncementAcks(
         batch.map((item) => item.id),
         target,
       );
+    journal('notice.receipt_sent', { count: recorded, submitted: batch.length }, 'info', 'notice', '公告回执发送完成');
     return recorded;
   } catch {
+    journal('notice.receipt_failed', { count: batch.length }, 'warn', 'notice', '公告回执未送达，保留待重试');
     // 离线 / 服务端不可用：保留缓冲，等下一次 flush。
     return 0;
   }
