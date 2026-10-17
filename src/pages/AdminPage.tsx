@@ -319,7 +319,6 @@ export default function AdminPage() {
     commitWeekly,
     handleScheduleModeChange,
     handleSaveWeeklyPlans,
-    handleConflictPolicyChange,
   } = weekly;
 
   const major = useMajorScheduleActions({
@@ -1241,6 +1240,7 @@ export default function AdminPage() {
           {adminTab === 'exam' && (examViewActive === 'weekly' || examViewActive === 'editor') && (
             <AdminContextBar
               showClassPicker={examViewActive === 'weekly'}
+              showScheduleMode={false}
               can={can}
               scheduleMode={scheduleMode}
               handleScheduleModeChange={handleScheduleModeChange}
@@ -1298,8 +1298,6 @@ export default function AdminPage() {
                     majorName={orderedScopedMajors.map((major) => major.name).join('、')}
                     creationLock={weeklyCreationLock}
                     onSavePlans={handleSaveWeeklyPlans}
-                    onConflictPolicyChange={handleConflictPolicyChange}
-                    canEditConflictPolicy={can('schedule.conflict_edit')}
                     onSelectScope={(gradeId, classId) => {
                       setSelectedGradeId(gradeId);
                       setSelectedClassId(classId);

@@ -20,6 +20,7 @@ import DeploymentSection from '../components/settings/DeploymentSection';
 import SchoolInfoSection from '../components/settings/SchoolInfoSection';
 import EmailServiceSection from '../components/settings/EmailServiceSection';
 import WeeklyCalendarSection from '../components/settings/WeeklyCalendarSection';
+import ScheduleRulesSection from '../components/settings/ScheduleRulesSection';
 import SubjectTrackModeSection from '../components/settings/SubjectTrackModeSection';
 import TimeSyncSection from '../components/settings/TimeSyncSection';
 import AlertsAdvancedSection from '../components/settings/AlertsAdvancedSection';
@@ -94,6 +95,8 @@ export default function SettingsPage() {
   const canEditSettings = adminUser ? adminCan('settings.edit', adminUser) : !hasValidLocalToken();
   const canEditPresets = adminUser ? adminCan('majorBatch.preset_edit', adminUser) : !hasValidLocalToken();
   const canEditWeekly = adminUser ? adminCan('weekly.edit', adminUser) : !hasValidLocalToken();
+  const canEditScheduleMode = adminUser ? adminCan('schedule.mode_edit', adminUser) : !hasValidLocalToken();
+  const canEditConflictPolicy = adminUser ? adminCan('schedule.conflict_edit', adminUser) : !hasValidLocalToken();
   const canReadAlerts = adminUser ? adminCan('alerts.read', adminUser) : !hasValidLocalToken();
   const canEditAlerts = adminUser ? adminCan('alerts.edit', adminUser) : !hasValidLocalToken();
   const canEditSchool = adminUser ? adminCan('initialization.run', adminUser) : !hasValidLocalToken();
@@ -104,7 +107,14 @@ export default function SettingsPage() {
   const canUploadDiagnostics = adminUser ? adminCan('diagnostics.upload', adminUser) : !hasValidLocalToken();
   const canEditDiagnostics = adminUser ? adminCan('diagnostics.settings', adminUser) : !hasValidLocalToken();
   const hasAnyEditable =
-    canEditSettings || canEditPresets || canEditWeekly || canEditAlerts || canEditSchool || canResetDatabase;
+    canEditSettings ||
+    canEditPresets ||
+    canEditWeekly ||
+    canEditScheduleMode ||
+    canEditConflictPolicy ||
+    canEditAlerts ||
+    canEditSchool ||
+    canResetDatabase;
 
   // 分组重排：把原来错位的「系统状态 / 诊断日志 / 版本与更新」放回语义正确的位置，
   // 只展示当前账号有内容可看的分组；about 固定在左栏底部。
@@ -112,14 +122,23 @@ export default function SettingsPage() {
     const list: SettingsRailGroup[] = [{ id: 'school', label: '学校与基础', icon: <School size={16} /> }];
     if (canEditSettings || canResetDatabase)
       list.push({ id: 'account', label: '账号与安全', icon: <Mail size={16} /> });
-    if (canEditWeekly || canEditSettings || canEditPresets)
+    if (canEditWeekly || canEditSettings || canEditPresets || canEditScheduleMode || canEditConflictPolicy)
       list.push({ id: 'exam', label: '考试与排课', icon: <ListChecks size={16} /> });
     if (canEditSettings || canReadAlerts || canResetDatabase || canReadDiagnostics)
       list.push({ id: 'runtime', label: '运行与诊断', icon: <Activity size={16} /> });
     if (canEditSettings) list.push({ id: 'release', label: '版本与更新', icon: <RadioTower size={16} /> });
     if (canResetDatabase) list.push({ id: 'maintenance', label: '数据与维护', icon: <DatabaseZap size={16} /> });
     return list;
-  }, [canEditSettings, canResetDatabase, canEditWeekly, canEditPresets, canReadAlerts, canReadDiagnostics]);
+  }, [
+    canEditSettings,
+    canResetDatabase,
+    canEditWeekly,
+    canEditPresets,
+    canEditScheduleMode,
+    canEditConflictPolicy,
+    canReadAlerts,
+    canReadDiagnostics,
+  ]);
   const availableGroups = useMemo(() => [...groups.map((item) => item.id), ABOUT_GROUP.id], [groups]);
   const activeGroup = (group ?? '') as SettingsGroupId;
 
@@ -191,6 +210,10 @@ export default function SettingsPage() {
             <section id="set-group-exam" className="set-group" data-group="exam">
               <h2 className="set-group__title">考试与排课</h2>
               <div className="set-group__body">
+                <ScheduleRulesSection
+                  canEditScheduleMode={canEditScheduleMode}
+                  canEditConflictPolicy={canEditConflictPolicy}
+                />
                 {canEditWeekly && <WeeklyCalendarSection canEditWeekly={canEditWeekly} adminUser={adminUser} />}
                 {canEditSettings && (
                   <section className="set-card">
