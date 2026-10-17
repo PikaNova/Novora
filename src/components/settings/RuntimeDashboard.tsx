@@ -11,6 +11,13 @@ import { RUNTIME_CATEGORIES } from '../../shared/runtimeLog';
 import '../../styles/runtime-dashboard.css';
 
 const time = (at: number) => new Date(Number(at)).toLocaleString('zh-CN', { hour12: false });
+function trendLabel(at: number, hours: number, index: number, count: number) {
+  const stride = count >= 18 ? 4 : count >= 10 ? 2 : 1;
+  if (index % stride !== 0 && index !== count - 1) return '';
+  const date = new Date(at);
+  if (hours >= 24) return `${date.getMonth() + 1}/${date.getDate()}`;
+  return `${date.getHours()}时`;
+}
 const labels: Record<string, string> = {
   display: '前端显示',
   time: '校时',
@@ -269,6 +276,29 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
     .slice()
     .sort((a, b) => Number(b.last_seen_at) - Number(a.last_seen_at));
   const visibleDevices = filteredDevices.slice(devicePage * PAGE_SIZE, (devicePage + 1) * PAGE_SIZE);
+  const trendSpan = data ? Math.max(1, data.range.to - data.range.from) : 0;
+  const trendBucketHours = Math.max(1, Math.ceil(trendSpan / (24 * 60 * 60 * 1000)));
+  const trendBucketMs = trendBucketHours * 60 * 60 * 1000;
+  const trendBuckets = data
+    ? Array.from({ length: Math.min(24, Math.ceil(trendSpan / trendBucketMs)) }, (_, index) => ({
+        at: data.range.from + index * trendBucketMs,
+        total: 0,
+        errors: 0,
+      })).map((bucket, index, buckets) => {
+        for (const point of data.trend) {
+          const pointIndex = Math.max(
+            0,
+            Math.min(buckets.length - 1, Math.floor((point.at - data.range.from) / trendBucketMs)),
+          );
+          if (pointIndex === index) {
+            bucket.total += point.total;
+            bucket.errors += point.errors;
+          }
+        }
+        return { ...bucket, label: trendLabel(bucket.at, trendBucketHours, index, buckets.length) };
+      })
+    : [];
+  const trendMax = Math.max(1, ...trendBuckets.map((bucket) => bucket.total));
   return (
     <>
       <section className="runtime-dashboard" aria-label="运行日志仪表盘">
@@ -530,21 +560,54 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
           <div id="runtime-events-panel" role="tabpanel" aria-labelledby="runtime-events-tab">
             <div className="runtime-overview">
               <section>
-                <h3>日志事件趋势（小时）</h3>
-                <div className="runtime-trend">
-                  {data?.trend.map((point) => (
-                    <div key={point.at} title={`${time(point.at)}：${point.total} 条，${point.errors} 错误`}>
-                      <i
-                        style={{
-                          height: `${Math.max(3, (point.total / Math.max(1, ...data.trend.map((p) => p.total))) * 100)}%`,
-                        }}
-                      />
-                      <small>{new Date(point.at).getHours()}时</small>
-                    </div>
-                  ))}
+                <div className="runtime-trend-heading">
+                  <h3>事件量分布</h3>
+                  <span>每格 {trendBucketHours} 小时</span>
                 </div>
-                {data && !data.trend.length && <p className="set-note">该范围暂无事件。</p>}
-                <p className="set-note">事件数量，不代表接口请求量或 CPU 历史。</p>
+                <div className="runtime-trend-chart" aria-label={`事件量分布，每格 ${trendBucketHours} 小时`}>
+                  <div className="runtime-trend-axis" aria-hidden="true">
+                    <span>{trendMax}</span>
+                    <span>{Math.ceil(trendMax / 2)}</span>
+                    <span>0</span>
+                  </div>
+                  <div className="runtime-trend-plot">
+                    {trendBuckets.map((bucket, index) => {
+                      const height = bucket.total ? Math.max(5, (bucket.total / trendMax) * 100) : 0;
+                      const errorShare = bucket.total ? (bucket.errors / bucket.total) * 100 : 0;
+                      return (
+                        <div
+                          className="runtime-trend-column"
+                          key={bucket.at}
+                          title={`${time(bucket.at)}：${bucket.total} 条事件，${bucket.errors} 条错误`}
+                        >
+                          <div className="runtime-trend-track">
+                            <i
+                              className="runtime-trend-bar"
+                              style={{
+                                height: `${height}%`,
+                                background: `linear-gradient(to top, #e87979 ${errorShare}%, #55a9cb ${errorShare}%)`,
+                                animationDelay: `${Math.min(index * 18, 360)}ms`,
+                              }}
+                            />
+                          </div>
+                          <small>{bucket.label}</small>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="runtime-trend-legend">
+                  <span>
+                    <i className="is-total" />
+                    普通事件
+                  </span>
+                  <span>
+                    <i className="is-error" />
+                    错误
+                  </span>
+                  <span>{data?.summary.total ?? 0} 条</span>
+                </div>
+                {data && !data.summary.total && <p className="set-note">所选时间范围内暂无事件。</p>}
               </section>
               <section>
                 <h3>近期异常</h3>
