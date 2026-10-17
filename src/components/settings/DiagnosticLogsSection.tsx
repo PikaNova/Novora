@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Clock, Eye, Send, ShieldCheck, X } from 'lucide-react';
+import { Clock, Eye, Send, ShieldCheck, X } from 'lucide-react';
 import { DateTimeField } from '../touch-datetime-picker';
 import InlineSelect from '../InlineSelect';
 import { Switch } from './Switch';
-import { APP_VERSION, getInstanceId } from '../../services/telemetry';
 import {
   defaultDiagnosticRange,
   diagnosticEntriesInRange,
@@ -41,8 +40,6 @@ export default function DiagnosticLogsSection({
   const [previewBusy, setPreviewBusy] = useState(false);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
-  const [showAllPreviewEntries, setShowAllPreviewEntries] = useState(false);
-  const instanceId = useMemo(() => getInstanceId(), []);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -145,7 +142,6 @@ export default function DiagnosticLogsSection({
         fail('所选时间段没有可发送的详细日志');
         return;
       }
-      setShowAllPreviewEntries(false);
       setPreviewClosing(false);
       setPreview({ from: start, to: end, entries });
     } catch (error) {
@@ -301,10 +297,7 @@ export default function DiagnosticLogsSection({
             >
               <header className="diagnostic-preview__header">
                 <div>
-                  <h2 id="diagnostic-preview-title">核对详细日志</h2>
-                  <p>
-                    {displayTime(preview.from)} 至 {displayTime(preview.to)}
-                  </p>
+                  <h2 id="diagnostic-preview-title">上报诊断日志</h2>
                 </div>
                 <button
                   type="button"
@@ -318,91 +311,12 @@ export default function DiagnosticLogsSection({
                 </button>
               </header>
               <div className="diagnostic-preview__body">
-                <dl className="diagnostic-preview__facts">
-                  <div>
-                    <dt>设备标识</dt>
-                    <dd>{instanceId}</dd>
-                  </div>
-                  <div>
-                    <dt>应用版本</dt>
-                    <dd>{APP_VERSION}</dd>
-                  </div>
-                  <div>
-                    <dt>日志条数</dt>
-                    <dd>{preview.entries.length}</dd>
-                  </div>
-                  <div>
-                    <dt>分片策略</dt>
-                    <dd>超过 5000 条或 8 MB 时自动拆分</dd>
-                  </div>
-                </dl>
-                <div className="diagnostic-preview__section">
-                  <h3>内容统计</h3>
-                  <div className="diagnostic-preview__counts">
-                    {(['error', 'warn', 'info', 'debug'] as const).map((level) => (
-                      <div key={level} className={`is-${level}`}>
-                        <span>{{ error: '错误', warn: '警告', info: '信息', debug: '调试' }[level]}</span>
-                        <strong>{preview.entries.filter((entry) => entry.level === level).length}</strong>
-                      </div>
-                    ))}
-                  </div>
-                  <ul className="diagnostic-preview__sources">
-                    {Object.entries(
-                      preview.entries.reduce<Record<string, number>>((counts, entry) => {
-                        const source = entry.source || '其他日志';
-                        counts[source] = (counts[source] || 0) + 1;
-                        return counts;
-                      }, {}),
-                    )
-                      .sort((a, b) => b[1] - a[1])
-                      .slice(0, 12)
-                      .map(([source, count]) => (
-                        <li key={source}>
-                          <span>{source}</span>
-                          <b>{count}</b>
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-                <div className="diagnostic-preview__section">
-                  <h3>
-                    日志预览 <small>已按上报规则脱敏</small>
-                  </h3>
-                  <ol className="diagnostic-preview__entries">
-                    {preview.entries
-                      .slice(0, showAllPreviewEntries ? preview.entries.length : 8)
-                      .map((entry, index) => (
-                        <li key={`${entry.at}:${index}`}>
-                          <div>
-                            <span className={`diagnostic-preview__level is-${entry.level}`}>{entry.level}</span>
-                            <time>{displayTime(entry.at)}</time>
-                          </div>
-                          <b>{entry.source || '运行日志'}</b>
-                          <p>{entry.message}</p>
-                          {entry.context && (
-                            <small>
-                              {Object.entries(entry.context)
-                                .slice(0, 6)
-                                .map(([key, value]) => `${key}: ${value}`)
-                                .join(' · ')}
-                            </small>
-                          )}
-                        </li>
-                      ))}
-                  </ol>
-                  {preview.entries.length > 8 && (
-                    <button
-                      type="button"
-                      className="diagnostic-preview__more"
-                      onClick={() => setShowAllPreviewEntries((value) => !value)}
-                    >
-                      {showAllPreviewEntries ? '收起日志' : `查看全部 ${preview.entries.length} 条日志`}
-                    </button>
-                  )}
-                </div>
+                <p className="diagnostic-preview__range">
+                  {displayTime(preview.from)} 至 {displayTime(preview.to)}
+                </p>
+                <p className="diagnostic-preview__count">将上报 {preview.entries.length} 条运行诊断日志</p>
                 <p className="diagnostic-preview__privacy">
-                  <AlertTriangle size={15} />
-                  确认后将把此列表中的脱敏日志发送给作者端；静默错误摘要仍由系统独立上报。
+                  日志仅用于排查程序运行问题，发送前会自动过滤敏感信息。
                 </p>
               </div>
               <footer className="diagnostic-preview__footer">
