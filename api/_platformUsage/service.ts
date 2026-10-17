@@ -166,15 +166,14 @@ function parseSeries(value: unknown): ForecastPoint[] {
 /**
  * 留空时的免费版默认上限。
  *
- * Vercel 只有官方 Hobby 文档明确写过的那两项有默认值（Fast Data Transfer 100 GB、
- * Provisioned Memory 360 GB-hrs）；接口本身不返回任何上限，其余指标一律留空，
- * 由管理员按控制台填。
+ * Vercel 的 `/v2/usage` 字段与控制台的计费指标不是一一对应，接口本身也不返回上限。
+ * 因此不能把 Hobby 文档中的 Fast Data Transfer / Provisioned Memory 上限套到
+ * `bandwidth_outgoing` / `function_gb_hours` 上，否则会产生看似精确但口径错误的百分比。
+ * Vercel 的上限全部由管理员按控制台口径手工填写；Neon 的公开 API 指标仍沿用免费版默认值。
  */
 const DEFAULT_LIMITS: Record<PlatformProviderId, Record<string, number>> = {
   vercel: {
-    bandwidth_outgoing: 100,
-    function_gb_hours: 360,
-    active_cpu: 4,
+    // `/v2/usage` 不提供与控制台额度完全对应的上限，刻意留空。
   },
   neon: {
     storage: NEON_FREE_LIMITS.storageBytes / 1_000_000_000,

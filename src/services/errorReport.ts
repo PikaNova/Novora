@@ -19,6 +19,7 @@ import type {
   ErrorReportType,
 } from '../shared/errorReportContracts';
 import { getAppSettings } from '../utils/appSettings';
+import { journal } from '../utils/runtimeJournal.js';
 import { captureErrorWindow } from '../utils/logger';
 import { isAbortError } from '../shared/abortError';
 import {
@@ -266,6 +267,14 @@ export async function reportError(input: ErrorReportInput): Promise<void> {
   if (shouldSkipDuplicate(fingerprint)) return;
   const payload = buildPayload(input);
   if (!payload) return;
+  journal(
+    'page.error_report',
+    { name: payload.errorName || 'Error', code: payload.errorCode || '' },
+    payload.level === 'warning' ? 'warn' : 'error',
+    'page',
+    String(payload.message),
+    String(payload.errorEventId),
+  );
   captureErrorWindow({
     errorEventId: typeof payload.errorEventId === 'string' ? payload.errorEventId : undefined,
     fingerprint: typeof payload.fingerprint === 'string' ? payload.fingerprint : undefined,

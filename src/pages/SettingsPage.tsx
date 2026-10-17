@@ -20,6 +20,7 @@ import DeploymentSection from '../components/settings/DeploymentSection';
 import SchoolInfoSection from '../components/settings/SchoolInfoSection';
 import EmailServiceSection from '../components/settings/EmailServiceSection';
 import WeeklyCalendarSection from '../components/settings/WeeklyCalendarSection';
+import ScheduleRulesSection from '../components/settings/ScheduleRulesSection';
 import SubjectTrackModeSection from '../components/settings/SubjectTrackModeSection';
 import TimeSyncSection from '../components/settings/TimeSyncSection';
 import AlertsAdvancedSection from '../components/settings/AlertsAdvancedSection';
@@ -27,13 +28,17 @@ import DataMaintenanceSection from '../components/settings/DataMaintenanceSectio
 import SettingsRail, { type SettingsRailGroup } from '../components/settings/SettingsRail';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
 import SettingsCollapsibleCard from '../components/settings/SettingsCollapsibleCard';
+import RuntimeDashboard from '../components/settings/RuntimeDashboard';
+import { hasAllScope } from '../shared/permissionRules';
+import { getAppSettings, updateExamSettings, APP_SETTINGS_CHANGED_EVENT } from '../utils/appSettings';
+import { Switch } from '../components/settings/Switch';
 import SystemStatusSection from '../components/settings/SystemStatusSection';
 import PlatformUsageSection from '../components/settings/PlatformUsageSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
-import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School } from 'lucide-react';
+import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School, ScrollText } from 'lucide-react';
 
 /** 设置分组只剩导航职责，具体权限在下面按分组判定；见 groups 计算。 */
-type SettingsGroupId = 'school' | 'account' | 'exam' | 'runtime' | 'release' | 'maintenance' | 'about';
+type SettingsGroupId = 'school' | 'account' | 'exam' | 'runtime' | 'logs' | 'release' | 'maintenance' | 'about';
 
 const ABOUT_GROUP: SettingsRailGroup = { id: 'about', label: '关于', icon: <Info size={16} /> };
 
@@ -46,6 +51,14 @@ export default function SettingsPage() {
   const [adminUser, setAdminUser] = useState<AdminUserContext | null>(() => getAdminUser());
   const [denied, setDenied] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [creationLockEnabled, setCreationLockEnabled] = useState(
+    () => getAppSettings().exam.majorExamCreationLockEnabled === true,
+  );
+  useEffect(() => {
+    const refresh = () => setCreationLockEnabled(getAppSettings().exam.majorExamCreationLockEnabled === true);
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, refresh);
+  }, []);
   useEffect(() => {
     if (hasValidLocalToken()) {
       refreshAdminUser().then((user) => {
@@ -82,15 +95,26 @@ export default function SettingsPage() {
   const canEditSettings = adminUser ? adminCan('settings.edit', adminUser) : !hasValidLocalToken();
   const canEditPresets = adminUser ? adminCan('majorBatch.preset_edit', adminUser) : !hasValidLocalToken();
   const canEditWeekly = adminUser ? adminCan('weekly.edit', adminUser) : !hasValidLocalToken();
+  const canEditScheduleMode = adminUser ? adminCan('schedule.mode_edit', adminUser) : !hasValidLocalToken();
+  const canEditConflictPolicy = adminUser ? adminCan('schedule.conflict_edit', adminUser) : !hasValidLocalToken();
   const canReadAlerts = adminUser ? adminCan('alerts.read', adminUser) : !hasValidLocalToken();
   const canEditAlerts = adminUser ? adminCan('alerts.edit', adminUser) : !hasValidLocalToken();
   const canEditSchool = adminUser ? adminCan('initialization.run', adminUser) : !hasValidLocalToken();
   const canResetDatabase = adminUser ? adminUser.permissions.includes('*') : !hasValidLocalToken();
   const canReadDiagnostics = adminUser ? adminCan('diagnostics.read', adminUser) : !hasValidLocalToken();
+  const canReadRuntime = !!adminUser && canReadDiagnostics && hasAllScope(adminUser);
+  const canExportRuntime = !!adminUser && adminCan('diagnostics.download', adminUser);
   const canUploadDiagnostics = adminUser ? adminCan('diagnostics.upload', adminUser) : !hasValidLocalToken();
   const canEditDiagnostics = adminUser ? adminCan('diagnostics.settings', adminUser) : !hasValidLocalToken();
   const hasAnyEditable =
-    canEditSettings || canEditPresets || canEditWeekly || canEditAlerts || canEditSchool || canResetDatabase;
+    canEditSettings ||
+    canEditPresets ||
+    canEditWeekly ||
+    canEditScheduleMode ||
+    canEditConflictPolicy ||
+    canEditAlerts ||
+    canEditSchool ||
+    canResetDatabase;
 
   // 分组重排：把原来错位的「系统状态 / 诊断日志 / 版本与更新」放回语义正确的位置，
   // 只展示当前账号有内容可看的分组；about 固定在左栏底部。
@@ -98,14 +122,25 @@ export default function SettingsPage() {
     const list: SettingsRailGroup[] = [{ id: 'school', label: '学校与基础', icon: <School size={16} /> }];
     if (canEditSettings || canResetDatabase)
       list.push({ id: 'account', label: '账号与安全', icon: <Mail size={16} /> });
-    if (canEditWeekly || canEditSettings || canEditPresets)
+    if (canEditWeekly || canEditSettings || canEditPresets || canEditScheduleMode || canEditConflictPolicy)
       list.push({ id: 'exam', label: '考试与排课', icon: <ListChecks size={16} /> });
     if (canEditSettings || canReadAlerts || canResetDatabase || canReadDiagnostics)
       list.push({ id: 'runtime', label: '运行与诊断', icon: <Activity size={16} /> });
+    if (canReadRuntime) list.push({ id: 'logs', label: '运行日志', icon: <ScrollText size={16} /> });
     if (canEditSettings) list.push({ id: 'release', label: '版本与更新', icon: <RadioTower size={16} /> });
     if (canResetDatabase) list.push({ id: 'maintenance', label: '数据与维护', icon: <DatabaseZap size={16} /> });
     return list;
-  }, [canEditSettings, canResetDatabase, canEditWeekly, canEditPresets, canReadAlerts, canReadDiagnostics]);
+  }, [
+    canEditSettings,
+    canResetDatabase,
+    canEditWeekly,
+    canEditPresets,
+    canEditScheduleMode,
+    canEditConflictPolicy,
+    canReadAlerts,
+    canReadDiagnostics,
+    canReadRuntime,
+  ]);
   const availableGroups = useMemo(() => [...groups.map((item) => item.id), ABOUT_GROUP.id], [groups]);
   const activeGroup = (group ?? '') as SettingsGroupId;
 
@@ -137,21 +172,23 @@ export default function SettingsPage() {
           onSelect={(id) => navigate(`/settings/${id}`)}
         />
         <div className="set-content">
-          {!hasAnyEditable && (
+          {activeGroup !== 'logs' && !hasAnyEditable && (
             <div className="set-note set-note--warn">
               当前账号没有可修改的系统设置项，以下仅保留“我的账户/关于”等个人与只读板块。
             </div>
           )}
-          {!canEditSettings && (
+          {activeGroup !== 'logs' && !canEditSettings && (
             <div className="set-note set-note--warn">
               当前账号只能修改已授权的系统设置项，其余全局设置保持只读。如需修改登录密码，请前往“用户与权限”。
             </div>
           )}
-          <div className="set-note set-note--local-hint">
-            显示风格、动效与字体属于本机偏好，请前往
-            <Link to="/local-settings">本地设置</Link>
-            调整。
-          </div>
+          {activeGroup !== 'logs' && (
+            <div className="set-note set-note--local-hint">
+              显示风格、动效与字体属于本机偏好，请前往
+              <Link to="/local-settings">本地设置</Link>
+              调整。
+            </div>
+          )}
           {activeGroup === 'school' && (
             <section id="set-group-school" className="set-group" data-group="school">
               <h2 className="set-group__title">学校与基础</h2>
@@ -177,7 +214,38 @@ export default function SettingsPage() {
             <section id="set-group-exam" className="set-group" data-group="exam">
               <h2 className="set-group__title">考试与排课</h2>
               <div className="set-group__body">
+                <ScheduleRulesSection
+                  canEditScheduleMode={canEditScheduleMode}
+                  canEditConflictPolicy={canEditConflictPolicy}
+                />
                 {canEditWeekly && <WeeklyCalendarSection canEditWeekly={canEditWeekly} adminUser={adminUser} />}
+                {canEditSettings && (
+                  <section className="set-card">
+                    <div className="set-card__head">
+                      <h2 className="set-card__title">大型考试期间创建控制</h2>
+                    </div>
+                    <p className="set-card__lead">
+                      开启后，大型考试进行中会锁定新建周测和临时考试，并自动结束本机正在运行的临时考试；已有周测计划仍保留。关闭后沿用当前自动调度规则。
+                    </p>
+                    <p className="set-note">
+                      适用于高考、期中/期末考试、统一测评等需要临时冻结新增安排的场景，避免临时创建的考试干扰当前考务。此设置只影响创建入口，不影响已有安排的查看；大型考试结束后自动恢复创建。
+                    </p>
+                    <div className="set-row">
+                      <label className="set-label">启用大型考试创建锁定</label>
+                      <Switch
+                        checked={creationLockEnabled}
+                        disabled={!canEditSettings}
+                        onChange={(value) => {
+                          setCreationLockEnabled(value);
+                          updateExamSettings({ majorExamCreationLockEnabled: value });
+                        }}
+                      />
+                    </div>
+                    <p className="set-note" aria-live="polite">
+                      当前状态：{creationLockEnabled ? '大型考试期间锁定创建' : '仅按原有自动调度规则运行'}
+                    </p>
+                  </section>
+                )}
                 {canEditSettings && <SubjectTrackModeSection canEditSettings={canEditSettings} />}
 
                 {/* ―― 批量添加分考试预设 ―― */}
@@ -209,7 +277,6 @@ export default function SettingsPage() {
                     canEditSettings={canEditSettings}
                   />
                 ) : null}
-                {canResetDatabase && <SystemStatusSection />}
                 {canResetDatabase && <PlatformUsageSection />}
                 <DiagnosticLogsSection
                   canRead={canReadDiagnostics}
@@ -226,6 +293,12 @@ export default function SettingsPage() {
                   </SettingsCollapsibleCard>
                 )}
               </div>
+            </section>
+          )}
+
+          {activeGroup === 'logs' && canReadRuntime && (
+            <section id="set-group-logs" className="set-group" data-group="logs">
+              <RuntimeDashboard canExport={canExportRuntime} canSystem={canResetDatabase} />
             </section>
           )}
 

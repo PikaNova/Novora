@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { logServer } from './_runtimeLogs/serverJournal.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { ApiErrorResponse } from '../src/shared/apiErrorContract.js';
 
@@ -122,6 +123,7 @@ export function sendDatabaseError(
 ): void {
   const id = requestId(req, res);
   const classified = classifyDatabaseError(error, operation);
+  logServer('server.database.failed', { operation, errorCode: classified.code }, 'error', classified.message, id);
   console.error(`[${id}] ${classified.code} (${operation})`, error);
   const body: ApiErrorResponse = {
     ok: false,

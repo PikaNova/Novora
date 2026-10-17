@@ -56,10 +56,12 @@ function runQuery(executor: QueryExecutor, strings: TemplateStringsArray, values
 
 function createPgClient(connectionString: string): DbClient {
   const { Pool } = pgClientModule();
+  const requestedMax = Number.parseInt(process.env.NOVORA_PG_POOL_MAX ?? '', 10);
+  const poolMax = Number.isFinite(requestedMax) ? Math.max(2, Math.min(16, requestedMax)) : 4;
   const pool = new Pool({
     connectionString,
-    max: 10,
-    connectionTimeoutMillis: 10_000,
+    max: poolMax,
+    connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 30_000,
   });
   const poolExecutor = pool as unknown as QueryExecutor;

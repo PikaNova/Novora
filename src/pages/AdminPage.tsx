@@ -54,6 +54,7 @@ import {
   writePendingWizardDraft,
 } from '../hooks/admin/adminPageUtils';
 import { findMajorConflicts, findMajorConflictItemKeys } from '../utils/examConflicts';
+import { getMajorExamLock } from '../utils/majorExamLock';
 import type { SyncState } from '../hooks/admin/adminPageUtils';
 import type { ExamSavePayload } from '../shared/examContracts';
 import { useAdminAuthSession } from '../hooks/admin/useAdminAuthSession';
@@ -202,7 +203,7 @@ export default function AdminPage() {
   } = auth;
 
   const announcements = useAnnouncements();
-  const { announceOpen, setAnnounceOpen, anns, annLoading } = announcements;
+  const { announceOpen, setAnnounceOpen, anns, annLoading, annError } = announcements;
 
   /**
    * URL 是否明确指定了板块（含旧 `?tab=` 深链）。没有指定时才做「第一个有权限的板块」
@@ -318,7 +319,6 @@ export default function AdminPage() {
     commitWeekly,
     handleScheduleModeChange,
     handleSaveWeeklyPlans,
-    handleConflictPolicyChange,
   } = weekly;
 
   const major = useMajorScheduleActions({
@@ -1072,6 +1072,13 @@ export default function AdminPage() {
       !major.endedAt &&
       major.items.some((item) => item.enabled && new Date(item.endTime).getTime() >= adminNow),
   );
+  // This value is intentionally derived without a Hook.  AdminPage renders an
+  // auth loading state before the rest of the page, so a Hook here would only
+  // run on the ready render and violate React's invariant that Hook order is
+  // identical across renders (React error #310).
+  const weeklyCreationLock = getAppSettings().exam.majorExamCreationLockEnabled
+    ? getMajorExamLock(orderedScopedMajors.flatMap((major) => major.items))
+    : { locked: false, name: '', endAt: null };
   // 提示条上的考试名取向导建出来的那条草稿；草稿被删掉后提示条一并撤下。
   const wizardDraftId = wizardDraftIdRef.current;
   const wizardDraft = wizardDraftId ? majors.find((item) => item.id === wizardDraftId) : undefined;
@@ -1233,6 +1240,7 @@ export default function AdminPage() {
           {adminTab === 'exam' && (examViewActive === 'weekly' || examViewActive === 'editor') && (
             <AdminContextBar
               showClassPicker={examViewActive === 'weekly'}
+              showScheduleMode={false}
               can={can}
               scheduleMode={scheduleMode}
               handleScheduleModeChange={handleScheduleModeChange}
@@ -1288,9 +1296,8 @@ export default function AdminPage() {
                     weeklyConflictPolicy={weeklyConflictPolicy}
                     majorItems={orderedScopedMajors.flatMap((major) => major.items)}
                     majorName={orderedScopedMajors.map((major) => major.name).join('、')}
+                    creationLock={weeklyCreationLock}
                     onSavePlans={handleSaveWeeklyPlans}
-                    onConflictPolicyChange={handleConflictPolicyChange}
-                    canEditConflictPolicy={can('schedule.conflict_edit')}
                     onSelectScope={(gradeId, classId) => {
                       setSelectedGradeId(gradeId);
                       setSelectedClassId(classId);
@@ -1565,6 +1572,7 @@ export default function AdminPage() {
         <AdminAnnounceDialog
           anns={anns}
           annLoading={annLoading}
+          annError={annError}
           formatTime={fmtAnnTime}
           backdropProps={backdropProps}
           setAnnounceOpen={setAnnounceOpen}

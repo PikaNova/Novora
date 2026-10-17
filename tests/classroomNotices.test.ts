@@ -32,7 +32,11 @@ function major(overrides: Record<string, unknown> = {}) {
 function snapshot(overrides: Partial<ClassroomExamSnapshot> = {}): ClassroomExamSnapshot {
   return {
     examId: 'major_1',
+    itemId: 'i1',
     name: '第一次月考',
+    subjectName: '语文',
+    itemStartAt: at('09:00'),
+    itemEndAt: at('10:00'),
     source: 'formal',
     startAt: at('09:00'),
     endAt: at('10:00'),

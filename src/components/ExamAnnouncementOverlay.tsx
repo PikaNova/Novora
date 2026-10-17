@@ -9,6 +9,8 @@ type Props = {
   open: boolean;
   announcements: Announcement[];
   loading: boolean;
+  /** 公告拉取失败时的提示文案；为空表示最近一次拉取成功。 */
+  error?: string;
   /** 切回学校公告窗口（本机有学校公告时才会传）。 */
   onSwitchToSchool?: () => void;
   onClose: () => void;
@@ -37,7 +39,14 @@ function formatUpdatedAt(value: number): string {
  * 只展示作者端统一公告，沿用设置页公告的 Markdown 卡片阅读方式；
  * 学校自己发的公告走另一扇更大的窗口（`SchoolAnnouncementOverlay`）。
  */
-export default function ExamAnnouncementOverlay({ open, announcements, loading, onSwitchToSchool, onClose }: Props) {
+export default function ExamAnnouncementOverlay({
+  open,
+  announcements,
+  loading,
+  error = '',
+  onSwitchToSchool,
+  onClose,
+}: Props) {
   useEffect(() => {
     if (!open) return;
     // 组件测试/无 window 环境（例如 node 里渲染）不该因为键盘监听炸掉。
@@ -75,6 +84,8 @@ export default function ExamAnnouncementOverlay({ open, announcements, loading, 
         <div className="eann-window__body">
           {loading ? (
             <div className="eann-empty">公告加载中…</div>
+          ) : error ? (
+            <div className="eann-empty">⚠️ {error}</div>
           ) : announcements.length === 0 ? (
             <div className="eann-empty">
               <Mascot className="mascot-inline" size={32} alt="" />

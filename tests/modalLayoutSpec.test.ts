@@ -9,7 +9,7 @@ import test from 'node:test';
  *
  * 背景：弹窗内容一多就"一路往纵向拉长"，顶到屏幕上下边缘，观感很差。已有两处范式：
  * - 向导类（`.admin-modal--workflow`）固定高度 + 内部分栏，各自滚动；
- * - 考试详情抽屉、公告回执/发布确认窗：宽屏两栏（左右各自滚动），窄屏回落单列。
+ * - 考试详情抽屉、公告发布确认窗：宽屏两栏，窄屏回落单列；公告回执按概览/列表纵向排布。
  * 这里把口径钉住，避免以后又写回"窄柱一路往下排"。
  */
 
@@ -79,18 +79,21 @@ test('弹窗版式：普通弹窗统一封顶，不再顶到屏幕上下边缘',
   assert.match(workflow, /overflow:\s*hidden/);
 });
 
-test('弹窗版式：公告回执宽屏两栏、窄屏单列、整窗封顶', () => {
+test('弹窗版式：公告回执纵向排布、窄屏统计两列、整窗封顶', () => {
   const shell = declarations(sannCss, '.sann-receipts {');
   assert.match(shell, /grid-template-rows:/, '整窗按 头/主体 两行排');
   assert.match(shell, /max-height:\s*min\(/);
-  assert.match(shell, /max-width:\s*min\(10\d\d px|max-width:\s*min\(10\d\dpx/, '要覆盖 .admin-modal--wide 的 620px');
+  const maxWidth = /max-width:\s*min\((\d+)px/.exec(shell);
+  assert.ok(maxWidth && Number(maxWidth[1]) > 620, '要覆盖 .admin-modal--wide 的 620px');
 
   const body = declarations(sannCss, '.sann-receipts__body {');
-  assert.match(body, /grid-template-columns:\s*minmax\(0,\s*1fr\)/, '窄屏默认单列');
+  assert.match(body, /display:\s*flex/);
+  assert.match(body, /flex-direction:\s*column/, '概览与列表纵向排布');
 
-  const wide = mediaBlock(sannCss, '(min-width: 980px)');
-  assert.match(wide, /\.sann-receipts__body[\s\S]*grid-template-columns:\s*minmax\([^)]*\)\s*minmax\(/, '宽屏两栏');
-  assert.match(wide, /\.sann-receipts__stats[\s\S]*grid-template-columns:\s*repeat\(2,/, '侧栏统计改 2×2');
+  const stats = declarations(sannCss, '.sann-receipts__stats {');
+  assert.match(stats, /grid-template-columns:\s*repeat\(4,/, '宽屏统计四列');
+  const narrow = mediaBlock(sannCss, '(max-width: 900px)');
+  assert.match(narrow, /\.sann-receipts__stats[\s\S]*grid-template-columns:\s*repeat\(2,/, '窄屏统计改 2×2');
 });
 
 test('弹窗版式：公告发布确认窗同样两栏 + 整窗封顶', () => {

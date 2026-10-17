@@ -1,9 +1,9 @@
 // 缓存策略有改动时必须递增版本号：activate 阶段会删掉不同版本的旧缓存。
 // 2026-09-18 改过静态资源策略（缺失资源 404、SPA 回退只服务无扩展名路由），
 // 这一次发布必须换缓存版本，否则老壳缓存会让用户继续吃到旧的兜底行为。
-const CACHE_VERSION = '20260930-1';
-const SHELL_CACHE = `novora-shell-v2.8.0-pwa-${CACHE_VERSION}`;
-const RUNTIME_CACHE = `novora-runtime-v2.8.0-pwa-${CACHE_VERSION}`;
+const CACHE_VERSION = '20261010-2';
+const SHELL_CACHE = `novora-shell-v2.8.1-pwa-${CACHE_VERSION}`;
+const RUNTIME_CACHE = `novora-runtime-v2.8.1-pwa-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
 
 /**
@@ -59,7 +59,7 @@ self.addEventListener('fetch', (event) => {
   // API data must always come from the network. Cache Storage ignores HTTP
   // cache directives, so cache-first here could return stale grades/classes
   // even when the API responds with Cache-Control: private, no-cache.
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.startsWith('/api/') || url.searchParams.has('novoraTimeSync')) {
     event.respondWith(fetch(request));
     return;
   }

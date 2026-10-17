@@ -25,7 +25,7 @@ class MemoryStorage {
 (globalThis as unknown as { localStorage: Storage }).localStorage = new MemoryStorage() as unknown as Storage;
 
 const { getAppSettings, updateTimeSyncSettings } = await import('../src/utils/appSettings.js');
-const { isTimeSyncReady, monotonicNowMs, nowMs } = await import('../src/utils/timeSource.js');
+const { applyTimeCalibration, isTimeSyncReady, monotonicNowMs, nowMs } = await import('../src/utils/timeSource.js');
 
 test('nowMs uses the monotonic session clock plus a fresh network offset', () => {
   localStorage.removeItem(APP_SETTINGS_KEY);
@@ -35,7 +35,6 @@ test('nowMs uses the monotonic session clock plus a fresh network offset', () =>
     offsetMs: 120_000,
     lastSyncAt: Date.now(),
     lastSyncServerAt: before + 120_000,
-    lastSyncMonotonicMs: before,
   });
 
   const corrected = nowMs();
@@ -43,16 +42,18 @@ test('nowMs uses the monotonic session clock plus a fresh network offset', () =>
   assert.equal(isTimeSyncReady(), true);
 });
 
-test('expired monotonic calibration is rejected instead of silently showing green', () => {
-  const stale = monotonicNowMs() - 3 * 60 * 60 * 1000;
+test('expired calibration reports not ready while retaining the last reliable clock', () => {
+  const ageMs = 3 * 60 * 60 * 1000;
+  const stale = Date.now() - ageMs;
   updateTimeSyncSettings({
     enabled: true,
     offsetMs: 120_000,
-    lastSyncAt: Date.now(),
-    lastSyncMonotonicMs: stale,
+    lastSyncAt: stale,
+    lastSyncServerAt: stale + 120_000,
   });
+  applyTimeCalibration(monotonicNowMs() + 120_000, Date.now() + 1, ageMs);
 
   assert.equal(isTimeSyncReady(), false);
-  assert.ok(Math.abs(nowMs() - monotonicNowMs()) < 2_000);
-  assert.equal(getAppSettings().general.timeSync.lastSyncMonotonicMs, stale);
+  assert.ok(Math.abs(nowMs() - monotonicNowMs() - 120_000) < 2_000);
+  assert.equal(getAppSettings().general.timeSync.lastSyncAt, stale);
 });

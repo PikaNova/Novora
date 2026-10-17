@@ -9,6 +9,8 @@ import type { BackdropProps } from './AdminConfirmDialogs';
 export type AdminAnnounceDialogProps = {
   anns: Announcement[];
   annLoading: boolean;
+  /** 公告拉取失败时的提示文案；为空表示最近一次拉取成功。 */
+  annError?: string;
   formatTime: (value: number) => string;
   backdropProps: BackdropProps;
   setAnnounceOpen: (open: boolean) => void;
@@ -17,6 +19,7 @@ export type AdminAnnounceDialogProps = {
 export function AdminAnnounceDialog({
   anns,
   annLoading,
+  annError = '',
   formatTime,
   backdropProps,
   setAnnounceOpen,
@@ -36,6 +39,8 @@ export function AdminAnnounceDialog({
         <p className="admin-alerts__lead">公告由作者端统一发布，内容以 Markdown 渲染；本页仅供查看。</p>
         {annLoading ? (
           <div className="admin-announce__empty">公告加载中…</div>
+        ) : annError ? (
+          <div className="admin-announce__empty">⚠️ {annError}</div>
         ) : anns.length === 0 ? (
           <div className="admin-announce__empty">
             <Mascot className="mascot-empty" size={48} alt="" />

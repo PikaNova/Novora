@@ -136,6 +136,7 @@ export interface ExamSaveSnapshot {
   classes?: SchoolClass[];
   initialization?: InitializationState;
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
+  majorExamCreationLockEnabled?: boolean;
 }
 
 export interface ExamSaveDiff {
@@ -212,6 +213,9 @@ export function changedExamDomains(input: ExamSaveSnapshot, base: ExamSaveSnapsh
   ) {
     add('weeklyConflictPolicy', input.weeklyConflictPolicy);
   }
+  if (input.majorExamCreationLockEnabled !== undefined) {
+    body.majorExamCreationLockEnabled = input.majorExamCreationLockEnabled;
+  }
 
   return { body, domains };
 }
@@ -239,5 +243,7 @@ export function fullExamSaveBody(input: ExamSaveSnapshot): Record<string, unknow
   if (input.classes !== undefined) body.classes = input.classes;
   if (input.initialization !== undefined) body.initialization = input.initialization;
   if (input.weeklyConflictPolicy !== undefined) body.weeklyConflictPolicy = input.weeklyConflictPolicy;
+  if (input.majorExamCreationLockEnabled !== undefined)
+    body.majorExamCreationLockEnabled = input.majorExamCreationLockEnabled;
   return body;
 }

@@ -14,7 +14,18 @@ import type { NoticeTone } from '../services/notify';
  */
 
 export type ClassroomNoticeKind =
-  'paused' | 'resumed' | 'extended' | 'shortened' | 'stop-requested' | 'ended' | 'archived' | 'removed';
+  | 'paused'
+  | 'resumed'
+  | 'extended'
+  | 'shortened'
+  | 'schedule-changed'
+  | 'name-changed'
+  | 'subject-changed'
+  | 'status-changed'
+  | 'stop-requested'
+  | 'ended'
+  | 'archived'
+  | 'removed';
 
 export type ClassroomNotice = {
   key: string;
@@ -29,7 +40,11 @@ export type ClassroomNotice = {
 export type ClassroomExamSnapshot = {
   /** 这场考试在快照里的 id（大型/快速考试用记录 id，本机临时考试用自己的 id）。 */
   examId: string;
+  itemId: string;
   name: string;
+  subjectName: string;
+  itemStartAt: number | null;
+  itemEndAt: number | null;
   source: 'formal' | 'temporary';
   startAt: number | null;
   /** 含暂停顺延的有效结束时刻。 */
@@ -50,6 +65,12 @@ type MajorLike = {
   stopRequestedAt?: unknown;
   endedAt?: unknown;
   archivedAt?: unknown;
+  items?: readonly {
+    id?: unknown;
+    enabled?: unknown;
+    startTime?: unknown;
+    endTime?: unknown;
+  }[];
 };
 
 export type TemporaryExamLike = {
@@ -112,9 +133,13 @@ export function classroomSnapshotOf(input: ClassroomSnapshotInput): ClassroomExa
   const declaredEnd = num(major?.endAt) ?? (Number.isFinite(current.end) ? current.end : null);
   return {
     examId: isTemporary ? String(temporaryExam?.id ?? item.id) : majorId || item.id,
+    itemId: String(item.id),
     name: isTemporary
       ? `${temporaryExam?.subject || item.name} - 临时考试`
       : String(item.majorName || major?.name || item.name),
+    subjectName: String(item.name),
+    itemStartAt: Number.isFinite(current.start) ? current.start : null,
+    itemEndAt: Number.isFinite(current.end) ? current.end : null,
     source: isTemporary ? 'temporary' : 'formal',
     startAt: num(major?.startAt) ?? (Number.isFinite(current.start) ? current.start : null),
     endAt: declaredEnd == null ? null : declaredEnd + pausedMs,
@@ -173,6 +198,26 @@ export function reconcileClassroomNotices(
   const sameExam = next != null && next.examId === previous.examId;
 
   if (sameExam && next) {
+    if (previous.name !== next.name) {
+      notices.push({
+        key: `name:${next.examId}:${next.name}`,
+        kind: 'name-changed',
+        tone: 'success',
+        title: '考试名称已更新',
+        message: `考试名称已由「${previous.name}」改为「${next.name}」。`,
+        sticky: false,
+      });
+    }
+    if (previous.subjectName !== next.subjectName) {
+      notices.push({
+        key: `subject:${next.examId}:${next.subjectName}`,
+        kind: 'subject-changed',
+        tone: 'success',
+        title: '科目名称已更新',
+        message: `「${next.name}」的科目名称已由「${previous.subjectName}」改为「${next.subjectName}」。`,
+        sticky: false,
+      });
+    }
     if (previous.pausedAt == null && next.pausedAt != null) {
       notices.push({
         key: `paused:${next.examId}:${next.pausedAt}`,
@@ -193,7 +238,22 @@ export function reconcileClassroomNotices(
         sticky: false,
       });
     }
-    if (previous.endAt != null && next.endAt != null && next.endAt !== previous.endAt) {
+    const startChanged = previous.startAt != null && next.startAt != null && next.startAt !== previous.startAt;
+    if (startChanged && next.startAt != null) {
+      const endAlsoChanged = previous.endAt != null && next.endAt != null && next.endAt !== previous.endAt;
+      notices.push({
+        key: `start-at:${next.examId}:${next.startAt}`,
+        kind: 'schedule-changed',
+        tone: 'warning',
+        title: '考试时间已调整',
+        message:
+          endAlsoChanged && next.endAt != null
+            ? `「${next.name}」的开始时间改为 ${hhmm(next.startAt)}，结束时间改为 ${hhmm(next.endAt)}。`
+            : `「${next.name}」的开始时间改为 ${hhmm(next.startAt)}。`,
+        sticky: false,
+      });
+    }
+    if (!startChanged && previous.endAt != null && next.endAt != null && next.endAt !== previous.endAt) {
       const deltaMs = next.endAt - previous.endAt;
       notices.push({
         key: `end-at:${next.examId}:${next.endAt}`,
@@ -237,7 +297,46 @@ export function reconcileClassroomNotices(
     return notices;
   }
   const major = majors.find((entry) => String(entry.id ?? '') === previous.examId);
-  if (major && num(major.endedAt) != null) {
+  const disabledItem = major?.items?.find((item) => String(item.id ?? '') === previous.itemId);
+  const updatedItemStartAt =
+    disabledItem?.startTime == null ? null : new Date(String(disabledItem.startTime)).getTime();
+  const updatedItemEndAt = disabledItem?.endTime == null ? null : new Date(String(disabledItem.endTime)).getTime();
+  const itemTimeChanged =
+    (updatedItemStartAt != null &&
+      Number.isFinite(updatedItemStartAt) &&
+      previous.itemStartAt != null &&
+      updatedItemStartAt !== previous.itemStartAt) ||
+    (updatedItemEndAt != null &&
+      Number.isFinite(updatedItemEndAt) &&
+      previous.itemEndAt != null &&
+      updatedItemEndAt !== previous.itemEndAt);
+  if (disabledItem?.enabled === false) {
+    notices.push({
+      key: `status:${previous.examId}:${previous.itemId}:disabled`,
+      kind: 'status-changed',
+      tone: 'warning',
+      title: '科目已停用',
+      message: `「${previous.name}」的${previous.subjectName}科目已被后台停用。`,
+      sticky: false,
+    });
+  } else if (itemTimeChanged) {
+    const startChanged = updatedItemStartAt !== previous.itemStartAt;
+    const endChanged = updatedItemEndAt !== previous.itemEndAt;
+    const changedTimes = [
+      startChanged && updatedItemStartAt != null ? `开始时间改为 ${hhmm(updatedItemStartAt)}` : '',
+      endChanged && updatedItemEndAt != null ? `结束时间改为 ${hhmm(updatedItemEndAt)}` : '',
+    ]
+      .filter(Boolean)
+      .join('，');
+    notices.push({
+      key: `schedule:${previous.examId}:${previous.itemId}:${updatedItemStartAt}:${updatedItemEndAt}`,
+      kind: 'schedule-changed',
+      tone: 'warning',
+      title: '考试时间已调整',
+      message: `「${previous.name}」的${previous.subjectName}科目${changedTimes}。`,
+      sticky: false,
+    });
+  } else if (major && num(major.endedAt) != null) {
     notices.push({
       key: `ended:${previous.examId}:${String(major.endedAt)}`,
       kind: 'ended',

@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, randomUUID } from 'node:crypto';
 import { database, ensureTableOnce } from './_exams/db.js';
 import { requireActor, writeAudit } from './_auth.js';
+import { handleRuntimeLogs } from './_runtimeLogs/handler.js';
 import {
   DEFAULT_RETENTION_DAYS,
   RETRY_CLAIM_TIMEOUT_MS,
@@ -239,8 +240,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
   try {
-    await ensureTableOnce();
     const resource = String(req.query.resource || (bodyOf(req).resource ?? ''));
+    if (resource.startsWith('runtime-')) return handleRuntimeLogs(req, res, resource);
+    await ensureTableOnce();
     if (resource === 'settings') return handleSettings(req, res);
     if (resource === 'retry' && req.method === 'POST') return handleRetry(req, res);
     if (req.method === 'GET') return handleCatalog(req, res);

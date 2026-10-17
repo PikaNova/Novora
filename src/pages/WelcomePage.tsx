@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getAppSettings, updateExamSettings } from '../utils/appSettings';
 import { getResolvedExamItems } from '../utils/appSchedule';
-import { nowMs, parseZonedTime, formatDateTimeInZone } from '../utils/timeSource';
+import { subscribeClock, nowMs, parseZonedTime, formatDateTimeInZone } from '../utils/timeSource';
 import { canInstallPwa, isStandalonePwa, promptInstallPwa } from '../services/pwa';
 import Watermark from '../components/Watermark';
 import BrandMark from '../components/BrandMark';
@@ -122,13 +122,13 @@ export default function WelcomePage() {
       if (event.key === APP_SETTINGS_KEY) update();
     };
     update();
-    const id = window.setInterval(update, 1000);
+    const stopClock = subscribeClock(update);
     window.addEventListener(APP_SETTINGS_CHANGED_EVENT, update);
     window.addEventListener('storage', onStorage);
     window.addEventListener('focus', update);
     window.addEventListener('pageshow', update);
     return () => {
-      clearInterval(id);
+      stopClock();
       window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, update);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('focus', update);

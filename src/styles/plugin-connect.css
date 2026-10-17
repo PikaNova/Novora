@@ -35,6 +35,9 @@
   border-radius: 8px;
   background: #1b1b1b;
   box-shadow: 0 18px 60px #0007;
+  transition:
+    border-color var(--motion-standard) var(--motion-ease-standard),
+    background-color var(--motion-standard) var(--motion-ease-standard);
 }
 
 .plugin-connect__panel h1 {
@@ -81,6 +84,24 @@
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    opacity var(--motion-fast) var(--motion-ease-standard);
+}
+
+.plugin-connect__panel > button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background-color: #3a8bf5;
+}
+
+.plugin-connect__panel > button:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.plugin-connect__panel > button:focus-visible {
+  outline: 2px solid #79b8ff;
+  outline-offset: 2px;
 }
 
 .plugin-connect__panel > button:disabled {
@@ -119,6 +140,7 @@
   background: #3a2020;
   color: #ffd7d7;
   font-size: 13px;
+  animation: pc-alert-in var(--motion-standard) var(--motion-ease-out-expo) backwards;
 }
 
 .plugin-connect__binding {
@@ -194,11 +216,7 @@
   }
 }
 
-/* ===== 动效（2026-09-25） =====
- * 这一页此前是零动效：没有 keyframes、没有 transition、按钮连 hover 反馈都没有。
- * 它是一个「一次性流程」——打开、确认、看到成功——所以动效只服务一件事：
- * 让「连上了」这个瞬间有落点。
- */
+/* ===== 动效（2026-09-25） ===== */
 
 @keyframes pc-brand-in {
   from {
@@ -312,33 +330,6 @@
 .plugin-connect__panel:has(.plugin-connect__success) {
   border-color: #2f6b4a;
   background: linear-gradient(180deg, #1b1b1b, #17251d);
-  transition:
-    border-color var(--motion-slow) var(--motion-ease-out-expo),
-    background var(--motion-slow) var(--motion-ease-out-expo);
-}
-
-/* 按钮此前没有任何指针反馈。 */
-.plugin-connect__panel > button {
-  transition:
-    transform var(--motion-fast) var(--motion-ease-standard),
-    background-color var(--motion-fast) var(--motion-ease-standard),
-    box-shadow var(--motion-fast) var(--motion-ease-standard);
-}
-
-.plugin-connect__panel > button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  background-color: #3a8bf5;
-  box-shadow: 0 8px 22px rgb(47 128 237 / 32%);
-}
-
-.plugin-connect__panel > button:active:not(:disabled) {
-  transform: translateY(0) scale(0.99);
-  box-shadow: 0 3px 10px rgb(47 128 237 / 24%);
-}
-
-.plugin-connect__panel > button:focus-visible {
-  outline: 2px solid #79b8ff;
-  outline-offset: 2px;
 }
 
 /* 降级：系统要求减少动态效果时归零；「最佳效果」模式按设计忽略该设置。 */

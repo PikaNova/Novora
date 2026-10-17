@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Clock3, Play, Plus, TimerReset } from 'lucide-react';
 import type { ExamItem } from '../types';
 import {
@@ -16,6 +16,7 @@ import { DateTimeField } from './touch-datetime-picker';
 import SubjectIcon from './SubjectIcon';
 import TimeRangePickerModal from './TimeRangePickerModal';
 import { COMMON_EXAM_SUBJECTS } from '../data/subjects';
+import { getMajorExamLock, majorExamLockMessage } from '../utils/majorExamLock';
 
 const COMMON_SUBJECTS = COMMON_EXAM_SUBJECTS;
 const DURATION_PRESETS = [45, 60, 75, 90, 120, 150];
@@ -52,6 +53,11 @@ export default function TemporaryExamLauncher({
   onExternalHandled?: () => void;
 }) {
   const current = getTemporaryExam();
+  const creationLockEnabled = getAppSettings().exam.majorExamCreationLockEnabled === true;
+  const majorLock = useMemo(
+    () => (creationLockEnabled ? getMajorExamLock(formalItems) : { locked: false, name: '', endAt: null }),
+    [creationLockEnabled, formalItems],
+  );
   const settings = getAppSettings().exam;
   const boundClass = classDisplayName(settings.grades, settings.classes, settings.selectedClassId);
   const [open, setOpen] = useState(false);
@@ -77,6 +83,14 @@ export default function TemporaryExamLauncher({
   }>(null);
   const [crossDayConfirmed, setCrossDayConfirmed] = useState(false);
   const [priority, setPriority] = useState(false);
+  useEffect(() => {
+    if (!creationLockEnabled || !majorLock.locked) return;
+    const active = getTemporaryExam();
+    if (active && active.status !== 'ended') {
+      endTemporaryExam();
+      notify('warning', majorExamLockMessage(majorLock, 'temporary') + '，当前临时考试已自动结束。');
+    }
+  }, [creationLockEnabled, majorLock]);
   const shouldOpen = open || externalOpen;
   const finalSubject = customSubjectOpen ? customSubject.trim() : subject;
   const startMs =
@@ -160,6 +174,10 @@ export default function TemporaryExamLauncher({
     setStep((value) => Math.min(2, value + 1));
   };
   const create = async () => {
+    if (creationLockEnabled && majorLock.locked) {
+      notify('warning', majorExamLockMessage(majorLock, 'temporary'));
+      return;
+    }
     if (
       !finalSubject ||
       !Number.isFinite(startMs) ||
@@ -210,6 +228,11 @@ export default function TemporaryExamLauncher({
                 ×
               </button>
             </header>
+            {creationLockEnabled && majorLock.locked && (
+              <div role="alert" className="temp-exam-lock-banner">
+                {majorExamLockMessage(majorLock, 'temporary')}。已有临时考试会自动结束。
+              </div>
+            )}
             {current && current.status !== 'ended' ? (
               <div className="temp-exam-current">
                 <TimerReset />
@@ -495,7 +518,7 @@ export default function TemporaryExamLauncher({
                       上一步
                     </button>
                   )}
-                  <button className="is-primary" onClick={step < 2 ? next : create}>
+                  <button className="is-primary" disabled={step === 2 && creationLockEnabled && majorLock.locked} onClick={step < 2 ? next : create}>
                     {step < 2 ? (
                       <>
                         下一步
