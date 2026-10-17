@@ -1,6 +1,10 @@
+import { journal } from '../utils/runtimeJournal.js';
+import { runtimeReference } from '../utils/runtimeDisplayState.js';
 import { useEffect, useRef, useState } from 'react';
 import type { ExamItem } from '../types';
-import { nowMs, parseZonedTime } from '../utils/timeSource';
+import { subscribeClock, nowMs, nowWithoutBroadcastOffsetMs, parseZonedTime } from '../utils/timeSource';
+import { runManualTimeSync } from '../utils/timeSync';
+import { notify } from '../services/notify';
 
 export type NotifyPhase = 'before15' | 'before5' | 'started' | 'ending15' | 'ended';
 export type NotifyLevel = 'info' | 'warning' | 'critical' | 'success';
@@ -88,6 +92,7 @@ export function useExamNotify(exam: ExamItem | null) {
   examRef.current = exam;
   const fired = useRef(new Set<string>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preSyncTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (!examRef.current) {
@@ -98,6 +103,38 @@ export function useExamNotify(exam: ExamItem | null) {
       const currentExam = examRef.current;
       if (!currentExam) return;
       const now = nowMs();
+      const scheduleNow = nowWithoutBroadcastOffsetMs();
+      const startAt = parseZonedTime(currentExam.startTime);
+      const preSyncKey = `novora:pre-exam-sync:${currentExam.id}:${startAt}`;
+      if (
+        Number.isFinite(startAt) &&
+        scheduleNow >= startAt - 120_000 &&
+        scheduleNow < startAt &&
+        !fired.current.has(preSyncKey)
+      ) {
+        let alreadyRequested = false;
+        try {
+          alreadyRequested = localStorage.getItem(preSyncKey) === '1';
+          if (!alreadyRequested) localStorage.setItem(preSyncKey, '1');
+        } catch {
+          // Keep the one-shot sync available when storage is blocked.
+        }
+        fired.current.add(preSyncKey);
+        if (!alreadyRequested) {
+          notify('warning', `「${currentExam.name}」即将开考，正在自动校时`, '开考前校时');
+          preSyncTimer.current = window.setTimeout(() => {
+            void runManualTimeSync().then((synced) => {
+              notify(
+                synced ? 'success' : 'error',
+                synced
+                  ? `「${currentExam.name}」开考前校时完成`
+                  : `「${currentExam.name}」开考前校时失败，请检查校时配置`,
+                '开考前校时',
+              );
+            });
+          }, Math.random() * 3000);
+        }
+      }
       for (const { phase, triggerAt } of getCheckpoints(currentExam)) {
         // key 同时包含开考与结束时间：管理员修改任一时间后产生新 key，
         // 旧 fired 记录不会拦截新的开考、结束类提醒。
@@ -106,10 +143,24 @@ export function useExamNotify(exam: ExamItem | null) {
         if (now < triggerAt) continue;
         if (now - triggerAt > 60000) {
           fired.current.add(key);
+          journal(
+            'notice.reminder_skipped',
+            { phase, reason: 'trigger_expired', targetRef: runtimeReference(currentExam.id) },
+            'info',
+            'notice',
+            '提醒时间窗已过，跳过播放',
+          );
           continue;
         }
         fired.current.add(key);
         const cfg = NOTIFY_CONFIG[phase];
+        journal(
+          'notice.reminder_triggered',
+          { phase, targetRef: runtimeReference(currentExam.id) },
+          'info',
+          'notice',
+          '考试提醒触发',
+        );
         setNotification({
           phase,
           level: cfg.level,
@@ -127,12 +178,16 @@ export function useExamNotify(exam: ExamItem | null) {
       }
     };
     check();
-    const id = setInterval(check, 1000);
+    const id = subscribeClock(check);
     return () => {
-      clearInterval(id);
+      id();
       if (timer.current) {
         clearTimeout(timer.current);
         timer.current = null;
+      }
+      if (preSyncTimer.current) {
+        window.clearTimeout(preSyncTimer.current);
+        preSyncTimer.current = null;
       }
       // 考试数据改变时，不能继续展示按旧时间生成、且已失去自动关闭 timer 的通知。
       setNotification(null);

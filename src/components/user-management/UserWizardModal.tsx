@@ -15,6 +15,9 @@ export type UserWizardModalProps = {
   setUserWizardStep: React.Dispatch<React.SetStateAction<number>>;
   userErrors: Record<string, string>;
   setUserErrors: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  /** 表单级错误（没有具体字段的接口错误）：显示在弹窗顶部，不能只写进被遮罩挡住的面板横幅。 */
+  formError: string;
+  setFormError: (message: string) => void;
   busy: boolean;
   classPickerOptions: ClassPickerOption[];
   visibleGrades: SchoolGrade[];
@@ -31,6 +34,8 @@ export function UserWizardModal({
   setUserWizardStep,
   userErrors,
   setUserErrors,
+  formError,
+  setFormError,
   busy,
   classPickerOptions,
   visibleGrades,
@@ -47,8 +52,10 @@ export function UserWizardModal({
           onClick={() => {
             setUserDraft(null);
             setUserErrors({});
+            setFormError('');
           }}
         />
+        {formError && <div className="admin-error">{formError}</div>}
         <div className="admin-workflow-layout">
           <AdminWizardSteps
             active={userWizardStep}

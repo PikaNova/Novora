@@ -17,6 +17,15 @@ export type Announcement = {
 
 let cache: { at: number; data: Announcement[] } | null = null;
 const TTL = 60 * 1000;
+/**
+ * 最近一次网络拉取失败的原因（成功拉取后清空）。
+ * 调用方据此区分「暂无公告」和「公告拉取失败」，避免失败时把空列表当真实数据展示。
+ */
+let lastFetchError: string | null = null;
+
+export function getLastAnnouncementFetchError(): string | null {
+  return lastFetchError;
+}
 
 export async function fetchAnnouncements(force = false): Promise<Announcement[]> {
   if (!force && cache && Date.now() - cache.at < TTL) return cache.data;
@@ -41,9 +50,15 @@ export async function fetchAnnouncements(force = false): Promise<Announcement[]>
         Number(b.created_at) - Number(a.created_at),
     );
     cache = { at: Date.now(), data: list };
+    lastFetchError = null;
     return list;
-  } catch {
-    // 拉取失败时返回缓存（若有）或空列表，不阻断页面
+  } catch (error) {
+    // 拉取失败时返回缓存（若有）或空列表，不阻断页面；
+    // 同时记录失败原因，让界面能把「暂无公告」和「加载失败」区分开。
+    lastFetchError =
+      error instanceof Error && /^HTTP \d+$/.test(error.message)
+        ? `公告服务暂时不可用（${error.message}），展示的是缓存内容。`
+        : '公告加载失败，请检查网络后重试。';
     return cache?.data ?? [];
   }
 }

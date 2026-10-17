@@ -365,7 +365,12 @@ export async function sendDeviceCommand(
   instanceId: string,
   commandAction: DeviceCommand['action'],
   minutes?: number,
-): Promise<void> {
+): Promise<{
+  /** 目标设备当时是否在线；离线时指令会保留到设备上线（最多 24 小时）。 */
+  deviceOnline: boolean;
+  /** 离线时的说明文案（由服务端给出）。 */
+  deliveryHint: string;
+}> {
   const { response, data } = await sendWithRateLimitRetry(() =>
     runQueued(
       () =>
@@ -390,6 +395,10 @@ export async function sendDeviceCommand(
           ? '当前账号无权管理此设备'
           : errorMessage(source, '临时考试指令发送失败'),
     );
+  return {
+    deviceOnline: source.deviceOnline !== false,
+    deliveryHint: typeof source.deliveryHint === 'string' ? source.deliveryHint : '',
+  };
 }
 
 export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<{
@@ -398,6 +407,7 @@ export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<
   command: DeviceCommand | null;
   /** 服务端当前快照版本号；只有启用了该优化的部署（Vercel）才会返回。 */
   version?: number;
+  timeControl?: { revision: number; offsetMs: number; syncRequestId: string; syncRequestedAt: number };
 }> {
   if (heartbeatInFlight) return { revoked: false, binding: null, command: null };
   heartbeatInFlight = true;
@@ -442,7 +452,25 @@ export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<
     }
     const command = parseDeviceCommand(data.command);
     const version = parseExamVersion(data.version);
-    return { revoked: false, binding, command, ...(version > 0 ? { version } : {}) };
+    const control = asRecord(data.timeControl);
+    const revision = Number(control.revision);
+    const offsetMs = Number(control.offsetMs);
+    const timeControl =
+      Number.isFinite(revision) && Number.isFinite(offsetMs)
+        ? {
+            revision,
+            offsetMs,
+            syncRequestId: typeof control.syncRequestId === 'string' ? control.syncRequestId : '',
+            syncRequestedAt: Number(control.syncRequestedAt) || 0,
+          }
+        : undefined;
+    return {
+      revoked: false,
+      binding,
+      command,
+      ...(version > 0 ? { version } : {}),
+      ...(timeControl ? { timeControl } : {}),
+    };
   } catch {
     return { revoked: false, binding: null, command: null };
   } finally {

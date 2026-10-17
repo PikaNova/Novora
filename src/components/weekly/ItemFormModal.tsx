@@ -29,6 +29,8 @@ interface ItemFormModalProps {
   cancelWeeklyTimeFlow: () => void;
   commitItemModal: () => void;
   planWeekMode: WeeklyWeekMode;
+  creationBlocked?: boolean;
+  creationMessage?: string;
 }
 
 export default function ItemFormModal({
@@ -47,6 +49,8 @@ export default function ItemFormModal({
   cancelWeeklyTimeFlow,
   commitItemModal,
   planWeekMode,
+  creationBlocked = false,
+  creationMessage = '',
 }: ItemFormModalProps) {
   const weeklyTimeFlowAnchorRef = React.useRef<HTMLButtonElement | null>(null);
   if (!editing) return null;
@@ -69,6 +73,11 @@ export default function ItemFormModal({
               setEditError('');
             }}
           />
+          {creationBlocked && (
+            <div role="alert" className="admin-alert admin-alert--warning">
+              {creationMessage}；已有周测仍可查看和维护。
+            </div>
+          )}
           {editError && <div className="admin-error">{editError}</div>}
           <div className="admin-workflow-layout">
             <AdminWizardSteps
@@ -287,7 +296,12 @@ export default function ItemFormModal({
                 下一步
               </button>
             ) : (
-              <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitItemModal}>
+              <button
+                className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
+                onClick={commitItemModal}
+                disabled={creationBlocked}
+                title={creationBlocked ? creationMessage : undefined}
+              >
                 确认并保存
               </button>
             )}

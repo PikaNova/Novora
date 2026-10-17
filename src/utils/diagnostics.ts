@@ -9,6 +9,8 @@
  * - 网络快照：在线状态、连接类型与 RTT、离网时长、失败与慢请求计数；
  * - 应用快照：排考模式、初始化阶段、周测计划数、可见班级数、本地存储占用、PWA/SW 状态。
  */
+import { journal } from './runtimeJournal.js';
+import { runtimeCategory } from '../shared/runtimeLog.js';
 import { getAppSettings } from './appSettings';
 import { getDiagnosticCaptureConfig, getLocalLogEntries } from './logger';
 import { getSyncQueueSnapshot, subscribeSyncQueue } from '../services/syncQueue';
@@ -113,6 +115,7 @@ function allBreadcrumbs(): Breadcrumb[] {
 export function recordDiagnosticEvent(event: string, detail?: unknown, level: DiagnosticLevel = 'info'): void {
   const safeEvent = clip(event, MAX_EVENT_LENGTH);
   if (!safeEvent) return;
+  journal(safeEvent, {}, level, runtimeCategory(safeEvent), typeof detail === 'string' ? detail : safeEvent);
   const safeDetail = clip(detail, MAX_DETAIL_LENGTH);
   const rows = allBreadcrumbs();
   rows.push({ at: Date.now(), event: safeEvent, ...(safeDetail ? { detail: safeDetail } : {}), level });

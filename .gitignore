@@ -26,3 +26,10 @@ CHANGELIST.md
 .env
 server-build/
 data/
+
+# Windows release staging and installer output.
+artifacts/windows/
+packaging/windows/Novora.ServiceHost/bin/
+packaging/windows/Novora.ServiceHost/obj/
+.tmp-windows-host-publish/
+.tmp-tray-publish/

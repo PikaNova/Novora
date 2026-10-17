@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { logServer } from './_runtimeLogs/serverJournal.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { ApiErrorResponse } from '../src/shared/apiErrorContract.js';
 
@@ -122,6 +123,7 @@ export function sendDatabaseError(
 ): void {
   const id = requestId(req, res);
   const classified = classifyDatabaseError(error, operation);
+  logServer('server.database.failed', { operation, errorCode: classified.code }, 'error', classified.message, id);
   console.error(`[${id}] ${classified.code} (${operation})`, error);
   const body: ApiErrorResponse = {
     ok: false,
@@ -140,7 +142,8 @@ export function sendRateLimited(req: VercelRequest, res: VercelResponse, retryAf
   const body: ApiErrorResponse = {
     ok: false,
     code: 'RATE_LIMITED',
-    error: '其他设备正在保存数据，系统将很快自动重试。',
+    // 别再说「其他设备」：写槽只有一个，用户自己那个页面连着写两次也会被挡（保存并发布）。
+    error: '数据正在同步，系统将很快自动重试。',
     retryable: true,
     requestId: id,
   };

@@ -4,6 +4,7 @@ import { normalizeSubjectName } from '../../data/subjects';
 import { normalizeExamItems } from '../../utils/examSchedule';
 import { confirmDialog } from '../../services/appDialog';
 import { notify } from '../../services/notify';
+import { nowMs } from '../../utils/timeSource';
 import { makeId, toISO, toLocalInput } from './adminPageUtils';
 
 export type EditItem = {
@@ -44,7 +45,7 @@ export function useExamItemActions(params: {
 
   const openMajorStartTimeFlow = () => {
     if (!editing) return;
-    const startTime = editing.startTime || toISO(toLocalInput(Date.now()));
+    const startTime = editing.startTime || toISO(toLocalInput(nowMs()));
     const start = new Date(startTime).getTime();
     const currentEnd = new Date(editing.endTime).getTime();
     const endTime =

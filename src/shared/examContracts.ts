@@ -32,6 +32,7 @@ export interface ExamPayload {
   classes?: SchoolClass[];
   initialization?: InitializationState;
   weeklyConflictPolicy?: WeeklyConflictPolicy | null;
+  majorExamCreationLockEnabled?: boolean;
   designPolicy?: DesignPolicy;
   majorBatchPresets?: MajorBatchSettings & { updatedAt: number };
   metadata?: Record<string, unknown>;
@@ -239,6 +240,7 @@ export function parseExamPayload(raw: unknown): ExamPayload {
     initialization: normalizeInitialization(source.initialization),
     weeklyConflictPolicy:
       source.weeklyConflictPolicy == null ? null : normalizeConflictPolicy(source.weeklyConflictPolicy),
+    majorExamCreationLockEnabled: source.majorExamCreationLockEnabled === true,
     designPolicy: normalizeDesignPolicy(source.designPolicy),
     majorBatchPresets: parseMajorBatchPresets(source.majorBatchPresets),
     ...(source.metadata === undefined ? {} : { metadata: asRecord(source.metadata) }),

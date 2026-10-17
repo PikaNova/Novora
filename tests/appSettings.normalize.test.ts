@@ -135,6 +135,19 @@ test('normalizeExam: builds a single default major when raw is missing', () => {
   assert.equal(exam.scheduleMode, 'major-only');
 });
 
+test('normalizeExam: preserves an explicit empty majors snapshot', () => {
+  const exam = normalizeExam({
+    title: '已结束考试',
+    items: [{ id: 'old', name: '语文', startTime: '2026-01-01T08:00', endTime: '2026-01-01T10:00' }],
+    majors: [],
+    activeMajorId: '',
+  });
+  assert.deepEqual(exam.majors, []);
+  assert.equal(exam.activeMajorId, '');
+  assert.equal(exam.title, '已结束考试');
+  assert.deepEqual(exam.items, []);
+});
+
 test('normalizeExam: migrates legacy title/items-only data into a single wrapped major', () => {
   const exam = normalizeExam({
     title: '期中考试',

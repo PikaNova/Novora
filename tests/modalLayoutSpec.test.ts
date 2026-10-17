@@ -79,18 +79,22 @@ test('弹窗版式：普通弹窗统一封顶，不再顶到屏幕上下边缘',
   assert.match(workflow, /overflow:\s*hidden/);
 });
 
-test('弹窗版式：公告回执宽屏两栏、窄屏单列、整窗封顶', () => {
+test('弹窗版式：公告回执全宽摘要与明细、窄屏滚动、整窗封顶', () => {
   const shell = declarations(sannCss, '.sann-receipts {');
   assert.match(shell, /grid-template-rows:/, '整窗按 头/主体 两行排');
   assert.match(shell, /max-height:\s*min\(/);
-  assert.match(shell, /max-width:\s*min\(10\d\d px|max-width:\s*min\(10\d\dpx/, '要覆盖 .admin-modal--wide 的 620px');
+  assert.match(shell, /max-width:\s*min\(12\d\dpx/, '回执页应使用完整工作区宽度');
 
-  const body = declarations(sannCss, '.sann-receipts__body {');
-  assert.match(body, /grid-template-columns:\s*minmax\(0,\s*1fr\)/, '窄屏默认单列');
-
-  const wide = mediaBlock(sannCss, '(min-width: 980px)');
-  assert.match(wide, /\.sann-receipts__body[\s\S]*grid-template-columns:\s*minmax\([^)]*\)\s*minmax\(/, '宽屏两栏');
-  assert.match(wide, /\.sann-receipts__stats[\s\S]*grid-template-columns:\s*repeat\(2,/, '侧栏统计改 2×2');
+  const table = declarations(sannCss, '.sann-receipts__table {');
+  assert.match(table, /overflow:\s*auto/, '设备表格独立双向滚动');
+  const tableLayout = declarations(sannCss, '.sann-receipts__table table {');
+  assert.match(tableLayout, /width:\s*max\(100%,\s*960px\)/, '表格列有最小布局宽度');
+  const dialog = readFileSync(
+    join(repoRoot, 'src', 'components', 'admin', 'SchoolAnnouncementReceiptsDialog.tsx'),
+    'utf8',
+  );
+  assert.match(dialog, /role="tab"[\s\S]*aria-selected=/, '视图切换需暴露选中状态');
+  assert.match(sannCss, /@media\s*\(max-width:\s*760px\)/, '窄屏压缩摘要与操作区');
 });
 
 test('弹窗版式：公告发布确认窗同样两栏 + 整窗封顶', () => {

@@ -9,6 +9,7 @@ import InlineSelect from '../InlineSelect';
 export type AdminContextBarProps = {
   /** 周测按班级编辑，需要班级选择；大型考试按年级即可。 */
   showClassPicker: boolean;
+  showScheduleMode?: boolean;
   can: (permission: string) => boolean;
   scheduleMode: ScheduleMode;
   handleScheduleModeChange: (mode: ScheduleMode) => void;
@@ -22,6 +23,7 @@ export type AdminContextBarProps = {
 
 export function AdminContextBar({
   showClassPicker,
+  showScheduleMode = false,
   can,
   scheduleMode,
   handleScheduleModeChange,
@@ -34,7 +36,7 @@ export function AdminContextBar({
 }: AdminContextBarProps) {
   return (
     <div className="admin-context-bar" aria-label="页面范围与运行模式">
-      {can('schedule.mode_edit') && (
+      {showScheduleMode && can('schedule.mode_edit') && (
         <label className="admin-context-bar__field">
           <span className="admin-context-bar__label with-help-tip">
             <span>运行模式</span>

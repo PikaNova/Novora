@@ -82,6 +82,8 @@ export interface ExamSettings {
   initialization: InitializationState;
   /** 大型考试 vs 周测 的冲突处理策略（v1.24.0 全局默认）。 */
   weeklyConflictPolicy: WeeklyConflictPolicy;
+  /** 大型考试期间是否锁定新建周测/临时考试。 */
+  majorExamCreationLockEnabled: boolean;
   designPolicy: DesignPolicy;
   majorBatchPresets: MajorBatchPresets;
   alertEnabled: boolean;
@@ -218,6 +220,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     selectedClassId: '',
     initialization: DEFAULT_INITIALIZATION,
     weeklyConflictPolicy: DEFAULT_WEEKLY_CONFLICT_POLICY,
+    majorExamCreationLockEnabled: false,
     designPolicy: DEFAULT_DESIGN_POLICY,
     majorBatchPresets: { subjectGroups: [], timeGroups: [], updatedAt: 0 },
     alertEnabled: true,
@@ -242,10 +245,12 @@ export function normalizeExam(raw: unknown): ExamSettings {
     ...(src as object),
   };
 
-  let majors: MajorExam[] = Array.isArray(src.majors) ? src.majors.filter(Boolean) : [];
+  const hasExplicitMajors = Array.isArray(src.majors);
+  let majors: MajorExam[] = hasExplicitMajors ? src.majors!.filter(Boolean) : [];
 
   // 旧版迁移：仅有 items/title 时，包装为单个大型考试。
-  if (majors.length === 0) {
+  // 服务端明确返回 majors: [] 时代表当前没有考试，必须保留空数组，不能再补一个“空考试”。
+  if (!hasExplicitMajors && majors.length === 0) {
     const legacyItems = Array.isArray(src.items) ? src.items : [];
     majors = [
       {
@@ -296,8 +301,8 @@ export function normalizeExam(raw: unknown): ExamSettings {
     .map((m, i) => ({ ...m, order: i }));
 
   let activeMajorId = src.activeMajorId || '';
-  if (!majors.some((m) => m.id === activeMajorId)) activeMajorId = majors[0].id;
-  const active = majors.find((m) => m.id === activeMajorId) ?? majors[0];
+  if (!majors.some((m) => m.id === activeMajorId)) activeMajorId = majors[0]?.id ?? '';
+  const active = majors.find((m) => m.id === activeMajorId);
 
   // ===== v1.24.0 周测字段 =====
   const scheduleMode: ScheduleMode = ALL_SCHEDULE_MODES.includes(src.scheduleMode as ScheduleMode)
@@ -335,6 +340,7 @@ export function normalizeExam(raw: unknown): ExamSettings {
     updatedAt: Number(rawPresets.updatedAt ?? 0),
   };
   const weeklyConflictPolicy = normalizeConflictPolicy(src.weeklyConflictPolicy);
+  const majorExamCreationLockEnabled = src.majorExamCreationLockEnabled === true;
 
   return {
     ...base,
@@ -350,9 +356,10 @@ export function normalizeExam(raw: unknown): ExamSettings {
     selectedClassId,
     initialization,
     weeklyConflictPolicy,
+    majorExamCreationLockEnabled,
     // items/title 始终镜像激活大型考试，保证展示端无需改动。
-    title: active.name,
-    items: active.items,
+    title: active?.name ?? (hasExplicitMajors ? (src.title ?? '') : ''),
+    items: active?.items ?? [],
   };
 }
 
@@ -361,6 +368,8 @@ export function getAppSettings(): AppSettings {
     const raw = localStorage.getItem(APP_SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
+    // Old page-relative anchors have no meaning in a new page session.
+    if (parsed.general?.timeSync) delete parsed.general.timeSync.lastSyncMonotonicMs;
     const settings = {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -419,7 +428,16 @@ export function updateAppSettings(partial: Partial<AppSettings> | ((c: AppSettin
 }
 
 export function updateExamSettings(updates: Partial<ExamSettings>): void {
-  updateAppSettings((c) => ({ exam: normalizeExam({ ...c.exam, ...updates }) }));
+  updateAppSettings((c) => {
+    const merged: Partial<ExamSettings> = { ...c.exam, ...updates };
+    // DEFAULT_SETTINGS 使用空 majors 表示“尚未初始化”。只有调用方明确传入
+    // majors: [] 时才表示云端权威快照中的“当前没有考试”，否则继续兼容旧版
+    // 仅保存 title/items 的数据迁移。
+    if (!Object.prototype.hasOwnProperty.call(updates, 'majors') && c.exam.majors.length === 0) {
+      delete merged.majors;
+    }
+    return { exam: normalizeExam(merged) };
+  });
 }
 
 export function updateMajorBatchSettings(updates: Partial<MajorBatchSettings>): void {

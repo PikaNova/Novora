@@ -10,7 +10,7 @@ export async function changeOwnPassword(
   actorId: number,
   currentPassword: string,
   nextPassword: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; field?: string }> {
   if (nextPassword.length < 8) return { ok: false, error: '新密码至少需要 8 位' };
   const row = await userById(actorId);
   if (!row) return { ok: false, error: '账号不存在' };
@@ -28,7 +28,7 @@ export async function changeOwnUsername(
   actorId: number,
   currentPassword: string,
   nextUsername: string,
-): Promise<{ ok: boolean; error?: string; oldUsername?: string }> {
+): Promise<{ ok: boolean; error?: string; oldUsername?: string; field?: string }> {
   const username = nextUsername.trim();
   if (!/^[A-Za-z0-9._-]{3,40}$/.test(username))
     return { ok: false, error: '用户名需为 3-40 位字母、数字、点、横线或下划线' };
@@ -65,7 +65,7 @@ export async function changeOwnCredentials(
   currentPassword: string,
   nextUsername: string,
   nextPassword: string,
-): Promise<{ ok: boolean; error?: string; oldUsername?: string; username?: string }> {
+): Promise<{ ok: boolean; error?: string; oldUsername?: string; username?: string; field?: string }> {
   const username = nextUsername.trim();
   if (!/^[A-Za-z0-9._-]{3,40}$/.test(username))
     return { ok: false, error: '用户名需为 3-40 位字母、数字、点、横线或下划线' };

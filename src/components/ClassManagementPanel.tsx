@@ -361,7 +361,10 @@ export default function ClassManagementPanel({
                 {visibleGradeClasses.map((item) => {
                   const weeklyCount = weeklyPlans.filter((plan) => plan.classId === item.id).length;
                   return (
-                    <article className="class-management__row" key={item.id}>
+                    <article
+                      className={`class-management__row${canManageClasses ? '' : ' class-management__row--readonly'}`}
+                      key={item.id}
+                    >
                       {canManageClasses && (
                         <input
                           type="checkbox"

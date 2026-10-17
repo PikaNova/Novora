@@ -152,6 +152,27 @@ test('快照复用窗口：窗口内的错峰调用不再发条件请求', async
   }
 });
 
+test('强制刷新：绕过结果复用窗口读取最新快照', async () => {
+  testGlobals.localStorage?.clear();
+  __resetSnapshotFlightForTests();
+  __setSnapshotReuseWindowForTests(10_000);
+  let round = 0;
+  const { calls, restore } = installFetch(async () => {
+    round += 1;
+    return snapshotResponse(round === 1 ? '旧快照' : '新快照');
+  });
+  try {
+    const first = await fetchExamsFromServer();
+    const fresh = await fetchExamsFromServer(undefined, { fresh: true });
+    assert.equal(first?.title, '旧快照');
+    assert.equal(fresh?.title, '新快照');
+    assert.equal(calls.length, 2, '强制刷新不能复用窗口内的旧快照');
+  } finally {
+    restore();
+    __setSnapshotReuseWindowForTests(1_000);
+  }
+});
+
 test('快照复用窗口：窗口过期照常重取，写入会立刻作废窗口', async () => {
   testGlobals.localStorage?.clear();
   __resetSnapshotFlightForTests();

@@ -13,6 +13,8 @@ export type ExamTimelineRecordLike = {
   actualEndAt: number | null;
   endedAt: number | null;
   archivedAt: number | null;
+  /** 「申请停止」的时刻：这时考试还没结束，等系统判定，时间线上要标出来。 */
+  stopRequestedAt?: number | null;
 };
 
 export type ExamTimelineOperationLike = {
@@ -58,6 +60,16 @@ export function buildExamRecordTimeline(
     { key: 'created', label: '创建', at: record.createdAt },
     { key: 'published', label: '发布', at: record.publishedAt ?? earliest(PUBLISH_ACTIONS) },
     { key: 'started', label: '开考', at: record.actualStartAt ?? earliest(START_ACTIONS) },
+    ...(record.stopRequestedAt != null
+      ? [
+          {
+            key: 'stop-requested',
+            label: '申请停止',
+            at: record.stopRequestedAt,
+            note: '等待系统判定（到结束时间 / 教室端全部结束 / 长时间无在线设备）',
+          } satisfies ExamTimelineStage,
+        ]
+      : []),
     ...pauseStages,
     {
       key: 'ended',

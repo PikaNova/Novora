@@ -16,6 +16,7 @@ import { clearPendingExamSync, getPendingExamSync, queuePendingExamSync } from '
 import { normalizeConflictPolicy, updateExamSettings } from '../../utils/appSettings';
 import { notify } from '../../services/notify';
 import { formatApiError } from '../../services/apiError';
+import { nowMs } from '../../utils/timeSource';
 import type { ExamSavePayload } from '../../shared/examContracts';
 import type { SyncState } from './adminPageUtils';
 import { syncMajorStateRef } from './adminPageUtils';
@@ -113,7 +114,7 @@ export function useWeeklyScheduleSync(params: {
         queuePendingExamSync({
           payload: { ...basePayload, ...weekly },
           baseSnapshot: queued?.baseSnapshot ?? getCloudSnapshot(),
-          savedAt: Date.now(),
+          savedAt: nowMs(),
         });
         return;
       }
@@ -157,7 +158,7 @@ export function useWeeklyScheduleSync(params: {
           const mergedPending = {
             payload: merged.payload,
             baseSnapshot: result.remote,
-            savedAt: Date.now(),
+            savedAt: nowMs(),
           };
           await retryBackoffDelay(0);
           const retry = await saveExamsToServer({
@@ -216,7 +217,7 @@ export function useWeeklyScheduleSync(params: {
         queuePendingExamSync({
           payload,
           baseSnapshot: baseSnapshot ?? null,
-          savedAt: queued?.savedAt ?? Date.now(),
+          savedAt: queued?.savedAt ?? nowMs(),
         });
         setSync(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error');
         if (result && result.kind === 'error')
@@ -263,7 +264,7 @@ export function useWeeklyScheduleSync(params: {
       setClasses(next.classes);
       setWeeklyConflictPolicy(next.weeklyConflictPolicy);
       weeklyStateRef.current = next;
-      const now = Date.now();
+      const now = nowMs();
       updateExamSettings({ ...next, updatedAt: now });
       const queued = getPendingExamSync();
       // 同上：payload 现场构造，队列只提供 baseSnapshot / savedAt。

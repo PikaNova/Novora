@@ -69,6 +69,8 @@ export type ExamSession = {
   pausedAt: number | null;
   pausedMs: number;
   endedAt: number | null;
+  /** 归档时间；未归档为空。列表按板块取数时已归档的记录不在返回里，靠它兜底显示「已归档」。 */
+  archivedAt?: number | null;
   scope: ExamSessionScope;
   /**
    * 周测实例的来源信息：行内「取消本次 / 改时间 / 仍然进行」需要它来写计划的 overrides。
@@ -323,6 +325,11 @@ function readEndedAt(major: MajorExam | undefined): number | null {
   return null;
 }
 
+function readArchivedAt(major: MajorExam | undefined): number | null {
+  const value = major?.archivedAt;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
 /** 把「同一时间结构的周测计划」按班级归组；返回的 classIds 是这组实际覆盖的班级。 */
 function groupWeeklyPlans(
   weeklyPlans: WeeklyPlan[],
@@ -502,6 +509,7 @@ export function collectScheduleSessions(input: CollectExamSessionsInput): Collec
       pausedAt: readPausedAt(major),
       pausedMs: readPausedMs(major),
       endedAt: readEndedAt(major),
+      archivedAt: readArchivedAt(major),
       scope: buildScope(
         major.targetClassIds?.length ? 'class' : major.targetGradeIds?.length ? 'grade' : 'school',
         major.targetGradeIds?.length ? major.targetGradeIds : gradeIds,
@@ -612,6 +620,7 @@ export function collectScheduleSessions(input: CollectExamSessionsInput): Collec
           pausedAt: null,
           pausedMs: 0,
           endedAt: null,
+          archivedAt: null,
           scope: buildScope('class', group.gradeIds, group.classIds, grades, classes, group.classIds.length),
           weekly: {
             itemId: timing.itemId,
@@ -698,6 +707,9 @@ export function buildExamCenterView(
     (session) => Number.isFinite(dayEnd) && session.startAt < dayEnd && session.effectiveEndAt > dayStart,
   );
 
+  const actionable = [...running, ...overdue, ...upcoming, ...(previous ? [previous] : [])];
+  const headline =
+    actionable.find((session) => session.recordId != null) ?? actionable[0] ?? null;
   return {
     now,
     dayKey,
@@ -705,7 +717,7 @@ export function buildExamCenterView(
     overdue,
     upcoming,
     previous,
-    headline: running[0] ?? overdue[0] ?? upcoming[0] ?? previous,
+    headline,
     todayCount: todaySessions.length,
     hasAnyExamToday: todaySessions.length > 0,
     lifecycleUnknown: records === null,

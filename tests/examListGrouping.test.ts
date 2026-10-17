@@ -63,3 +63,19 @@ test('monthLabelOf / groupHistoryEntries：按结束时间落月并合并同月'
     ],
   );
 });
+
+test('groupHistoryEntries：同月记录不相邻时仍归入同一组', () => {
+  const groups = groupHistoryEntries([
+    { id: 'sep-1', endedAt: at('2026-09-28T10:00:00'), actualEndAt: null },
+    { id: 'aug', endedAt: at('2026-08-31T10:00:00'), actualEndAt: null },
+    { id: 'sep-2', endedAt: at('2026-09-02T10:00:00'), actualEndAt: null },
+  ]);
+
+  assert.deepEqual(
+    groups.map((group) => [group.label, group.items.map((item) => item.id)]),
+    [
+      ['2026年9月', ['sep-1', 'sep-2']],
+      ['2026年8月', ['aug']],
+    ],
+  );
+});

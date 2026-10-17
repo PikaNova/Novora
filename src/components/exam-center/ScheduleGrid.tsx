@@ -1,7 +1,12 @@
 import { useState, type CSSProperties } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { formatClockHm } from '../../utils/examCenterStatus';
-import { SCHEDULE_ROW_KIND_LABELS, type ScheduleClassGridRow, type ScheduleRow } from '../../utils/scheduleTimeline';
+import {
+  SCHEDULE_ROW_KIND_LABELS,
+  SCHEDULE_ROW_STATUS_LABELS,
+  type ScheduleClassGridRow,
+  type ScheduleRow,
+} from '../../utils/scheduleTimeline';
 import '../../styles/exam-schedule.css';
 
 export type ScheduleGridProps = {
@@ -135,6 +140,9 @@ export default function ScheduleGrid({
                     <strong>{item.title}</strong>
                     {item.subject && <span>{item.subject}</span>}
                     <em>{SCHEDULE_ROW_KIND_LABELS[item.kind]}</em>
+                    <em className={`exam-grid__detail-status is-${item.status}`}>
+                      {SCHEDULE_ROW_STATUS_LABELS[item.status]}
+                    </em>
                     {item.conflictKeys.length > 0 && <span className="is-warn">时间重叠</span>}
                   </li>
                 )),

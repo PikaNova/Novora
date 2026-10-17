@@ -177,6 +177,11 @@ test('shouldShowWizardDraftHint: 向导弹窗自己打开时让位', () => {
   assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, modalOpen: true }), false);
 });
 
+test('shouldShowWizardDraftHint: 分考试设置弹窗不应隐藏下一步入口', () => {
+  // AdminPage 只把新增向导传入 modalOpen；设置（重命名）弹窗不会传 true。
+  assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, modalOpen: false }), true);
+});
+
 test('shouldShowWizardDraftHint: 没在向导流程或不在考试中心不显示', () => {
   assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, draftCreated: false }), false);
   assert.equal(shouldShowWizardDraftHint({ ...draftHintContext, tabIsExam: false }), false);

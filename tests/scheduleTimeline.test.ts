@@ -43,6 +43,7 @@ function session(patch: Partial<ExamSession> & { key: string; startAt: number; e
     pausedAt: patch.pausedAt ?? null,
     pausedMs: patch.pausedMs ?? 0,
     endedAt: patch.endedAt ?? null,
+    archivedAt: patch.archivedAt ?? null,
     scope: patch.scope ?? {
       kind: 'grade',
       label: '初二',
@@ -61,6 +62,7 @@ function record(patch: Partial<ScheduleRecordLike> & { id: string }): ScheduleRe
     itemCount: patch.itemCount ?? 3,
     startAt: patch.startAt ?? null,
     endAt: patch.endAt ?? null,
+    pausedAt: patch.pausedAt ?? null,
     targetGradeIds: patch.targetGradeIds ?? ['g1'],
     targetClassIds: patch.targetClassIds ?? [],
     source: patch.source ?? 'regular',
@@ -144,6 +146,17 @@ test('状态：记录层状态优先于时间推断', () => {
     board.rows.map((row) => row.status),
     ['ongoing', 'ended', 'ended'],
   );
+});
+
+test('状态：已发布考试手动调整时间后按最新时间窗口即时重算', () => {
+  const board = buildScheduleBoard({
+    sessions: [session({ key: 'manual-time', startAt: at('10:00'), endAt: at('11:00') })],
+    records: [record({ id: 'm1', displayStatus: 'published', startAt: at('10:00'), endAt: at('11:00') })],
+    grades,
+    classes,
+    now: at('10:30'),
+  });
+  assert.equal(board.rows[0]?.status, 'ongoing');
 });
 
 test('被大型考试暂停的周测：单独一行、标暂停、不参与冲突', () => {
@@ -257,6 +270,8 @@ test('冲突：同一天、范围有交集、时间重叠才算', () => {
       ['b', 'd'],
     ],
   );
+  assert.deepEqual(conflicts[0]?.examNames, ['初二月考', '初二数学周测']);
+  assert.equal(conflicts[0]?.status, 'unhandled');
 });
 
 test('按日分组：今天/明天/日期，未排期永远最后', () => {
@@ -317,6 +332,94 @@ test('统计：今日场次、冲突行数、未排期数', () => {
   assert.equal(board.stats.todayCount, 2);
   assert.equal(board.stats.conflicted, 2);
   assert.equal(board.stats.unscheduled, 1);
+});
+
+test('行状态：暂停 / 结束 / 归档都按记录层给，不再只看计划时间', () => {
+  const board = buildScheduleBoard({
+    sessions: [
+      session({ key: 'major|m1|i1', sourceId: 'm1', recordId: 'm1', startAt: at('08:00'), endAt: at('09:00') }),
+      session({ key: 'major|m2|i1', sourceId: 'm2', recordId: 'm2', startAt: at('09:00'), endAt: at('10:00') }),
+      session({ key: 'major|m3|i1', sourceId: 'm3', recordId: 'm3', startAt: at('10:00'), endAt: at('11:00') }),
+      session({ key: 'major|m4|i1', sourceId: 'm4', recordId: 'm4', startAt: at('11:00'), endAt: at('12:00') }),
+    ],
+    records: [
+      record({ id: 'm1', displayStatus: 'ongoing', startAt: at('08:00'), endAt: at('09:00'), pausedAt: at('08:30') }),
+      record({ id: 'm2', displayStatus: 'ended', startAt: at('09:00'), endAt: at('10:00') }),
+      record({ id: 'm3', displayStatus: 'archived', startAt: at('10:00'), endAt: at('11:00') }),
+      record({ id: 'm4', displayStatus: 'published', startAt: at('11:00'), endAt: at('12:00') }),
+    ],
+    grades,
+    classes,
+    now: at('11:30'),
+  });
+  const statusOf = (id: string) => board.rows.find((row) => row.recordId === id)?.status;
+  assert.equal(statusOf('m1'), 'paused', '暂停中的考试即使还在计划时间窗内也要显示已暂停');
+  assert.equal(statusOf('m2'), 'ended');
+  assert.equal(statusOf('m3'), 'archived', '已归档的考试不能继续显示进行中');
+  assert.equal(statusOf('m4'), 'ongoing');
+});
+
+test('记录层没取到这场时：用本地快照的结束 / 归档 / 暂停兜底，快速考试直接用记录里的新时间', () => {
+  const board = buildScheduleBoard({
+    sessions: [
+      // 已归档：列表按板块取数时拿不到记录层，靠快照上的 archivedAt 兜底。
+      session({
+        key: 'major|m1|i1',
+        sourceId: 'm1',
+        recordId: 'm1',
+        startAt: at('08:00'),
+        endAt: at('09:00'),
+        endedAt: at('08:40'),
+        archivedAt: at('08:41'),
+      }),
+      // 只结束、还没归档。
+      session({
+        key: 'major|m2|i1',
+        sourceId: 'm2',
+        recordId: 'm2',
+        startAt: at('09:00'),
+        endAt: at('10:00'),
+        endedAt: at('09:30'),
+      }),
+      session({
+        key: 'major|m3|i1',
+        sourceId: 'm3',
+        recordId: 'm3',
+        startAt: at('10:00'),
+        endAt: at('11:00'),
+        pausedAt: at('10:10'),
+      }),
+      // 快速考试：本地快照还停在旧结束时间，记录层已经延长到 12:30。
+      session({
+        key: 'temporary|q1|i1',
+        kind: 'temporary',
+        sourceId: 'q1',
+        recordId: 'q1',
+        startAt: at('11:30'),
+        endAt: at('12:00'),
+      }),
+    ],
+    records: [
+      record({
+        id: 'q1',
+        name: '临时统一考试 · 2026/09/24',
+        displayStatus: 'published',
+        startAt: at('11:30'),
+        endAt: at('12:30'),
+        source: 'quick',
+      }),
+    ],
+    grades,
+    classes,
+    now: at('12:00'),
+  });
+  const statusOf = (id: string) => board.rows.find((row) => row.recordId === id)?.status;
+  assert.equal(statusOf('m1'), 'archived');
+  assert.equal(statusOf('m2'), 'ended');
+  assert.equal(statusOf('m3'), 'paused');
+  const quick = board.rows.find((row) => row.recordId === 'q1');
+  assert.equal(quick?.endAt, at('12:30'), '延长后的结束时间直接来自记录层');
+  assert.equal(quick?.status, 'ongoing', '延长后不能因为快照上的旧结束时间被判成已结束');
 });
 
 test('大型考试按天合并：同一场 3 科只占一行，时间跨首科到末科', () => {

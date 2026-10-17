@@ -16,7 +16,7 @@ import { getResolvedExamItems } from '../utils/appSchedule';
 import { getAppSettings } from '../utils/appSettings';
 import { getTemporaryExam } from '../services/temporaryExam';
 import { APP_VERSION } from '../services/telemetry';
-import { nowMs, parseZonedTime } from '../utils/timeSource';
+import { nowWithoutBroadcastOffsetMs, parseZonedTime } from '../utils/timeSource';
 
 export type SyncTransportKind = 'http-poll' | 'wss';
 
@@ -26,6 +26,7 @@ export type HeartbeatOutcome = {
   command: DeviceCommand | null;
   /** 服务端当前快照版本；只有启用了版本驱动同步的部署（Vercel）才会返回。 */
   version?: number;
+  timeControl?: { revision: number; offsetMs: number; syncRequestId: string; syncRequestedAt: number };
 };
 
 export type SyncHandlers = {
@@ -35,6 +36,7 @@ export type SyncHandlers = {
   onCommand?: (command: DeviceCommand) => void;
   onBinding?: (binding: DeviceBinding) => void;
   onRevoked?: () => void;
+  onTimeControl?: (control: NonNullable<HeartbeatOutcome['timeControl']>) => void;
 };
 
 export interface SyncTransport {
@@ -45,13 +47,22 @@ export interface SyncTransport {
   tick(): void;
   /** 命令执行完后登记回执，随下一次心跳上报。 */
   noteCommandAcknowledged(commandId: string): void;
+  /** 命令执行失败：登记原因，随下一次心跳上报（后台据此显示"失败：xxx"而不是"已执行"）。 */
+  noteCommandFailed(commandId: string, reason: string): void;
+  noteTimeControlApplied(revision: number): void;
+  noteTimeSyncRequestResult(requestId: string, status: 'synced' | 'failed', error?: string, at?: number): void;
   /** 单独发一次心跳并返回结果。 */
   heartbeat(): Promise<HeartbeatOutcome>;
 }
 
 export type HttpPollTransportDeps = {
   sendHeartbeat: (input: DeviceHeartbeatInput) => Promise<HeartbeatOutcome>;
-  buildInput: (state: { page: string; acknowledgedCommandId: string }) => DeviceHeartbeatInput;
+  buildInput: (state: {
+    page: string;
+    acknowledgedCommandId: string;
+    failedCommandId?: string;
+    commandFailureReason?: string;
+  }) => DeviceHeartbeatInput;
   intervalMsFor: (state: { temporaryActive: boolean; hasCurrentExam: boolean }) => number;
   now: () => number;
   setTimer: (callback: () => void, delayMs: number) => number;
@@ -69,8 +80,10 @@ const COMMAND_ACK_FOLLOW_UP_MS = 250;
 export function buildDeviceHeartbeatInput(state: {
   page: string;
   acknowledgedCommandId: string;
+  failedCommandId?: string;
+  commandFailureReason?: string;
 }): DeviceHeartbeatInput {
-  const now = nowMs();
+  const now = nowWithoutBroadcastOffsetMs();
   const items = getResolvedExamItems(now);
   const current = items.find(
     (item) => item.enabled && parseZonedTime(item.startTime) <= now && parseZonedTime(item.endTime) > now,
@@ -91,19 +104,26 @@ export function buildDeviceHeartbeatInput(state: {
   return {
     page: state.page,
     clientVersion: APP_VERSION,
+    // 状态按"哪种考试 + 是否暂停"区分：后台不再靠考试名里有没有「临时考试」来猜。
     status:
       temporaryActive && temporary.status === 'paused'
         ? 'temporary-paused'
-        : current
-          ? 'exam-running'
-          : next
-            ? 'waiting'
-            : 'idle',
+        : temporaryActive
+          ? 'temporary-running'
+          : current
+            ? (current as { pausedAt?: number | null }).pausedAt != null
+              ? 'exam-paused'
+              : 'exam-running'
+            : next
+              ? 'waiting'
+              : 'idle',
     currentExam: reportedExamName,
     currentSubject: reportedExam?.name ?? '',
     examStart: reportedExam?.startTime ?? '',
     examEnd: reportedExam?.endTime ?? '',
     acknowledgedCommandId: state.acknowledgedCommandId,
+    ...(state.failedCommandId ? { failedCommandId: state.failedCommandId } : {}),
+    ...(state.commandFailureReason ? { commandFailureReason: state.commandFailureReason } : {}),
   };
 }
 
@@ -120,7 +140,22 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
   let timer: number | null = null;
   let inFlight = false;
   let acknowledgedCommandId = '';
+  // 最近一次执行失败的命令与原因：随每轮心跳回执（服务端只会对 pending/claimed 生效一次）。
+  let failedCommandId = '';
+  let commandFailureReason = '';
   let edgeCapabilityMarked = false;
+  let timeControlRevision = 0;
+  let timeSyncRequest: DeviceHeartbeatInput | null = null;
+
+  const buildInput = () => ({
+    ...deps.buildInput({
+      page: currentPage(),
+      acknowledgedCommandId,
+      ...(failedCommandId ? { failedCommandId, commandFailureReason } : {}),
+    }),
+    timeControlRevision,
+    ...(timeSyncRequest ?? {}),
+  });
 
   const clearScheduled = () => {
     if (timer !== null) {
@@ -149,7 +184,7 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
     const listeners = [...handlers];
     try {
       for (const listener of listeners) listener.onTick?.();
-      const input = deps.buildInput({ page: currentPage(), acknowledgedCommandId });
+      const input = buildInput();
       let outcome: HeartbeatOutcome;
       try {
         outcome = await deps.sendHeartbeat(input);
@@ -169,6 +204,7 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
         }
         for (const listener of listeners) listener.onVersion?.(outcome.version);
       }
+      if (outcome.timeControl) for (const listener of listeners) listener.onTimeControl?.(outcome.timeControl);
       // 已回执过的命令可能因为边缘缓存或重试再次到达，这里做一次去重，
       // 避免同一条临时考试指令被重复执行。
       if (outcome.command && outcome.command.id !== acknowledgedCommandId) {
@@ -203,9 +239,25 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
     noteCommandAcknowledged(commandId) {
       acknowledgedCommandId = commandId;
     },
+    noteCommandFailed(commandId, reason) {
+      failedCommandId = commandId;
+      commandFailureReason = reason.slice(0, 500);
+    },
+    noteTimeControlApplied(revision) {
+      timeControlRevision = Math.max(timeControlRevision, Math.trunc(revision));
+    },
+    noteTimeSyncRequestResult(requestId, status, error = '', at = Date.now()) {
+      timeSyncRequest = {
+        timeSyncRequestId: requestId,
+        timeSyncRequestStatus: status,
+        timeSyncRequestError: error.slice(0, 500),
+        timeSyncRequestAt: at,
+      };
+      deps.setTimer(() => void runCycle(), COMMAND_ACK_FOLLOW_UP_MS);
+    },
     async heartbeat() {
       try {
-        return await deps.sendHeartbeat(deps.buildInput({ page: currentPage(), acknowledgedCommandId }));
+        return await deps.sendHeartbeat(buildInput());
       } catch {
         return EMPTY_OUTCOME;
       }

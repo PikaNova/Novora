@@ -457,3 +457,217 @@
     justify-content: center;
   }
 }
+
+/* v2.8 当前考试态势板：宽屏优先把「现在」与「下一场」放进同一视觉单元。 */
+.exam-now {
+  width: min(1480px, calc(100% - 24px));
+  gap: 18px;
+  padding: 24px 28px 36px;
+}
+.exam-now__topbar {
+  min-height: 56px;
+  padding-bottom: 14px;
+}
+.exam-now__board {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.8fr);
+  gap: 14px;
+  align-items: stretch;
+}
+.exam-now__hero {
+  min-width: 0;
+}
+.exam-now__hero > .exam-now-card {
+  height: 100%;
+  box-sizing: border-box;
+}
+.exam-now__next-panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius, 10px);
+  background: var(--adm-bg1, #0c1219);
+  box-shadow: var(--adm-shadow-1, 0 10px 26px rgba(0, 0, 0, 0.22));
+}
+.exam-now__next-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.exam-now__next-head h2 {
+  margin: 5px 0 0;
+  font-size: 22px;
+  font-weight: 750;
+}
+.exam-now__next-count {
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.exam-now__next-queue {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-now__next-queue li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: var(--adm-radius-sm, 8px);
+  background: var(--adm-bg2, #10171f);
+}
+.exam-now__next-queue li.is-next {
+  border-color: rgba(59, 143, 208, 0.45);
+  background: var(--adm-accent-soft, rgba(59, 143, 208, 0.1));
+}
+.exam-now__queue-index {
+  align-self: start;
+  color: var(--adm-text-3, #879caf);
+  font:
+    700 11px/1.4 ui-monospace,
+    monospace;
+}
+.exam-now__queue-main,
+.exam-now__queue-time {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.exam-now__queue-main strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-now__queue-main span,
+.exam-now__queue-time span {
+  overflow: hidden;
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-now__queue-time {
+  justify-items: end;
+  text-align: right;
+}
+.exam-now__queue-time strong {
+  color: var(--adm-text-2, #a9bdd0);
+  font:
+    700 14px/1.2 ui-monospace,
+    monospace;
+  white-space: nowrap;
+}
+.exam-now__next-queue em {
+  grid-column: 2 / -1;
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 11px;
+  font-style: normal;
+}
+.exam-now__next-queue li.is-next em {
+  color: #9fd0f2;
+}
+.exam-now__next-empty {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  padding: 24px 4px;
+  color: var(--adm-text-3, #879caf);
+}
+.exam-now__next-empty strong {
+  color: var(--adm-text-2, #a9bdd0);
+  font-size: 15px;
+}
+.exam-now__next-empty span {
+  font-size: 12px;
+}
+.exam-now__next-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-now__next-summary strong {
+  color: var(--adm-text-2, #a9bdd0);
+  font-weight: 650;
+}
+.exam-now__timeline {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.exam-now__timeline-slot {
+  padding: 18px 20px;
+}
+.exam-now__timeline-slot + .exam-now__timeline-slot {
+  padding-left: 20px;
+}
+.exam-now__timeline-slot.is-current {
+  background: rgba(59, 143, 208, 0.055);
+}
+.exam-now__timeline-slot.is-current .exam-now__section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-now__timeline-slot.is-current .exam-now__section-label::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--adm-accent, #3b8fd0);
+  content: '';
+}
+.exam-now__actions {
+  align-items: center;
+  padding-top: 2px;
+}
+.exam-now__action-buttons .admin-btn {
+  min-height: 42px;
+  padding-inline: 14px;
+}
+
+@media (max-width: 1120px) {
+  .exam-now__board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .exam-now__next-panel {
+    padding: 18px;
+  }
+  .exam-now__next-queue {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .exam-now {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 14px 14px 26px;
+  }
+  .exam-now__board {
+    gap: 10px;
+  }
+  .exam-now__next-panel {
+    padding: 16px;
+  }
+  .exam-now__next-queue {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .exam-now__timeline-slot,
+  .exam-now__timeline-slot + .exam-now__timeline-slot {
+    padding: 15px 16px;
+  }
+}

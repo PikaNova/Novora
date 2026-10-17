@@ -52,7 +52,13 @@ function harness(outcomes: Array<HeartbeatOutcome | Error>) {
       if (next instanceof Error) throw next;
       return { ...next, version: next.version };
     },
-    buildInput: (state) => ({ page: state.page, acknowledgedCommandId: state.acknowledgedCommandId }),
+    buildInput: (state) => ({
+      page: state.page,
+      acknowledgedCommandId: state.acknowledgedCommandId,
+      ...(state.failedCommandId
+        ? { failedCommandId: state.failedCommandId, commandFailureReason: state.commandFailureReason }
+        : {}),
+    }),
     intervalMsFor: () => 60_000,
     now: () => now,
     setTimer: (callback, delayMs) => {
@@ -84,6 +90,8 @@ function harness(outcomes: Array<HeartbeatOutcome | Error>) {
     onCommand: (command: DeviceCommand) => events.push(`command:${command.id}`),
     onBinding: (binding: DeviceBinding) => events.push(`binding:${binding.classId}`),
     onRevoked: () => events.push('revoked'),
+    onTimeControl: (control: NonNullable<HeartbeatOutcome['timeControl']>) =>
+      events.push(`time-control:${control.revision}:${control.offsetMs}`),
   };
   return { transport, handlers, timers, sent, events, flush, runDueTimers };
 }
@@ -108,6 +116,25 @@ test('a version from the server is forwarded and marks the edge capability', asy
   await h.flush();
   assert.ok(h.events.includes('capability'));
   assert.ok(h.events.includes('version:1789223000000'));
+  h.transport.stop(h.handlers);
+});
+
+test('global time-control state is forwarded and its result is acknowledged by heartbeat', async () => {
+  const h = harness([
+    { ...idle, timeControl: { revision: 7, offsetMs: -2500, syncRequestId: 'sync-1', syncRequestedAt: 900 } },
+    idle,
+  ]);
+  h.transport.start(h.handlers);
+  await h.flush();
+  assert.ok(h.events.includes('time-control:7:-2500'));
+  h.transport.noteTimeControlApplied(7);
+  h.transport.noteTimeSyncRequestResult('sync-1', 'failed', 'offline', 1000);
+  await h.runDueTimers();
+  const next = h.sent[h.sent.length - 1];
+  assert.equal(next.timeControlRevision, 7);
+  assert.equal(next.timeSyncRequestId, 'sync-1');
+  assert.equal(next.timeSyncRequestStatus, 'failed');
+  assert.equal(next.timeSyncRequestError, 'offline');
   h.transport.stop(h.handlers);
 });
 
@@ -148,6 +175,22 @@ test('a failing heartbeat keeps the loop alive', async () => {
   h.transport.start(h.handlers);
   await h.flush();
   assert.equal(h.timers.length, 1, 'the transport reschedules after a failure');
+  h.transport.stop(h.handlers);
+});
+
+test('执行失败的命令带原因回执（后台不再把 no-op 当成功）', async () => {
+  const command: DeviceCommand = { id: 'cmd_fail', action: 'pause', createdAt: 1_000 };
+  const h = harness([{ ...idle, command }, idle, idle]);
+  h.transport.start(h.handlers);
+  await h.flush();
+  assert.ok(h.events.includes('command:cmd_fail'));
+  // 组件执行命令失败时的时序：登记失败原因，下一次心跳带上。
+  h.transport.noteCommandFailed(command.id, '本机没有临时考试');
+  await h.runDueTimers();
+  const last = h.sent[h.sent.length - 1];
+  assert.equal(last.failedCommandId, 'cmd_fail');
+  assert.equal(last.commandFailureReason, '本机没有临时考试');
+  assert.equal(last.acknowledgedCommandId, '', '失败的命令不能同时被当成已执行');
   h.transport.stop(h.handlers);
 });
 

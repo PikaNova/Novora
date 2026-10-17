@@ -27,6 +27,7 @@ import {
 } from './_exams/routes/deviceAdminRoutes.js';
 import { handleDeviceBinding, handleDeviceHeartbeat } from './_exams/routes/deviceSelfRoutes.js';
 import { handleDesignPolicy, handleMajorBatchPresets, handleResetData } from './_exams/routes/settingsRoutes.js';
+import { handleTimeControl } from './_exams/routes/timeControlRoutes.js';
 import { handleDashboard } from './_exams/routes/dashboardRoutes.js';
 import { EXAM_RECORD_GET_RESOURCES, handleExamRecordRoute } from './_exams/routes/examRecordRoutes.js';
 import {
@@ -51,6 +52,7 @@ const ACTION_ONLY_ROUTES: Record<string, RouteHandler> = {
   'device-bindings': (req, res) => handleDeviceBindings(req, res),
   'device-binding-options': (req, res) => handleDeviceBindingOptions(req, res),
   'device-binding': (req, res) => handleDeviceBinding(req, res),
+  'time-control': (req, res) => handleTimeControl(req, res),
 };
 
 // 这些 action 原本只在 POST 分支里出现；GET 或其他方法命中同名 action 时，

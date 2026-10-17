@@ -13,6 +13,8 @@ export type RoleWizardModalProps = {
   roleError: string;
   setRoleError: (message: string) => void;
   setRoleModuleLevel: (module: (typeof ROLE_MODULES)[number], level: RoleLevel) => void;
+  /** 当前账号不能授出的级别在选项里禁用掉，避免"勾得动、保存被拒、还看不到原因"。 */
+  canGrantLevel: (module: (typeof ROLE_MODULES)[number], level: RoleLevel) => boolean;
   submitRole: () => Promise<void> | void;
   busy: boolean;
 };
@@ -25,6 +27,7 @@ export function RoleWizardModal({
   roleError,
   setRoleError,
   setRoleModuleLevel,
+  canGrantLevel,
   submitRole,
   busy,
 }: RoleWizardModalProps) {
@@ -92,8 +95,16 @@ export function RoleWizardModal({
                         onChange={(value) => setRoleModuleLevel(module, value as RoleLevel)}
                         options={[
                           { value: 'none', label: '不可访问' },
-                          { value: 'read', label: '仅查看' },
-                          ...(module.manage.length > 0 ? [{ value: 'manage', label: '可管理' }] : []),
+                          { value: 'read', label: '仅查看', disabled: !canGrantLevel(module, 'read') },
+                          ...(module.manage.length > 0
+                            ? [
+                                {
+                                  value: 'manage',
+                                  label: '可管理',
+                                  disabled: !canGrantLevel(module, 'manage'),
+                                },
+                              ]
+                            : []),
                         ]}
                       />
                     </label>

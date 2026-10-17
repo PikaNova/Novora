@@ -56,6 +56,8 @@ type Props = {
    * 没有传时直接跳「编辑考试」板块（只用于兼容旧调用方）。
    */
   onEdit?: (record: ExamRecordListEntry) => void;
+  /** 调用方可按记录来源/所有权收窄编辑权限。 */
+  canEditRecord?: (record: ExamRecordListEntry) => boolean;
   /** 草稿才有：删除这场草稿（由上层二次确认后按 id 从快照里移除）。 */
   onDiscard?: (record: ExamRecordListEntry) => void;
 };
@@ -136,6 +138,7 @@ function ExamRecordDetailBody({
   onClose,
   onChanged,
   onEdit,
+  canEditRecord,
   onDiscard,
   onRefreshRecord,
 }: BodyProps) {
@@ -383,7 +386,7 @@ function ExamRecordDetailBody({
                 删除草稿
               </button>
             )}
-            {can('major.edit') && (
+            {((onEdit && (canEditRecord?.(record) ?? true)) || (!onEdit && can('major.edit'))) && (
               <button
                 className="admin-btn admin-btn--ghost"
                 type="button"
@@ -449,6 +452,18 @@ function ExamRecordDetailBody({
                   {effectiveEndAt ? `（顺延至 ${formatDateTime(effectiveEndAt)}）` : ''}
                 </dd>
               </div>
+              {/* 「申请停止」不是立刻停：教室里照常显示，等系统判定后才会结束，这里要说清楚。 */}
+              {record.stopRequestedAt != null && (
+                <div>
+                  <dt>停止申请</dt>
+                  <dd>
+                    {formatDateTime(record.stopRequestedAt)}
+                    <em className="exam-record-detail__time-note">
+                      等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
+                    </em>
+                  </dd>
+                </div>
+              )}
             </dl>
           </section>
 
@@ -685,6 +700,7 @@ export default function ExamRecordDetailDrawer({
   onClose,
   onChanged,
   onEdit,
+  canEditRecord,
   onDiscard,
 }: Props) {
   const [record, setRecord] = useState<ExamRecordListEntry | null>(seed ?? null);
@@ -719,6 +735,7 @@ export default function ExamRecordDetailDrawer({
         onClose={onClose}
         onChanged={onChanged}
         onEdit={onEdit}
+        canEditRecord={canEditRecord}
         onDiscard={onDiscard}
         onRefreshRecord={loadRecord}
       />

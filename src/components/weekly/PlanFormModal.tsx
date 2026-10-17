@@ -18,6 +18,8 @@ interface PlanFormModalProps {
   planError: string;
   setPlanError: (value: string) => void;
   commitPlanModal: () => void;
+  creationBlocked?: boolean;
+  creationMessage?: string;
   classOptions: Array<{ id: string; gradeId: string; label: string }>;
   pickerOptions: ClassPickerOption[];
   allowBatchApply: boolean;
@@ -32,6 +34,8 @@ export default function PlanFormModal({
   planError,
   setPlanError,
   commitPlanModal,
+  creationBlocked = false,
+  creationMessage = '',
   classOptions,
   pickerOptions,
   allowBatchApply,
@@ -69,6 +73,11 @@ export default function PlanFormModal({
           {planModal.mode === 'add' ? '新建周测计划' : '周测计划设置'}
         </h2>
         <AdminWorkflowClose onClick={closePlanModal} />
+        {creationBlocked && (
+          <div role="alert" className="admin-alert admin-alert--warning">
+            {creationMessage}；大型考试结束后可恢复新建。
+          </div>
+        )}
         {planError && <div className="admin-error">{planError}</div>}
         <div className="admin-workflow-layout">
           <AdminWizardSteps
@@ -287,7 +296,12 @@ export default function PlanFormModal({
               下一步
             </button>
           ) : (
-            <button className="admin-btn admin-btn--primary admin-workflow-actions-spacer" onClick={commitPlanModal}>
+            <button
+              className="admin-btn admin-btn--primary admin-workflow-actions-spacer"
+              onClick={commitPlanModal}
+              disabled={creationBlocked}
+              title={creationBlocked ? creationMessage : undefined}
+            >
               保存到 {planModal.mode === 'add' ? planModal.classIds.length : 1} 个班级
             </button>
           )}

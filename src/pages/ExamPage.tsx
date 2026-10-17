@@ -1,3 +1,11 @@
+import { journal } from '../utils/runtimeJournal.js';
+import {
+  updateRuntimeDisplay,
+  runtimeReference,
+  getRuntimeDataAnchor,
+  noteRuntimeRenderCommit,
+  clearRuntimeDisplay,
+} from '../utils/runtimeDisplayState.js';
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import type { ExamItem, AlertsSettings } from '../types';
@@ -6,6 +14,8 @@ import { getResolvedExamItems } from '../utils/appSchedule';
 import { examSyncIntervalMs } from '../utils/examPolling';
 import {
   nowMs,
+  subscribeClock,
+  monotonicNowMs,
   formatClockInZone,
   getZonedParts,
   parseZonedTime,
@@ -29,7 +39,7 @@ import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
 import SchoolAnnouncementOverlay from '../components/SchoolAnnouncementOverlay';
 import LoadingState from '../components/LoadingState';
-import { fetchAnnouncements } from '../services/announcements';
+import { fetchAnnouncements, getLastAnnouncementFetchError } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import { fetchDeviceExamAnnouncements, type SchoolExamAnnouncement } from '../services/examAnnouncements';
 import { flushAnnouncementAcks, queueAnnouncementSeen } from '../services/announcementAcks';
@@ -48,10 +58,17 @@ import { sortExamItemsByTime } from '../utils/examSchedule';
 import '../styles/exam.css';
 import TemporaryExamLauncher from '../components/TemporaryExamLauncher';
 import ExamQuickMenu from '../components/ExamQuickMenu';
-import { TEMPORARY_EXAM_EVENT } from '../services/temporaryExam';
+import { TEMPORARY_EXAM_EVENT, getTemporaryExam } from '../services/temporaryExam';
 import { getResolvedSchedule } from '../utils/appSchedule';
 import { arrowLine, placeBubble, ringRect, type Point, type Rect } from '../utils/fullscreenGuide';
-import { AlertTriangle, Expand, LogOut, School, X } from 'lucide-react';
+import { AlertTriangle, Expand, LogOut, PauseCircle, School, X } from 'lucide-react';
+import { notify } from '../services/notify';
+import {
+  classroomSnapshotOf,
+  reconcileClassroomNotices,
+  stickyClassroomNotice,
+  type ClassroomExamSnapshot,
+} from '../utils/classroomNotices';
 
 interface RawState {
   currentExam: ExamItem | null;
@@ -81,7 +98,7 @@ function isFsHintSuppressed(): boolean {
   try {
     if (localStorage.getItem(FS_HINT_DISABLED_KEY) === '1') return true;
     const until = Number(localStorage.getItem(FS_HINT_SNOOZE_KEY) || 0);
-    return Number.isFinite(until) && until > Date.now();
+    return Number.isFinite(until) && until > nowMs();
   } catch {
     return false;
   }
@@ -99,7 +116,14 @@ function pickAutoOpenSchoolAnnouncements(list: SchoolExamAnnouncement[]): School
     seenLocally: readLocallySeenIds(),
     reminderMarks: readReminderMarks(),
   });
-  if (silent.length) markAnnouncementsShown(silent.map((item) => item.id));
+  if (silent.length) {
+    markAnnouncementsShown(silent.map((item) => item.id));
+    const message =
+      silent.length === 1
+        ? `收到公告「${silent[0].title || '未命名公告'}」，已放入公告列表。`
+        : `收到 ${silent.length} 条新公告，已放入公告列表。`;
+    notify('success', message, '收到新公告');
+  }
   return autoOpen;
 }
 
@@ -259,6 +283,7 @@ function BoundExamPage() {
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState('');
   /**
    * 学校侧考试公告（T-286-03）：与作者端公告分开拉，走另一扇更大的窗口。
    * 紧急公告立刻弹出、置顶且不可关闭；系统公告窗口在它打开期间让位（避免两扇窗口叠在一起）。
@@ -269,7 +294,6 @@ function BoundExamPage() {
   const [schoolAnnouncementHistory, setSchoolAnnouncementHistory] = useState<SchoolExamAnnouncement[]>([]);
   const [schoolHistoryLoading, setSchoolHistoryLoading] = useState(false);
   const [temporaryOpen, setTemporaryOpen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const examSyncInterval = useMemo(() => examSyncIntervalMs(items, nowMs()), [items]);
 
   // 数据链接：考试前端保持快速同步，后台切换分科模式后无需手动刷新。
@@ -317,6 +341,7 @@ function BoundExamPage() {
       const list = await fetchAnnouncements(true);
       if (!alive) return;
       setAnnouncements(list);
+      setAnnouncementsError(getLastAnnouncementFetchError() ?? '');
       setAnnouncementsLoading(false);
       if (list.length === 0) return;
       const version = announcementVersion(list);
@@ -366,6 +391,7 @@ function BoundExamPage() {
         setAnnouncementsLoading(true);
         void fetchAnnouncements(true)
           .then(setAnnouncements)
+          .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
           .finally(() => setAnnouncementsLoading(false));
       });
       return;
@@ -374,6 +400,7 @@ function BoundExamPage() {
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
       .then(setAnnouncements)
+      .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
       .finally(() => setAnnouncementsLoading(false));
   }, []);
 
@@ -392,6 +419,7 @@ function BoundExamPage() {
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
       .then(setAnnouncements)
+      .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
       .finally(() => setAnnouncementsLoading(false));
   }, []);
 
@@ -467,10 +495,7 @@ function BoundExamPage() {
   const tick = useCallback(() => setNow(nowMs()), []);
   useEffect(() => {
     tick();
-    timerRef.current = setInterval(tick, 500);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return subscribeClock(tick);
   }, [tick]);
 
   // 状态胶囊反映当下真实网络状态：监听 online/offline，断网立即变“离线”。
@@ -489,6 +514,35 @@ function BoundExamPage() {
   // 确保两者在同一时刻跳变，消除偶发的 1 秒时差。
   const nowTick = Math.floor(now / 1000) * 1000;
   const raw = useMemo(() => computeRawState(items, nowTick), [items, nowTick]);
+  /*
+   * 教室端的「后台动作提示」：把上一轮与本轮看到的考试状态做差。
+   * 暂停/已申请停止是常驻横幅，继续/延长/改时间/结束/归档/删除是 toast——
+   * 以前这些动作在教室里只表现为"倒计时冻结"或"整场消失"，等于没有反馈。
+   */
+  const classroomSnapshot = useMemo(
+    () =>
+      classroomSnapshotOf({
+        items,
+        majors: getAppSettings().exam.majors,
+        temporaryExam: getTemporaryExam(),
+        now: nowTick,
+      }),
+    [items, nowTick],
+  );
+  const stickyNotice = useMemo(() => stickyClassroomNotice(classroomSnapshot), [classroomSnapshot]);
+  const previousSnapshotRef = useRef<ClassroomExamSnapshot | null>(null);
+  const [earlyEndedName, setEarlyEndedName] = useState<string | null>(null);
+  useEffect(() => {
+    const previous = previousSnapshotRef.current;
+    previousSnapshotRef.current = classroomSnapshot;
+    if (!previous) return;
+    const notices = reconcileClassroomNotices(previous, classroomSnapshot, {
+      majors: getAppSettings().exam.majors,
+      temporaryExam: getTemporaryExam(),
+    });
+    for (const notice of notices) notify(notice.tone, notice.message, notice.title);
+    if (notices.some((notice) => notice.kind === 'ended')) setEarlyEndedName(previous.name);
+  }, [classroomSnapshot]);
   const currentKind = raw.currentExam && (raw.currentExam as { kind?: string }).kind;
   const displayMasterTitle =
     currentKind === 'weekly'
@@ -536,6 +590,61 @@ function BoundExamPage() {
     notification: inDesignNotification,
   };
 
+  const displayDiagnosticKey = JSON.stringify({
+    phase: raw.phase,
+    currentRef: runtimeReference(raw.currentExam?.id),
+    nextRef: runtimeReference(raw.nextExam?.id),
+    design: designId,
+    itemCount: items.length,
+    dataVersion: getAppSettings().exam.updatedAt || 0,
+    syncState: examDataSyncState,
+    bound: !!getAppSettings().exam.selectedClassId,
+    reason: raw.currentExam
+      ? 'current_selected'
+      : raw.nextExam
+        ? 'waiting_next'
+        : items.length
+          ? 'no_current_candidate'
+          : 'no_resolved_items',
+    paused: !!classroomSnapshot?.pausedAt,
+  });
+  const lastDisplayDiagnostic = useRef('');
+  useEffect(() => {
+    void nowTick;
+    noteRuntimeRenderCommit();
+  }, [nowTick]);
+  useEffect(
+    () => () => {
+      lastDisplayDiagnostic.current = '';
+      clearRuntimeDisplay();
+    },
+    [],
+  );
+  useEffect(() => {
+    if (lastDisplayDiagnostic.current === displayDiagnosticKey) return;
+    lastDisplayDiagnostic.current = displayDiagnosticKey;
+    updateRuntimeDisplay(JSON.parse(displayDiagnosticKey));
+  }, [displayDiagnosticKey]);
+  useEffect(() => {
+    journal(
+      'notice.overlay_state',
+      { active: !!overlayItem, state: overlayItem?.state || 'none' },
+      'info',
+      'notice',
+      '提醒浮层展示状态变化',
+      getRuntimeDataAnchor().operationId,
+    );
+  }, [overlayItem?.key, overlayItem?.state]);
+  useEffect(() => {
+    journal(
+      'notice.announcement_state',
+      { open: announcementsOpen, schoolOpen: schoolAnnouncementsOpen, count: schoolAnnouncements.length },
+      'info',
+      'notice',
+      '公告展示状态变化',
+    );
+  }, [announcementsOpen, schoolAnnouncementsOpen, schoolAnnouncements.length]);
+
   const Design = getDesign(designId).component;
 
   const chooseDesign = useCallback(
@@ -565,10 +674,18 @@ function BoundExamPage() {
   const isMobile = useIsMobile();
   const [mobileNoticeDismissed, setMobileNoticeDismissed] = useState(false);
   // 退出全屏入口仅在“考试结束后 15 分钟内”弹出，超时自动隐藏。
+  // 后台提前结束（强制结束/结束）时这场考试会直接从时间线消失，raw.phase 不会变成 ended，
+  // 所以这里把"刚才还在考、现在被后台结束"也算进来（earlyEndedName 由提示层给出）。
   const showEndedExit =
-    raw.phase === 'ended' &&
-    raw.currentExam != null &&
-    nowTick - parseZonedTime(raw.currentExam.endTime) <= 15 * 60 * 1000;
+    (raw.phase === 'ended' &&
+      raw.currentExam != null &&
+      nowTick - parseZonedTime(raw.currentExam.endTime) <= 15 * 60 * 1000) ||
+    earlyEndedName != null;
+  useEffect(() => {
+    if (earlyEndedName == null) return;
+    const timer = window.setTimeout(() => setEarlyEndedName(null), 15 * 60 * 1000);
+    return () => window.clearTimeout(timer);
+  }, [earlyEndedName]);
 
   // 静置提示：不再自动进入全屏（浏览器也会因缺少用户手势拒绝），改为静置 1 分钟后
   // 弹出非阻塞提示条，由用户点击完成手势授权；「不再提示」永久静默，「稍后」静默 10 分钟。
@@ -579,17 +696,17 @@ function BoundExamPage() {
     }
     if (raw.phase === 'ended') return; // 考试结束后不再自动进入全屏，便于监考离场操作
     if (isFsHintSuppressed()) return;
-    let deadline = Date.now() + AUTO_FULLSCREEN_IDLE_MS;
+    let deadline = monotonicNowMs() + AUTO_FULLSCREEN_IDLE_MS;
     let armed = true;
     const bump = () => {
-      deadline = Date.now() + AUTO_FULLSCREEN_IDLE_MS;
+      deadline = monotonicNowMs() + AUTO_FULLSCREEN_IDLE_MS;
       armed = true;
     };
     const events: Array<keyof WindowEventMap> = ['pointerdown', 'pointermove', 'keydown', 'touchstart', 'wheel'];
     events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
     const id = window.setInterval(() => {
       if (!armed || document.hidden) return;
-      if (Date.now() >= deadline) {
+      if (monotonicNowMs() >= deadline) {
         armed = false;
         setFsHintOpen(true);
       }
@@ -687,7 +804,7 @@ function BoundExamPage() {
 
   const snoozeFullscreenHint = useCallback(() => {
     try {
-      localStorage.setItem(FS_HINT_SNOOZE_KEY, String(Date.now() + FS_HINT_SNOOZE_MS));
+      localStorage.setItem(FS_HINT_SNOOZE_KEY, String(nowMs() + FS_HINT_SNOOZE_MS));
     } catch {
       /* 忽略存储异常 */
     }
@@ -710,7 +827,7 @@ function BoundExamPage() {
       const target = event.target as HTMLElement | null;
       if (target?.closest('button, a, input, select, textarea, [role="button"], [data-fs-guide-ignore]')) return;
       const point = { x: event.clientX, y: event.clientY };
-      const now = Date.now();
+      const now = monotonicNowMs();
       const last = lastTapRef.current;
       lastTapRef.current = { at: now, x: point.x, y: point.y };
       if (
@@ -866,6 +983,7 @@ function BoundExamPage() {
         open={announcementsOpen && !schoolAnnouncementsOpen}
         announcements={announcements}
         loading={announcementsLoading}
+        error={announcementsError}
         onSwitchToSchool={
           schoolAnnouncements.length > 0 || schoolAnnouncementHistory.length > 0
             ? switchToSchoolAnnouncements
@@ -901,6 +1019,16 @@ function BoundExamPage() {
         masterTitle={title}
         timeSynced={isTimeSyncReady()}
       />
+      {/* 后台动作的常驻提示：暂停中 / 已申请停止（教室端必须看得见） */}
+      {stickyNotice && (
+        <div className={`exam-pause-hint is-${stickyNotice.kind}`} role="status">
+          <PauseCircle aria-hidden="true" />
+          <div className="exam-pause-hint__body">
+            <strong>{stickyNotice.title}</strong>
+            <span>{stickyNotice.message}</span>
+          </div>
+        </div>
+      )}
       {/* 考试结束 + 仍全屏：第一层中央高对比弹窗，自动聚焦退出按钮 */}
       {isFullscreen && showEndedExit && endExitStage === 'dialog' && (
         <div

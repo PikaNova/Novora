@@ -30,6 +30,7 @@ export type ScheduleBoardProps = {
   can: (permission: string) => boolean;
   onOpenDetail: (recordId: string) => void;
   onEditRecord?: (recordId: string) => void;
+  canEditRecord?: (recordId: string) => boolean;
   onOpenWeeklyPlan?: () => void;
   onDeleteDraft?: (recordId: string) => void;
   /** 行内复制：由上层调用考试动作（复制出新草稿），面板不自己发请求。 */
@@ -66,6 +67,7 @@ function ScheduleRowView({
   can,
   onOpenDetail,
   onEditRecord,
+  canEditRecord,
   onOpenWeeklyPlan,
   onDeleteDraft,
   onCopyRecord,
@@ -78,6 +80,7 @@ function ScheduleRowView({
   can: (permission: string) => boolean;
   onOpenDetail: (recordId: string) => void;
   onEditRecord?: (recordId: string) => void;
+  canEditRecord?: (recordId: string) => boolean;
   onOpenWeeklyPlan?: () => void;
   onDeleteDraft?: (recordId: string) => void;
   onCopyRecord?: (recordId: string) => void;
@@ -115,10 +118,13 @@ function ScheduleRowView({
           {row.kind !== 'draft' && <span className="exam-schedule__kind">{SCHEDULE_ROW_KIND_LABELS[row.kind]}</span>}
           {row.daySubjectCount > 1 && <span className="exam-schedule__subjects-count">{row.daySubjectCount} 科</span>}
           {rowHasConflict(row) && (
-            <span className="exam-schedule__conflict-flag">
-              <AlertTriangle size={12} aria-hidden="true" />
-              时间重叠
-            </span>
+            <>
+              <span className="exam-schedule__conflict-flag">
+                <AlertTriangle size={12} aria-hidden="true" />
+                时间重叠
+              </span>
+              <span className="exam-schedule__conflict-status">未处理</span>
+            </>
           )}
           {row.status === 'suppressed' && <span className="exam-schedule__suppressed-flag">当天不考</span>}
         </span>
@@ -130,6 +136,9 @@ function ScheduleRowView({
       </button>
       {open && (
         <div className="exam-schedule__detail">
+          <div className={`exam-schedule__detail-status is-${row.status}`}>
+            {SCHEDULE_ROW_STATUS_LABELS[row.status]}
+          </div>
           {daySubjects.length === 0 ? (
             <p className="exam-schedule__detail-empty">
               {row.kind === 'weekly'
@@ -202,7 +211,7 @@ function ScheduleRowView({
                   仍然进行
                 </button>
               )}
-            {row.recordId && onEditRecord && can('major.edit') && row.kind !== 'weekly' && (
+            {row.recordId && onEditRecord && row.kind !== 'weekly' && canEditRecord?.(row.recordId) !== false && (
               <button
                 className="admin-btn admin-btn--ghost admin-btn--sm"
                 type="button"
@@ -248,6 +257,7 @@ export default function ScheduleBoard({
   can,
   onOpenDetail,
   onEditRecord,
+  canEditRecord,
   onOpenWeeklyPlan,
   onDeleteDraft,
   onCopyRecord,
@@ -346,8 +356,12 @@ export default function ScheduleBoard({
             <ul>
               {visibleConflicts.map((conflict) => (
                 <li key={conflict.key}>
-                  {conflict.dateKey.slice(5)} · {conflict.scopeLabel} · 重叠{' '}
-                  {Math.max(1, Math.round(conflict.overlapMs / 60_000))} 分钟
+                  <span className="exam-schedule__conflict-date">{conflict.dateKey.slice(5)}</span>
+                  <strong>{conflict.examNames.join(' ↔ ')}</strong>
+                  <span>
+                    {conflict.scopeLabel} · 重叠 {Math.max(1, Math.round(conflict.overlapMs / 60_000))} 分钟
+                  </span>
+                  {conflict.status === 'unhandled' && <span className="exam-schedule__conflict-status">未处理</span>}
                 </li>
               ))}
               {conflicts.length > visibleConflicts.length && (
@@ -418,6 +432,7 @@ export default function ScheduleBoard({
                             can={can}
                             onOpenDetail={onOpenDetail}
                             onEditRecord={onEditRecord}
+                            canEditRecord={canEditRecord}
                             onOpenWeeklyPlan={onOpenWeeklyPlan}
                             onDeleteDraft={onDeleteDraft}
                             onCopyRecord={onCopyRecord}
@@ -435,6 +450,7 @@ export default function ScheduleBoard({
                           can={can}
                           onOpenDetail={onOpenDetail}
                           onEditRecord={onEditRecord}
+                          canEditRecord={canEditRecord}
                           onOpenWeeklyPlan={onOpenWeeklyPlan}
                           onDeleteDraft={onDeleteDraft}
                           onCopyRecord={onCopyRecord}
