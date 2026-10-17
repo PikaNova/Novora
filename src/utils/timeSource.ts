@@ -100,8 +100,17 @@ export function isTimeSyncReady(): boolean {
 export function nowMs(): number {
   const ts = settings();
   if (ts) initialize(ts);
-  if (ts?.enabled) return calibratedNowMs() + (Number.isFinite(ts.manualOffsetMs) ? ts.manualOffsetMs : 0);
-  return monotonicNowMs();
+  const base = ts?.enabled ? calibratedNowMs() : monotonicNowMs();
+  const manualOffset = ts?.enabled && Number.isFinite(ts.manualOffsetMs) ? ts.manualOffsetMs : 0;
+  const broadcastOffset = ts && Number.isFinite(ts.broadcastOffsetMs) ? Number(ts.broadcastOffsetMs) : 0;
+  return base + manualOffset + broadcastOffset;
+}
+
+export function nowWithoutBroadcastOffsetMs(): number {
+  const ts = settings();
+  if (ts) initialize(ts);
+  const base = ts?.enabled ? calibratedNowMs() : monotonicNowMs();
+  return base + (ts?.enabled && Number.isFinite(ts.manualOffsetMs) ? ts.manualOffsetMs : 0);
 }
 
 // One page-wide ticker feeds classroom consumers, including notifications.
