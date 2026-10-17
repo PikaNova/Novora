@@ -8,7 +8,12 @@ import {
   type DiagnosticCaptureConfig,
   type LocalDiagnosticBundle,
 } from '../utils/logger';
-import { splitDiagnosticParts } from '../shared/diagnosticLogContracts';
+import {
+  sanitizeDiagnosticEntry,
+  splitDiagnosticParts,
+  type DiagnosticLogEntry,
+} from '../shared/diagnosticLogContracts';
+import { readRuntimeEvents, getRuntimeWindows } from '../utils/runtimeJournal.js';
 import { authHeaders } from './auth/session';
 
 export type { DiagnosticCaptureConfig, LocalDiagnosticBundle };
@@ -90,6 +95,80 @@ export function entriesInRange(fromTs: number, toTs: number) {
   return getLocalLogEntries(fromTs, toTs);
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  display: '前端显示',
+  time: '校时',
+  sync: '数据同步',
+  device: '设备操作',
+  notice: '公告提醒',
+  network: '网络',
+  page: '页面运行',
+  storage: '本地存储',
+  pwa: '资源更新',
+  server: '服务端',
+};
+
+/** 合并脱敏后的文本日志和结构化运行事件，并移除 logger 已镜像进 runtimeJournal 的重复行。 */
+export async function diagnosticEntriesInRange(fromTs: number, toTs: number): Promise<DiagnosticLogEntry[]> {
+  const localEntries = getLocalLogEntries(fromTs, toTs);
+  const runtimeEntries = await readRuntimeEvents(fromTs, toTs);
+  const mirrored = new Set<string>();
+  const localMatches = localEntries.map((entry) => ({ ...entry, matched: false }));
+  const runtimeLogs = runtimeEntries.filter((entry) => entry.code === 'time.log' || entry.code === 'page.log');
+
+  for (const event of runtimeLogs) {
+    const match = localMatches.find(
+      (entry) =>
+        !entry.matched &&
+        entry.level === event.level &&
+        entry.message === event.message &&
+        Math.abs(entry.at - event.at) <= 2500,
+    );
+    if (match) {
+      match.matched = true;
+      mirrored.add(event.eventId);
+    }
+  }
+
+  const runtimeWindows = getRuntimeWindows();
+  const rawEntries: unknown[] = [
+    ...localEntries.map((entry) => ({ ...entry, source: '本地文本日志' })),
+    ...runtimeEntries
+      .filter((event) => !mirrored.has(event.eventId))
+      .map((event) => {
+        const windows = runtimeWindows.filter(
+          (window) =>
+            window.sessionId === event.sessionId &&
+            event.sequence >= window.fromSequence &&
+            (!window.complete || event.sequence <= window.throughSequence),
+        );
+        return {
+          at: event.at,
+          level: event.level,
+          message: event.message,
+          source: `运行日志 / ${CATEGORY_LABELS[event.category] || event.category} / ${event.code}`,
+          context: {
+            eventId: event.eventId,
+            sessionId: event.sessionId,
+            sequence: event.sequence,
+            category: event.category,
+            code: event.code,
+            route: event.route,
+            operationId: event.operationId,
+            version: event.version,
+            build: event.build,
+            ...(windows[0] ? { diagnosticWindowId: windows[0].id, relatedErrorEventId: windows[0].errorEventId } : {}),
+          },
+        };
+      }),
+  ];
+
+  return rawEntries
+    .map(sanitizeDiagnosticEntry)
+    .filter((entry): entry is DiagnosticLogEntry => !!entry)
+    .sort((a, b) => a.at - b.at);
+}
+
 /** 本机保留期内的全部日志：一键「发送错误日志」打的诊断包用。 */
 export function allRetainedEntries(now = Date.now()) {
   return getLocalLogEntries(0, now);
@@ -99,13 +178,13 @@ export async function sendDiagnosticLogs(input: {
   mode: 'date' | 'error';
   fromTs: number;
   toTs: number;
-  entries: LocalDiagnosticBundle['entries'];
+  entries: DiagnosticLogEntry[];
   bundleId?: string;
   errorEventId?: string;
   fingerprint?: string;
   errorCode?: string;
 }): Promise<{ bundleId: string; status: string; parts: number; truncatedCount: number; toTs: number }> {
-  recordUserAction(input.mode === 'date' ? '导出诊断日志（按日期）' : '导出诊断日志（按错误）');
+  recordUserAction('管理员确认上报详细诊断日志');
   const { parts, truncatedCount } = splitDiagnosticParts(input.entries);
   if (!parts.length) throw new Error('没有可发送的本地日志');
   const baseId = input.bundleId || `bundle_${Date.now().toString(36)}`;
