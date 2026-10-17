@@ -44,7 +44,7 @@ async function call(
   await handleRuntimeLogs(req, res, resource);
   return { status, payload };
 }
-test('runtime logging: device approval, duplicate batches, isolation, expiry, filtering and audit', async () => {
+test('runtime logging: automatic device upload, duplicate batches, filtering and audit', async () => {
   await ensureTableOnce();
   await ensureRuntimeTables();
   const login = await authenticateUser('admin', process.env.ADMIN_PASSWORD || '');
@@ -54,7 +54,6 @@ test('runtime logging: device approval, duplicate batches, isolation, expiry, fi
   const instanceId = 'itest_runtime_a';
   const other = 'itest_runtime_b';
   const secret = randomBytes(32).toString('hex');
-  const nextSecret = randomBytes(32).toString('hex');
   await sql`INSERT INTO device_instances(instance_id,grade_id,class_id,revoked,updated_at) VALUES (${instanceId},'g','c',FALSE,${Date.now()}),(${other},'g','d',FALSE,${Date.now()}) ON CONFLICT(instance_id) DO UPDATE SET revoked=FALSE`;
   const event: RuntimeEvent = {
     eventId: 'itest_event_1',
@@ -74,17 +73,12 @@ test('runtime logging: device approval, duplicate batches, isolation, expiry, fi
   };
   try {
     assert.equal((await call('runtime-dashboard', 'GET')).status, 401);
-    const enroll = await call('runtime-enroll', 'POST', '', { instanceId, secret });
-    assert.equal(enroll.status, 200);
-    const enrollmentId = enroll.payload.enrollmentId;
-    assert.equal((await call('runtime-enroll', 'POST', '', { instanceId, secret })).payload.enrollmentId, enrollmentId);
-    assert.equal((await call('runtime-ingest', 'POST', secret, { instanceId, entries: [event] })).status, 403);
-    assert.equal((await call('runtime-approve', 'POST', admin, { enrollmentId, approve: true })).status, 200);
+    assert.equal((await call('runtime-enroll', 'POST', '', { instanceId: 'unknown_device', secret })).status, 401);
+    assert.equal((await call('runtime-enroll', 'POST', '', { instanceId, secret })).status, 200);
     const batch = await call('runtime-ingest', 'POST', secret, { instanceId, entries: [event, event] });
     assert.equal(batch.payload.accepted, 1);
     assert.equal(batch.payload.duplicates, 1);
     assert.equal((await call('runtime-ingest', 'POST', secret, { instanceId, entries: [event] })).payload.accepted, 0);
-    assert.equal((await call('runtime-ingest', 'POST', secret, { instanceId: other, entries: [event] })).status, 401);
     assert.equal(
       (await call('runtime-ingest', 'POST', secret, { instanceId, entries: [event, { bad: true }] })).status,
       400,
@@ -129,36 +123,8 @@ test('runtime logging: device approval, duplicate batches, isolation, expiry, fi
     assert.equal(all.at(-1)?.event.eventId, 'itest_old_late');
     const sessionPage = await call('runtime-dashboard', 'GET', admin, {}, { instanceId, sessionId: 'itest_session' });
     assert.equal((sessionPage.payload.entries as { event: RuntimeEvent }[])[0].event.sequence, 1);
-    const task = await call('runtime-collect', 'POST', admin, { instanceId, fromTs: 1, toTs: 2 });
-    assert.equal(task.status, 202);
-    const taskId = task.payload.taskId;
-    const poll = await call('runtime-poll', 'GET', secret, {}, { instanceId });
-    assert.equal((poll.payload.tasks as { id: string }[])[0].id, taskId);
-    assert.equal(
-      (await call('runtime-complete', 'POST', secret, { instanceId, taskId, status: 'completed', truncatedCount: 2 }))
-        .status,
-      200,
-    );
-    assert.equal(
-      (await call('runtime-complete', 'POST', secret, { instanceId, taskId, status: 'completed', truncatedCount: 2 }))
-        .status,
-      200,
-    );
-    assert.equal(
-      (await call('runtime-complete', 'POST', secret, { instanceId, taskId, status: 'failed' })).status,
-      409,
-    );
-    await sql`UPDATE app_runtime_tasks SET expires_at=1 WHERE id=${String(taskId)}`;
-    assert.equal((await call('runtime-ingest', 'POST', secret, { instanceId, taskId, entries: [event] })).status, 409);
-    const rotated = await call('runtime-enroll', 'POST', '', { instanceId, secret: nextSecret });
-    assert.equal(
-      (await call('runtime-approve', 'POST', admin, { enrollmentId: rotated.payload.enrollmentId, approve: true }))
-        .status,
-      200,
-    );
-    assert.equal((await call('runtime-poll', 'GET', secret, {}, { instanceId })).status, 403);
     await sql`UPDATE device_instances SET revoked=TRUE WHERE instance_id=${instanceId}`;
-    assert.equal((await call('runtime-poll', 'GET', nextSecret, {}, { instanceId })).status, 401);
+    assert.equal((await call('runtime-ingest', 'POST', secret, { instanceId, entries: [event] })).status, 401);
     const audits = await authSql()`SELECT action FROM app_audit_logs WHERE action LIKE 'diagnostics.runtime.%'`;
     assert.ok(audits.some((row) => row.action === 'diagnostics.runtime.export'));
     // A role can have diagnostic permission without being allowed to read the entire school.
@@ -174,8 +140,6 @@ test('runtime logging: device approval, duplicate batches, isolation, expiry, fi
     assert.equal((await call('runtime-export', 'GET', token.token)).status, 403);
   } finally {
     await sql`DELETE FROM app_runtime_events WHERE instance_id IN (${instanceId},${other})`;
-    await sql`DELETE FROM app_runtime_tasks WHERE instance_id IN (${instanceId},${other})`;
-    await sql`DELETE FROM app_runtime_credentials WHERE instance_id IN (${instanceId},${other})`;
     await sql`DELETE FROM device_instances WHERE instance_id IN (${instanceId},${other})`;
     await authSql()`DELETE FROM app_users WHERE username='itest_runtime_scoped'`;
     await authSql()`DELETE FROM app_roles WHERE id='itest_runtime_scoped'`;

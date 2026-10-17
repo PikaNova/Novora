@@ -15,7 +15,6 @@ export function ensureRuntimeTables(): Promise<void> {
         tx`CREATE INDEX IF NOT EXISTS runtime_events_operation ON app_runtime_events((event->>'operationId'))`,
         tx`CREATE TABLE IF NOT EXISTS app_runtime_credentials (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, secret_hash TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked')), created_at BIGINT NOT NULL, UNIQUE(instance_id,secret_hash))`,
         tx`CREATE UNIQUE INDEX IF NOT EXISTS runtime_credential_active ON app_runtime_credentials(instance_id) WHERE status='approved'`,
-        tx`CREATE TABLE IF NOT EXISTS app_runtime_tasks (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, from_ts BIGINT NOT NULL, to_ts BIGINT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','claimed','completed','failed','expired')), detail TEXT NOT NULL DEFAULT '', truncated_count INTEGER NOT NULL DEFAULT 0)`,
       ]);
     })().catch((error) => {
       ready = null;
@@ -50,9 +49,6 @@ export async function purgeRuntimeEvents(): Promise<void> {
     await sql`DELETE FROM app_runtime_events WHERE received_at < ${now - 30 * 86400000} OR (received_at < ${now - 7 * 86400000} AND event->>'level' NOT IN ('warn','error'))`;
     await sql`DELETE FROM app_runtime_events WHERE id IN (SELECT id FROM (SELECT id,row_number() OVER(PARTITION BY instance_id ORDER BY received_at DESC,id DESC) AS n FROM app_runtime_events) t WHERE n>10000)`;
     await sql`DELETE FROM app_runtime_events WHERE id IN (SELECT id FROM app_runtime_events ORDER BY received_at DESC,id DESC OFFSET 100000)`;
-    await sql`UPDATE app_runtime_tasks SET status='expired',detail='设备未在有效期内完成收集' WHERE expires_at < ${now} AND status IN ('pending','claimed')`;
-    await sql`DELETE FROM app_runtime_tasks WHERE created_at < ${now - 30 * 86400000}`;
-    await sql`DELETE FROM app_runtime_credentials WHERE status <> 'approved' AND created_at < ${now - 30 * 86400000}`;
   } catch {
     lastPurge = 0; /* retention retries on next request; ingestion remains usable */
   }

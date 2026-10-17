@@ -262,14 +262,7 @@ export default function SettingsPage() {
             <section id="set-group-runtime" className="set-group" data-group="runtime">
               <h2 className="set-group__title">运行与诊断</h2>
               <div className="set-group__body">
-                {canReadRuntime && (
-                  <RuntimeDashboard
-                    canCollect={canUploadDiagnostics}
-                    canApprove={canEditDiagnostics}
-                    canExport={canExportRuntime}
-                    canSystem={canResetDatabase}
-                  />
-                )}
+                {canReadRuntime && <RuntimeDashboard canExport={canExportRuntime} canSystem={canResetDatabase} />}
                 {canEditSettings && <TimeSyncSection canEditSettings={canEditSettings} />}
                 {canEditAlerts ? (
                   <AlertsAdvancedSection

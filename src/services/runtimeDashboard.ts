@@ -16,18 +16,6 @@ export type RuntimeDashboard = {
     client_version: string;
     last_seen_at: number;
     revoked: boolean;
-    log_enabled: boolean;
-  }[];
-  enrollments: { id: string; instance_id: string; status: string; created_at: number }[];
-  tasks: {
-    id: string;
-    instance_id: string;
-    from_ts: number;
-    to_ts: number;
-    status: string;
-    expires_at: number;
-    detail: string;
-    truncated_count: number;
   }[];
   storage: { fileFallback: boolean; fileFailed: boolean; queued: number; dropped: number };
 };

@@ -23,13 +23,6 @@ const labels: Record<string, string> = {
   server: '服务端',
 };
 const levels: Record<string, string> = { info: '信息', debug: '调试', warn: '警告', error: '错误' };
-const statuses: Record<string, string> = {
-  pending: '等待设备',
-  claimed: '收集中',
-  completed: '完成',
-  failed: '失败',
-  expired: '已过期',
-};
 function EventList({ rows, onSelect }: { rows: RuntimeRow[]; onSelect: (row: RuntimeRow) => void }) {
   return (
     <div className="runtime-table-wrap">
@@ -78,17 +71,7 @@ function EventList({ rows, onSelect }: { rows: RuntimeRow[]; onSelect: (row: Run
     </div>
   );
 }
-export default function RuntimeDashboard({
-  canCollect,
-  canApprove,
-  canExport,
-  canSystem,
-}: {
-  canCollect: boolean;
-  canApprove: boolean;
-  canExport: boolean;
-  canSystem: boolean;
-}) {
+export default function RuntimeDashboard({ canExport, canSystem }: { canExport: boolean; canSystem: boolean }) {
   const initial = useRef(defaultDiagnosticRange());
   const [from, setFrom] = useState(initial.current.from),
     [to, setTo] = useState(initial.current.to);
@@ -104,12 +87,11 @@ export default function RuntimeDashboard({
     [system, setSystem] = useState<SystemStatusPayload | null>(null);
   const [systemError, setSystemError] = useState(''),
     [error, setError] = useState(''),
-    [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [selected, setSelected] = useState<RuntimeRow | null>(null),
     [timeline, setTimeline] = useState<RuntimeRow[]>([]),
     [timelineError, setTimelineError] = useState('');
-  const [actionBusy, setActionBusy] = useState(false);
   const [auto, setAuto] = useState(true);
   const [live, setLive] = useState(true);
   const generation = useRef(0);
@@ -198,19 +180,6 @@ export default function RuntimeDashboard({
     setLive(false);
     setParams({ from: String(a), to: String(b + 59999), instanceId: device, level, category, q: keyword });
   }
-  async function action(resource: string, body: unknown) {
-    setActionBusy(true);
-    setMessage('');
-    try {
-      await runtimeRequest(resource, {}, body);
-      setMessage('操作已提交');
-      await load();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : '操作失败');
-    } finally {
-      setActionBusy(false);
-    }
-  }
   async function exportLogs() {
     setActionBusy(true);
     try {
@@ -293,11 +262,6 @@ export default function RuntimeDashboard({
           {data ? '（下方保留上一次数据）' : ''}
         </p>
       )}
-      {message && (
-        <p className="set-note" role="status">
-          {message}
-        </p>
-      )}
       <div className="runtime-cards">
         <div>
           <span>数据库</span>
@@ -349,9 +313,9 @@ export default function RuntimeDashboard({
           <small>当前筛选范围 · 点击筛选错误</small>
         </button>
         <div>
-          <span>待收集任务</span>
-          <strong>{data ? data.tasks.filter((t) => ['pending', 'claimed'].includes(t.status)).length : '—'}</strong>
-          <small>最近 100 个任务</small>
+          <span>教室设备</span>
+          <strong>{data ? data.devices.filter((d) => !d.revoked).length : '—'}</strong>
+          <small>已登记设备</small>
         </div>
       </div>
       {system && !systemError && (
@@ -537,54 +501,7 @@ export default function RuntimeDashboard({
           />
         </section>
       )}
-      <h3>设备日志授权与收集</h3>
-      <p className="set-note">先核对教室设备上的申请编号，再批准凭证。新凭证批准后原凭证失效。</p>
-      <div className="runtime-table-wrap">
-        <table className="runtime-table">
-          <thead>
-            <tr>
-              <th>设备</th>
-              <th>申请编号</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.enrollments.map((e) => (
-              <tr key={e.id}>
-                <td>{e.instance_id}</td>
-                <td>{e.id}</td>
-                <td>
-                  {canApprove ? (
-                    <>
-                      <button
-                        className="set-btn"
-                        disabled={actionBusy}
-                        onClick={() => void action('runtime-approve', { enrollmentId: e.id, approve: true })}
-                      >
-                        批准
-                      </button>
-                      <button
-                        className="set-btn"
-                        disabled={actionBusy}
-                        onClick={() => void action('runtime-approve', { enrollmentId: e.id, approve: false })}
-                      >
-                        拒绝
-                      </button>
-                    </>
-                  ) : (
-                    '需要诊断设置权限'
-                  )}
-                </td>
-              </tr>
-            ))}
-            {data && !data.enrollments.length && (
-              <tr>
-                <td colSpan={3}>没有待审批申请</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <h3>教室设备</h3>
       <div className="runtime-table-wrap">
         <table className="runtime-table">
           <thead>
@@ -592,8 +509,7 @@ export default function RuntimeDashboard({
               <th>设备</th>
               <th>页面 / 版本</th>
               <th>最后心跳</th>
-              <th>日志授权</th>
-              <th>收集</th>
+              <th>状态</th>
             </tr>
           </thead>
           <tbody>
@@ -605,63 +521,9 @@ export default function RuntimeDashboard({
                   <small>{d.client_version}</small>
                 </td>
                 <td>{Number(d.last_seen_at) > 0 ? time(d.last_seen_at) : '无心跳'}</td>
-                <td>{d.revoked ? '已撤销' : d.log_enabled ? '已批准' : '未批准'}</td>
-                <td>
-                  <button
-                    className="set-btn"
-                    disabled={!canCollect || !d.log_enabled || d.revoked || actionBusy}
-                    onClick={() => {
-                      const a = timestampFromField(from),
-                        b = timestampFromField(to);
-                      if (a == null || b == null || b < a || b + 59999 - a > 7 * 86400000) {
-                        setMessage('收集范围最长 7 天，请调整上方时间');
-                        return;
-                      }
-                      void action('runtime-collect', { instanceId: d.instance_id, fromTs: a, toTs: b + 59999 });
-                    }}
-                  >
-                    收集所选时间
-                  </button>
-                </td>
+                <td>{d.revoked ? '已撤销' : Date.now() - Number(d.last_seen_at) < 120000 ? '在线' : '离线'}</td>
               </tr>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <h3>收集任务</h3>
-      <div className="runtime-table-wrap">
-        <table className="runtime-table">
-          <thead>
-            <tr>
-              <th>任务 / 设备</th>
-              <th>设备日志范围</th>
-              <th>状态</th>
-              <th>结果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.tasks.map((t) => (
-              <tr key={t.id}>
-                <td>
-                  {t.id}
-                  <small>{t.instance_id}</small>
-                </td>
-                <td>
-                  {time(t.from_ts)}
-                  <small>至 {time(t.to_ts)}</small>
-                </td>
-                <td>{statuses[t.status] || t.status}</td>
-                <td>
-                  {t.detail || '—'}
-                  {t.truncated_count > 0 && <small>截断 {t.truncated_count} 条</small>}
-                </td>
-              </tr>
-            ))}
-            {data && !data.tasks.length && (
-              <tr>
-                <td colSpan={4}>暂无收集任务</td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>

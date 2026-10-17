@@ -24,7 +24,7 @@ const {
   finishRuntimeWindows,
   subscribeRuntimeEvents,
 } = await import('../src/utils/runtimeJournal.js');
-const { runtimeBatches, collectRuntimeTask, runtimeSecret } = await import('../src/services/runtimeLogClient.js');
+const { runtimeBatches, runtimeSecret } = await import('../src/services/runtimeLogClient.js');
 
 test('runtime events sanitize credentials and business values before persistence', async () => {
   const event = journal(
@@ -81,44 +81,18 @@ test('error capture survives page exit and keeps sequence ordering across clock 
     Date.now = original;
   }
 });
-test('collection never acknowledges completion after a partial upload fails', async () => {
+test('automatic upload batches stay within the server limits', async () => {
   for (let index = 0; index < 260; index++) journal('sync.probe', { index }, 'info', 'sync');
-  const task = {
-    id: 'collect_probe',
-    fromTs: Date.now() - 60000,
-    toTs: Date.now(),
-    expiresAt: Date.now() + 60000,
-    status: 'claimed',
-  };
-  const calls: string[] = [];
-  await assert.rejects(
-    collectRuntimeTask(task, async (resource) => {
-      calls.push(resource);
-      if (calls.length === 2) throw new Error('offline');
-    }),
-  );
-  assert.ok(calls.filter((value) => value === 'runtime-ingest').length === 2);
-  assert.ok(!calls.includes('runtime-complete'));
-  const rows = await readRuntimeEvents(task.fromTs, task.toTs);
-  const batches = runtimeBatches(rows);
-  assert.equal(batches.flat().length, rows.length);
+  const rows = await readRuntimeEvents();
+  const batches = runtimeBatches(rows.filter((row) => row.code === 'sync.probe'));
+  assert.equal(batches.flat().length, rows.filter((row) => row.code === 'sync.probe').length);
   assert.ok(
     batches.every(
       (batch) => batch.length <= 250 && new TextEncoder().encode(JSON.stringify(batch)).length < 512 * 1024,
     ),
   );
-  const replay: string[] = [];
-  await collectRuntimeTask(task, async (resource) => {
-    replay.push(resource);
-  });
-  assert.equal(replay.at(-1), 'runtime-complete');
-  assert.equal(
-    (await readRuntimeEvents(task.fromTs, task.toTs)).length,
-    rows.length,
-    'collection must not delete retained evidence',
-  );
 });
-test('device log secret is securely generated and stable across restarts', () => {
+test('device log credential is generated once and remains stable', () => {
   const secret = runtimeSecret();
   assert.match(secret!, /^[a-f0-9]{64}$/);
   assert.equal(runtimeSecret(), secret);
