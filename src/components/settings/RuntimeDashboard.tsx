@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, Download, RefreshCw, X } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, Download, RefreshCw, Search, X } from 'lucide-react';
 import InlineSelect from '../InlineSelect';
 import { Switch } from './Switch';
 import { DateTimeField } from '../touch-datetime-picker';
@@ -26,6 +26,8 @@ const labels: Record<string, string> = {
 const levels: Record<string, string> = { info: '信息', debug: '调试', warn: '警告', error: '错误' };
 const PAGE_SIZE = 10;
 type DetailView = 'summary' | 'context' | 'timeline';
+type DashboardTab = 'events' | 'devices';
+type DeviceRow = Dashboard['devices'][number];
 function EventList({ rows, onSelect }: { rows: RuntimeRow[]; onSelect: (row: RuntimeRow) => void }) {
   return (
     <div className="runtime-table-wrap">
@@ -97,6 +99,11 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
     [timeline, setTimeline] = useState<RuntimeRow[]>([]),
     [timelineError, setTimelineError] = useState('');
   const [detailView, setDetailView] = useState<DetailView>('summary');
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>('events');
+  const [deviceQuery, setDeviceQuery] = useState('');
+  const [deviceStatus, setDeviceStatus] = useState<'all' | 'online' | 'offline' | 'revoked'>('all');
+  const [devicePage, setDevicePage] = useState(0);
+  const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
   const [auto, setAuto] = useState(true);
   const [live, setLive] = useState(true);
   const [page, setPage] = useState(0);
@@ -176,18 +183,21 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
     };
   }, [selected, params.from, params.to]);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected && !selectedDevice) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelected(null);
+      if (event.key === 'Escape') {
+        setSelected(null);
+        setSelectedDevice(null);
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [selected]);
+  }, [selected, selectedDevice]);
   function applyFilters(e: React.FormEvent) {
     e.preventDefault();
     const a = timestampFromField(from),
@@ -235,7 +245,30 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
     }
   }
   const errors = data?.entries.filter((r) => r.event.level === 'error' || r.event.level === 'warn').slice(0, 5) || [];
-  const online = data?.devices.filter((d) => !d.revoked && Date.now() - Number(d.last_seen_at) < 120000).length;
+  const deviceCounts = data?.devices.reduce(
+    (counts, device) => {
+      if (device.revoked) counts.revoked++;
+      else if (Date.now() - Number(device.last_seen_at) < 120000) counts.online++;
+      else counts.offline++;
+      return counts;
+    },
+    { online: 0, offline: 0, revoked: 0 },
+  ) ?? { online: 0, offline: 0, revoked: 0 };
+  const filteredDevices = (data?.devices || [])
+    .filter(
+      (d) =>
+        !deviceQuery.trim() ||
+        `${d.instance_id} ${d.page} ${d.client_version}`.toLowerCase().includes(deviceQuery.trim().toLowerCase()),
+    )
+    .filter((d) => {
+      if (deviceStatus === 'revoked') return d.revoked;
+      if (deviceStatus === 'online') return !d.revoked && Date.now() - Number(d.last_seen_at) < 120000;
+      if (deviceStatus === 'offline') return !d.revoked && Date.now() - Number(d.last_seen_at) >= 120000;
+      return true;
+    })
+    .slice()
+    .sort((a, b) => Number(b.last_seen_at) - Number(a.last_seen_at));
+  const visibleDevices = filteredDevices.slice(devicePage * PAGE_SIZE, (devicePage + 1) * PAGE_SIZE);
   return (
     <>
       <section className="runtime-dashboard" aria-label="运行日志仪表盘">
@@ -290,94 +323,114 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
           </p>
         )}
         <div className="runtime-cards">
-          <div>
-            <span>数据库</span>
-            <strong>
-              {!canSystem
-                ? '未授权'
-                : systemError
-                  ? '不可用'
-                  : system?.database.reachable
-                    ? `${system.database.latencyMs ?? '—'} ms`
-                    : system
-                      ? '不可达'
-                      : '—'}
-            </strong>
-            <small>{system?.database.schemaOk ? '结构正常' : systemError || '等待状态'}</small>
-          </div>
-          <div>
-            <span>服务运行</span>
-            <strong>
-              {!canSystem
-                ? '未授权'
-                : systemError
-                  ? '不可用'
-                  : system
-                    ? system.service.runtime === 'local'
-                      ? '本地部署'
-                      : 'Vercel'
-                    : '—'}
-            </strong>
-            <small>
-              {system && !systemError
-                ? `进程已运行 ${Math.floor(system.server.uptimeSeconds / 60)} 分钟`
-                : '系统指标仅超管可读'}
-            </small>
-          </div>
-          <div>
-            <span>在线设备（近 2 分钟）</span>
-            <strong>{data ? online : '—'}</strong>
-            <small>设备列表最多 2000 台</small>
-          </div>
+          <button type="button" className="runtime-metric" onClick={() => setDashboardTab('events')}>
+            <span>符合条件的事件</span>
+            <strong>{data ? data.summary.total : '—'}</strong>
+            <small>接收时间范围内</small>
+          </button>
           <button
+            type="button"
+            className="runtime-metric is-alert"
             onClick={() => {
+              setDashboardTab('events');
               setLevel('error');
               setParams((p) => ({ ...p, level: 'error', cursor: '' }));
+              setPage(0);
             }}
           >
-            <span>错误 / 警告</span>
-            <strong>{data ? `${data.summary.errors} / ${data.summary.warnings}` : '—'}</strong>
-            <small>当前筛选范围 · 点击筛选错误</small>
+            <span>错误事件</span>
+            <strong>{data ? data.summary.errors : '—'}</strong>
+            <small>{data ? `另有 ${data.summary.warnings} 条警告 · 查看错误` : '查看错误事件'}</small>
           </button>
-          <div>
-            <span>教室设备</span>
-            <strong>{data ? data.devices.filter((d) => !d.revoked).length : '—'}</strong>
-            <small>已登记设备</small>
-          </div>
+          <button
+            type="button"
+            className="runtime-metric is-online"
+            onClick={() => {
+              setDashboardTab('devices');
+              setDeviceStatus('online');
+              setDevicePage(0);
+            }}
+          >
+            <span>在线设备</span>
+            <strong>{data ? deviceCounts.online : '—'}</strong>
+            <small>近 2 分钟有心跳</small>
+          </button>
+          <button
+            type="button"
+            className="runtime-metric is-offline"
+            onClick={() => {
+              setDashboardTab('devices');
+              setDeviceStatus('offline');
+              setDevicePage(0);
+            }}
+          >
+            <span>离线设备</span>
+            <strong>{data ? deviceCounts.offline : '—'}</strong>
+            <small>检查设备状态</small>
+          </button>
         </div>
-        {system && !systemError && (
-          <div className="runtime-overview">
-            <section>
-              <h3>服务资源（当前进程 / 整机）</h3>
-              <p>
-                CPU：
-                {system.server.cpu.usagePercent == null
-                  ? '当前平台不提供'
-                  : system.server.cpu.usagePercent.toFixed(1) + '%'}{' '}
-                · 核心 {system.server.cpu.cores}
-              </p>
-              <p>
-                服务进程内存：{(system.server.memory.rss / 1048576).toFixed(1)} MB · 整机可用：
-                {(system.server.memory.free / 1048576).toFixed(1)} MB
-              </p>
-              <p>
-                运行版本：{system.service.version} · Node {system.server.node}
-              </p>
-            </section>
-            <section>
-              <h3>数据库与后台队列</h3>
-              <p>
-                数据库连接：{system.database.activeConnections ?? '—'} / {system.database.maxConnections ?? '—'}
-              </p>
-              <p>
-                邮件待发：{system.mailQueue.pending} · 失败：{system.mailQueue.failed}
-              </p>
-              <p>{system.mailQueue.lastError || '未记录邮件发送异常'}</p>
-              <p className="set-note">Vercel 资源指标仅代表当前实例，不代表所有实例。</p>
-            </section>
-          </div>
+        {canSystem && (
+          <details className="runtime-system-status">
+            <summary>
+              <span>后台系统状态</span>
+              <span className={systemError || (system && !system.database.reachable) ? 'is-warning' : 'is-ok'}>
+                {systemError
+                  ? '状态不可用'
+                  : system?.database.reachable
+                    ? '数据库正常'
+                    : system
+                      ? '数据库异常'
+                      : '读取中'}
+              </span>
+            </summary>
+            {system && !systemError && (
+              <div className="runtime-system-grid">
+                <div>
+                  <span>服务部署</span>
+                  <strong>{system.service.runtime === 'local' ? '本地部署' : 'Vercel'}</strong>
+                </div>
+                <div>
+                  <span>数据库延迟</span>
+                  <strong>{system.database.latencyMs ?? '—'} ms</strong>
+                </div>
+                <div>
+                  <span>CPU / 核心</span>
+                  <strong>
+                    {system.server.cpu.usagePercent == null
+                      ? '不可用'
+                      : `${system.server.cpu.usagePercent.toFixed(1)}%`}{' '}
+                    · {system.server.cpu.cores}
+                  </strong>
+                </div>
+                <div>
+                  <span>进程内存</span>
+                  <strong>{(system.server.memory.rss / 1048576).toFixed(1)} MB</strong>
+                </div>
+                <div>
+                  <span>数据库连接</span>
+                  <strong>
+                    {system.database.activeConnections ?? '—'} / {system.database.maxConnections ?? '—'}
+                  </strong>
+                </div>
+                <div>
+                  <span>邮件队列</span>
+                  <strong>
+                    {system.mailQueue.pending} 待发 · {system.mailQueue.failed} 失败
+                  </strong>
+                </div>
+                {system.mailQueue.lastError && (
+                  <p className="set-note set-note--warn">最近邮件错误：{system.mailQueue.lastError}</p>
+                )}
+              </div>
+            )}
+            {systemError && <p className="set-note set-note--warn">{systemError}</p>}
+            {system && (
+              <small className="runtime-system-footnote">
+                运行版本 {system.service.version} · Node {system.server.node} · Vercel 指标仅代表当前实例
+              </small>
+            )}
+          </details>
         )}
-        {systemError && <p className="set-note set-note--warn">系统状态：{systemError}</p>}
         <form className="runtime-filters" onSubmit={applyFilters}>
           <label>
             接收开始
@@ -399,166 +452,298 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
               onChange={setTo}
             />
           </label>
-          <label>
-            设备标识
-            <input
-              className="set-input"
-              value={device}
-              onChange={(e) => setDevice(e.target.value)}
-              placeholder="全部设备 / server"
-            />
-          </label>
-          <label>
-            级别
-            <InlineSelect
-              className="set-input"
-              value={level}
-              onChange={setLevel}
-              options={[
-                { value: '', label: '全部级别' },
-                ...Object.entries(levels).map(([value, label]) => ({ value, label })),
-              ]}
-            />
-          </label>
-          <label>
-            类别
-            <InlineSelect
-              className="set-input"
-              value={category}
-              onChange={setCategory}
-              options={[
-                { value: '', label: '全部类别' },
-                ...RUNTIME_CATEGORIES.map((value) => ({ value, label: labels[value] })),
-              ]}
-            />
-          </label>
-          <label>
-            关键词
-            <input
-              className="set-input"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索日志说明"
-            />
-          </label>
+          {dashboardTab === 'events' && (
+            <>
+              <label>
+                设备标识
+                <input
+                  className="set-input"
+                  value={device}
+                  onChange={(e) => setDevice(e.target.value)}
+                  placeholder="全部设备 / server"
+                />
+              </label>
+              <label>
+                级别
+                <InlineSelect
+                  className="set-input"
+                  value={level}
+                  onChange={setLevel}
+                  options={[
+                    { value: '', label: '全部级别' },
+                    ...Object.entries(levels).map(([value, label]) => ({ value, label })),
+                  ]}
+                />
+              </label>
+              <label>
+                类别
+                <InlineSelect
+                  className="set-input"
+                  value={category}
+                  onChange={setCategory}
+                  options={[
+                    { value: '', label: '全部类别' },
+                    ...RUNTIME_CATEGORIES.map((value) => ({ value, label: labels[value] })),
+                  ]}
+                />
+              </label>
+              <label>
+                关键词
+                <input
+                  className="set-input"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="搜索日志说明"
+                />
+              </label>
+            </>
+          )}
           <button className="set-btn set-btn--primary" type="submit">
             查询
           </button>
         </form>
-        <div className="runtime-overview">
-          <section>
-            <h3>日志事件趋势（小时）</h3>
-            <div className="runtime-trend">
-              {data?.trend.map((point) => (
-                <div key={point.at} title={`${time(point.at)}：${point.total} 条，${point.errors} 错误`}>
-                  <i
-                    style={{
-                      height: `${Math.max(3, (point.total / Math.max(1, ...data.trend.map((p) => p.total))) * 100)}%`,
-                    }}
-                  />
-                  <small>{new Date(point.at).getHours()}时</small>
+        <nav className="runtime-workspace-tabs" role="tablist" aria-label="运行数据类型">
+          <button
+            type="button"
+            id="runtime-events-tab"
+            role="tab"
+            aria-controls="runtime-events-panel"
+            aria-selected={dashboardTab === 'events'}
+            className={dashboardTab === 'events' ? 'is-active' : ''}
+            onClick={() => setDashboardTab('events')}
+          >
+            日志事件 <span>{data?.summary.total ?? '—'}</span>
+          </button>
+          <button
+            type="button"
+            id="runtime-devices-tab"
+            role="tab"
+            aria-controls="runtime-devices-panel"
+            aria-selected={dashboardTab === 'devices'}
+            className={dashboardTab === 'devices' ? 'is-active' : ''}
+            onClick={() => setDashboardTab('devices')}
+          >
+            教室设备 <span>{data?.devices.length ?? '—'}</span>
+          </button>
+        </nav>
+        {dashboardTab === 'events' && (
+          <div id="runtime-events-panel" role="tabpanel" aria-labelledby="runtime-events-tab">
+            <div className="runtime-overview">
+              <section>
+                <h3>日志事件趋势（小时）</h3>
+                <div className="runtime-trend">
+                  {data?.trend.map((point) => (
+                    <div key={point.at} title={`${time(point.at)}：${point.total} 条，${point.errors} 错误`}>
+                      <i
+                        style={{
+                          height: `${Math.max(3, (point.total / Math.max(1, ...data.trend.map((p) => p.total))) * 100)}%`,
+                        }}
+                      />
+                      <small>{new Date(point.at).getHours()}时</small>
+                    </div>
+                  ))}
                 </div>
-              ))}
+                {data && !data.trend.length && <p className="set-note">该范围暂无事件。</p>}
+                <p className="set-note">事件数量，不代表接口请求量或 CPU 历史。</p>
+              </section>
+              <section>
+                <h3>近期异常</h3>
+                {errors.map((row) => (
+                  <button
+                    className="runtime-issue"
+                    key={row.id}
+                    onClick={() => {
+                      setDetailView('summary');
+                      setSelected(row);
+                    }}
+                  >
+                    <b>{row.event.code}</b>
+                    <span>{row.event.message}</span>
+                    <small>
+                      {row.instance_id} · {time(row.received_at)}
+                    </small>
+                  </button>
+                ))}
+                {!errors.length && <p className="set-note">当前页没有警告或错误，可选择级别查询。</p>}
+              </section>
             </div>
-            {data && !data.trend.length && <p className="set-note">该范围暂无事件。</p>}
-            <p className="set-note">事件数量，不代表接口请求量或 CPU 历史。</p>
-          </section>
-          <section>
-            <h3>近期异常</h3>
-            {errors.map((row) => (
+            <div className="runtime-list-heading">
+              <div>
+                <h3>日志事件</h3>
+                <small>{data ? `${data.summary.total} 条符合筛选` : ''}</small>
+              </div>
+            </div>
+            <EventList
+              rows={(data?.entries || []).slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)}
+              onSelect={(row) => {
+                setDetailView('summary');
+                setSelected(row);
+              }}
+            />
+            <div className="runtime-actions runtime-pagination">
+              <span>
+                {data
+                  ? data.entries.length
+                    ? `${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, data.entries.length)} / ${data.entries.length} 条（共 ${data.summary.total} 条）`
+                    : '0 条'
+                  : ''}
+              </span>
               <button
-                className="runtime-issue"
-                key={row.id}
+                className="set-btn"
+                disabled={(page === 0 && !params.cursor) || busy}
                 onClick={() => {
-                  setDetailView('summary');
-                  setSelected(row);
+                  if (page > 0) setPage((value) => value - 1);
+                  else setParams((p) => ({ ...p, cursor: '' }));
                 }}
               >
-                <b>{row.event.code}</b>
-                <span>{row.event.message}</span>
-                <small>
-                  {row.instance_id} · {time(row.received_at)}
-                </small>
+                {page === 0 && params.cursor ? '返回最新' : '上一页'}
               </button>
-            ))}
-            {!errors.length && <p className="set-note">当前页没有警告或错误，可选择级别查询。</p>}
+              <button
+                className="set-btn"
+                disabled={busy || (!!data && (page + 1) * PAGE_SIZE < data.entries.length ? false : !data?.hasMore)}
+                onClick={() => {
+                  if (data && (page + 1) * PAGE_SIZE < data.entries.length) setPage((value) => value + 1);
+                  else {
+                    setLive(false);
+                    setPage(0);
+                    setParams((p) => ({
+                      ...p,
+                      from: String(data?.range.from ?? p.from),
+                      to: String(data?.range.to ?? p.to),
+                      cursor: data?.nextCursor || '',
+                    }));
+                  }
+                }}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
+        {dashboardTab === 'devices' && (
+          <section
+            id="runtime-devices-panel"
+            className="runtime-device-workspace"
+            role="tabpanel"
+            aria-labelledby="runtime-devices-tab"
+          >
+            <div className="runtime-device-toolbar">
+              <label className="runtime-device-search">
+                <Search size={16} aria-hidden="true" />
+                <input
+                  value={deviceQuery}
+                  onChange={(event) => {
+                    setDeviceQuery(event.target.value);
+                    setDevicePage(0);
+                  }}
+                  placeholder="搜索设备、页面或版本"
+                  aria-label="搜索教室设备"
+                />
+              </label>
+              <div className="runtime-device-filters" role="group" aria-label="设备状态筛选">
+                {(
+                  [
+                    ['all', '全部'],
+                    ['online', '在线'],
+                    ['offline', '离线'],
+                    ['revoked', '已撤销'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={deviceStatus === value ? 'is-active' : ''}
+                    aria-pressed={deviceStatus === value}
+                    onClick={() => {
+                      setDeviceStatus(value);
+                      setDevicePage(0);
+                    }}
+                  >
+                    {label}
+                    <span>{value === 'all' ? (data?.devices.length ?? 0) : deviceCounts[value]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="runtime-list-heading">
+              <div>
+                <h3>教室设备</h3>
+                <small>按最近心跳时间排序 · 当前已登记 {data?.devices.length ?? 0} 台</small>
+              </div>
+            </div>
+            <div className="runtime-table-wrap">
+              <table className="runtime-table runtime-device-table">
+                <thead>
+                  <tr>
+                    <th>设备标识</th>
+                    <th>页面 / 版本</th>
+                    <th>最后心跳</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleDevices.map((d) => (
+                    <tr key={d.instance_id}>
+                      <td data-label="设备标识">
+                        <button type="button" className="runtime-event-link" onClick={() => setSelectedDevice(d)}>
+                          {d.instance_id}
+                        </button>
+                      </td>
+                      <td data-label="页面 / 版本">
+                        {d.page}
+                        <small>{d.client_version}</small>
+                      </td>
+                      <td data-label="最后心跳">{Number(d.last_seen_at) > 0 ? time(d.last_seen_at) : '无心跳'}</td>
+                      <td data-label="状态">
+                        <span
+                          className={`runtime-device-status ${d.revoked ? 'is-revoked' : Date.now() - Number(d.last_seen_at) < 120000 ? 'is-online' : 'is-offline'}`}
+                        >
+                          {d.revoked ? '已撤销' : Date.now() - Number(d.last_seen_at) < 120000 ? '在线' : '离线'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {!visibleDevices.length && (
+                    <tr>
+                      <td colSpan={4} className="runtime-empty">
+                        {deviceQuery || deviceStatus !== 'all' ? '没有符合条件的设备。' : '暂无登记设备。'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="runtime-actions runtime-pagination">
+              <span>
+                {filteredDevices.length
+                  ? `${devicePage * PAGE_SIZE + 1}-${Math.min((devicePage + 1) * PAGE_SIZE, filteredDevices.length)} / ${filteredDevices.length} 台设备`
+                  : '0 台设备'}
+              </span>
+              <button
+                className="set-btn runtime-page-button"
+                aria-label="设备上一页"
+                title="上一页"
+                disabled={devicePage === 0}
+                onClick={() => setDevicePage((page) => Math.max(0, page - 1))}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="runtime-page-index">
+                {filteredDevices.length ? `${devicePage + 1} / ${Math.ceil(filteredDevices.length / PAGE_SIZE)}` : '—'}
+              </span>
+              <button
+                className="set-btn runtime-page-button"
+                aria-label="设备下一页"
+                title="下一页"
+                disabled={(devicePage + 1) * PAGE_SIZE >= filteredDevices.length}
+                onClick={() => setDevicePage((page) => page + 1)}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
           </section>
-        </div>
-        <h3>
-          日志事件 <small>{data ? `${data.summary.total} 条符合筛选` : ''}</small>
-        </h3>
-        <EventList
-          rows={(data?.entries || []).slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)}
-          onSelect={(row) => {
-            setDetailView('summary');
-            setSelected(row);
-          }}
-        />
-        <div className="runtime-actions runtime-pagination">
-          <span>
-            {data
-              ? data.entries.length
-                ? `${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, data.entries.length)} / ${data.entries.length} 条（共 ${data.summary.total} 条）`
-                : '0 条'
-              : ''}
-          </span>
-          <button
-            className="set-btn"
-            disabled={(page === 0 && !params.cursor) || busy}
-            onClick={() => {
-              if (page > 0) setPage((value) => value - 1);
-              else setParams((p) => ({ ...p, cursor: '' }));
-            }}
-          >
-            {page === 0 && params.cursor ? '返回最新' : '上一页'}
-          </button>
-          <button
-            className="set-btn"
-            disabled={busy || (!!data && (page + 1) * PAGE_SIZE < data.entries.length ? false : !data?.hasMore)}
-            onClick={() => {
-              if (data && (page + 1) * PAGE_SIZE < data.entries.length) setPage((value) => value + 1);
-              else {
-                setLive(false);
-                setPage(0);
-                setParams((p) => ({
-                  ...p,
-                  from: String(data?.range.from ?? p.from),
-                  to: String(data?.range.to ?? p.to),
-                  cursor: data?.nextCursor || '',
-                }));
-              }
-            }}
-          >
-            下一页
-          </button>
-        </div>
-        <h3>教室设备</h3>
-        <div className="runtime-table-wrap">
-          <table className="runtime-table">
-            <thead>
-              <tr>
-                <th>设备</th>
-                <th>页面 / 版本</th>
-                <th>最后心跳</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.devices.map((d) => (
-                <tr key={d.instance_id}>
-                  <td>{d.instance_id}</td>
-                  <td>
-                    {d.page}
-                    <small>{d.client_version}</small>
-                  </td>
-                  <td>{Number(d.last_seen_at) > 0 ? time(d.last_seen_at) : '无心跳'}</td>
-                  <td>{d.revoked ? '已撤销' : Date.now() - Number(d.last_seen_at) < 120000 ? '在线' : '离线'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {data && (
+        )}
+        {dashboardTab === 'events' && data && (
           <p className="set-note">
             普通事件保留 7 天，警告与错误保留 30 天；每设备最多 10000 条。
             {data.storage.fileFallback
@@ -671,6 +856,71 @@ export default function RuntimeDashboard({ canExport, canSystem }: { canExport: 
                     {timeline.length > 10 && <p className="set-note">显示前 10 条关联事件。</p>}
                   </>
                 )}
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
+      {selectedDevice &&
+        createPortal(
+          <div
+            className="runtime-modal-backdrop"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedDevice(null);
+            }}
+          >
+            <section
+              className="runtime-modal runtime-device-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="runtime-device-modal-title"
+            >
+              <header className="runtime-modal__header">
+                <div>
+                  <h2 id="runtime-device-modal-title">设备详情</h2>
+                  <p>{selectedDevice.instance_id}</p>
+                </div>
+                <button
+                  className="runtime-icon-button"
+                  aria-label="关闭设备详情"
+                  title="关闭详情"
+                  onClick={() => setSelectedDevice(null)}
+                >
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="runtime-modal__body">
+                <dl className="runtime-context-list">
+                  <div>
+                    <dt>当前状态</dt>
+                    <dd>
+                      <span
+                        className={`runtime-device-status ${selectedDevice.revoked ? 'is-revoked' : Date.now() - Number(selectedDevice.last_seen_at) < 120000 ? 'is-online' : 'is-offline'}`}
+                      >
+                        {selectedDevice.revoked
+                          ? '已撤销'
+                          : Date.now() - Number(selectedDevice.last_seen_at) < 120000
+                            ? '在线'
+                            : '离线'}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>当前页面</dt>
+                    <dd>{selectedDevice.page || '未知'}</dd>
+                  </div>
+                  <div>
+                    <dt>客户端版本</dt>
+                    <dd>{selectedDevice.client_version || '未知'}</dd>
+                  </div>
+                  <div>
+                    <dt>最后心跳</dt>
+                    <dd>
+                      {Number(selectedDevice.last_seen_at) > 0 ? time(selectedDevice.last_seen_at) : '未收到心跳'}
+                    </dd>
+                  </div>
+                </dl>
               </div>
             </section>
           </div>,
