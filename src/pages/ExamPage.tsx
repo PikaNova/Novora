@@ -116,7 +116,14 @@ function pickAutoOpenSchoolAnnouncements(list: SchoolExamAnnouncement[]): School
     seenLocally: readLocallySeenIds(),
     reminderMarks: readReminderMarks(),
   });
-  if (silent.length) markAnnouncementsShown(silent.map((item) => item.id));
+  if (silent.length) {
+    markAnnouncementsShown(silent.map((item) => item.id));
+    const message =
+      silent.length === 1
+        ? `收到公告「${silent[0].title || '未命名公告'}」，已放入公告列表。`
+        : `收到 ${silent.length} 条新公告，已放入公告列表。`;
+    notify('success', message, '收到新公告');
+  }
   return autoOpen;
 }
 
