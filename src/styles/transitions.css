@@ -80,7 +80,18 @@
 }
 
 .admin-tab-transition {
-  animation: app-admin-tab-in 150ms ease-out both;
+  animation: app-admin-tab-in var(--motion-standard) var(--motion-ease-out-expo) both;
+}
+
+.admin-context-bar {
+  animation: app-fade-in var(--motion-fast) var(--motion-ease-out-expo) both;
+}
+
+.admin-cloud {
+  transition:
+    color var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard);
 }
 
 .device-detail-overlay,
@@ -153,6 +164,7 @@
 @media (prefers-reduced-motion: reduce) {
   .app-route-transition,
   .admin-tab-transition,
+  .admin-context-bar,
   .device-detail-overlay,
   .device-detail,
   .admin-device-setup,
