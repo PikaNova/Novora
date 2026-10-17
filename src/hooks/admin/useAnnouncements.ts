@@ -7,6 +7,7 @@ export function useAnnouncements() {
   const [announceOpen, setAnnounceOpen] = useState(false);
   const [anns, setAnns] = useState<Announcement[]>([]);
   const [annLoading, setAnnLoading] = useState(false);
+  const [annError, setAnnError] = useState('');
 
   useEffect(() => {
     if (!announceOpen) return;
@@ -15,6 +16,7 @@ export function useAnnouncements() {
     fetchAnnouncements(true)
       .then((list) => {
         if (alive) setAnns(list);
+        if (alive) setAnnError(getLastAnnouncementFetchError() ?? '');
       })
       .finally(() => {
         if (alive) setAnnLoading(false);
@@ -24,5 +26,5 @@ export function useAnnouncements() {
     };
   }, [announceOpen]);
 
-  return { announceOpen, setAnnounceOpen, anns, annLoading };
+  return { announceOpen, setAnnounceOpen, anns, annLoading, annError };
 }

@@ -7,7 +7,7 @@ import { useAnnouncementsSettings } from '../../hooks/settings/useAnnouncementsS
  * 设置页“公告”卡片。从 SettingsPage.tsx 提取，行为与原页面完全一致。
  */
 export default function AnnouncementsSection() {
-  const { anns, annLoading } = useAnnouncementsSettings();
+  const { anns, annLoading, annError } = useAnnouncementsSettings();
 
   return (
     <section className="set-card">
@@ -20,6 +20,8 @@ export default function AnnouncementsSection() {
       <p className="set-card__lead">由作者端统一发布，内容以 Markdown 渲染。</p>
       {annLoading ? (
         <p className="set-note">公告加载中…</p>
+      ) : annError ? (
+        <p className="set-note">⚠️ {annError}</p>
       ) : anns.length === 0 ? (
         <p className="set-note">暂无公告。</p>
       ) : (

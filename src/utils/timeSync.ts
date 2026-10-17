@@ -212,7 +212,9 @@ export function startTimeSyncManager(): () => void {
   };
 
   const perform = async (reason: string) => {
-    if (!isClassroom() || !getTimeSyncSettings().enabled || !holdsLease()) return;
+    const manualSettingsSync = reason === 'manual' && location.pathname.startsWith('/settings');
+    const canWriteCalibration = isClassroom() || manualSettingsSync;
+    if (!canWriteCalibration || !getTimeSyncSettings().enabled || (!manualSettingsSync && !holdsLease())) return;
     const s = getTimeSyncSettings();
     try {
       let r = await syncTime();
@@ -226,7 +228,7 @@ export function startTimeSyncManager(): () => void {
           throw new Error('Large clock correction was not confirmed');
         r = confirmation;
       }
-      if (stopped || !isClassroom() || !holdsLease()) return;
+      if (stopped || !canWriteCalibration || (!manualSettingsSync && !holdsLease())) return;
       const sentAt = Date.now();
       const previousRevision = getTimeSyncSettings().calibrationRevision || 0;
       const revision = Math.max(sentAt, previousRevision + 1);
@@ -263,7 +265,7 @@ export function startTimeSyncManager(): () => void {
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (stopped || !isClassroom() || !holdsLease()) return;
+      if (stopped || !canWriteCalibration || (!manualSettingsSync && !holdsLease())) return;
       updateTimeSyncSettings({ lastError: msg });
       window.dispatchEvent(new CustomEvent('timeSync:updated'));
       logger.warn('校时失败(' + reason + '): 保留可靠时间; ' + msg);
@@ -272,7 +274,7 @@ export function startTimeSyncManager(): () => void {
 
   const persist = async (reason: string) => {
     if (stopped || syncing || !getTimeSyncSettings().enabled) return;
-    if (!isClassroom()) return;
+    if (!isClassroom() && !(reason === 'manual' && location.pathname.startsWith('/settings'))) return;
     syncing = true;
     try {
       // Web Locks serializes lease acquisition and in-flight writes across tabs.

@@ -84,6 +84,29 @@ test('administration pages cannot write network calibration', async () => {
   locationState.pathname = '/exam';
 });
 
+test('manual settings-page sync calibrates and reports failures', async () => {
+  locationState.pathname = '/settings/runtime';
+  updateTimeSyncSettings({ enabled: true, autoSyncEnabled: false, provider: 'timeApi', timeApiUrl: '/api/time' });
+  let shouldFail = false;
+  globalThis.fetch = async () => {
+    if (shouldFail) throw new Error('offline');
+    return new Response(JSON.stringify({ epochMs: Date.now() + 5000 }));
+  };
+  const stop = startTimeSyncManager();
+  events.dispatchEvent(new Event('timeSync:syncNow'));
+  await settle();
+  assert.equal(getAppSettings().general.timeSync.lastError, '');
+  assert.equal(getAppSettings().general.timeSync.calibrationSource, 'timeApi');
+
+  shouldFail = true;
+  events.dispatchEvent(new Event('timeSync:syncNow'));
+  await settle();
+  assert.equal(getAppSettings().general.timeSync.lastError?.includes('Insufficient'), true);
+  stop();
+  locationState.pathname = '/exam';
+  globalThis.fetch = originalFetch;
+});
+
 test('another classroom lease prevents overlapping writes', async () => {
   values.set('novora_time_sync_lease_v1', JSON.stringify({ id: 'other-window', expiresAt: Date.now() + 45000 }));
   let calls = 0;

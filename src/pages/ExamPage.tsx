@@ -39,7 +39,7 @@ import DesignSwitcher from '../components/DesignSwitcher';
 import ExamAnnouncementOverlay from '../components/ExamAnnouncementOverlay';
 import SchoolAnnouncementOverlay from '../components/SchoolAnnouncementOverlay';
 import LoadingState from '../components/LoadingState';
-import { fetchAnnouncements } from '../services/announcements';
+import { fetchAnnouncements, getLastAnnouncementFetchError } from '../services/announcements';
 import type { Announcement } from '../services/announcements';
 import { fetchDeviceExamAnnouncements, type SchoolExamAnnouncement } from '../services/examAnnouncements';
 import { flushAnnouncementAcks, queueAnnouncementSeen } from '../services/announcementAcks';
@@ -283,6 +283,7 @@ function BoundExamPage() {
   const [announcementsOpen, setAnnouncementsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState('');
   /**
    * 学校侧考试公告（T-286-03）：与作者端公告分开拉，走另一扇更大的窗口。
    * 紧急公告立刻弹出、置顶且不可关闭；系统公告窗口在它打开期间让位（避免两扇窗口叠在一起）。
@@ -340,6 +341,7 @@ function BoundExamPage() {
       const list = await fetchAnnouncements(true);
       if (!alive) return;
       setAnnouncements(list);
+      setAnnouncementsError(getLastAnnouncementFetchError() ?? '');
       setAnnouncementsLoading(false);
       if (list.length === 0) return;
       const version = announcementVersion(list);
@@ -389,6 +391,7 @@ function BoundExamPage() {
         setAnnouncementsLoading(true);
         void fetchAnnouncements(true)
           .then(setAnnouncements)
+          .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
           .finally(() => setAnnouncementsLoading(false));
       });
       return;
@@ -397,6 +400,7 @@ function BoundExamPage() {
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
       .then(setAnnouncements)
+      .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
       .finally(() => setAnnouncementsLoading(false));
   }, []);
 
@@ -415,6 +419,7 @@ function BoundExamPage() {
     setAnnouncementsLoading(true);
     void fetchAnnouncements(true)
       .then(setAnnouncements)
+      .then(() => setAnnouncementsError(getLastAnnouncementFetchError() ?? ''))
       .finally(() => setAnnouncementsLoading(false));
   }, []);
 
@@ -978,6 +983,7 @@ function BoundExamPage() {
         open={announcementsOpen && !schoolAnnouncementsOpen}
         announcements={announcements}
         loading={announcementsLoading}
+        error={announcementsError}
         onSwitchToSchool={
           schoolAnnouncements.length > 0 || schoolAnnouncementHistory.length > 0
             ? switchToSchoolAnnouncements

@@ -203,7 +203,7 @@ export default function AdminPage() {
   } = auth;
 
   const announcements = useAnnouncements();
-  const { announceOpen, setAnnounceOpen, anns, annLoading } = announcements;
+  const { announceOpen, setAnnounceOpen, anns, annLoading, annError } = announcements;
 
   /**
    * URL 是否明确指定了板块（含旧 `?tab=` 深链）。没有指定时才做「第一个有权限的板块」
@@ -1572,6 +1572,7 @@ export default function AdminPage() {
         <AdminAnnounceDialog
           anns={anns}
           annLoading={annLoading}
+          annError={annError}
           formatTime={fmtAnnTime}
           backdropProps={backdropProps}
           setAnnounceOpen={setAnnounceOpen}
