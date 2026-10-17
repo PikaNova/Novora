@@ -59,6 +59,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'exam.announcement.remind': '提醒未读教室',
   'exam.announcement.template_save': '把公告存为模板',
   'settings.design-policy': '保存表格显示规则',
+  'settings.time-sync.broadcast': '向全校客户端下发校时',
+  'settings.time-sync.offset': '修改全校统一时间偏移',
   'settings.major-batch-presets': '保存批量考试预设',
 
   // 运维

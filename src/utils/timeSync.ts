@@ -172,6 +172,37 @@ export async function syncTime(): Promise<TimeSyncRunResult> {
   };
 }
 let managerStop: (() => void) | null = null;
+let manualSync: (() => Promise<boolean | null>) | null = null;
+
+export async function runManualTimeSync(): Promise<boolean> {
+  if (!manualSync) return false;
+  return new Promise((resolve) => {
+    const before = getTimeSyncSettings();
+    const revision = before.calibrationRevision || before.lastSyncAt;
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      window.removeEventListener('timeSync:updated', check);
+      resolve(value);
+    };
+    const check = () => {
+      const latest = getTimeSyncSettings();
+      if ((latest.calibrationRevision || latest.lastSyncAt) > revision) finish(!latest.lastError);
+      else if (latest.lastError) finish(false);
+    };
+    const timeout = window.setTimeout(() => finish(false), 30_000);
+    window.addEventListener('timeSync:updated', check);
+    manualSync?.().then(
+      (result) => {
+        if (result !== null) finish(result);
+        else check();
+      },
+      () => finish(false),
+    );
+  });
+}
 
 export function startTimeSyncManager(): () => void {
   if (managerStop) return managerStop;
@@ -212,9 +243,11 @@ export function startTimeSyncManager(): () => void {
   };
 
   const perform = async (reason: string) => {
-    const manualSettingsSync = reason === 'manual' && location.pathname.startsWith('/settings');
-    const canWriteCalibration = isClassroom() || manualSettingsSync;
-    if (!canWriteCalibration || !getTimeSyncSettings().enabled || (!manualSettingsSync && !holdsLease())) return;
+    const manualControlPage =
+      reason === 'manual' && (location.pathname.startsWith('/settings') || location.pathname.startsWith('/admin'));
+    const canWriteCalibration = isClassroom() || manualControlPage;
+    if (!canWriteCalibration || !getTimeSyncSettings().enabled) return false;
+    if (!manualControlPage && !holdsLease()) return null;
     const s = getTimeSyncSettings();
     try {
       let r = await syncTime();
@@ -228,7 +261,8 @@ export function startTimeSyncManager(): () => void {
           throw new Error('Large clock correction was not confirmed');
         r = confirmation;
       }
-      if (stopped || !canWriteCalibration || (!manualSettingsSync && !holdsLease())) return;
+      if (stopped || !canWriteCalibration) return null;
+      if (!manualControlPage && !holdsLease()) return null;
       const sentAt = Date.now();
       const previousRevision = getTimeSyncSettings().calibrationRevision || 0;
       const revision = Math.max(sentAt, previousRevision + 1);
@@ -263,36 +297,52 @@ export function startTimeSyncManager(): () => void {
             revision,
           }),
       );
+      return true;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (stopped || !canWriteCalibration || (!manualSettingsSync && !holdsLease())) return;
+      if (stopped || !canWriteCalibration) return null;
+      if (!manualControlPage && !holdsLease()) return null;
       updateTimeSyncSettings({ lastError: msg });
       window.dispatchEvent(new CustomEvent('timeSync:updated'));
       logger.warn('校时失败(' + reason + '): 保留可靠时间; ' + msg);
+      return false;
     }
   };
 
   const persist = async (reason: string) => {
-    if (stopped || syncing || !getTimeSyncSettings().enabled) return;
-    if (!isClassroom() && !(reason === 'manual' && location.pathname.startsWith('/settings'))) return;
+    if (stopped || syncing || !getTimeSyncSettings().enabled) return false;
+    if (
+      !isClassroom() &&
+      !(reason === 'manual' && (location.pathname.startsWith('/settings') || location.pathname.startsWith('/admin')))
+    )
+      return false;
     syncing = true;
+    let result: boolean | null = false;
     try {
       // Web Locks serializes lease acquisition and in-flight writes across tabs.
       if (navigator.locks) {
         await navigator.locks.request('novora-time-sync', { ifAvailable: true }, async (lock) => {
-          if (lock) await perform(reason);
+          if (lock) result = await perform(reason);
+          else result = null;
         });
       } else {
-        await perform(reason);
+        result = await perform(reason);
       }
     } finally {
       syncing = false;
     }
+    return result;
   };
 
   const onSyncNow = () => {
     localStorage.setItem(REQUEST_KEY, instanceId + ':' + Date.now());
     void persist('manual');
+  };
+  manualSync = async () => {
+    for (let attempt = 0; syncing && attempt < 40; attempt++)
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    if (syncing) return null;
+    return persist('manual');
   };
   const onStorage = (event: StorageEvent) => {
     if (event.key === CALIBRATION_KEY) receiveCalibration();
@@ -349,6 +399,7 @@ export function startTimeSyncManager(): () => void {
     window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisible);
     managerStop = null;
+    manualSync = null;
   };
   return managerStop;
 }

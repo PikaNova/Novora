@@ -8,6 +8,8 @@ export interface TimeSyncSettings {
   ntpHost: string;
   ntpPort: number;
   manualOffsetMs: number;
+  broadcastOffsetMs?: number;
+  broadcastOffsetRevision?: number;
   offsetMs: number;
   autoSyncEnabled: boolean;
   autoSyncIntervalSec: number;
@@ -31,6 +33,7 @@ export const DEFAULT_TIME_SYNC_SETTINGS: TimeSyncSettings = {
   ntpHost: 'ntp.aliyun.com',
   ntpPort: 123,
   manualOffsetMs: 0,
+  broadcastOffsetMs: 0,
   offsetMs: 0,
   autoSyncEnabled: true,
   autoSyncIntervalSec: 900,
