@@ -30,6 +30,8 @@ interface ImportJsonModalProps {
   selectedClassName: string;
   classOptions: Array<{ id: string; gradeId: string; label: string }>;
   activePlanName: string;
+  creationBlocked?: boolean;
+  creationMessage?: string;
 }
 
 export default function ImportJsonModal({
@@ -55,6 +57,8 @@ export default function ImportJsonModal({
   selectedClassName,
   classOptions,
   activePlanName,
+  creationBlocked = false,
+  creationMessage = '',
 }: ImportJsonModalProps) {
   if (!importOpen) return null;
 
@@ -66,6 +70,11 @@ export default function ImportJsonModal({
       >
         <h2 className="admin-modal__title admin-workflow-head">AI智能导入周测</h2>
         <AdminWorkflowClose onClick={() => closeImport()} />
+        {creationBlocked && (
+          <div role="alert" className="admin-alert admin-alert--warning">
+            {creationMessage}；大型考试结束后可恢复导入。
+          </div>
+        )}
         <div className="admin-workflow-layout">
           <AdminWizardSteps
             active={importStep === 'paste' ? 0 : importStep === 'preview' ? 1 : 2}
@@ -181,7 +190,12 @@ export default function ImportJsonModal({
                   <button className="admin-btn" onClick={() => setImportStep('preview')}>
                     上一步
                   </button>
-                  <button className="admin-btn admin-btn--primary" onClick={importJson}>
+                  <button
+                    className="admin-btn admin-btn--primary"
+                    onClick={importJson}
+                    disabled={creationBlocked}
+                    title={creationBlocked ? creationMessage : undefined}
+                  >
                     确认导入到 {importClassIds.length || 1} 个班级
                   </button>
                   <button className="admin-btn" onClick={() => closeImport()}>

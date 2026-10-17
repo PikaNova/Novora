@@ -79,6 +79,29 @@ export default function WeeklyPanel({
 }: WeeklyPanelProps) {
   const creationBlocked = !!creationLock?.locked;
   const creationMessage = creationLock ? majorExamLockMessage(creationLock, 'weekly') : '';
+  const creationLockNotice = creationBlocked ? (
+    <div role="alert" className="admin-alert admin-alert--warning" style={{ margin: '0 16px 12px' }}>
+      {creationMessage}。已有周测仍可查看和维护；考试结束后自动恢复创建。
+    </div>
+  ) : null;
+  const guardedImport = () => {
+    if (creationBlocked) return;
+    openImport();
+  };
+  const guardedImportJson = () => {
+    if (creationBlocked) {
+      setImportError(creationMessage);
+      return;
+    }
+    importJson();
+  };
+  const guardedCommitItem = () => {
+    if (creationBlocked && editing && !editing.id) {
+      setEditError(creationMessage);
+      return;
+    }
+    commitItemModal();
+  };
   const guardedOpenNewPlan = () => {
     if (creationBlocked) return;
     openNewPlan();
@@ -130,6 +153,13 @@ export default function WeeklyPanel({
     togglePlanEnabled,
     switchPlan,
   } = planModal$;
+  const guardedCommitPlan = () => {
+    if (creationBlocked && planModal?.mode === 'add') {
+      setPlanError(creationMessage);
+      return;
+    }
+    commitPlanModal();
+  };
 
   const itemModal$ = useWeeklyItemModal({
     weeklyPlans,
@@ -173,6 +203,7 @@ export default function WeeklyPanel({
     importText,
     setImportText,
     importError,
+    setImportError,
     importClassIds,
     setImportClassIds,
     importStep,
@@ -248,6 +279,10 @@ export default function WeeklyPanel({
     commitCopyPlan,
     removeSelectedPlans,
   } = batchOps$;
+  const guardedCommitCopyPlan = () => {
+    if (creationBlocked) return;
+    commitCopyPlan();
+  };
   const planPickerOptions = useMemo<ClassPickerOption[]>(
     () =>
       weeklyPlans.map((plan) => {
@@ -394,6 +429,7 @@ export default function WeeklyPanel({
               A4 预览与下载 PDF
             </button>
           </div>
+          {creationLockNotice}
           <div className="admin-empty">
             <Mascot className="mascot-empty" size={64} alt="" />
             <div className="admin-empty__icon">
@@ -406,6 +442,7 @@ export default function WeeklyPanel({
               style={{ marginTop: 12 }}
               onClick={guardedOpenNewPlan}
               disabled={creationBlocked}
+              title={creationBlocked ? creationMessage : undefined}
             >
               选择班级并新建周测计划
             </button>
@@ -419,7 +456,9 @@ export default function WeeklyPanel({
           setPlanWizardStep={setPlanWizardStep}
           planError={planError}
           setPlanError={setPlanError}
-          commitPlanModal={commitPlanModal}
+          commitPlanModal={guardedCommitPlan}
+          creationBlocked={creationBlocked && planModal?.mode === 'add'}
+          creationMessage={creationMessage}
           classOptions={classOptions}
           pickerOptions={pickerOptions}
           allowBatchApply={allowBatchApply}
@@ -451,6 +490,7 @@ export default function WeeklyPanel({
               A4 预览与下载 PDF
             </button>
           </div>
+          {creationLockNotice}
           <div className="admin-empty">
             <Mascot className="mascot-empty" size={64} alt="" />
             <div className="admin-empty__icon">
@@ -462,6 +502,7 @@ export default function WeeklyPanel({
               style={{ marginTop: 12 }}
               onClick={guardedOpenNewPlan}
               disabled={creationBlocked}
+              title={creationBlocked ? creationMessage : undefined}
             >
               + 新建周测计划
             </button>
@@ -475,7 +516,9 @@ export default function WeeklyPanel({
           setPlanWizardStep={setPlanWizardStep}
           planError={planError}
           setPlanError={setPlanError}
-          commitPlanModal={commitPlanModal}
+          commitPlanModal={guardedCommitPlan}
+          creationBlocked={creationBlocked && planModal?.mode === 'add'}
+          creationMessage={creationMessage}
           classOptions={classOptions}
           pickerOptions={pickerOptions}
           allowBatchApply={allowBatchApply}
@@ -531,11 +574,7 @@ export default function WeeklyPanel({
 
   return (
     <>
-      {creationBlocked && (
-        <div role="alert" className="admin-alert admin-alert--warning" style={{ margin: '0 16px 12px' }}>
-          {creationMessage}。已有计划仍会保留，考试结束后自动恢复创建。
-        </div>
-      )}
+      {creationLockNotice}
       <WeeklySidebar
         selectedClassName={selectedClassName}
         scopedPlans={scopedPlans}
@@ -543,6 +582,8 @@ export default function WeeklyPanel({
         items={items}
         switchPlan={switchPlan}
         openNewPlan={guardedOpenNewPlan}
+        creationBlocked={creationBlocked}
+        creationMessage={creationMessage}
         openPlanSettings={openPlanSettings}
         setDeletePlanOpen={setDeletePlanOpen}
         togglePlanEnabled={togglePlanEnabled}
@@ -559,9 +600,11 @@ export default function WeeklyPanel({
           grouped={grouped}
           lastDeleted={lastDeleted}
           restoreLastDeleted={restoreLastDeleted}
-          openImport={openImport}
+          openImport={guardedImport}
           exportJson={exportJson}
           allowBatchApply={allowBatchApply}
+          creationBlocked={creationBlocked}
+          creationMessage={creationMessage}
           setBatchDeletePlanIds={setBatchDeletePlanIds}
           setBatchDeleteOpen={setBatchDeleteOpen}
           setCustomWeeklySubjectActive={setCustomWeeklySubjectActive}
@@ -592,7 +635,9 @@ export default function WeeklyPanel({
         setPlanWizardStep={setPlanWizardStep}
         planError={planError}
         setPlanError={setPlanError}
-        commitPlanModal={commitPlanModal}
+        commitPlanModal={guardedCommitPlan}
+        creationBlocked={creationBlocked && planModal?.mode === 'add'}
+        creationMessage={creationMessage}
         classOptions={classOptions}
         pickerOptions={pickerOptions}
         allowBatchApply={allowBatchApply && !creationBlocked}
@@ -631,7 +676,9 @@ export default function WeeklyPanel({
         setWeeklyTimeFlowOpen={setWeeklyTimeFlowOpen}
         openWeeklyTimeFlow={openWeeklyTimeFlow}
         cancelWeeklyTimeFlow={cancelWeeklyTimeFlow}
-        commitItemModal={commitItemModal}
+        commitItemModal={guardedCommitItem}
+        creationBlocked={creationBlocked && !editing?.id}
+        creationMessage={creationMessage}
         planWeekMode={activePlan.weekMode ?? 'single'}
       />
       <ImportJsonModal
@@ -647,7 +694,7 @@ export default function WeeklyPanel({
         importSummary={importSummary}
         importExcludedIndexes={importExcludedIndexes}
         setImportExcludedIndexes={setImportExcludedIndexes}
-        importJson={importJson}
+        importJson={guardedImportJson}
         importClassIds={importClassIds}
         setImportClassIds={setImportClassIds}
         allowBatchApply={allowBatchApply}
@@ -657,6 +704,8 @@ export default function WeeklyPanel({
         selectedClassName={selectedClassName}
         classOptions={classOptions}
         activePlanName={activePlan.name}
+        creationBlocked={creationBlocked}
+        creationMessage={creationMessage}
       />
       <ExceptionsModal
         backdropProps={backdropProps}
@@ -682,7 +731,7 @@ export default function WeeklyPanel({
         weeklyPlans={weeklyPlans}
         classOptions={classOptions}
         pickerOptions={pickerOptions}
-        commitCopyPlan={commitCopyPlan}
+        commitCopyPlan={guardedCommitCopyPlan}
       />
       <ConflictResolutionModal
         backdropProps={backdropProps}

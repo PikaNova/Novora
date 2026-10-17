@@ -15,6 +15,8 @@ interface WeeklySidebarProps {
   items: WeeklyExamItem[];
   switchPlan: (planId: string) => void;
   openNewPlan: () => void;
+  creationBlocked: boolean;
+  creationMessage: string;
   openPlanSettings: () => void;
   setDeletePlanOpen: (value: boolean) => void;
   togglePlanEnabled: () => void;
@@ -30,6 +32,8 @@ export default function WeeklySidebar({
   items,
   switchPlan,
   openNewPlan,
+  creationBlocked,
+  creationMessage,
   openPlanSettings,
   setDeletePlanOpen,
   togglePlanEnabled,
@@ -75,7 +79,12 @@ export default function WeeklySidebar({
           </label>
         )}
         <div className="admin-major-card__btns">
-          <button className="admin-btn admin-btn--primary" onClick={openNewPlan}>
+          <button
+            className="admin-btn admin-btn--primary"
+            onClick={openNewPlan}
+            disabled={creationBlocked}
+            title={creationBlocked ? creationMessage : undefined}
+          >
             + 新建
           </button>
           <button className="admin-btn" onClick={openPlanSettings}>
