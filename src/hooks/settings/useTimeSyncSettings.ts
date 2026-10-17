@@ -13,8 +13,13 @@ export function useTimeSyncSettings() {
   const [ts, setTs] = useState<TimeSyncSettings>(() => getAppSettings().general.timeSync);
   const [syncing, setSyncing] = useState(false);
   const [globalControl, setGlobalControl] = useState<GlobalTimeControl | null>(null);
-  const [globalBusy, setGlobalBusy] = useState(false);
-  const [globalError, setGlobalError] = useState('');
+  const [globalAction, setGlobalAction] = useState<'syncing-clients' | 'saving-offset' | null>(null);
+  const [globalLoadError, setGlobalLoadError] = useState('');
+  const [offsetError, setOffsetError] = useState('');
+  const [syncError, setSyncError] = useState('');
+  const [offsetSaveNotice, setOffsetSaveNotice] = useState('');
+  const [syncNotice, setSyncNotice] = useState('');
+  const [syncBusy, setSyncBusy] = useState(false);
 
   useEffect(() => {
     const onUpd = () => {
@@ -32,11 +37,11 @@ export function useTimeSyncSettings() {
         .then((value) => {
           if (alive) {
             setGlobalControl(value);
-            setGlobalError('');
+            setGlobalLoadError('');
           }
         })
         .catch((error: unknown) => {
-          if (alive) setGlobalError(error instanceof Error ? error.message : String(error));
+          if (alive) setGlobalLoadError(error instanceof Error ? error.message : String(error));
         });
     };
     refresh();
@@ -60,28 +65,36 @@ export function useTimeSyncSettings() {
   };
 
   const syncAllClients = async () => {
-    setGlobalBusy(true);
-    setGlobalError('');
+    setGlobalAction('syncing-clients');
+    setSyncError('');
+    setSyncNotice('');
+    setSyncBusy(true);
     try {
       await requestGlobalTimeSync();
       setGlobalControl(await getGlobalTimeControl());
+      setSyncNotice('校时任务已下发，客户端正在执行并返回结果。');
     } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : String(error));
+      setSyncError(error instanceof Error ? error.message : String(error));
     } finally {
-      setGlobalBusy(false);
+      setGlobalAction(null);
+      setSyncBusy(false);
     }
   };
 
   const saveBroadcastOffset = async (seconds: number) => {
-    setGlobalBusy(true);
-    setGlobalError('');
+    setGlobalAction('saving-offset');
+    setOffsetError('');
+    setOffsetSaveNotice('');
     try {
       await saveGlobalTimeOffset(Math.round(seconds * 1000));
       setGlobalControl(await getGlobalTimeControl());
+      setOffsetSaveNotice('已保存到服务器；客户端将在下一次心跳时应用。');
+      return true;
     } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : String(error));
+      setOffsetError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
-      setGlobalBusy(false);
+      setGlobalAction(null);
     }
   };
 
@@ -101,8 +114,14 @@ export function useTimeSyncSettings() {
     patchTs,
     syncNow,
     globalControl,
-    globalBusy,
-    globalError,
+    globalBusy: globalAction !== null,
+    globalAction,
+    syncBusy,
+    globalLoadError,
+    offsetError,
+    syncError,
+    offsetSaveNotice,
+    syncNotice,
     syncAllClients,
     saveBroadcastOffset,
   };
