@@ -15,8 +15,12 @@ const SESSION_MODULE = 'src/services/auth/session.ts';
 /** 鉴权模块自身（session 存凭据、client 发请求）就是「唯一实现的地方」。 */
 const AUTH_MODULE_DIR = 'src/services/auth/';
 
-/** 登录链路本身要能指定令牌（bearerToken 参数），允许这两处自己拼头。 */
-const EXPLICIT_BEARER_ALLOWED = ['src/services/emailAuth.ts', 'src/services/adminUsers.ts'];
+/** 登录链路显式指定令牌；设备日志使用独立的设备密钥，不属于管理员会话。 */
+const EXPLICIT_BEARER_ALLOWED = [
+  'src/services/emailAuth.ts',
+  'src/services/adminUsers.ts',
+  'src/services/runtimeLogClient.ts',
+];
 
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
@@ -49,7 +53,7 @@ test('存储键与已上线客户端保持兼容', () => {
   assert.match(source, /const AUTH_TOKEN_EXPIRES_KEY = 'admin_auth_token_expires';/);
 });
 
-test('服务层不再手拼 Bearer，除显式传入令牌的登录链路', () => {
+test('服务层不再手拼 Bearer，除显式传入令牌的登录链路和设备日志通道', () => {
   assert.deepEqual(
     offenders(
       (source, file) =>
