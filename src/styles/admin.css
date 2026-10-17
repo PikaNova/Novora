@@ -643,7 +643,11 @@
   border-radius: 9px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.03);
-  transition: background 0.2s;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-fast) var(--motion-ease-standard),
+    opacity var(--motion-fast) var(--motion-ease-standard);
 }
 .admin-item--selectable {
   grid-template-columns: auto 48px minmax(0, 1fr) auto;
@@ -695,10 +699,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-instant) var(--motion-ease-standard);
 }
 .admin-order-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
+}
+.admin-order-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 .admin-order-btn:disabled {
   opacity: 0.2;
