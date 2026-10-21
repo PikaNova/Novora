@@ -45,7 +45,7 @@ test('device binding contract: validates binding, conflict, and plugin rows', ()
       classId: 'c1',
       paired: true,
       viewerLastSeenAt: 20,
-      updatedAt: 30,
+      pluginLastSeenAt: 30,
     }),
     {
       pluginInstanceId: 'plugin-1',
