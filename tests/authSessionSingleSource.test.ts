@@ -15,8 +15,13 @@ const SESSION_MODULE = 'src/services/auth/session.ts';
 /** 鉴权模块自身（session 存凭据、client 发请求）就是「唯一实现的地方」。 */
 const AUTH_MODULE_DIR = 'src/services/auth/';
 
-/** 登录链路本身要能指定令牌（bearerToken 参数），允许这两处自己拼头。 */
-const EXPLICIT_BEARER_ALLOWED = ['src/services/emailAuth.ts', 'src/services/adminUsers.ts'];
+/** 显式传入令牌的通道：登录链路，以及用设备自生成 secret 的运行时日志上传。 */
+const EXPLICIT_BEARER_ALLOWED = [
+  'src/services/emailAuth.ts',
+  'src/services/adminUsers.ts',
+  // 运行时日志用设备本地生成的 secret（novora_runtime_device_secret_v1），与会话令牌无关。
+  'src/services/runtimeLogClient.ts',
+];
 
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
