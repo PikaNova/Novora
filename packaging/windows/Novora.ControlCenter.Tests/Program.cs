@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -21,6 +22,22 @@ try
     File.WriteAllLines(path, Enumerable.Range(0, 400).Select(x => x.ToString()));
     tail = Runtime.ReadLogTail(path);
     Check(tail.Length == 300 && tail[0] == "100" && tail[^1] == "399", "Log line limit");
+    var utf16Lines = new[] { "中文日志一", "中文日志二" };
+    File.WriteAllLines(path, utf16Lines, Encoding.Unicode);
+    tail = Runtime.ReadLogTail(path);
+    Check(tail.SequenceEqual(utf16Lines), "UTF-16 log decoded");
+    var oem = Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage);
+    var oemBytes = new byte[] { 0xB1, 0xED, 0xCA, 0xD4, 0x0D, 0x0A };
+    File.WriteAllBytes(path, oemBytes);
+    tail = Runtime.ReadLogTail(path);
+    Check(tail.Length == 1 && tail[0] == oem.GetString(oemBytes).TrimEnd('\r', '\n'), "OEM log decoded");
+    File.WriteAllLines(path, Enumerable.Range(0, 1000).Select(x => $"日志 {x}: " + new string('汉', 300)), Encoding.Unicode);
+    tail = Runtime.ReadLogTail(path);
+    Check(tail.Length <= 300 && tail[^1].StartsWith("日志 999:"), "Large UTF-16 log has bounded tail");
+    var partialUtf8 = Encoding.UTF8.GetBytes("完整行\n中文");
+    File.WriteAllBytes(path, partialUtf8[..^1]);
+    tail = Runtime.ReadLogTail(path);
+    Check(tail[0] == "完整行", "Partial UTF-8 trailing line does not force OEM decoding");
 }
 finally { File.Delete(path); }
 
