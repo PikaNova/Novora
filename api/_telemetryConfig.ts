@@ -20,6 +20,9 @@ const REPO_COLLECT_URL = '';
 const REPO_ANNOUNCE_URL = '';
 const REPO_ERROR_REPORT_URL = '';
 const REPO_TOKEN_URL = '';
+const REPO_UPDATE_URL = '';
+const REPO_IMAGES_URL = '';
+const REPO_DIAGNOSTIC_URL = '';
 // ============================================================
 
 function pick(envVal: string | undefined, repoVal: string): string {
@@ -35,6 +38,11 @@ export const telemetryConfig = {
   announceUrl: pick(process.env.TELEMETRY_ANNOUNCE_URL, REPO_ANNOUNCE_URL) || `${BASE_URL}/api/public-announcements`,
   errorReportUrl: pick(process.env.TELEMETRY_ERROR_REPORT_URL, REPO_ERROR_REPORT_URL) || `${BASE_URL}/api/error-report`,
   tokenUrl: pick(process.env.TELEMETRY_TOKEN_URL, REPO_TOKEN_URL) || `${BASE_URL}/api/issue-client-token`,
+  // 下面三条此前直接拼 baseUrl，没有独立覆盖位，所以作者端拆域名时它们无法单独迁移。
+  updateUrl: pick(process.env.TELEMETRY_UPDATE_URL, REPO_UPDATE_URL) || `${BASE_URL}/api/releases/latest.json`,
+  imagesUrl: pick(process.env.TELEMETRY_IMAGES_URL, REPO_IMAGES_URL) || `${BASE_URL}/api/announcement-images`,
+  diagnosticUrl:
+    pick(process.env.TELEMETRY_DIAGNOSTIC_URL, REPO_DIAGNOSTIC_URL) || `${BASE_URL}/api/diagnostic-log-bundles`,
 } as const;
 
 export type TelemetryConfig = typeof telemetryConfig;

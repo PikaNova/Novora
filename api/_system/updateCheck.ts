@@ -6,7 +6,8 @@ import { NOVORA_SCHEMA_VERSION } from '../_schemaMigration.js';
 /**
  * 检查更新：优先读作者端发布清单（国内可达），GitHub 只作为兜底。
  * 对外仍是 GET /api/update-check，由 api/system.ts 按 ?sys=update-check 分发。
- * - 发布清单：`GET ${TELEMETRY_BASE_URL}/api/releases/latest.json?channel=stable`
+ * - 发布清单：`GET ${telemetryConfig.updateUrl}?channel=stable`（覆盖位 `TELEMETRY_UPDATE_URL`，
+ *   未覆盖时落在 `baseUrl` 下的 `/api/releases/latest.json`）
  *   返回版本号以及 image / digest / minSchema —— 部署端据此决定拉哪个镜像、校验哪个摘要、
  *   以及当前 schema 是否达标；GitHub 答不了这三个问题，且国内学校网络通常直连不通。
  * - 更新仓库默认 https://github.com/PikaNova/Novora，可用环境变量 GITHUB_REPO 覆盖。
@@ -16,7 +17,6 @@ import { NOVORA_SCHEMA_VERSION } from '../_schemaMigration.js';
 
 const DEFAULT_REPOSITORY_URL = 'https://github.com/PikaNova/Novora';
 const DOCS_UPDATE_URL = 'https://docs.pikachu2026.space/guide/12-maintenance';
-const AUTHOR_MANIFEST_PATH = '/api/releases/latest.json';
 const CACHE_TTL = 5 * 60 * 1000;
 
 /** 发布渠道：默认 stable，可由 NOVORA_RELEASE_CHANNEL=beta 切到内测渠道。 */
@@ -163,7 +163,7 @@ function optionalText(value: unknown, max = 2048): string | null {
 }
 
 async function fetchAuthorManifest(): Promise<AuthorManifest> {
-  const url = `${telemetryConfig.baseUrl}${AUTHOR_MANIFEST_PATH}?channel=${RELEASE_CHANNEL}`;
+  const url = `${telemetryConfig.updateUrl}?channel=${RELEASE_CHANNEL}`;
   const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 8000);
   if (!response.ok) throw new Error(`作者端发布清单 HTTP ${response.status}`);
   const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;

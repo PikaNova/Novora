@@ -63,7 +63,7 @@ export async function sendDiagnosticBundle(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
-    const response = await fetch(`${telemetryConfig.baseUrl}/api/diagnostic-log-bundles`, {
+    const response = await fetch(telemetryConfig.diagnosticUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),

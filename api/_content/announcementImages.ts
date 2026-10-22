@@ -7,7 +7,7 @@ import { telemetryConfig } from '../_telemetryConfig.js';
 //
 // 对外 URL 不变（/api/announcement-images?id=..），由 api/announcements.ts 按「是否带 id」分发：
 // 公告正文里存的是这个绝对路径，所以它必须一直可用。
-const IMAGES_BASE = `${telemetryConfig.baseUrl}/api/announcement-images`;
+const IMAGES_BASE = telemetryConfig.imagesUrl;
 
 export async function handleAnnouncementImages(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
