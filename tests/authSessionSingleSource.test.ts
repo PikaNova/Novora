@@ -15,19 +15,8 @@ const SESSION_MODULE = 'src/services/auth/session.ts';
 /** 鉴权模块自身（session 存凭据、client 发请求）就是「唯一实现的地方」。 */
 const AUTH_MODULE_DIR = 'src/services/auth/';
 
-/** 显式传入令牌的通道：登录链路，以及用设备自生成 secret 的运行时日志上传。 */
-const EXPLICIT_BEARER_ALLOWED = [
-  'src/services/emailAuth.ts',
-  'src/services/adminUsers.ts',
-  // 运行时日志用设备本地生成的 secret（novora_runtime_device_secret_v1），与会话令牌无关。
-  'src/services/runtimeLogClient.ts',
-];
-
-/**
- * 凭据来源就不是会话的文件：runtimeLogClient 带的是本机随机生成的设备密钥，
- * 服务端按 app_runtime_credentials.secret_hash 校验，换成 authHeaders() 会发错凭据。
- */
-const NON_SESSION_BEARER_ALLOWED = ['src/services/runtimeLogClient.ts'];
+/** 显式传入令牌的通道：登录链路自己拼 Authorization。 */
+const EXPLICIT_BEARER_ALLOWED = ['src/services/emailAuth.ts', 'src/services/adminUsers.ts'];
 
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
@@ -66,18 +55,28 @@ test('服务层不再手拼 Bearer，除显式传入令牌的登录链路', () =
       (source, file) =>
         /Bearer \$\{/.test(source) &&
         !relative(file).startsWith(AUTH_MODULE_DIR) &&
-        !EXPLICIT_BEARER_ALLOWED.includes(relative(file)) &&
-        !NON_SESSION_BEARER_ALLOWED.includes(relative(file)),
+        !EXPLICIT_BEARER_ALLOWED.includes(relative(file)),
     ),
     [],
     '带鉴权的请求请走 authHeaders()/apiFetch()，不要自己拼 Authorization',
   );
 });
 
-test('设备日志通道仍只用设备密钥，不接触会话凭据', () => {
-  const source = readFileSync(path.join(process.cwd(), 'src/services/runtimeLogClient.ts'), 'utf8');
-  assert.doesNotMatch(source, /admin_auth_token|getAuthToken|authHeaders|apiFetch/);
-  assert.match(source, /Bearer \$\{secret\}/);
+test('设备日志通道只用设备密钥，不接触会话凭据', () => {
+  const client = readFileSync(path.join(process.cwd(), 'src/services/runtimeLogClient.ts'), 'utf8');
+  assert.doesNotMatch(client, /admin_auth_token|getAuthToken|authHeaders|apiFetch|Bearer \$\{/);
+  assert.match(
+    client,
+    /\.\.\.deviceAuthHeaders\(secret\)/,
+    '设备日志要走 deviceAuthHeaders(secret)，不要退回手拼或会话凭据',
+  );
+
+  const session = readFileSync(path.join(process.cwd(), SESSION_MODULE), 'utf8');
+  const start = session.indexOf('export function deviceAuthHeaders');
+  assert.ok(start >= 0, 'deviceAuthHeaders 必须定义在 auth/session.ts');
+  const body = session.slice(start, session.indexOf('\n}', start) + 2);
+  assert.match(body, /Bearer \$\{secret\}/, '设备通道只认调用方显式传入的 secret');
+  assert.doesNotMatch(body, /AUTH_TOKEN_KEY|getAuthToken/, 'deviceAuthHeaders 不得回落到会话令牌');
 });
 
 test('原先各自读令牌的服务都改从 session 模块取凭据', () => {

@@ -58,6 +58,17 @@ export function authHeaders(extra?: Record<string, string>): Record<string, stri
   return headers;
 }
 
+/**
+ * 设备运行日志的鉴权头。
+ *
+ * 与 `authHeaders()` 的区别是刻意的：凭据由调用方**显式传入**（本机随机生成的
+ * `novora_runtime_device_secret_v1`，服务端按 `app_runtime_credentials.secret_hash` 校验），
+ * 本模块既不读会话令牌、也不在缺省时兜底成会话令牌——串成会话凭据会以管理员身份发设备日志。
+ */
+export function deviceAuthHeaders(secret: string): Record<string, string> {
+  return { Authorization: `Bearer ${secret}` };
+}
+
 /** 写入会话令牌与过期时间，并（可选）写入用户上下文与首次登录提示位。 */
 export function storeAuthSession(
   token: string | null,

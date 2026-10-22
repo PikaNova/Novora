@@ -1,6 +1,7 @@
 import { getInstanceId } from './telemetry';
 import { readRuntimeEvents, flushRuntimeEvents, subscribeRuntimeEvents } from '../utils/runtimeJournal.js';
 import { RUNTIME_BATCH_SIZE, type RuntimeEvent } from '../shared/runtimeLog.js';
+import { deviceAuthHeaders } from './auth/session';
 
 const CURSOR_KEY = 'novora_runtime_upload_cursors_v1';
 const SECRET_KEY = 'novora_runtime_device_secret_v1';
@@ -60,7 +61,7 @@ async function request(resource: string, secret: string, body: Record<string, un
       method: 'POST',
       cache: 'no-store',
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
+      headers: { 'Content-Type': 'application/json', ...deviceAuthHeaders(secret) },
       body: JSON.stringify({ instanceId: getInstanceId(), ...body }),
     });
     const data = await response.json().catch(() => null);
