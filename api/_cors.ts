@@ -19,8 +19,22 @@ function appendVary(res: VercelResponse, value: string): void {
   if (!current.includes(value)) res.setHeader('Vary', [...current, value].join(', '));
 }
 
+function requestHost(req: VercelRequest): string {
+  return (first(req.headers['x-forwarded-host']) || first(req.headers.host)).toLowerCase();
+}
+
+function isSameOrigin(req: VercelRequest, origin: string): boolean {
+  const host = requestHost(req);
+  if (!host) return false;
+  try {
+    return new URL(origin).host.toLowerCase() === host;
+  } catch {
+    return false;
+  }
+}
+
 function allowedOrigins(req: VercelRequest): Set<string> {
-  const host = first(req.headers['x-forwarded-host']) || first(req.headers.host);
+  const host = requestHost(req);
   const protocol =
     first(req.headers['x-forwarded-proto']) ||
     (host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https');
@@ -43,7 +57,10 @@ export function applyCors(req: VercelRequest, res: VercelResponse, options: Cors
   if (options.public) {
     res.setHeader('Access-Control-Allow-Origin', '*');
   } else if (origin) {
-    if (!allowedOrigins(req).has(origin)) {
+    // Same-origin (Origin host === request host) is always allowed, regardless of
+    // http/https: a plain-HTTP LAN deployment has no x-forwarded-proto, so the
+    // protocol heuristic below would otherwise reject its own http origin.
+    if (!allowedOrigins(req).has(origin) && !isSameOrigin(req, origin)) {
       res.status(403).json({ ok: false, code: 'ORIGIN_NOT_ALLOWED', error: 'Request origin is not allowed' });
       return false;
     }
