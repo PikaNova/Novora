@@ -24,7 +24,7 @@ static class UpdateContractTests
 
     public static async Task RunAsync(ReleaseManifest manifest, byte[] bytes, byte[] signature, RSA rsa, string root)
     {
-        var trust = new UpdateTrust("PikaNova/Novora", rsa.ExportSubjectPublicKeyInfoPem(), "https://telemetry.pikachu2026.space");
+        var trust = new UpdateTrust("PikaNova/Novora", rsa.ExportSubjectPublicKeyInfoPem(), "https://update.pikachu2026.space");
         string Envelope(byte[] data, byte[] sig, string version = "2.8.2", string repository = "PikaNova/Novora") =>
             JsonSerializer.Serialize(new { ok = true, source = "author", available = true, platform = "win-x64", channel = "stable", version, repository,
                 manifestBase64 = Convert.ToBase64String(data), signatureBase64 = Convert.ToBase64String(sig) });
@@ -42,6 +42,15 @@ static class UpdateContractTests
         }
 
         Check(!(await Author(empty, "No recommendation")).Available, "No recommendation never falls back to GitHub");
+        using (var handler = new RecordingHandler(_ => Json(empty)))
+        using (var client = new UpdateClient(handler))
+        {
+            var legacyTrust = trust with { AuthorBaseUrl = "https://telemetry.pikachu2026.space" };
+            var legacy = await client.CheckAsync(legacyTrust, "2.8.1", default);
+            Check(!legacy.Available && handler.Requests.Count == 1 &&
+                handler.Requests[0].Url == UpdatePackage.AuthorManifestUri(legacyTrust.AuthorBaseUrl).AbsoluteUri,
+                "Legacy telemetry author host remains accepted");
+        }
         // Preserve formatting and CRLF: verifying a parsed/re-serialized object would fail this signature.
         var raw = Encoding.UTF8.GetBytes(" \r\n" + Encoding.UTF8.GetString(bytes) + "\r\n");
         var rawSignature = rsa.SignData(raw, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -102,7 +111,7 @@ static class UpdateContractTests
         using (var client = new UpdateClient(handler))
             await Reject(async () => { await client.CheckAsync(trust, "2.8.1", default); }, "GitHub fallback rejects tag mismatch");
 
-        foreach (var address in new[] { "http://telemetry.pikachu2026.space", "https://telemetry.pikachu2026.space:444/", "https://telemetry.pikachu2026.space/api/", "https://telemetry.pikachu2026.space/?x=1", "https://telemetry.pikachu2026.space/#fragment", "https://user@telemetry.pikachu2026.space", "https://attacker.example", "" })
+        foreach (var address in new[] { "http://update.pikachu2026.space", "https://update.pikachu2026.space:444/", "https://update.pikachu2026.space/api/", "https://update.pikachu2026.space/?x=1", "https://update.pikachu2026.space/#fragment", "https://user@update.pikachu2026.space", "https://update.pikachu2026.space.evil.example", "https://attacker.example", "" })
         {
             using var handler = new RecordingHandler(_ => Json(empty)); using var client = new UpdateClient(handler);
             await Reject(async () => { await client.CheckAsync(trust with { AuthorBaseUrl = address }, "2.8.1", default); }, "Untrusted author address denied");

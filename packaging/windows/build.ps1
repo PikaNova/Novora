@@ -23,10 +23,11 @@ if ($UpdateTrustFile) {
   $trust = $updateTrustText | ConvertFrom-Json
   if ($trust.repository -ne 'PikaNova/Novora' -or -not $trust.publicKeyPem -or $trust.publicKeyPem -notmatch 'BEGIN PUBLIC KEY') { throw '更新信任配置必须包含 PikaNova/Novora repository 和公钥。' }
   $authorUri = $null
+  $authorHosts = @('update.pikachu2026.space', 'telemetry.pikachu2026.space')
   if (-not $trust.authorBaseUrl -or -not [Uri]::TryCreate([string]$trust.authorBaseUrl, [UriKind]::Absolute, [ref]$authorUri) -or
-      $authorUri.Scheme -ne 'https' -or $authorUri.Host -ne 'telemetry.pikachu2026.space' -or $authorUri.Port -ne 443 -or
+      $authorUri.Scheme -ne 'https' -or $authorHosts -notcontains $authorUri.Host -or $authorUri.Port -ne 443 -or
       $authorUri.AbsolutePath -ne '/' -or $authorUri.UserInfo -or $authorUri.Query -or $authorUri.Fragment) {
-    throw '作者端更新地址必须是 https://telemetry.pikachu2026.space/，且不能包含凭据、额外路径、查询参数或片段。'
+    throw '作者端更新地址必须是 https://update.pikachu2026.space/（兼容 https://telemetry.pikachu2026.space/），且不能包含凭据、额外路径、查询参数或片段。'
   }
 
 }

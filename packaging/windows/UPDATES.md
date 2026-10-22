@@ -9,7 +9,7 @@
 - 独立提权 `updater/NovoraUpdater.exe` 完成预检查、签名及摘要验证、独立解压、数据库保护备份、停服、兼容迁移、版本切换和 90 秒 HTTP/实际版本验证。
 - 签名清单采用 RSA（至少 2048 位）/SHA256/PKCS#1，公钥来自安装目录内管理员维护的 `updater/trust.json`。信任配置缺失、仓库/作者端地址或公钥无效时禁用检查、下载和离线导入/安装；离线包同样必须验证签名。
 - 签名清单可包含 `setup:{url,size,sha256}`。设置页只下载并校验完整安装包，然后在资源管理器中定位，不执行安装程序。应用包不满足 Node、最低应用/更新器版本或数据库兼容要求时禁止安装，可展示完整包入口。
-- 本轮没有创建生产签名密钥、上传 GitHub 资产、修改已安装服务或操作本机现有数据库。在线通道需发行方配置密钥、公钥和首个发布资产后才能实际使用。
+- 生产签名密钥已生成并保存在发行环境的秘密存储（不提交仓库、不进入安装包）；公钥尚未配置到作者端，首个生产签名 Release 也尚未上传。在线通道在完成这两步前保持关闭。
 
 ## 稳定目录
 
@@ -40,14 +40,14 @@
 ```json
 {
   "repository": "PikaNova/Novora",
-  "authorBaseUrl": "https://telemetry.pikachu2026.space",
+  "authorBaseUrl": "https://update.pikachu2026.space",
   "publicKeyPem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
 }
 ```
 
 公钥须在首次带更新能力的完整安装包中随附。私钥保存在发行环境的秘密存储，不提交仓库、不放进安装包，也不在命令行传入私钥内容。密钥轮换需先通过完整包部署新信任配置。已有旧版安装器不具备此机制，必须先安装一次带更新程序与新服务宿主的完整包。
 
-完整安装包构建可传入 `build.ps1 -UpdateTrustFile <可信配置路径>`，将该配置随安装器发布；未传入时通道保持关闭。仓库精确限定 `PikaNova/Novora`；作者端只允许上述 HTTPS 主机、默认 443 端口和根路径，无用户信息、查询或片段。构建保留原始配置的全部字段。
+完整安装包构建可传入 `build.ps1 -UpdateTrustFile <可信配置路径>`，将该配置随安装器发布；未传入时通道保持关闭。仓库精确限定 `PikaNova/Novora`；作者端只允许 `update.pikachu2026.space`（兼容 `telemetry.pikachu2026.space`）、默认 443 端口和根路径，无用户信息、查询或片段。构建保留原始配置的全部字段。
 
 从已完成生产构建的 Windows stage 创建更新包：
 
@@ -74,7 +74,7 @@ stage 的 `package.json` 必须已经是目标版本；目标必须高于最低�
 
 ## 作者端推荐与 GitHub 兜底
 
-首选请求为 `GET https://telemetry.pikachu2026.space/api/release-manifest?platform=win-x64&channel=stable`，每个来源的检查有 30 秒总时限。成功响应要求 `ok:true`、`source:"author"`、布尔 `available`；有推荐时还要求 `version`、`repository`、`manifestBase64`、`signatureBase64`。清单按 Base64 解码后的原始字节验签，不能重新序列化后验证；外层版本、仓库与签名清单及本机信任配置必须一致。
+首选请求为 `GET https://update.pikachu2026.space/api/release-manifest?platform=win-x64&channel=stable`，每个来源的检查有 30 秒总时限。成功响应要求 `ok:true`、`source:"author"`、布尔 `available`；有推荐时还要求 `version`、`repository`、`manifestBase64`、`signatureBase64`。清单按 Base64 解码后的原始字节验签，不能重新序列化后验证；外层版本、仓库与签名清单及本机信任配置必须一致。
 
 | 作者端结果                                | 客户端行为                                |
 | ----------------------------------------- | ----------------------------------------- |
@@ -92,7 +92,7 @@ stage 的 `package.json` 必须已经是目标版本；目标必须高于最低�
 
 默认不开启、不开标识、不发送；只有用户在设置页开启后才生成当前 Windows 用户的随机 UUID。跨 UAC 账号时把该 UUID、尝试 UUID 与来源传给提权更新器，更新器不继承管理员账号自身的偏好。此标识不代表学校/设备业务身份；不同 Windows 用户各自独立。
 
-事件仅发送到 `POST https://telemetry.pikachu2026.space/api/release-manifest?platform=win-x64&resource=events`，字段为 `eventId/installationId/attemptId/stage/currentVersion/targetVersion/errorCode/source`。前三项为 UUID，阶段限于 `check/available/verified/installing/succeeded/failed/rolled-back`；版本为稳定三段版号；错误只用枚举式大写码，不包含异常正文、路径、账号或连接串。`source` 为 `author/github/offline`，旧事件未提供或 null 由作者端按 `unknown` 处理；至少 available/verified 记录实际来源。
+事件仅发送到 `POST https://update.pikachu2026.space/api/release-manifest?platform=win-x64&resource=events`，字段为 `eventId/installationId/attemptId/stage/currentVersion/targetVersion/errorCode/source`。前三项为 UUID，阶段限于 `check/available/verified/installing/succeeded/failed/rolled-back`；版本为稳定三段版号；错误只用枚举式大写码，不包含异常正文、路径、账号或连接串。`source` 为 `author/github/offline`，旧事件未提供或 null 由作者端按 `unknown` 处理；至少 available/verified 记录实际来源。
 
 先持久化本地事件，每个队列最多 100 条、单文件最多 4 KB；整批上报限时 5 秒，失败保留原 eventId 重试，不影响检查/下载/安装的结果。作者端按 eventId 去重，每安装标识每小时限制 100 条。提权队列按发起用户 UUID 隔离，并在操作结束（包括失败）时尝试发送；下次同一用户明确启用统计并发起维护时重试。关闭统计清除普通用户的标识与待发队列，此后不发送；重新启用会生成新标识，不再继续旧提权队列。卸载是否清除安装目录仍由卸载流程决定。
 

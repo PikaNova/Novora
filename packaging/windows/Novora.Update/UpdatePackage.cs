@@ -16,7 +16,12 @@ public static class UpdatePackage
 {
     public const string UpdaterVersion = "1.0.0";
     public const long MaximumPackageBytes = 1024L * 1024 * 1024;
-    public const string AuthorHost = "telemetry.pikachu2026.space";
+    public const string AuthorHost = "update.pikachu2026.space";
+    public const string LegacyAuthorHost = "telemetry.pikachu2026.space";
+
+    private static bool IsAuthorHost(string host) =>
+        string.Equals(host, AuthorHost, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(host, LegacyAuthorHost, StringComparison.OrdinalIgnoreCase);
 
     public static bool SupportsApplicationUpdate(ReleaseManifest manifest, string currentVersion) =>
         manifest.NodeMajor == 24 && manifest.DatabaseMode == "backward-compatible" &&
@@ -87,7 +92,7 @@ public static class UpdatePackage
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidDataException("未配置作者端 Windows 更新地址。");
         if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
             !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
-            !string.Equals(uri.Host, AuthorHost, StringComparison.OrdinalIgnoreCase) ||
+            !IsAuthorHost(uri.Host) ||
             (uri.AbsolutePath is not ("" or "/")))
             throw new InvalidDataException("作者端更新地址不属于受信 HTTPS 服务。");
         return uri;
