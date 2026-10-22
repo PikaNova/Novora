@@ -49,3 +49,4 @@ packaging/windows/Novora.Launcher/obj/
 
 packaging/windows/Novora.ControlCenter.Tests/bin/
 packaging/windows/Novora.ControlCenter.Tests/obj/
+packaging/windows/**/*.bak-*
