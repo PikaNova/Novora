@@ -21,6 +21,8 @@ export const CLASSISLAND_API_CAPABILITIES = [
   'schedule-sync',
   'viewer-link',
   'exam-source',
+  'conditional-sync',
+  'session-history',
 ] as const;
 export const PLUGIN_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;
 export const PLUGIN_SECRET_RE = /^[a-f0-9]{32,256}$/i;
@@ -50,6 +52,19 @@ export function classIslandApiMeta() {
   };
 }
 
+// Include the viewer binding and China calendar day: a matching exam revision alone
+// must never preserve another class's schedule or yesterday's rolling window.
+export function pluginSyncVersion(
+  revision: unknown,
+  gradeId: string,
+  classId: string,
+  viewerId: string,
+  now = Date.now(),
+): string {
+  const day = new Date(now + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return sha256(JSON.stringify([String(revision ?? 0), gradeId, classId, viewerId, day]));
+}
+
 export function classLabel(payload: ExamPayload, gradeId: string, classId: string): string {
   const grades = (Array.isArray(payload.grades) ? payload.grades : []).map(asRecord);
   const classes = (Array.isArray(payload.classes) ? payload.classes : []).map(asRecord);
@@ -72,8 +87,14 @@ export function actorScopeLabel(actor: AdminActor, payload: ExamPayload): string
   return names.join('、') || '未分配范围';
 }
 
-export function resolvePluginExams(payload: ExamPayload, gradeId: string, classId: string) {
+export function resolvePluginExams(
+  payload: ExamPayload,
+  gradeId: string,
+  classId: string,
+  includeCompletedToday = false,
+) {
   const now = Date.now();
+  const dayStart = Math.floor((now + 8 * 60 * 60 * 1000) / 86_400_000) * 86_400_000 - 8 * 60 * 60 * 1000;
   const schedule = resolveEffectiveSchedule(
     {
       scheduleMode: payload.scheduleMode as ScheduleMode,
@@ -92,7 +113,13 @@ export function resolvePluginExams(payload: ExamPayload, gradeId: string, classI
   return schedule.activeItems.flatMap((item) => {
     const start = parseZonedTime(item.startTime);
     const end = parseZonedTime(item.endTime);
-    if (!item.enabled || !Number.isFinite(start) || !Number.isFinite(end) || end <= now - 2 * 60 * 1000) return [];
+    if (
+      !item.enabled ||
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      end <= (includeCompletedToday ? dayStart : now - 2 * 60 * 1000)
+    )
+      return [];
     const source = item as typeof item & {
       kind?: string;
       majorName?: string;

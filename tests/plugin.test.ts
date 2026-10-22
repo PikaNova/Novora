@@ -8,6 +8,7 @@ import {
   classLabel,
   equalHash,
   pluginCredentials,
+  pluginSyncVersion,
   resolvePluginExams,
   sha256,
 } from '../api/_exams/plugin.js';
@@ -120,6 +121,38 @@ test('classIslandApiMeta reports the declared version and capabilities', () => {
   assert.equal(meta.apiVersion, CLASSISLAND_API_VERSION);
   assert.equal(meta.minApiVersion, 1);
   assert.deepEqual(meta.capabilities, CLASSISLAND_API_CAPABILITIES);
+});
+
+test('conditional version invalidates on data revision, binding, viewer and China midnight', () => {
+  const before = Date.parse('2026-10-18T23:59:59+08:00');
+  const version = pluginSyncVersion(100, 'g1', 'c1', 'viewer1', before);
+  assert.equal(version, pluginSyncVersion('100', 'g1', 'c1', 'viewer1', before - 1000));
+  assert.notEqual(version, pluginSyncVersion(101, 'g1', 'c1', 'viewer1', before));
+  assert.notEqual(version, pluginSyncVersion(100, 'g2', 'c1', 'viewer1', before));
+  assert.notEqual(version, pluginSyncVersion(100, 'g1', 'c2', 'viewer1', before));
+  assert.notEqual(version, pluginSyncVersion(100, 'g1', 'c1', 'viewer2', before));
+  assert.notEqual(version, pluginSyncVersion(100, 'g1', 'c1', 'viewer1', before + 1000));
+});
+
+test('session history retains completed exams today while legacy clients keep the old window', () => {
+  const originalNow = Date.now;
+  Date.now = () => Date.parse('2026-10-18T10:00:00+08:00');
+  try {
+    const payload = payloadWithMajor({
+      id: 'am1',
+      name: 'Math',
+      startTime: '2026-10-18T08:00',
+      endTime: '2026-10-18T09:00',
+      enabled: true,
+      order: 0,
+    });
+    assert.equal(resolvePluginExams(payload, 'grade-1', 'class-1').length, 0);
+    assert.equal(resolvePluginExams(payload, 'grade-1', 'class-1', true).length, 1);
+    Date.now = () => Date.parse('2026-10-19T10:00:00+08:00');
+    assert.equal(resolvePluginExams(payload, 'grade-1', 'class-1', true).length, 0);
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test('classLabel joins matched grade and class names', () => {

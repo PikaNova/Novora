@@ -37,3 +37,4 @@ packaging/windows/Novora.ServiceHost/obj/
 packaging/windows/Novora.ControlCenter.Tests/bin/
 packaging/windows/Novora.ControlCenter.Tests/obj/
 packaging/windows/**/*.bak-*
+.integration-check/
