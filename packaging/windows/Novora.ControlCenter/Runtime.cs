@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -7,6 +8,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Unicode;
 
 namespace Novora.ControlCenter;
 
@@ -20,6 +22,9 @@ internal sealed record OperationProgress(string Stage, string Item, string Statu
 internal static class Runtime
 {
     private static readonly HttpClient Http = new(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(3) };
+
+    static Runtime() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
     public static string Root { get; } = Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar);
     public static string Data { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Novora");
 
@@ -212,15 +217,47 @@ internal static class Runtime
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var length = stream.Length;
+        var header = new byte[4];
+        var headerLength = stream.Read(header, 0, header.Length);
+        stream.Position = 0;
+        var knownEncoding = DetectLogBom(header.AsSpan(0, headerLength));
         var skipFirst = length > 128 * 1024;
-        if (skipFirst) stream.Seek(-128 * 1024, SeekOrigin.End);
-        var buffer = new byte[(int)Math.Min(length, 128 * 1024)];
+        var start = skipFirst ? length - 128 * 1024 : 0;
+        // A UTF-16 tail must start on a code-unit boundary, not inside a surrogate.
+        if (knownEncoding is UnicodeEncoding && (start & 1) != 0) start++;
+        stream.Seek(start, SeekOrigin.Begin);
+        var buffer = new byte[(int)(length - start)];
         var count = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-        using var reader = new StringReader(Encoding.UTF8.GetString(buffer, 0, count));
+        var encoding = knownEncoding ?? DetectLogEncoding(buffer.AsSpan(0, count), skipFirst);
+        var text = encoding.GetString(buffer, 0, count);
+        if (text.StartsWith('\uFEFF')) text = text[1..];
+        using var reader = new StringReader(text);
         if (skipFirst) reader.ReadLine();
         var lines = new Queue<string>(300);
         while (reader.ReadLine() is { } line) { if (lines.Count == 300) lines.Dequeue(); lines.Enqueue(line); }
         return lines.ToArray();
+    }
+
+    private static Encoding? DetectLogBom(ReadOnlySpan<byte> header) =>
+        header.Length >= 3 && header[0] == 0xEF && header[1] == 0xBB && header[2] == 0xBF ? new UTF8Encoding(false) :
+        header.Length >= 2 && header[0] == 0xFF && header[1] == 0xFE ? Encoding.Unicode :
+        header.Length >= 2 && header[0] == 0xFE && header[1] == 0xFF ? Encoding.BigEndianUnicode : null;
+
+    private static Encoding DetectLogEncoding(ReadOnlySpan<byte> bytes, bool trimmed)
+    {
+        // BOM-less UTF-16: alternating NUL bytes are the reliable signal.
+        if (bytes.Length >= 4 && bytes[1] == 0 && bytes[3] == 0 && bytes[0] != 0) return Encoding.Unicode;
+        if (bytes.Length >= 4 && bytes[0] == 0 && bytes[2] == 0 && bytes[1] != 0) return Encoding.BigEndianUnicode;
+        var start = 0;
+        if (trimmed) while (start < Math.Min(3, bytes.Length) && (bytes[start] & 0xC0) == 0x80) start++;
+        // The writer may be mid-line while this tail is read; a partial trailing
+        // character must not flip the whole file to the OEM fallback.
+        var end = bytes.Length;
+        var lastNewline = bytes.LastIndexOf((byte)'\n');
+        if (lastNewline >= start) end = lastNewline + 1;
+        if (Utf8.IsValid(bytes[start..end])) return new UTF8Encoding(false);
+        try { return Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage); }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException) { return Encoding.Latin1; }
     }
 
     public static BackupFile[] ReadBackups()

@@ -19,6 +19,16 @@ public class CLASSNAME {
       for (int i=0; i<128; i++) { Console.Out.WriteLine(line); Console.Error.WriteLine(line); }
       Console.Out.WriteLine("stdout-complete"); Console.Error.WriteLine("stderr-complete"); return 0;
     }
+    if (args.Length > 0 && args[0] == "utf8") {
+      byte[] bytes = Encoding.UTF8.GetBytes("中文输出");
+      using (var output = Console.OpenStandardOutput()) output.Write(bytes, 0, bytes.Length);
+      return 0;
+    }
+    if (args.Length > 0 && args[0] == "oem") {
+      byte[] bytes = new byte[] { 0xB1, 0xED, 0xCA, 0xD4 };
+      using (var output = Console.OpenStandardOutput()) output.Write(bytes, 0, bytes.Length);
+      return 0;
+    }
     foreach (string arg in args) Console.Out.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(arg)));
     Console.Error.WriteLine("fixture-stderr"); return 7;
   }
@@ -35,6 +45,12 @@ try {
   Assert (($actual -join '|') -eq ($expected -join '|')) 'empty, whitespace, apostrophe, quote, trailing slash, Unicode and shell-looking arguments round-trip exactly'
   $flood = Invoke-NovoraNative $exe @('flood')
   Assert ($flood.ExitCode -eq 0 -and $flood.Output.Contains('stdout-complete') -and $flood.Output.Contains('stderr-complete')) 'simultaneous stdout and stderr above pipe capacity drain without deadlock'
+  $utf8 = Invoke-NovoraNative $exe @('utf8')
+  Assert ($utf8.ExitCode -eq 0 -and $utf8.Output -eq '中文输出') 'UTF-8 native output decodes unchanged'
+  $oemBytes = [byte[]](0xB1, 0xED, 0xCA, 0xD4)
+  $oemExpected = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage).GetString($oemBytes)
+  $oem = Invoke-NovoraNative $exe @('oem')
+  Assert ($oem.ExitCode -eq 0 -and $oem.Output -eq $oemExpected) 'OEM-encoded native output decodes with the active console code page'
   $watch = [Diagnostics.Stopwatch]::StartNew()
   $timedOut = $false
   try { Invoke-NovoraNative $exe @('wait') -TimeoutSeconds 1 | Out-Null } catch { $timedOut = $true }

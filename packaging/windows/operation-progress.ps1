@@ -150,6 +150,37 @@ function Start-NovoraUserInterface {
   return Start-NovoraShellShortcut $shortcutPath
 }
 
+function Read-NovoraNativeOutput {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $bytes = [IO.File]::ReadAllBytes($Path)
+  if ($bytes.Length -eq 0) { return '' }
+  if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+    return [Text.Encoding]::UTF8.GetString($bytes, 3, $bytes.Length - 3)
+  }
+  if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
+    return [Text.Encoding]::Unicode.GetString($bytes, 2, $bytes.Length - 2)
+  }
+  if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
+    return [Text.Encoding]::BigEndianUnicode.GetString($bytes, 2, $bytes.Length - 2)
+  }
+  # BOM-less UTF-16: alternating NUL bytes are the reliable signal.
+  if ($bytes.Length -ge 4 -and $bytes[1] -eq 0 -and $bytes[3] -eq 0 -and $bytes[0] -ne 0) {
+    return [Text.Encoding]::Unicode.GetString($bytes)
+  }
+  if ($bytes.Length -ge 4 -and $bytes[0] -eq 0 -and $bytes[2] -eq 0 -and $bytes[1] -ne 0) {
+    return [Text.Encoding]::BigEndianUnicode.GetString($bytes)
+  }
+  try {
+    return [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+  } catch [System.Text.DecoderFallbackException] {
+    # Native Windows tools (initdb, psql, pg_dump, sc) write the console code page,
+    # e.g. CP936 on zh-CN. UTF-8 tools decode above; everything else falls back here.
+    $codePage = [Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage
+    try { return [Text.Encoding]::GetEncoding($codePage).GetString($bytes) }
+    catch { return [Text.Encoding]::GetEncoding(0).GetString($bytes) }
+  }
+}
+
 function Invoke-NovoraNative {
   param([string]$FilePath, [string[]]$Arguments, [ValidateRange(1,3600)][int]$TimeoutSeconds = 60)
   $directory = Join-Path ([IO.Path]::GetTempPath()) ('novora-command-' + [Guid]::NewGuid().ToString('N'))
@@ -177,8 +208,8 @@ function Invoke-NovoraNative {
       }
     }
     $child.Refresh()
-    $output = [IO.File]::ReadAllText($stdout)
-    $errorOutput = [IO.File]::ReadAllText($stderr)
+    $output = Read-NovoraNativeOutput $stdout
+    $errorOutput = Read-NovoraNativeOutput $stderr
     return @{ ExitCode = $child.ExitCode; Output = ($output + $errorOutput).TrimEnd() }
   } finally {
     if ($child) { $child.Dispose() }

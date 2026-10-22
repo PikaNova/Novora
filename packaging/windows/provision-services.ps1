@@ -117,7 +117,15 @@ function Initialize-BundledPostgres([string]$PostgresRoot, [string]$DataRoot, [s
       throw "数据库目录非空但缺少 PG_VERSION，可能存在未完成的初始化。已保留目录，请检查后重试：$pgData"
     }
     Write-NovoraProgress -Stage database -Item '首次初始化 PostgreSQL 数据目录'
-    $initialized = Invoke-NovoraNative $initdb @("-D", $pgData, "-U", "novora", "--pwfile", $dbPasswordPath, "--encoding=UTF8", "--locale=C") -TimeoutSeconds 120
+    # initdb drops the Administrators group via a restricted token on Windows, so the
+    # hardened .db-password is unreadable to it. Feed it a transient copy instead.
+    $initdbPasswordPath = Join-Path ([IO.Path]::GetTempPath()) ('novora-initdb-' + [Guid]::NewGuid().ToString('N') + '.txt')
+    try {
+      [IO.File]::WriteAllText($initdbPasswordPath, $Password, [Text.Encoding]::ASCII)
+      $initialized = Invoke-NovoraNative $initdb @("-D", $pgData, "-U", "novora", "--pwfile", $initdbPasswordPath, "--encoding=UTF8", "--locale=C") -TimeoutSeconds 120
+    } finally {
+      Remove-Item -LiteralPath $initdbPasswordPath -Force -ErrorAction SilentlyContinue
+    }
     if ($initialized.ExitCode -ne 0) { throw "PostgreSQL initdb 失败（退出码 $($initialized.ExitCode)）：$($initialized.Output)" }
     Add-Content -Path (Join-Path $pgData "postgresql.conf") -Value "port = $Port`nlisten_addresses = '127.0.0.1'"
     Set-Content -Path (Join-Path $pgData "pg_hba.conf") -Value @(

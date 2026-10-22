@@ -30,6 +30,24 @@ try {
   [IO.File]::WriteAllText((Join-Path $root 'password'), $password)
   $init = Invoke-NovoraNative (Join-Path $pg 'initdb.exe') @('-D', $cluster, '-U', 'novora', '--pwfile', (Join-Path $root 'password'), '--auth=scram-sha-256', '--encoding=UTF8', '--locale=C')
   Assert ($init.ExitCode -eq 0) 'isolated PostgreSQL initialized'
+  # Regression: initdb drops the Administrators group on Windows, so provisioning must
+  # not hand it the hardened .db-password. Exercise the production function, not a copy.
+  $freshRoot = Join-Path $root 'fresh-provision'
+  New-Item -ItemType Directory -Force -Path (Join-Path $freshRoot 'config') | Out-Null
+  $freshPassword = Join-Path $freshRoot 'config\.db-password'
+  [IO.File]::WriteAllText($freshPassword, $password, [Text.Encoding]::ASCII)
+  Protect-NovoraCredentialFile $freshPassword
+  function Get-Service { param($Name, $ErrorAction) return $null }
+  function New-Service { param($Name, $BinaryPathName, $DisplayName, $Description, $StartupType, $Credential) }
+  function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) return $null }
+  try {
+    $postgresServiceName = 'NovoraPostgreSQL'
+    $DatabaseStartupType = 'Manual'
+    Initialize-BundledPostgres (Split-Path $pg -Parent) $freshRoot $password $port | Out-Null
+  } finally {
+    Remove-Item Function:\Get-Service, Function:\New-Service, Function:\Get-CimInstance -ErrorAction SilentlyContinue
+  }
+  Assert (Test-Path -LiteralPath (Join-Path $freshRoot 'postgres-data\PG_VERSION')) 'production provisioning initializes PostgreSQL from a hardened credential file'
   $version = [IO.File]::ReadAllText((Join-Path $cluster 'PG_VERSION'))
   [IO.File]::WriteAllText((Join-Path $cluster 'preserve.marker'), 'existing-data')
   $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
