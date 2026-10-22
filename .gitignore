@@ -28,8 +28,24 @@ server-build/
 data/
 
 # Windows release staging and installer output.
+artifacts/
+packaging/windows/artifacts/
+packaging/windows/**/bin/
+packaging/windows/**/obj/
 artifacts/windows/
+artifacts/windows-2.8.1/
 packaging/windows/Novora.ServiceHost/bin/
 packaging/windows/Novora.ServiceHost/obj/
+packaging/windows/Novora.ControlCenter/bin/
+packaging/windows/Novora.ControlCenter/obj/
+packaging/windows/Novora.Tray/bin/
+packaging/windows/Novora.Tray/obj/
+packaging/windows/Novora.Ui/bin/
+packaging/windows/Novora.Ui/obj/
+packaging/windows/Novora.Launcher/bin/
+packaging/windows/Novora.Launcher/obj/
 .tmp-windows-host-publish/
 .tmp-tray-publish/
+
+packaging/windows/Novora.ControlCenter.Tests/bin/
+packaging/windows/Novora.ControlCenter.Tests/obj/
