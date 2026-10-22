@@ -1,4 +1,4 @@
-import { telemetryConfig } from './_telemetryConfig.js';
+import { normalizeServiceBase, resolveTelemetryUrls, telemetryConfig } from './_telemetryConfig.js';
 
 export interface AuthorRemoteConfig {
   telemetryEnabled: boolean;
@@ -8,6 +8,11 @@ export interface AuthorRemoteConfig {
   latestVersion: string;
   latestRepoUrl: string;
   backupBaseUrl: string;
+  /** 各服务基址覆盖位；空串表示未覆盖，回落到 REPO_* / 内置地址。 */
+  updateBaseUrl: string;
+  ingestBaseUrl: string;
+  contentBaseUrl: string;
+  authBaseUrl: string;
   disabledVersions: string[];
   updatedAt: number;
 }
@@ -20,9 +25,22 @@ const DEFAULT_CONFIG: AuthorRemoteConfig = {
   latestVersion: '',
   latestRepoUrl: '',
   backupBaseUrl: '',
+  updateBaseUrl: '',
+  ingestBaseUrl: '',
+  contentBaseUrl: '',
+  authBaseUrl: '',
   disabledVersions: [],
   updatedAt: 0,
 };
+
+/** 只接受干净的 https origin；作者端已过滤，这里再防一次被篡改的响应。 */
+function serviceUrls(config: AuthorRemoteConfig): Parameters<typeof resolveTelemetryUrls>[0] {
+  return {
+    updateBaseUrl: normalizeServiceBase(config.updateBaseUrl),
+    ingestBaseUrl: normalizeServiceBase(config.ingestBaseUrl),
+    contentBaseUrl: normalizeServiceBase(config.contentBaseUrl),
+  };
+}
 
 let configCache: { value: AuthorRemoteConfig; at: number } | null = null;
 const CONFIG_TTL_MS = 15 * 60 * 1000;
@@ -36,7 +54,15 @@ export async function getAuthorConfig(): Promise<AuthorRemoteConfig> {
     clearTimeout(timeout);
     if (!response.ok) throw new Error(`status ${response.status}`);
     const data = await response.json();
-    const config: AuthorRemoteConfig = { ...DEFAULT_CONFIG, ...(data?.config || {}) };
+    const incoming = (data?.config || {}) as Partial<AuthorRemoteConfig>;
+    const config: AuthorRemoteConfig = {
+      ...DEFAULT_CONFIG,
+      ...incoming,
+      updateBaseUrl: normalizeServiceBase(incoming.updateBaseUrl),
+      ingestBaseUrl: normalizeServiceBase(incoming.ingestBaseUrl),
+      contentBaseUrl: normalizeServiceBase(incoming.contentBaseUrl),
+      authBaseUrl: normalizeServiceBase(incoming.authBaseUrl),
+    };
     configCache = { value: config, at: Date.now() };
     return config;
   } catch {
@@ -58,9 +84,10 @@ export async function getIngestToken(channel: 'v1' | 'v2', instanceId: string): 
   const cached = tokenCache.get(key);
   if (cached && cached.expiresAt - Date.now() > TOKEN_SAFETY_MARGIN_MS) return cached.token;
   try {
+    const config = await getAuthorConfig();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4_000);
-    const response = await fetch(telemetryConfig.tokenUrl, {
+    const response = await fetch(resolveTelemetryUrls(serviceUrls(config)).tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instanceId, channel }),

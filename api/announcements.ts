@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { telemetryConfig } from './_telemetryConfig.js';
+import { getAuthorConfig } from './_authorClient.js';
+import { resolveTelemetryUrls } from './_telemetryConfig.js';
 import { handleAnnouncementImages } from './_content/announcementImages.js';
 import { resolveSubRoute } from './_routeMatch.js';
 
@@ -10,8 +11,6 @@ import { resolveSubRoute } from './_routeMatch.js';
 //
 // /api/announcement-images（公告图片同源代理）也由本入口承载：公告正文里存的是它的绝对路径，
 // 所以这个 URL 必须一直可用，改成 rewrite 别名并合并进本文件只是为了少占一个 Vercel Function。
-const ANNOUNCE_URL = telemetryConfig.announceUrl;
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 图片代理与公告列表共用本入口，判据按可靠性排序：
   // 1) 本地/内网部署保留原始 URL，末段仍是 announcement-images（此时缺 id 也要按图片协议回 400）；
@@ -37,7 +36,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
     const limit = Math.min(Math.max(Number(rawLimit) || 20, 1), 50);
-    const r = await fetch(`${ANNOUNCE_URL}?limit=${limit}`, {
+    const config = await getAuthorConfig();
+    const announceUrl = resolveTelemetryUrls({
+      updateBaseUrl: config.updateBaseUrl,
+      ingestBaseUrl: config.ingestBaseUrl,
+      contentBaseUrl: config.contentBaseUrl,
+    }).announceUrl;
+    const r = await fetch(`${announceUrl}?limit=${limit}`, {
       headers: { Accept: 'application/json' },
     });
     if (!r.ok) {
@@ -45,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     const data = await r.json();
-    const imgOrigin = new URL(ANNOUNCE_URL).origin;
+    const imgOrigin = new URL(announceUrl).origin;
     // 图片改走同源代理：把绝对遥测台地址改回相对路径（相对路径不变）
     const toSameOrigin = (c: unknown) =>
       typeof c === 'string' ? c.split(`](${imgOrigin}/api/announcement-images`).join('](/api/announcement-images') : c;

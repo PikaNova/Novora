@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { telemetryConfig } from '../_telemetryConfig.js';
+import { getAuthorConfig } from '../_authorClient.js';
+import { resolveTelemetryUrls } from '../_telemetryConfig.js';
 
 // 同源图片代理：把公告正文里的 /api/announcement-images?id=.. 转发到作者端遥测台的同名接口。
 // 目的：让浏览器始终「同源」加载公告图片 —— 不受客户端域名变化影响（换域名后不再裂图），
@@ -7,8 +8,6 @@ import { telemetryConfig } from '../_telemetryConfig.js';
 //
 // 对外 URL 不变（/api/announcement-images?id=..），由 api/announcements.ts 按「是否带 id」分发：
 // 公告正文里存的是这个绝对路径，所以它必须一直可用。
-const IMAGES_BASE = telemetryConfig.imagesUrl;
-
 export async function handleAnnouncementImages(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     res.status(405).json({ ok: false, error: 'method_not_allowed' });
@@ -21,7 +20,13 @@ export async function handleAnnouncementImages(req: VercelRequest, res: VercelRe
     return;
   }
   try {
-    const upstream = await fetch(`${IMAGES_BASE}?id=${encodeURIComponent(id)}`, {
+    const config = await getAuthorConfig();
+    const imagesUrl = resolveTelemetryUrls({
+      updateBaseUrl: config.updateBaseUrl,
+      ingestBaseUrl: config.ingestBaseUrl,
+      contentBaseUrl: config.contentBaseUrl,
+    }).imagesUrl;
+    const upstream = await fetch(`${imagesUrl}?id=${encodeURIComponent(id)}`, {
       headers: { Accept: 'image/*' },
     });
     if (!upstream.ok) {
