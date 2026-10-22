@@ -1,6 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+function decodeQueryComponent(raw: string): string {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, ' '));
+  } catch {
+    // Malformed percent-encoding (e.g. ?q=%zz) must not reach serve.ts as a bare URIError,
+    // which would be reported as 500; statusCode is mapped to the response instead.
+    throw Object.assign(new Error('invalid_query'), { statusCode: 400 });
+  }
+}
+
 export function parseQuery(search: string): Record<string, string | string[]> {
   const result: Record<string, string | string[]> = {};
   if (!search) return result;
@@ -9,8 +19,8 @@ export function parseQuery(search: string): Record<string, string | string[]> {
     const eq = pair.indexOf('=');
     const rawKey = eq >= 0 ? pair.slice(0, eq) : pair;
     const rawValue = eq >= 0 ? pair.slice(eq + 1) : '';
-    const key = decodeURIComponent(rawKey.replace(/\+/g, ' '));
-    const value = decodeURIComponent(rawValue.replace(/\+/g, ' '));
+    const key = decodeQueryComponent(rawKey);
+    const value = decodeQueryComponent(rawValue);
     const existing = result[key];
     if (existing === undefined) result[key] = value;
     else if (Array.isArray(existing)) existing.push(value);
@@ -32,10 +42,20 @@ export function parseCookies(header: string): Record<string, string> {
   return result;
 }
 
+export const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
 export async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > MAX_BODY_BYTES) {
+      // Abruptly leaving the for-await destroys the request stream, so no further
+      // body bytes are buffered; serve.ts maps the statusCode to a 413 response.
+      throw Object.assign(new Error('request body too large'), { statusCode: 413 });
+    }
+    chunks.push(buffer);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw) return undefined;
@@ -44,7 +64,9 @@ export async function readBody(req: IncomingMessage): Promise<unknown> {
     try {
       return JSON.parse(raw);
     } catch {
-      return raw;
+      // Returning `raw` here handed handlers a string and produced confusing downstream
+      // errors; serve.ts maps this statusCode to a 400 the client can act on.
+      throw Object.assign(new Error('invalid_json_body'), { statusCode: 400 });
     }
   }
   if (type.includes('application/x-www-form-urlencoded')) {

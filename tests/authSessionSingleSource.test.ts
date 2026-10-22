@@ -23,6 +23,12 @@ const EXPLICIT_BEARER_ALLOWED = [
   'src/services/runtimeLogClient.ts',
 ];
 
+/**
+ * 凭据来源就不是会话的文件：runtimeLogClient 带的是本机随机生成的设备密钥，
+ * 服务端按 app_runtime_credentials.secret_hash 校验，换成 authHeaders() 会发错凭据。
+ */
+const NON_SESSION_BEARER_ALLOWED = ['src/services/runtimeLogClient.ts'];
+
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -60,11 +66,18 @@ test('服务层不再手拼 Bearer，除显式传入令牌的登录链路', () =
       (source, file) =>
         /Bearer \$\{/.test(source) &&
         !relative(file).startsWith(AUTH_MODULE_DIR) &&
-        !EXPLICIT_BEARER_ALLOWED.includes(relative(file)),
+        !EXPLICIT_BEARER_ALLOWED.includes(relative(file)) &&
+        !NON_SESSION_BEARER_ALLOWED.includes(relative(file)),
     ),
     [],
     '带鉴权的请求请走 authHeaders()/apiFetch()，不要自己拼 Authorization',
   );
+});
+
+test('设备日志通道仍只用设备密钥，不接触会话凭据', () => {
+  const source = readFileSync(path.join(process.cwd(), 'src/services/runtimeLogClient.ts'), 'utf8');
+  assert.doesNotMatch(source, /admin_auth_token|getAuthToken|authHeaders|apiFetch/);
+  assert.match(source, /Bearer \$\{secret\}/);
 });
 
 test('原先各自读令牌的服务都改从 session 模块取凭据', () => {

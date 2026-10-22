@@ -198,7 +198,7 @@ export async function handleRuntimeLogs(req: VercelRequest, res: VercelResponse,
       ),
       sql`SELECT d.instance_id,d.page,d.client_version,d.last_seen_at,d.revoked FROM device_instances d ORDER BY last_seen_at DESC LIMIT 2000`,
     ]);
-    const last = page.at(-1);
+    const last = page[page.length - 1];
     res.json({
       ok: true,
       fetchedAt: Date.now(),
