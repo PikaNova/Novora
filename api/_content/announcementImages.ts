@@ -8,6 +8,14 @@ import { resolveTelemetryUrls } from '../_telemetryConfig.js';
 //
 // 对外 URL 不变（/api/announcement-images?id=..），由 api/announcements.ts 按「是否带 id」分发：
 // 公告正文里存的是这个绝对路径，所以它必须一直可用。
+
+const UPSTREAM_TIMEOUT_MS = 10_000;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+function isImageContentType(value: string): boolean {
+  return /^image\/[a-z0-9.+-]+(?:\s*;.*)?$/i.test(value.trim());
+}
+
 export async function handleAnnouncementImages(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     res.status(405).json({ ok: false, error: 'method_not_allowed' });
@@ -28,17 +36,35 @@ export async function handleAnnouncementImages(req: VercelRequest, res: VercelRe
     }).imagesUrl;
     const upstream = await fetch(`${imagesUrl}?id=${encodeURIComponent(id)}`, {
       headers: { Accept: 'image/*' },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     if (!upstream.ok) {
       res.status(502).json({ ok: false, error: 'upstream_failed', status: upstream.status });
       return;
     }
-    const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+    const contentType = upstream.headers.get('content-type') ?? '';
+    if (!isImageContentType(contentType)) {
+      res.status(502).json({ ok: false, error: 'upstream_invalid_type' });
+      return;
+    }
+    const declaredLength = Number(upstream.headers.get('content-length') ?? Number.NaN);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_IMAGE_BYTES) {
+      res.status(502).json({ ok: false, error: 'upstream_too_large' });
+      return;
+    }
     const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > MAX_IMAGE_BYTES) {
+      res.status(502).json({ ok: false, error: 'upstream_too_large' });
+      return;
+    }
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
     res.status(200).send(buf);
   } catch (e) {
+    if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      res.status(504).json({ ok: false, error: 'upstream_timeout' });
+      return;
+    }
     res.status(500).json({ ok: false, error: (e as Error).message });
   }
 }

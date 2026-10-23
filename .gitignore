@@ -1,5 +1,7 @@
 node_modules/
 dist/
+__pycache__/
+*.pyc
 dist-ui-check/
 .api-check/
 .test-check/
@@ -31,6 +33,8 @@ data/
 artifacts/windows/
 packaging/windows/Novora.ServiceHost/bin/
 packaging/windows/Novora.ServiceHost/obj/
+packaging/windows/**/bin/
+packaging/windows/**/obj/
 .tmp-windows-host-publish/
 .tmp-tray-publish/
 
