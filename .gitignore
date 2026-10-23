@@ -29,4 +29,16 @@ CHANGELIST.md
 server-build/
 data/
 
+# Windows release staging and installer output.
+artifacts/windows/
+packaging/windows/Novora.ServiceHost/bin/
+packaging/windows/Novora.ServiceHost/obj/
+packaging/windows/**/bin/
+packaging/windows/**/obj/
+.tmp-windows-host-publish/
+.tmp-tray-publish/
+
+packaging/windows/Novora.ControlCenter.Tests/bin/
+packaging/windows/Novora.ControlCenter.Tests/obj/
+packaging/windows/**/*.bak-*
 .integration-check/
