@@ -14,15 +14,23 @@ const server = createServer(async (req, res) => {
   const started = performance.now();
   const requestId = `request_${randomUUID()}`;
   res.setHeader('X-Request-Id', requestId);
+  let pathname: string;
+  try {
+    pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+  } catch {
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ ok: false, error: 'invalid_url' }));
+    return;
+  }
   res.once('finish', () => {
     const durationMs = Math.round(performance.now() - started);
     if (res.statusCode >= 400) requestStats.failed += 1;
-    const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     // Dashboard polling and log ingestion do not recursively generate successful log events.
     if (res.statusCode >= 400 || durationMs >= 4000)
       logServer(
         res.statusCode >= 400 ? 'server.request.failed' : 'server.request.slow',
-        { endpoint: path, method: req.method || 'GET', status: res.statusCode, durationMs },
+        { endpoint: pathname, method: req.method || 'GET', status: res.statusCode, durationMs },
         res.statusCode >= 500 ? 'error' : 'warn',
         '接口失败或响应缓慢',
         requestId,
@@ -37,8 +45,6 @@ const server = createServer(async (req, res) => {
     requestStats.failed = 0;
   }
   requestStats.total += 1;
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  const pathname = url.pathname;
   try {
     if (pathname.startsWith('/api/')) {
       const handled = await handleApiRequest(req, res, pathname);
@@ -59,7 +65,11 @@ const server = createServer(async (req, res) => {
       requestId,
     );
     if (!res.headersSent) {
-      res.statusCode = 500;
+      const statusCode =
+        typeof (error as { statusCode?: unknown }).statusCode === 'number'
+          ? (error as { statusCode: number }).statusCode
+          : 500;
+      res.statusCode = statusCode;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(
         JSON.stringify({

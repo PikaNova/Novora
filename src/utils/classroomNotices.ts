@@ -1,5 +1,6 @@
 import type { ExamItem } from '../types';
 import type { NoticeTone } from '../services/notify';
+import { getZonedParts, parseZonedTime } from './zonedTime';
 
 /**
  * 教室端的「后台动作提示」。
@@ -102,8 +103,8 @@ export function classroomSnapshotOf(input: ClassroomSnapshotInput): ClassroomExa
   if (!enabled.length) return null;
   const parsed = enabled.map((item) => ({
     item,
-    start: new Date(item.startTime).getTime(),
-    end: new Date(item.endTime).getTime(),
+    start: parseZonedTime(String(item.startTime)),
+    end: parseZonedTime(String(item.endTime)),
   }));
   const pausedAtOf = (value: unknown): number | null => {
     const parsedValue = num(value);
@@ -151,8 +152,8 @@ export function classroomSnapshotOf(input: ClassroomSnapshotInput): ClassroomExa
 }
 
 const hhmm = (value: number): string => {
-  const date = new Date(value);
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const { hour, minute } = getZonedParts(value);
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 };
 
 const minutesOf = (ms: number): number => Math.max(1, Math.round(ms / 60_000));
@@ -298,9 +299,8 @@ export function reconcileClassroomNotices(
   }
   const major = majors.find((entry) => String(entry.id ?? '') === previous.examId);
   const disabledItem = major?.items?.find((item) => String(item.id ?? '') === previous.itemId);
-  const updatedItemStartAt =
-    disabledItem?.startTime == null ? null : new Date(String(disabledItem.startTime)).getTime();
-  const updatedItemEndAt = disabledItem?.endTime == null ? null : new Date(String(disabledItem.endTime)).getTime();
+  const updatedItemStartAt = disabledItem?.startTime == null ? null : parseZonedTime(String(disabledItem.startTime));
+  const updatedItemEndAt = disabledItem?.endTime == null ? null : parseZonedTime(String(disabledItem.endTime));
   const itemTimeChanged =
     (updatedItemStartAt != null &&
       Number.isFinite(updatedItemStartAt) &&

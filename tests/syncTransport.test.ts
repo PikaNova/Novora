@@ -90,6 +90,8 @@ function harness(outcomes: Array<HeartbeatOutcome | Error>) {
     onCommand: (command: DeviceCommand) => events.push(`command:${command.id}`),
     onBinding: (binding: DeviceBinding) => events.push(`binding:${binding.classId}`),
     onRevoked: () => events.push('revoked'),
+    onTimeControl: (control: NonNullable<HeartbeatOutcome['timeControl']>) =>
+      events.push(`time-control:${control.revision}:${control.offsetMs}`),
   };
   return { transport, handlers, timers, sent, events, flush, runDueTimers };
 }
@@ -114,6 +116,25 @@ test('a version from the server is forwarded and marks the edge capability', asy
   await h.flush();
   assert.ok(h.events.includes('capability'));
   assert.ok(h.events.includes('version:1789223000000'));
+  h.transport.stop(h.handlers);
+});
+
+test('global time-control state is forwarded and its result is acknowledged by heartbeat', async () => {
+  const h = harness([
+    { ...idle, timeControl: { revision: 7, offsetMs: -2500, syncRequestId: 'sync-1', syncRequestedAt: 900 } },
+    idle,
+  ]);
+  h.transport.start(h.handlers);
+  await h.flush();
+  assert.ok(h.events.includes('time-control:7:-2500'));
+  h.transport.noteTimeControlApplied(7);
+  h.transport.noteTimeSyncRequestResult('sync-1', 'failed', 'offline', 1000);
+  await h.runDueTimers();
+  const next = h.sent[h.sent.length - 1];
+  assert.equal(next.timeControlRevision, 7);
+  assert.equal(next.timeSyncRequestId, 'sync-1');
+  assert.equal(next.timeSyncRequestStatus, 'failed');
+  assert.equal(next.timeSyncRequestError, 'offline');
   h.transport.stop(h.handlers);
 });
 

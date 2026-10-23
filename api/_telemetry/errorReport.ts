@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAuthorConfig, getIngestToken } from '../_authorClient.js';
-import { telemetryConfig } from '../_telemetryConfig.js';
+import { resolveTelemetryUrls } from '../_telemetryConfig.js';
 import {
   buildErrorReportFingerprint,
   normalizeErrorReportLevel,
@@ -15,8 +15,6 @@ import {
   sanitizeErrorReportStack,
   sanitizeErrorReportText,
 } from '../../src/shared/errorReportContracts.js';
-
-const ERROR_REPORT_URL = telemetryConfig.errorReportUrl;
 
 function str(value: unknown, max = 2000): string | null {
   if (value == null) return null;
@@ -125,8 +123,13 @@ export async function handleErrorReport(req: VercelRequest, res: VercelResponse)
       return;
     }
 
+    const errorReportUrl = resolveTelemetryUrls({
+      updateBaseUrl: config.updateBaseUrl,
+      ingestBaseUrl: config.ingestBaseUrl,
+      contentBaseUrl: config.contentBaseUrl,
+    }).errorReportUrl;
     const targets = [
-      ERROR_REPORT_URL,
+      errorReportUrl,
       ...(config.backupBaseUrl ? [`${config.backupBaseUrl.replace(/\/+$/, '')}/api/error-report`] : []),
     ];
     const relayStartedAt = Date.now();

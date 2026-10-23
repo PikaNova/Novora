@@ -16,6 +16,7 @@ import {
   type DeviceLastCommand,
   type PluginInstanceRow,
 } from '../../../src/shared/deviceContracts.js';
+import { formatDateTimeInZone } from '../../../src/utils/zonedTime.js';
 import { type AdminActor, canAccessClass, isPasswordRequired, requireActor, writeAudit } from '../../_auth.js';
 
 /** 设备列表里那条"最近指令"的对外形状。 */
@@ -511,7 +512,7 @@ export async function handleDeviceCommand(req: VercelRequest, res: VercelRespons
     ...(deviceOnline
       ? {}
       : {
-          deliveryHint: `设备当前离线（最后在线 ${lastSeenAt > 0 ? new Date(lastSeenAt).toLocaleString('zh-CN', { hour12: false }) : '从未上线'}）：指令最多保留 24 小时，设备上线后自动执行；过期可在设备列表重发。`,
+          deliveryHint: `设备当前离线（最后在线 ${lastSeenAt > 0 ? formatDateTimeInZone(lastSeenAt) : '从未上线'}）：指令最多保留 24 小时，设备上线后自动执行；过期可在设备列表重发。`,
         }),
   });
   return;

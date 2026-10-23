@@ -13,6 +13,7 @@ import {
   classLabel,
   equalHash,
   pluginCredentials,
+  pluginSyncVersion,
   resolvePluginExams,
   sha256,
 } from '../plugin.js';
@@ -209,24 +210,38 @@ export async function handlePluginPairStatusOrBootstrap(
     return;
   }
   await ensureTableOnce();
-  const rows =
-    (await sql`SELECT * FROM classisland_plugin_instances WHERE plugin_instance_id=${credentials.instanceId}`) as unknown as PluginInstanceRow[];
+  const rows = (await sql`SELECT p.*, d.grade_id AS viewer_grade_id, d.class_id AS viewer_class_id,
+      d.revoked AS viewer_revoked, d.is_management AS viewer_is_management,
+      d.last_seen_at AS viewer_last_seen_at, e.updated_at AS exam_updated_at
+      FROM classisland_plugin_instances p
+      LEFT JOIN device_instances d ON d.instance_id=p.viewer_instance_id
+      LEFT JOIN exam_data e ON e.id=1
+      WHERE p.plugin_instance_id=${credentials.instanceId}`) as unknown as Array<
+    PluginInstanceRow & {
+      viewer_grade_id: string | null;
+      viewer_class_id: string | null;
+      viewer_revoked: boolean | null;
+      viewer_is_management: boolean | null;
+      viewer_last_seen_at: number | string | null;
+      exam_updated_at: unknown;
+    }
+  >;
   const plugin = rows[0];
   if (!plugin || !equalHash(plugin.client_secret_hash, sha256(credentials.secret))) {
     res.status(401).json({ ok: false, error: 'Plugin credentials rejected' });
     return;
   }
   const viewerInstanceId = String(plugin.viewer_instance_id ?? '');
-  const deviceRows = viewerInstanceId
-    ? ((await sql`SELECT grade_id, class_id, revoked, is_management, last_seen_at FROM device_instances WHERE instance_id=${viewerInstanceId}`) as unknown as Array<{
-        grade_id: string;
-        class_id: string;
-        revoked: boolean;
-        is_management: boolean;
-        last_seen_at: number | string;
-      }>)
-    : [];
-  const device = deviceRows[0];
+  const device =
+    plugin.viewer_grade_id !== null
+      ? {
+          grade_id: plugin.viewer_grade_id,
+          class_id: plugin.viewer_class_id,
+          revoked: plugin.viewer_revoked,
+          is_management: plugin.viewer_is_management,
+          last_seen_at: plugin.viewer_last_seen_at,
+        }
+      : null;
   const viewerBindingValid =
     !!device && !device.revoked && !device.is_management && !!device.grade_id && !!device.class_id;
   if (!viewerBindingValid && plugin.paired === true) {
@@ -259,15 +274,34 @@ export async function handlePluginPairStatusOrBootstrap(
     });
     return;
   }
+  const gradeId = String(device.grade_id);
+  const classId = String(device.class_id);
+  const knownVersion = typeof req.body?.knownVersion === 'string' ? req.body.knownVersion.slice(0, 128) : '';
+  if (knownVersion) {
+    const version = pluginSyncVersion(plugin.exam_updated_at, gradeId, classId, viewerInstanceId);
+    if (knownVersion === version) {
+      res.status(200).json({
+        ok: true,
+        ...classIslandApiMeta(),
+        changed: false,
+        version,
+        serverTime: new Date().toISOString(),
+        viewerOnline: Date.now() - Number(device.last_seen_at ?? 0) <= PLUGIN_VIEWER_ONLINE_MS,
+      });
+      return;
+    }
+  }
   const examRows =
     (await sql`SELECT items, title, majors, active_major_id, alerts, weekly_plans, schedule_mode, active_weekly_plan_id, active_weekly_plan_by_class, weekly_conflict_policy, grades, classes, initialization, design_policy, updated_at FROM exam_data WHERE id=1`) as unknown as ExamRow[];
   const payload = examPayload(examRows[0] ?? {});
-  const gradeId = String(device.grade_id);
-  const classId = String(device.class_id);
-  await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
+  if (plugin.grade_id !== gradeId || plugin.class_id !== classId) {
+    await sql`UPDATE classisland_plugin_instances SET grade_id=${gradeId}, class_id=${classId}, updated_at=${Date.now()} WHERE plugin_instance_id=${credentials.instanceId}`;
+  }
   res.status(200).json({
     ok: true,
     ...classIslandApiMeta(),
+    changed: true,
+    version: pluginSyncVersion(examRows[0]?.updated_at, gradeId, classId, viewerInstanceId),
     schemaVersion: CLASSISLAND_API_VERSION,
     serverTime: new Date().toISOString(),
     binding: {
@@ -277,7 +311,7 @@ export async function handlePluginPairStatusOrBootstrap(
     },
     school: payload.initialization ?? {},
     viewerOnline: viewerBindingValid && Date.now() - Number(device.last_seen_at ?? 0) <= PLUGIN_VIEWER_ONLINE_MS,
-    exams: resolvePluginExams(payload, gradeId, classId),
+    exams: resolvePluginExams(payload, gradeId, classId, req.body?.includeCompletedToday === true),
     updatedAt: payload.updatedAt,
   });
   return;
