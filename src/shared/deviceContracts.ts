@@ -376,7 +376,7 @@ export function parsePluginBindingInfo(value: unknown): PluginBindingInfo | null
     gradeId: text(source.gradeId),
     classId: text(source.classId),
     paired: source.paired === true,
-    pluginLastSeenAt: timestamp(source.updatedAt),
+    pluginLastSeenAt: timestamp(source.pluginLastSeenAt),
     viewerLastSeenAt: timestamp(source.viewerLastSeenAt),
   };
 }

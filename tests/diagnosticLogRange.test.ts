@@ -46,12 +46,14 @@ testGlobals.__COMMIT_SHA__ = 'test';
 const { logger } = await import('../src/utils/logger.js');
 const {
   allRetainedEntries,
+  diagnosticEntriesInRange,
   defaultDiagnosticRange,
   entriesInRange,
   sendDiagnosticLogs,
   timestampFromField,
   timestampToField,
 } = await import('../src/services/diagnosticLogs.js');
+const { journal } = await import('../src/utils/runtimeJournal.js');
 
 test('timestampFromField accepts only a complete local date-time', () => {
   const at = timestampFromField('2026-09-18T20:05');
@@ -92,6 +94,21 @@ test('entriesInRange filters the local window while allRetainedEntries keeps eve
   assert.equal(all.at(-1)?.message, 'diagnostic range probe');
   assert.deepEqual(entriesInRange(0, now).length, all.length);
   assert.equal(entriesInRange(now + 1, now + 1000).length, 0);
+});
+
+test('detailed upload preview merges structured runtime events without duplicating logger mirrors', async () => {
+  const now = Date.now();
+  logger.warn('diagnostic merge probe');
+  journal('sync.failed', { requestId: 'req-123', accessToken: 'must-not-upload' }, 'error', 'sync', '同步批次失败');
+
+  const entries = await diagnosticEntriesInRange(now - 1000, Date.now() + 1000);
+  assert.equal(entries.filter((entry) => entry.message === 'diagnostic merge probe').length, 1);
+  assert.equal(entries.find((entry) => entry.message === 'diagnostic merge probe')?.source, '本地文本日志');
+  const sync = entries.find((entry) => entry.message === '同步批次失败');
+  assert.equal(sync?.source, '运行日志 / 数据同步 / sync.failed');
+  assert.equal(sync?.context?.code, 'sync.failed');
+  assert.equal(sync?.context?.sequence, 3);
+  assert.equal(JSON.stringify(sync?.context).includes('must-not-upload'), false);
 });
 
 test('the one-click error bundle ships every retained entry and leaves no hidden upload marker', async () => {

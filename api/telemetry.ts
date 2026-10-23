@@ -1,11 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash } from 'node:crypto';
 import { getAuthorConfig, getIngestToken, shouldSample } from './_authorClient.js';
-import { resolveIpSalt, telemetryConfig } from './_telemetryConfig.js';
+import { resolveIpSalt, resolveTelemetryUrls } from './_telemetryConfig.js';
 import { resolveSubRoute } from './_routeMatch.js';
 import { handleErrorReport } from './_telemetry/errorReport.js';
-
-const COLLECT_URL = telemetryConfig.collectUrl;
 
 /** 部署形态白名单：与作者端约定一致，作者端对未知值一律落 unknown。 */
 const DEPLOY_TYPES = ['vercel', 'docker', 'nas', 'pm2', 'unknown'] as const;
@@ -123,8 +121,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       province: str(body.province, 40),
     };
 
+    const collectUrl = resolveTelemetryUrls({
+      updateBaseUrl: config.updateBaseUrl,
+      ingestBaseUrl: config.ingestBaseUrl,
+      contentBaseUrl: config.contentBaseUrl,
+    }).collectUrl;
     const targets = [
-      COLLECT_URL,
+      collectUrl,
       ...(config.backupBaseUrl ? [`${config.backupBaseUrl.replace(/\/+$/, '')}/api/collect`] : []),
     ];
     const relayStartedAt = Date.now();

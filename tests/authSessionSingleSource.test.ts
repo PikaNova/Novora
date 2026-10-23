@@ -15,12 +15,8 @@ const SESSION_MODULE = 'src/services/auth/session.ts';
 /** 鉴权模块自身（session 存凭据、client 发请求）就是「唯一实现的地方」。 */
 const AUTH_MODULE_DIR = 'src/services/auth/';
 
-/** 登录链路显式指定令牌；设备日志使用独立的设备密钥，不属于管理员会话。 */
-const EXPLICIT_BEARER_ALLOWED = [
-  'src/services/emailAuth.ts',
-  'src/services/adminUsers.ts',
-  'src/services/runtimeLogClient.ts',
-];
+/** 显式传入令牌的通道：登录链路自己拼 Authorization。 */
+const EXPLICIT_BEARER_ALLOWED = ['src/services/emailAuth.ts', 'src/services/adminUsers.ts'];
 
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
@@ -53,7 +49,7 @@ test('存储键与已上线客户端保持兼容', () => {
   assert.match(source, /const AUTH_TOKEN_EXPIRES_KEY = 'admin_auth_token_expires';/);
 });
 
-test('服务层不再手拼 Bearer，除显式传入令牌的登录链路和设备日志通道', () => {
+test('服务层不再手拼 Bearer，除显式传入令牌的登录链路', () => {
   assert.deepEqual(
     offenders(
       (source, file) =>
@@ -64,6 +60,23 @@ test('服务层不再手拼 Bearer，除显式传入令牌的登录链路和设�
     [],
     '带鉴权的请求请走 authHeaders()/apiFetch()，不要自己拼 Authorization',
   );
+});
+
+test('设备日志通道只用设备密钥，不接触会话凭据', () => {
+  const client = readFileSync(path.join(process.cwd(), 'src/services/runtimeLogClient.ts'), 'utf8');
+  assert.doesNotMatch(client, /admin_auth_token|getAuthToken|authHeaders|apiFetch|Bearer \$\{/);
+  assert.match(
+    client,
+    /\.\.\.deviceAuthHeaders\(secret\)/,
+    '设备日志要走 deviceAuthHeaders(secret)，不要退回手拼或会话凭据',
+  );
+
+  const session = readFileSync(path.join(process.cwd(), SESSION_MODULE), 'utf8');
+  const start = session.indexOf('export function deviceAuthHeaders');
+  assert.ok(start >= 0, 'deviceAuthHeaders 必须定义在 auth/session.ts');
+  const body = session.slice(start, session.indexOf('\n}', start) + 2);
+  assert.match(body, /Bearer \$\{secret\}/, '设备通道只认调用方显式传入的 secret');
+  assert.doesNotMatch(body, /AUTH_TOKEN_KEY|getAuthToken/, 'deviceAuthHeaders 不得回落到会话令牌');
 });
 
 test('原先各自读令牌的服务都改从 session 模块取凭据', () => {

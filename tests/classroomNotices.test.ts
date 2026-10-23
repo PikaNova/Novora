@@ -32,7 +32,7 @@ function major(overrides: Record<string, unknown> = {}) {
 function snapshot(overrides: Partial<ClassroomExamSnapshot> = {}): ClassroomExamSnapshot {
   return {
     examId: 'major_1',
-    itemId: 'i1',
+    itemId: 'item_1',
     name: '第一次月考',
     subjectName: '语文',
     itemStartAt: at('09:00'),
@@ -126,6 +126,27 @@ test('变化提示：延长与缩短都会说明新的结束时间', () => {
   assert.match(shortened[0].message, /结束时间改为 09:45/);
 });
 
+test('变化提示：开始时间、考试名称和科目名称修改后会说明新值', () => {
+  const startChanged = reconcileClassroomNotices(snapshot(), snapshot({ startAt: at('09:10') }));
+  assert.equal(startChanged[0].kind, 'schedule-changed');
+  assert.match(startChanged[0].message, /开始时间改为 09:10/);
+
+  const nameChanged = reconcileClassroomNotices(snapshot(), snapshot({ name: '期中考试' }));
+  assert.equal(nameChanged[0].kind, 'name-changed');
+  assert.match(nameChanged[0].message, /第一次月考.*期中考试/);
+
+  const subjectChanged = reconcileClassroomNotices(snapshot(), snapshot({ subjectName: '数学' }));
+  assert.equal(subjectChanged[0].kind, 'subject-changed');
+  assert.match(subjectChanged[0].message, /语文.*数学/);
+
+  const bothTimesChanged = reconcileClassroomNotices(
+    snapshot(),
+    snapshot({ startAt: at('09:10'), endAt: at('10:10') }),
+  );
+  assert.equal(bothTimesChanged.length, 1);
+  assert.match(bothTimesChanged[0].message, /开始时间改为 09:10，结束时间改为 10:10/);
+});
+
 test('变化提示：申请停止是一条提示（等待系统判定）', () => {
   const notices = reconcileClassroomNotices(snapshot(), snapshot({ stopRequestedAt: at('09:25') }));
   assert.deepEqual(
@@ -156,6 +177,27 @@ test('变化提示：后台提前结束 / 归档 / 删除都能区分', () => {
     ['removed'],
   );
   assert.match(removed[0].message, /已删除/);
+});
+
+test('变化提示：后台停用当前科目后说明状态变化', () => {
+  const notices = reconcileClassroomNotices(snapshot(), null, {
+    majors: [major({ items: [{ id: 'item_1', enabled: false }] })],
+  });
+  assert.equal(notices[0].kind, 'status-changed');
+  assert.match(notices[0].message, /科目已被后台停用/);
+});
+
+test('变化提示：调整时间使当前科目离开进行中区间后仍会说明新时间', () => {
+  const nextStart = `${DAY}T10:30:00`;
+  const nextEnd = `${DAY}T11:30:00`;
+  const nextItems = [item({ id: 'item_1', startTime: nextStart, endTime: nextEnd })];
+  assert.equal(classroomSnapshotOf({ items: nextItems, majors: [major()], now: at('09:30') }), null);
+
+  const notices = reconcileClassroomNotices(snapshot(), null, {
+    majors: [major({ items: [{ id: 'item_1', enabled: true, startTime: nextStart, endTime: nextEnd }] })],
+  });
+  assert.equal(notices[0].kind, 'schedule-changed');
+  assert.match(notices[0].message, /开始时间改为 10:30，结束时间改为 11:30/);
 });
 
 test('变化提示：本机临时考试结束走自己那条', () => {

@@ -1,0 +1,100 @@
+<UserControl x:Class="Novora.ControlCenter.UpdatesView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <!-- 限宽但不左对齐：加 Left 会让整列收缩到内容宽度而不是"撑满封顶" -->
+ <StackPanel Margin="0,0,0,24" MaxWidth="1040">
+  <TextBlock Text="软件更新" Style="{DynamicResource PageTitle}" />
+  <TextBlock Text="查看新版本，按需下载，择时安装。" Style="{DynamicResource Hint}" Margin="0,6,0,18" />
+
+  <Border Style="{DynamicResource CardSoft}" Margin="{DynamicResource CardGap}">
+   <StackPanel>
+    <Grid>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <StackPanel>
+      <TextBlock Text="当前应用版本" Style="{DynamicResource Hint}" />
+      <TextBlock x:Name="CurrentVersion" Text="正在读取…" Style="{DynamicResource MetricValue}" Margin="0,4,0,0" />
+     </StackPanel>
+     <Border x:Name="ChannelBadge" Grid.Column="1" Style="{DynamicResource Pill}" VerticalAlignment="Top" Background="{DynamicResource WarningSoft}" BorderThickness="0">
+      <TextBlock x:Name="ChannelLabel" Text="正在读取" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Warning}" />
+     </Border>
+    </Grid>
+    <TextBlock x:Name="ChannelStatus" Style="{DynamicResource Body}" Margin="0,12,0,0" />
+    <TextBlock x:Name="TrustHint" Text="需由发布方将可信公钥配置到客户端。请使用带信任配置的完整安装包升级，然后重新打开控制中心。" Style="{DynamicResource Hint}" Margin="0,6,0,0" MaxWidth="760" HorizontalAlignment="Left" />
+   </StackPanel>
+  </Border>
+
+  <Border Style="{DynamicResource Card}" Margin="{DynamicResource CardGap}">
+   <StackPanel>
+    <TextBlock Text="在线更新" Style="{DynamicResource SectionTitle}" />
+    <TextBlock Text="1 检查版本  →  2 下载并校验  →  3 确认安装" Style="{DynamicResource Hint}" Margin="0,7,0,12" />
+    <StackPanel x:Name="Actions">
+     <WrapPanel>
+      <Button x:Name="CheckButton" Style="{DynamicResource PrimaryButton}" Content="检查更新" Click="Check_Click" Margin="0,0,8,8" />
+      <Button x:Name="DownloadButton" Style="{DynamicResource PrimaryButton}" Content="下载更新" Click="Download_Click" IsEnabled="False" Visibility="Collapsed" Margin="0,0,8,8" />
+      <Button x:Name="InstallButton" Style="{DynamicResource PrimaryButton}" Content="安装已下载更新" Click="Install_Click" IsEnabled="False" Visibility="Collapsed" Margin="0,0,8,8" />
+      <Button x:Name="SetupButton" Content="下载完整安装包" Click="Setup_Click" IsEnabled="False" Visibility="Collapsed" Margin="0,0,8,8" />
+      <Button x:Name="RecoverButton" Content="恢复未完成更新" Click="Recover_Click" Visibility="Collapsed" Margin="0,0,8,8" />
+     </WrapPanel>
+    </StackPanel>
+    <TextBlock x:Name="InstallReadinessHint" Text="安装前需完成初始化，并确认业务服务、数据库服务运行且健康检查通过。" Style="{DynamicResource Hint}" Margin="0,0,0,8" MaxWidth="760" HorizontalAlignment="Left" AutomationProperties.Name="更新安装条件" />
+    <Border x:Name="ResultCard" Style="{DynamicResource CardSoft}" Background="{DynamicResource AccentSoft}" BorderThickness="0" Padding="16" Margin="0,0,0,12" AutomationProperties.LiveSetting="Polite">
+     <StackPanel>
+      <TextBlock x:Name="ResultTitle" Text="尚未检查更新" Style="{DynamicResource SectionTitle}" />
+      <TextBlock x:Name="ResultHint" Text="点击“检查更新”获取稳定版推荐。检查和下载期间，业务服务继续运行。" Style="{DynamicResource Body}" Margin="0,6,0,0" />
+      <TextBox x:Name="ReleaseNotes" Visibility="Collapsed" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0"
+               Margin="0,10,0,0" MaxHeight="180" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="更新说明" />
+      <ProgressBar x:Name="UpdateBar" Height="6" Minimum="0" Maximum="100" Visibility="Collapsed" Margin="0,12,0,6" BorderThickness="0"
+                   AutomationProperties.Name="软件更新进度" />
+      <TextBlock x:Name="ProgressText" Style="{DynamicResource Hint}" Margin="0,6,0,0" />
+      <Button x:Name="CancelButton" Style="{DynamicResource GhostButton}" Content="取消下载或检查" HorizontalAlignment="Left" Margin="0,10,0,0" Click="Cancel_Click" Visibility="Collapsed" />
+     </StackPanel>
+    </Border>
+    <TextBlock Text="安装会先备份数据库，再短暂暂停局域网访问。应用包仅更新应用代码；运行时与原生组件需通过完整安装包升级。" Style="{DynamicResource Body}" MaxWidth="760" HorizontalAlignment="Left" />
+   </StackPanel>
+  </Border>
+
+  <Border Style="{DynamicResource Card}" Margin="{DynamicResource CardGap}">
+   <StackPanel>
+    <TextBlock Text="离线更新" Style="{DynamicResource SectionTitle}" />
+    <TextBlock Text="选择发布方提供的 .nvu 文件；本机会验证签名和完整性。导入后仍需手动确认安装，不会向作者端发布文件。" Style="{DynamicResource Body}" Margin="0,7,0,14" MaxWidth="760" HorizontalAlignment="Left" />
+    <Button x:Name="ImportButton" Content="导入本地更新包" Click="Import_Click" HorizontalAlignment="Left" />
+    <TextBlock x:Name="ImportHint" Text="需先配置信任公钥，才能验证离线包。" Style="{DynamicResource Hint}" Margin="0,8,0,0" />
+   </StackPanel>
+  </Border>
+
+  <Border Style="{DynamicResource Card}" Margin="{DynamicResource CardGap}">
+   <StackPanel>
+    <TextBlock Text="记录与缓存" Style="{DynamicResource SectionTitle}" />
+    <WrapPanel Margin="0,12,0,0">
+     <Button Content="查看更新记录" Click="History_Click" Margin="0,0,8,8" />
+     <Button x:Name="ClearCacheButton" Style="{DynamicResource TextButton}" Content="清理下载缓存" Click="ClearCache_Click" Margin="0,0,8,8" />
+    </WrapPanel>
+    <StackPanel x:Name="HistoryPanel" Visibility="Collapsed" Margin="0,4,0,0">
+     <TextBlock x:Name="HistoryText" Text="暂无更新记录。" Style="{DynamicResource Hint}" AutomationProperties.Name="更新记录" />
+     <ItemsControl x:Name="HistoryItems">
+      <ItemsControl.ItemTemplate>
+       <DataTemplate>
+        <Border BorderBrush="{DynamicResource BorderWeak}" BorderThickness="0,1,0,0" Padding="0,12" Margin="0,5,0,0">
+         <StackPanel>
+          <TextBlock Text="{Binding Heading}" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Metadata}" Style="{DynamicResource Hint}" FontSize="12" Margin="0,5,0,5" />
+          <TextBlock Text="{Binding Detail}" Style="{DynamicResource Body}" />
+         </StackPanel>
+        </Border>
+       </DataTemplate>
+      </ItemsControl.ItemTemplate>
+     </ItemsControl>
+    </StackPanel>
+   </StackPanel>
+  </Border>
+
+  <Border Style="{DynamicResource Card}">
+   <StackPanel>
+    <TextBlock Text="匿名更新统计" Style="{DynamicResource SectionTitle}" />
+    <CheckBox x:Name="TelemetryOptIn" Content="自愿发送匿名更新阶段统计" Margin="0,12,0,8" Checked="Telemetry_Changed" Unchecked="Telemetry_Changed" />
+    <TextBlock Text="默认关闭，可随时关闭。仅发送随机匿名标识、应用版本、更新来源、阶段与错误码；不上传数据库、密码或学校业务数据。上报失败不影响更新。" Style="{DynamicResource Body}" MaxWidth="760" HorizontalAlignment="Left" />
+    <TextBlock x:Name="TelemetryStatus" Margin="0,7,0,0" Style="{DynamicResource Hint}" AutomationProperties.LiveSetting="Polite" />
+   </StackPanel>
+  </Border>
+ </StackPanel>
+</UserControl>
