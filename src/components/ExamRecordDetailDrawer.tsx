@@ -216,9 +216,8 @@ function ExamRecordDetailBody({
   const [devicesError, setDevicesError] = useState('');
   const [devicesTruncated, setDevicesTruncated] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState<'all' | 'online' | 'offline'>('all');
-  const [devicesExpanded, setDevicesExpanded] = useState(false);
-  const [devicesOpen, setDevicesOpen] = useState(false);
   const [unboundOpen, setUnboundOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [subjectFilter, setSubjectFilter] = useState<'open' | 'ended' | 'all'>(
     record.displayStatus === 'ended' || record.displayStatus === 'archived' ? 'ended' : 'open',
   );
@@ -360,7 +359,6 @@ function ExamRecordDetailBody({
     () => filterExamDevices(deviceSummary.devices, deviceFilter, Date.now()),
     [deviceFilter, deviceSummary.devices],
   );
-  const visibleDevices = devicesExpanded ? filteredDevices : filteredDevices.slice(0, 6);
   const deviceChipClass = (tone: 'online' | 'warn' | null, active: boolean) =>
     [tone ? `is-${tone}` : '', active ? 'is-active' : ''].filter(Boolean).join(' ') || undefined;
 
@@ -616,64 +614,76 @@ function ExamRecordDetailBody({
             <div className="exam-record-detail__section-head">
               <div>
                 <h3>考试详情</h3>
-                <p>范围、时间与运行记录常驻展示，不随科目选择收起。</p>
+                <p>范围、时间与运行记录</p>
               </div>
+              <button
+                className="exam-record-detail__details-toggle"
+                type="button"
+                aria-expanded={detailsOpen}
+                aria-controls="exam-record-details-panel"
+                onClick={() => setDetailsOpen((value) => !value)}
+              >
+                {detailsOpen ? '收起详情' : '展开详情'}
+                <i aria-hidden="true" />
+              </button>
             </div>
-            <dl>
-              <div>
-                <dt>记录编号</dt>
-                <dd>
-                  <code>{record.id}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>创建人</dt>
-                <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
-              </div>
-              <div>
-                <dt>创建时间</dt>
-                <dd>{formatDateTime(record.createdAt)}</dd>
-              </div>
-              <div>
-                <dt>更新时间</dt>
-                <dd>{formatDateTime(record.updatedAt)}</dd>
-              </div>
-              <div>
-                <dt>计划时间</dt>
-                <dd>
-                  {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
-                </dd>
-              </div>
-              <div>
-                <dt>实际开考</dt>
-                <dd>{formatDateTime(record.actualStartAt)}</dd>
-              </div>
-              <div>
-                <dt>实际结束</dt>
-                <dd>{formatDateTime(record.actualEndAt ?? record.endedAt)}</dd>
-              </div>
-              <div>
-                <dt>累计暂停</dt>
-                <dd>{formatDuration(record.pausedMs)}</dd>
-              </div>
-              {latestTimeChange?.reason && (
-                <div className="exam-record-detail__time-change">
-                  <dt>最近时间调整</dt>
-                  <dd>{latestTimeChange.reason}</dd>
-                </div>
-              )}
-              {record.stopRequestedAt != null && (
-                <div className="exam-record-detail__time-change">
-                  <dt>停止申请</dt>
+            {detailsOpen && (
+              <dl id="exam-record-details-panel" className="exam-record-detail__reveal">
+                <div>
+                  <dt>记录编号</dt>
                   <dd>
-                    {formatDateTime(record.stopRequestedAt)}
-                    <em className="exam-record-detail__time-note">
-                      等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
-                    </em>
+                    <code>{record.id}</code>
                   </dd>
                 </div>
-              )}
-            </dl>
+                <div>
+                  <dt>创建人</dt>
+                  <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
+                </div>
+                <div>
+                  <dt>创建时间</dt>
+                  <dd>{formatDateTime(record.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>更新时间</dt>
+                  <dd>{formatDateTime(record.updatedAt)}</dd>
+                </div>
+                <div>
+                  <dt>计划时间</dt>
+                  <dd>
+                    {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>实际开考</dt>
+                  <dd>{formatDateTime(record.actualStartAt)}</dd>
+                </div>
+                <div>
+                  <dt>实际结束</dt>
+                  <dd>{formatDateTime(record.actualEndAt ?? record.endedAt)}</dd>
+                </div>
+                <div>
+                  <dt>累计暂停</dt>
+                  <dd>{formatDuration(record.pausedMs)}</dd>
+                </div>
+                {latestTimeChange?.reason && (
+                  <div className="exam-record-detail__time-change">
+                    <dt>最近时间调整</dt>
+                    <dd>{latestTimeChange.reason}</dd>
+                  </div>
+                )}
+                {record.stopRequestedAt != null && (
+                  <div className="exam-record-detail__time-change">
+                    <dt>停止申请</dt>
+                    <dd>
+                      {formatDateTime(record.stopRequestedAt)}
+                      <em className="exam-record-detail__time-note">
+                        等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
+                      </em>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
           </section>
 
           <div className="exam-record-detail__workspace">
@@ -794,22 +804,12 @@ function ExamRecordDetailBody({
             </section>
 
             <aside className="exam-record-detail__side">
-              <section className="exam-record-detail__devices" aria-label="设备概览">
+              <section className="exam-record-detail__devices" aria-label="设备管理">
                 <div className="exam-record-detail__section-head">
                   <div>
-                    <h3>设备概览</h3>
-                    <p>仅显示异常摘要，需要排查时再展开。</p>
+                    <h3>设备管理</h3>
+                    <p>设备列表默认展开，内容较多时在面板内滚动。</p>
                   </div>
-                  {devicesLoaded && deviceSummary.devices.length > 0 && (
-                    <button
-                      className="admin-btn admin-btn--ghost admin-btn--sm"
-                      type="button"
-                      aria-expanded={devicesOpen}
-                      onClick={() => setDevicesOpen((value) => !value)}
-                    >
-                      {devicesOpen ? '收起设备' : '查看设备'}
-                    </button>
-                  )}
                 </div>
                 {!canReadDevices ? (
                   <p className="exam-record-detail__hint">当前账号没有查看设备的权限。</p>
@@ -826,10 +826,7 @@ function ExamRecordDetailBody({
                         type="button"
                         className={deviceChipClass(null, deviceFilter === 'all')}
                         aria-pressed={deviceFilter === 'all'}
-                        onClick={() => {
-                          setDeviceFilter('all');
-                          setDevicesOpen(true);
-                        }}
+                        onClick={() => setDeviceFilter('all')}
                       >
                         覆盖 {deviceSummary.devices.length} 台
                       </button>
@@ -840,10 +837,7 @@ function ExamRecordDetailBody({
                           deviceFilter === 'online',
                         )}
                         aria-pressed={deviceFilter === 'online'}
-                        onClick={() => {
-                          setDeviceFilter('online');
-                          setDevicesOpen(true);
-                        }}
+                        onClick={() => setDeviceFilter('online')}
                       >
                         在线 {deviceSummary.online}
                       </button>
@@ -851,10 +845,7 @@ function ExamRecordDetailBody({
                         type="button"
                         className={deviceChipClass(null, deviceFilter === 'offline')}
                         aria-pressed={deviceFilter === 'offline'}
-                        onClick={() => {
-                          setDeviceFilter('offline');
-                          setDevicesOpen(true);
-                        }}
+                        onClick={() => setDeviceFilter('offline')}
                       >
                         离线 {deviceSummary.offline}
                       </button>
@@ -874,44 +865,31 @@ function ExamRecordDetailBody({
                         未绑定设备：{deviceSummary.unboundClassNames.join('、')}
                       </p>
                     )}
-                    {devicesOpen && (
-                      <div className="exam-record-detail__device-detail exam-record-detail__reveal">
-                        {filteredDevices.length > 0 ? (
-                          <ul className={devicesExpanded && filteredDevices.length > 6 ? 'is-scroll' : undefined}>
-                            {visibleDevices.map((item) => {
-                              const online = isDeviceOnline(item, Date.now());
-                              return (
-                                <li key={item.instanceId}>
-                                  <strong>{classLabel(item.gradeId, item.classId)}</strong>
-                                  <span className={online ? 'is-online' : 'is-offline'}>
-                                    {online ? '在线' : '离线'}
-                                  </span>
-                                  <em>
-                                    {item.currentExam
-                                      ? `当前显示：${item.currentExam}`
-                                      : `最后在线 ${formatDateTime(item.lastSeenAt)}`}
-                                  </em>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : (
-                          <p className="exam-record-detail__hint">当前筛选下没有设备。</p>
-                        )}
-                        {filteredDevices.length > 6 && (
-                          <button
-                            className="admin-btn admin-btn--ghost admin-btn--sm exam-record-detail__devices-more"
-                            type="button"
-                            onClick={() => setDevicesExpanded((value) => !value)}
-                          >
-                            {devicesExpanded ? '收起' : `展开全部 ${filteredDevices.length} 台`}
-                          </button>
-                        )}
-                        {devicesTruncated && (
-                          <p className="exam-record-detail__hint">设备总数超过一次读取上限，这里只统计了前 500 台。</p>
-                        )}
-                      </div>
-                    )}
+                    <div className="exam-record-detail__device-detail">
+                      {filteredDevices.length > 0 ? (
+                        <ul>
+                          {filteredDevices.map((item) => {
+                            const online = isDeviceOnline(item, Date.now());
+                            return (
+                              <li key={item.instanceId}>
+                                <strong>{classLabel(item.gradeId, item.classId)}</strong>
+                                <span className={online ? 'is-online' : 'is-offline'}>{online ? '在线' : '离线'}</span>
+                                <em>
+                                  {item.currentExam
+                                    ? `当前显示：${item.currentExam}`
+                                    : `最后在线 ${formatDateTime(item.lastSeenAt)}`}
+                                </em>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <p className="exam-record-detail__hint">当前筛选下没有设备。</p>
+                      )}
+                      {devicesTruncated && (
+                        <p className="exam-record-detail__hint">设备总数超过一次读取上限，这里只统计了前 500 台。</p>
+                      )}
+                    </div>
                   </>
                 )}
               </section>

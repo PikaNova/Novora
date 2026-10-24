@@ -322,3 +322,10 @@ test('考试详情抽屉：公告管理独立显示，没有低频操作时不�
   assert.ok(tree.includes('公告管理'), '公告管理应从更多菜单中独立出来');
   assert.ok(!tree.includes('更多'), '没有删除草稿等低频操作时不显示更多菜单');
 });
+
+test('考试详情抽屉：详情可收起，设备管理默认没有折叠按钮', async () => {
+  const tree = await renderDrawerTree(RECORD);
+  assert.ok(tree.includes('收起详情'), '详情默认展开并应提供收起入口');
+  assert.ok(tree.includes('设备管理'), '右侧设备区使用设备管理标题');
+  assert.ok(!tree.includes('查看设备'), '设备列表不应再通过按钮自动收起');
+});
