@@ -587,7 +587,44 @@ public partial class MainWindow : Window
     private void BackupsFolder_Click(object sender, RoutedEventArgs e) => OpenTarget(Path.Combine(Runtime.Data, "backups"));
     private void OpenTarget(string target)
     {
-        try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); }
-        catch (Exception exception) { MessageText.Text = $"无法打开：{exception.Message}"; }
+        try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); return; }
+        catch (Exception exception)
+        {
+            // A URL can fail here when this process runs in a token with no default-browser
+            // association (elevated or non-interactive); retry with a known browser. Folder
+            // opens keep the original message rather than launching a browser.
+            if (target.StartsWith("http", StringComparison.OrdinalIgnoreCase) && TryOpenWithKnownBrowser(target)) return;
+            MessageText.Text = $"无法打开：{exception.Message}";
+        }
+    }
+
+    private static bool TryOpenWithKnownBrowser(string url)
+    {
+        foreach (var exe in new[] { "msedge.exe", "chrome.exe" })
+        {
+            var path = ReadAppPath(exe);
+            if (path is null || !File.Exists(path)) continue;
+            try { Process.Start(new ProcessStartInfo(path, $"\"{url}\"") { UseShellExecute = false }); return true; }
+            catch { /* try the next browser */ }
+        }
+        return false;
+    }
+
+    private static string? ReadAppPath(string exe)
+    {
+        foreach (var root in new[] { Registry.CurrentUser, Registry.LocalMachine })
+        {
+            try
+            {
+                using var key = root.OpenSubKey($@"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe}");
+                if (key?.GetValue(null) is string value)
+                {
+                    value = value.Trim().Trim('"');
+                    if (value.Length > 0) return value;
+                }
+            }
+            catch (Exception exception) when (exception is System.Security.SecurityException or ArgumentException) { }
+        }
+        return null;
     }
 }

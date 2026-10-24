@@ -18,6 +18,10 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        ControlCenterLog.Info($"start args=[{string.Join(" ", e.Args)}] log={ControlCenterLog.CurrentPath} root={Runtime.Root} user={Environment.UserName}");
+        DispatcherUnhandledException += (_, args) => ControlCenterLog.Error("dispatcher unhandled exception", args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => ControlCenterLog.Error("unhandled exception", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) => ControlCenterLog.Error("unobserved task exception", args.Exception);
         try
         {
             if (e.Args.Contains("--tray-host", StringComparer.OrdinalIgnoreCase))
@@ -25,6 +29,7 @@ public partial class App : Application
                 var tray = Path.Combine(Runtime.Root, "tray", "NovoraTray.exe");
                 if (!File.Exists(tray)) throw new FileNotFoundException("找不到托盘程序，请重新安装完整安装包。", tray);
                 Process.Start(new ProcessStartInfo(tray) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(tray)! });
+                ControlCenterLog.Info("tray host launched");
                 Shutdown();
                 return;
             }
@@ -32,6 +37,7 @@ public partial class App : Application
             var page = ResolvePage(e.Args);
             instanceMutex = new Mutex(false, $@"Local\Novora.ControlCenter.{UserKey}");
             ownsMutex = TryAcquireInstanceMutex();
+            ControlCenterLog.Info(ownsMutex ? "single-instance lock acquired" : "single-instance lock held by another instance");
             if (!ownsMutex && await SendPageRequestAsync(page))
             {
                 Shutdown();
@@ -46,21 +52,24 @@ public partial class App : Application
                 ownsMutex = TryAcquireInstanceMutex();
                 if (!ownsMutex)
                 {
-                    Trace.WriteLine("Novora control center: a running instance holds the single-instance lock but its activation pipe did not answer; this launch did nothing.");
+                    ControlCenterLog.Warn("a running instance holds the single-instance lock but its activation pipe did not answer; this launch did nothing");
                     Shutdown();
                     return;
                 }
+                ControlCenterLog.Info("took over the single-instance lock after the activation pipe failed");
             }
 
             var window = new MainWindow(page);
             MainWindow = window;
             window.Show();
+            ControlCenterLog.Info($"main window shown: page={page}");
             ConfigureTaskbarTasks();
             _ = ListenAsync(window, lifetime.Token)
-                .ContinueWith(task => Trace.WriteLine("Novora control center listener terminated: " + task.Exception), TaskContinuationOptions.OnlyOnFaulted);
+                .ContinueWith(task => ControlCenterLog.Error("activation listener terminated", task.Exception), TaskContinuationOptions.OnlyOnFaulted);
         }
         catch (Exception exception)
         {
+            ControlCenterLog.Error("startup failed", exception);
             MessageBox.Show($"控制中心未能启动：{exception.Message}", "Novora", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
@@ -88,7 +97,7 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.Runtime.InteropServices.COMException)
         {
-            Debug.WriteLine("Taskbar shortcuts unavailable: " + exception.Message);
+            ControlCenterLog.Warn("taskbar shortcuts unavailable: " + exception.Message);
         }
     }
 
@@ -108,17 +117,19 @@ public partial class App : Application
             await client.ConnectAsync(3000);
             await using var writer = new StreamWriter(client) { AutoFlush = true };
             await writer.WriteLineAsync(page);
+            ControlCenterLog.Info($"forwarded page request: {page}");
             return true;
         }
         catch (Exception exception) when (exception is IOException or OperationCanceledException or UnauthorizedAccessException or TimeoutException)
         {
-            Trace.WriteLine("Novora control center: page request did not reach the running instance: " + exception.Message);
+            ControlCenterLog.Warn("page request did not reach the running instance: " + exception.Message);
             return false;
         }
     }
 
     private async Task ListenAsync(MainWindow window, CancellationToken cancellationToken)
     {
+        ControlCenterLog.Info("activation listener started");
         var consecutiveFailures = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -133,7 +144,7 @@ public partial class App : Application
                 // One damaged request must not disable activation for the rest of the process
                 // lifetime; back off so a persistently unavailable pipe cannot spin this loop.
                 consecutiveFailures++;
-                Trace.WriteLine($"Novora control center: activation round failed, listener restarted after back-off ({consecutiveFailures}): {exception}");
+                ControlCenterLog.Error($"activation round failed, listener restarted after back-off ({consecutiveFailures})", exception);
                 try { await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(consecutiveFailures * 500, 5000)), cancellationToken); }
                 catch (OperationCanceledException) { return; }
             }
@@ -155,6 +166,7 @@ public partial class App : Application
             request.Append(buffer[0]);
         }
         var page = request.ToString().Trim();
+        ControlCenterLog.Info($"activation request: {page}");
         await Dispatcher.InvokeAsync(() => window.ShowPage(page));
     }
 
@@ -177,6 +189,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        ControlCenterLog.Info($"exit code={e.ApplicationExitCode}");
         lifetime.Cancel();
         if (ownsMutex) instanceMutex?.ReleaseMutex();
         instanceMutex?.Dispose();

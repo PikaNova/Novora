@@ -3,7 +3,7 @@
 // 领取在事务内用 FOR UPDATE SKIP LOCKED，配合 10 分钟租约，多实例并发不会重复发送。
 import { createHash } from 'node:crypto';
 import { getAuthorConfig, getIngestToken } from './_authorClient.js';
-import { telemetryConfig } from './_telemetryConfig.js';
+import { resolveTelemetryUrls } from './_telemetryConfig.js';
 import { database } from './_exams/db.js';
 import {
   EXPIRED_METADATA_GRACE_MS,
@@ -60,10 +60,15 @@ export async function sendDiagnosticBundle(
   if (!config.errorReportEnabled) return { ok: false, detail: 'disabled' };
   const token = await getIngestToken('v2', instanceId);
   if (!token) return { ok: false, detail: 'no_credential' };
+  const diagnosticUrl = resolveTelemetryUrls({
+    updateBaseUrl: config.updateBaseUrl,
+    ingestBaseUrl: config.ingestBaseUrl,
+    contentBaseUrl: config.contentBaseUrl,
+  }).diagnosticUrl;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
-    const response = await fetch(`${telemetryConfig.baseUrl}/api/diagnostic-log-bundles`, {
+    const response = await fetch(diagnosticUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),

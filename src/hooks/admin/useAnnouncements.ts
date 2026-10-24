@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAnnouncements } from '../../services/announcements';
+import { fetchAnnouncements, getLastAnnouncementFetchError } from '../../services/announcements';
 import type { Announcement } from '../../services/announcements';
 
 // Owns the announcements modal's open state and its lazily-fetched list.

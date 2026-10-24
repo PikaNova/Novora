@@ -246,6 +246,12 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 
 - [2.8.3 更新日志：后台考试修改与教室端同步可靠性](docs/CHANGELOG-2.8.3.md)
 
+### V2.8.2
+
+- Windows 签名在线更新、安装初始化流程收口、维护互斥与控制中心稳定性改进。
+- 局域网 HTTP 登录、ClassIsland 条件同步与公告代理缓存、上海时区展示和跨天考试修复。
+- [v2.8.2 完整更新日志](docs/CHANGELOG-2.8.2.md)
+
 ### V2.8.1
 
 - [v2.8.1 开发资料、文件分类与发布检查](docs/2.8.1/README.md)

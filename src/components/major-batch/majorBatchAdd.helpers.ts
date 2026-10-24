@@ -1,5 +1,6 @@
 // 批量添加考试的领域类型与纯逻辑：与 UI 组件解耦，便于独立复用与测试。
 import type { MajorBatchSubjectGroup, MajorBatchTimeGroup, MajorBatchTimeSlot } from '../../utils/appSettings';
+import { addDaysToDateKey } from '../../utils/weeklySchedule';
 
 export type BatchDraftItem = {
   id: string;
@@ -52,9 +53,7 @@ export function todayKey() {
 }
 
 export function addDays(dateKey: string, days: number) {
-  const date = new Date(`${dateKey}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return addDaysToDateKey(dateKey, days);
 }
 
 export function toLocalIso(date: string, time: string, nextDay = false) {

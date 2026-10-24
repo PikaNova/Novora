@@ -8,6 +8,7 @@ import test from 'node:test';
  */
 
 const AUTHOR_MANIFEST_URL = 'https://telemetry.pikachu2026.space/api/releases/latest.json';
+const AUTHOR_CONFIG_URL = 'https://telemetry.pikachu2026.space/api/public-announcements?resource=config';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -23,6 +24,7 @@ let githubHandler: () => Response = () => jsonResponse({ ok: false }, 500);
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   calls.push(url);
+  if (url.startsWith(AUTHOR_CONFIG_URL)) return jsonResponse({ ok: true, config: {} });
   if (url.startsWith(AUTHOR_MANIFEST_URL)) return authorHandler();
   return githubHandler();
 }) as typeof fetch;
@@ -91,7 +93,9 @@ test('author release manifest wins and carries image / digest / minSchema', asyn
   assert.equal(body.digest, `sha256:${'a'.repeat(64)}`);
   assert.equal(body.minSchema, '13');
   assert.equal(body.schemaReady, false);
-  assert.equal(calls.length, 1);
+  // 一次读作者配置 + 一次读清单；GitHub 不应被调用。
+  assert.equal(calls.filter((url) => url.startsWith(AUTHOR_MANIFEST_URL)).length, 1);
+  assert.equal(calls.filter((url) => url.startsWith('https://api.github.com/')).length, 0);
 });
 
 test('author manifest failure falls back to GitHub with an explicit warning', async () => {

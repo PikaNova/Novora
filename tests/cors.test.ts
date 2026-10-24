@@ -39,6 +39,23 @@ function request(method: string, origin?: string): VercelRequest {
   } as unknown as VercelRequest;
 }
 
+function lanRequest(origin: string, host = '192.168.30.131:3000'): VercelRequest {
+  // A plain-HTTP LAN deployment: no reverse proxy, so no x-forwarded-proto header.
+  return { method: 'POST', headers: { host, origin } } as unknown as VercelRequest;
+}
+
+test('allows same-origin over plain http on a LAN host (no x-forwarded-proto)', () => {
+  const target = responseDouble();
+  assert.equal(applyCors(lanRequest('http://192.168.30.131:3000'), target.response, { methods: ['POST'] }), true);
+  assert.equal(target.headers.get('Access-Control-Allow-Origin'), 'http://192.168.30.131:3000');
+});
+
+test('still rejects a cross-origin request over http', () => {
+  const target = responseDouble();
+  assert.equal(applyCors(lanRequest('http://evil.example'), target.response, { methods: ['POST'] }), false);
+  assert.equal(target.state().statusCode, 403);
+});
+
 test('allows same-origin requests and varies cached responses by Origin', () => {
   const target = responseDouble();
   assert.equal(applyCors(request('GET', 'https://novora.example'), target.response, { methods: ['GET'] }), true);

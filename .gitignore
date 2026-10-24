@@ -44,6 +44,7 @@ packaging/windows/Novora.Ui/bin/
 packaging/windows/Novora.Ui/obj/
 packaging/windows/Novora.Launcher/bin/
 packaging/windows/Novora.Launcher/obj/
+.integration-check/
 .tmp-windows-host-publish/
 .tmp-tray-publish/
 
