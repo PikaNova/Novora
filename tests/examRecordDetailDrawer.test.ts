@@ -115,7 +115,7 @@ test('考试详情抽屉：记录不在调用方列表里（只给 id）也能�
   installCssHook();
   const { default: ExamRecordDetailDrawer } = await import('../src/components/ExamRecordDetailDrawer.js');
   const requested: string[] = [];
-  const granted = new Set(['major.read', 'device.read']);
+  const granted = new Set(['major.read', 'major.edit', 'device.read']);
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     requested.push(url);
@@ -166,13 +166,10 @@ test('考试详情抽屉：记录不在调用方列表里（只给 id）也能�
 });
 
 /** 用一条给定的记录渲染详情抽屉，返回渲染树文本（创建人显示名的回归用）。 */
-async function renderDrawerTree(
-  record: Record<string, unknown>,
-  operations: unknown[] = [],
-): Promise<string> {
+async function renderDrawerTree(record: Record<string, unknown>, operations: unknown[] = []): Promise<string> {
   installCssHook();
   const { default: ExamRecordDetailDrawer } = await import('../src/components/ExamRecordDetailDrawer.js');
-  const granted = new Set(['major.read', 'device.read']);
+  const granted = new Set(['major.read', 'major.edit', 'device.read']);
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes('resource=record-operations')) return jsonResponse({ ok: true, data: operations });
@@ -234,9 +231,30 @@ test('考试详情抽屉：当前科目置顶并展示科目状态，自动操�
     return `${date}T${String(value.hour).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}:00`;
   };
   const subjects = [
-    { id: 'future', name: '英语', startTime: localTime(now + 60 * 60_000), endTime: localTime(now + 2 * 60 * 60_000), enabled: true, order: 2 },
-    { id: 'current', name: '数学', startTime: localTime(now - 30 * 60_000), endTime: localTime(now + 30 * 60_000), enabled: true, order: 1 },
-    { id: 'past', name: '语文', startTime: localTime(now - 2 * 60 * 60_000), endTime: localTime(now - 60 * 60_000), enabled: true, order: 0 },
+    {
+      id: 'future',
+      name: '英语',
+      startTime: localTime(now + 60 * 60_000),
+      endTime: localTime(now + 2 * 60 * 60_000),
+      enabled: true,
+      order: 2,
+    },
+    {
+      id: 'current',
+      name: '数学',
+      startTime: localTime(now - 30 * 60_000),
+      endTime: localTime(now + 30 * 60_000),
+      enabled: true,
+      order: 1,
+    },
+    {
+      id: 'past',
+      name: '语文',
+      startTime: localTime(now - 2 * 60 * 60_000),
+      endTime: localTime(now - 60 * 60_000),
+      enabled: true,
+      order: 0,
+    },
   ];
   // Ensure the generated local timestamp parser agrees with the Shanghai wall clock.
   assert.ok(Math.abs(parseZonedTime(subjects[1].startTime) - (now - 30 * 60_000)) < 60_000);
@@ -253,11 +271,38 @@ test('考试详情抽屉：当前科目置顶并展示科目状态，自动操�
     },
   ]);
   assert.ok(tree.indexOf('数学') < tree.indexOf('英语'), '当前科目应排在未开始科目前');
-  assert.ok(tree.includes('当前科目') && tree.includes('进行中'), tree.slice(tree.indexOf('数学') - 100, tree.indexOf('数学') + 500));
+  assert.ok(
+    tree.includes('当前科目') && tree.includes('进行中'),
+    tree.slice(tree.indexOf('数学') - 100, tree.indexOf('数学') + 500),
+  );
   assert.ok(tree.includes('未开始'));
   assert.ok(tree.includes('已结束'));
   assert.ok(tree.includes('系统自动开考'));
   assert.ok(tree.includes('结果：') && tree.includes('系统已开考'));
   assert.ok(tree.includes('进行中'));
   assert.ok(tree.includes('到达计划开考时间'));
+});
+
+test('考试详情抽屉：没有进行中的单科时仍显示快捷延长入口并说明暂不可用', async () => {
+  const now = Date.now();
+  const localTime = (timestamp: number) => {
+    const value = getZonedParts(timestamp);
+    const date = `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`;
+    return `${date}T${String(value.hour).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}:00`;
+  };
+  const tree = await renderDrawerTree({
+    ...RECORD,
+    items: [
+      {
+        id: 'future',
+        name: '化学',
+        startTime: localTime(now + 60 * 60_000),
+        endTime: localTime(now + 2 * 60 * 60_000),
+        enabled: true,
+        order: 0,
+      },
+    ],
+  });
+  assert.ok(tree.includes('快捷延长'), '快捷延长入口不能因为当前无科目就直接消失');
+  assert.ok(tree.includes('单科开考后可用快捷延长'), '不可用时应当说明原因');
 });

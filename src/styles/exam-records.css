@@ -1506,6 +1506,11 @@
  * 完整资料、生命周期、操作记录与设备明细按需展开。
  */
 .exam-record-detail {
+  --detail-font-title: 20px;
+  --detail-font-heading: 14px;
+  --detail-font-body: 13px;
+  --detail-font-meta: 12px;
+  --detail-font-caption: 11px;
   width: min(1180px, calc(100vw - 48px));
   max-width: min(1180px, calc(100vw - 48px));
   max-height: min(90vh, 860px);
@@ -1525,7 +1530,7 @@
 
 .exam-record-detail__head-meta {
   color: var(--adm-text-3, #879caf);
-  font-size: 12px;
+  font-size: var(--detail-font-meta);
   line-height: 1.5;
 }
 
@@ -1587,7 +1592,7 @@
   background: transparent;
   color: var(--adm-text-2, #a9bdd0);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--detail-font-meta);
   text-align: left;
   cursor: pointer;
 }
@@ -1607,6 +1612,33 @@
   gap: 14px;
   margin: 14px 0;
   padding-right: 4px;
+}
+
+/*
+ * 旧版详情在 ≥1120px 时把 body 和科目/设备都写成了固定栅格区域。
+ * 新布局必须以单列工作区为容器，再用显式选择器隔离旧 grid-area，
+ * 否则宽屏会出现“内容全挤在左半栏、右半栏整片空白”。
+ */
+.admin-modal.exam-record-detail > .exam-record-detail__body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: auto;
+  align-items: stretch;
+}
+
+.admin-modal.exam-record-detail > .exam-record-detail__body > * {
+  grid-column: 1 / -1;
+  grid-row: auto;
+  grid-area: auto;
+}
+
+.admin-modal.exam-record-detail .exam-record-detail__workspace > .exam-record-detail__subjects,
+.admin-modal.exam-record-detail .exam-record-detail__workspace > .exam-record-detail__side {
+  grid-area: auto;
+}
+
+.admin-modal.exam-record-detail .exam-record-detail__workspace {
+  width: 100%;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.9fr);
 }
 
 .exam-record-detail__body > * {
@@ -1640,6 +1672,11 @@
 
 .exam-record-detail__live > div > span:last-child {
   color: var(--adm-text-3, #879caf);
+  font-size: var(--detail-font-meta);
+}
+
+.exam-record-detail__live strong {
+  font-size: var(--detail-font-heading);
 }
 
 .exam-record-detail__live.is-between {
@@ -1658,7 +1695,7 @@
   border-radius: 999px;
   background: rgba(76, 190, 140, 0.08);
   color: var(--adm-success, #4cbe8c);
-  font-size: 12px;
+  font-size: var(--detail-font-meta);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1672,7 +1709,7 @@
 
 .exam-record-detail__eyebrow {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1700,14 +1737,14 @@
 
 .exam-record-detail__summary dt {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
 }
 
 .exam-record-detail__summary dd {
   margin: 4px 0 0;
   overflow: hidden;
   color: var(--adm-text, #eaf2f8);
-  font-size: 13px;
+  font-size: var(--detail-font-body);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1758,7 +1795,7 @@
 .exam-record-detail__section-head p {
   margin: 0;
   color: var(--adm-text-3, #879caf);
-  font-size: 11px;
+  font-size: var(--detail-font-meta);
   line-height: 1.45;
 }
 
@@ -1783,7 +1820,7 @@
   background: transparent;
   color: var(--adm-text-3, #879caf);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--detail-font-meta);
   cursor: pointer;
   transition:
     color var(--motion-fast) var(--motion-ease-standard),
@@ -1839,7 +1876,7 @@
   background: rgba(148, 180, 208, 0.035);
   color: var(--adm-text-3, #879caf);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--detail-font-body);
   text-align: left;
   cursor: pointer;
   transition:
@@ -1870,6 +1907,11 @@
 
 .exam-record-detail__subjects li > button > span {
   color: var(--adm-text-2, #a9bdd0);
+  font-size: var(--detail-font-meta);
+}
+
+.exam-record-detail__subjects li > button > strong {
+  font-size: var(--detail-font-body);
 }
 
 .exam-record-detail__subjects li > button > em {
@@ -1878,6 +1920,7 @@
   border-radius: 999px;
   background: rgba(148, 180, 208, 0.09);
   color: var(--adm-text-3, #879caf);
+  font-size: var(--detail-font-meta);
 }
 
 .exam-record-detail__subjects li > button > em.is-ongoing {
@@ -1911,21 +1954,21 @@
 
 .exam-record-detail__selected-subject span {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
 }
 
 .exam-record-detail__selected-subject strong,
 .exam-record-detail__selected-subject b {
   overflow: hidden;
   color: var(--adm-text, #eaf2f8);
-  font-size: 12px;
+  font-size: var(--detail-font-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .exam-record-detail__selected-subject em {
   color: var(--adm-text-3, #879caf);
-  font-size: 11px;
+  font-size: var(--detail-font-meta);
   font-style: normal;
   text-align: right;
 }
@@ -1941,7 +1984,7 @@
   gap: 10px;
   min-height: 64px;
   color: var(--adm-text-3, #879caf);
-  font-size: 12px;
+  font-size: var(--detail-font-body);
 }
 
 .exam-record-detail__empty-subjects button {
@@ -1955,6 +1998,7 @@
 
 .exam-record-detail__device-summary {
   margin-bottom: 0;
+  font-size: var(--detail-font-meta);
 }
 
 .exam-record-detail__device-summary button {
@@ -1970,6 +2014,22 @@
 
 .exam-record-detail__device-detail .exam-record-detail__hint {
   margin-top: 8px;
+}
+
+.exam-record-detail__hint {
+  font-size: var(--detail-font-meta);
+}
+
+.exam-record-detail__devices li {
+  font-size: var(--detail-font-body);
+}
+
+.exam-record-detail__devices li span {
+  font-size: var(--detail-font-caption);
+}
+
+.exam-record-detail__devices li em {
+  font-size: var(--detail-font-meta);
 }
 
 .exam-record-detail__disclosure > summary {
@@ -1999,12 +2059,12 @@
   align-items: center;
   gap: 7px;
   color: var(--adm-text, #eaf2f8);
-  font-size: 12px;
+  font-size: var(--detail-font-body);
 }
 
 .exam-record-detail__disclosure > summary em {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
   font-style: normal;
 }
 
@@ -2036,6 +2096,14 @@
   margin-bottom: 9px;
 }
 
+.exam-record-detail h3 {
+  font-size: var(--detail-font-heading);
+}
+
+.exam-record-detail__title-row .admin-modal__title {
+  font-size: var(--detail-font-title);
+}
+
 .exam-record-detail__facts dl {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px 14px;
@@ -2043,17 +2111,17 @@
 }
 
 .exam-record-detail__facts dt {
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
 }
 
 .exam-record-detail__facts dd {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--detail-font-body);
 }
 
 .exam-record-detail__facts dd code {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
 }
 
 .exam-record-detail__timeline {
@@ -2074,6 +2142,7 @@
   display: grid;
   grid-template-columns: 62px minmax(0, 1fr);
   gap: 3px 8px;
+  font-size: var(--detail-font-meta);
 }
 
 .exam-record-detail__timeline li div em {
@@ -2091,6 +2160,7 @@
 .exam-record-detail__operations li {
   padding: 8px 10px;
   background: rgba(148, 180, 208, 0.025);
+  font-size: var(--detail-font-meta);
 }
 
 .exam-record-detail__actions {
@@ -2115,13 +2185,13 @@
 
 .exam-record-detail__selection span {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
 }
 
 .exam-record-detail__selection strong {
   overflow: hidden;
   color: var(--adm-text, #eaf2f8);
-  font-size: 12px;
+  font-size: var(--detail-font-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2131,7 +2201,15 @@
   margin-left: 0;
 }
 
+.exam-record-detail__action-note {
+  align-self: center;
+  color: var(--adm-text-3, #879caf);
+  font-size: var(--detail-font-meta);
+  white-space: nowrap;
+}
+
 .exam-record-detail__buttons .admin-btn {
+  font-size: var(--detail-font-body);
   transition:
     border-color var(--motion-fast) var(--motion-ease-standard),
     background-color var(--motion-fast) var(--motion-ease-standard),
@@ -2185,12 +2263,12 @@
 
 .exam-record-detail__extend-head strong {
   color: var(--adm-text, #eaf2f8);
-  font-size: 12px;
+  font-size: var(--detail-font-body);
 }
 
 .exam-record-detail__extend-head span {
   color: var(--adm-text-3, #879caf);
-  font-size: 10px;
+  font-size: var(--detail-font-caption);
 }
 
 .exam-record-detail__extend-head > button {
@@ -2274,11 +2352,11 @@
 }
 
 @media (max-width: 980px) {
-  .exam-record-detail__workspace {
+  .admin-modal.exam-record-detail .exam-record-detail__workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .exam-record-detail__side {
+  .admin-modal.exam-record-detail .exam-record-detail__side {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
   }
@@ -2316,7 +2394,7 @@
     border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
   }
 
-  .exam-record-detail__side {
+  .admin-modal.exam-record-detail .exam-record-detail__side {
     grid-template-columns: minmax(0, 1fr);
   }
 
