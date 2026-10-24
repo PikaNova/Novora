@@ -1623,8 +1623,9 @@
  */
 .admin-modal.exam-record-detail > .exam-record-detail__body {
   grid-template-columns: minmax(0, 1fr);
-  grid-auto-rows: auto;
+  grid-auto-rows: max-content;
   align-items: stretch;
+  align-content: start;
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
