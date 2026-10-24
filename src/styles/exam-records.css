@@ -1769,7 +1769,23 @@
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.9fr);
   align-items: start;
-  gap: 14px;
+  gap: 0;
+}
+
+.admin-modal.exam-record-detail .exam-record-detail__workspace {
+  overflow: hidden;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.14));
+  border-radius: 10px;
+}
+
+.admin-modal.exam-record-detail .exam-record-detail__workspace > .exam-record-detail__subjects,
+.admin-modal.exam-record-detail .exam-record-detail__workspace .exam-record-detail__devices {
+  border: 0;
+  border-radius: 0;
+}
+
+.admin-modal.exam-record-detail .exam-record-detail__workspace > .exam-record-detail__subjects {
+  border-right: 1px solid var(--adm-line, rgba(148, 180, 208, 0.14));
 }
 
 .exam-record-detail__subjects,
@@ -2389,6 +2405,11 @@
 @media (max-width: 980px) {
   .admin-modal.exam-record-detail .exam-record-detail__workspace {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-modal.exam-record-detail .exam-record-detail__workspace > .exam-record-detail__subjects {
+    border-right: 0;
+    border-bottom: 1px solid var(--adm-line, rgba(148, 180, 208, 0.14));
   }
 
   .exam-record-detail__top-details dl {
