@@ -321,7 +321,7 @@ function ExamRecordDetailBody({
     });
   }, [now, record.items, record.startAt]);
   const currentSubject = subjects.find((subject) => subject.status === '进行中') ?? null;
-  const extendUnavailable = Boolean(record.items?.length && !currentSubject);
+  const extendUnavailable = !currentSubject;
   const upcomingSubject = subjects.find((subject) => subject.status === '未开始') ?? null;
   const endedSubjectCount = subjects.filter((subject) => subject.status === '已结束').length;
   const openSubjectCount = subjects.length - endedSubjectCount;
@@ -337,7 +337,7 @@ function ExamRecordDetailBody({
     visibleSubjectRows.find((subject) => subject.status === '未开始') ??
     visibleSubjectRows[0] ??
     null;
-  const visibleActions = actions.filter((action) => !(action === 'extend' && extendUnavailable));
+  const visibleActions = actions;
   const hasMoreActions = can('major.read') || (Boolean(onDiscard) && record.displayStatus === 'draft');
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
@@ -995,6 +995,9 @@ function ExamRecordDetailBody({
               {visibleActions.length === 0 && (
                 <span className="exam-record-detail__hint">当前账号没有可执行的操作。</span>
               )}
+              {actions.includes('extend') && extendUnavailable && (
+                <span className="exam-record-detail__action-note">单科开考后可用快捷延长</span>
+              )}
               <button
                 className={`admin-btn admin-btn--ghost exam-record-detail__note-toggle${
                   reason.trim() ? ' has-note' : ''
@@ -1019,9 +1022,14 @@ function ExamRecordDetailBody({
                   aria-expanded={action === 'extend' ? extendOpen : undefined}
                   aria-controls={action === 'extend' ? 'exam-record-extend-panel' : undefined}
                   onClick={() => (action === 'extend' ? setExtendOpen((value) => !value) : void startAction(action))}
-                  disabled={busyAction !== null}
+                  disabled={busyAction !== null || (action === 'extend' && extendUnavailable)}
+                  title={action === 'extend' && extendUnavailable ? '仅当单科考试进行中时可快捷延长' : undefined}
                 >
-                  {busyAction === action ? '处理中…' : EXAM_RECORD_ACTION_LABELS[action]}
+                  {busyAction === action
+                    ? '处理中…'
+                    : action === 'extend'
+                      ? '快捷延长'
+                      : EXAM_RECORD_ACTION_LABELS[action]}
                 </button>
               ))}
             </div>
