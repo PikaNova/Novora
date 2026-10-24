@@ -211,6 +211,7 @@ function planInput(row: RecordRow) {
     endAt: nullableNumber(row.end_at),
     pausedAt: nullableNumber(row.paused_at),
     pausedMs: number(row.paused_ms),
+    items: Array.isArray(row.items) ? (row.items as MajorExam['items']) : [],
   };
 }
 
@@ -615,13 +616,22 @@ async function handleRecordConsistency(req: VercelRequest, res: VercelResponse):
  */
 function describeTimeChange(
   action: ExamRecordActionName,
-  before: { endAt: number | null },
+  before: { endAt: number | null; items?: MajorExam['items'] },
   patch: ExamOperationPatch,
   now: number,
   extendMinutes: number,
 ): string {
   const fmt = (value: number | null | undefined) => (value == null ? '—' : formatDateTimeInZone(value));
   if (action === 'extend') {
+    const changedItem = patch.items?.find((item, index) => item.endTime !== before.items?.[index]?.endTime);
+    if (changedItem) {
+      const previousEndAt = before.items?.find((item) => item.id === changedItem.id)?.endTime;
+      const toTimestamp = (value: string) =>
+        /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? Date.parse(value) : parseZonedTime(value);
+      const overallEnd = patch.endAt ?? before.endAt;
+      const overallNote = overallEnd === before.endAt ? '' : `；整场预计结束 ${fmt(before.endAt)} → ${fmt(overallEnd)}`;
+      return `延长子考试「${changedItem.name}」${extendMinutes} 分钟：${fmt(toTimestamp(previousEndAt ?? ''))} → ${fmt(toTimestamp(changedItem.endTime))}${overallNote}`;
+    }
     return `延长 ${extendMinutes} 分钟：结束 ${fmt(before.endAt)} → ${fmt(patch.endAt ?? before.endAt)}`;
   }
   // 未开考就暂停的（系统自动开考还没跑到）：同一笔操作里补记了开考时间，日志里要说清楚，
@@ -877,7 +887,7 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
   }
   const reason = text(req.body?.reason).trim().slice(0, 200);
   if (!(await acquireWriteSlotOrReject(req, res))) return;
-  let result: { record: Record<string, unknown>; idempotent?: boolean };
+  let result: { record: Record<string, unknown>; idempotent?: boolean; updatedAt?: number };
   // 发布记录（T-286-02）：这次发布投给了哪些范围、命中多少设备，随审计一起落库。
   let publishScope: Record<string, unknown> | undefined;
   // P1-⑤：操作日志里的说明文案 = 时间变更说明（+ 用户备注），详情页据此展示新旧对比。
@@ -939,10 +949,11 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
           transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
           transaction`
             WITH updated AS (
-              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now},
+              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb,
+                updated_at=GREATEST(${now}::BIGINT, updated_at + 1),
                 revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object('major', COALESCE((revisions->>'major')::bigint, 0) + 1)
               WHERE id=1 AND updated_at=${expectedVersion}::BIGINT
-              RETURNING id
+              RETURNING id, updated_at
             ), claimed AS (
               INSERT INTO exam_record_operations (
                 idempotency_key, action, source_record_id, result_record_id,
@@ -970,12 +981,15 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
               ${copyProjection.publishedAt}, ${copyProjection.endedAt},
               ${copyProjection.archivedAt}, 1, ${copyProjection.sortOrder}
             FROM claimed
-            RETURNING *
+            RETURNING *, (SELECT updated_at FROM updated) AS snapshot_updated_at
           `,
         ]);
         const copiedRows = (copyResults[1] ?? []) as unknown as RecordRow[];
         if (!copiedRows[0]) throw new Error('DATA_CONFLICT');
-        result = { record: recordJson(copiedRows[0], now) };
+        result = {
+          record: recordJson(copiedRows[0], now),
+          updatedAt: number((copiedRows[0] as Record<string, unknown>).snapshot_updated_at, now),
+        };
       } else {
         let nextStatus: ExamRecordStatus;
         let patch: ExamOperationPatch;
@@ -1031,7 +1045,10 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
         // P1-⑤：把时间变更写成一句人话（旧 → 新）落进操作日志；用户备注附在后面。
         const timeNote = describeTimeChange(
           action,
-          { endAt: nullableNumber(record.end_at) },
+          {
+            endAt: nullableNumber(record.end_at),
+            items: Array.isArray(record.items) ? (record.items as MajorExam['items']) : [],
+          },
           patch,
           now,
           Math.floor(Number(req.body?.minutes ?? req.body?.extendMinutes)),
@@ -1046,10 +1063,11 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
           transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
           transaction`
             WITH updated AS (
-              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now},
+              UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb,
+                updated_at=GREATEST(${now}::BIGINT, updated_at + 1),
                 revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object('major', COALESCE((revisions->>'major')::bigint, 0) + 1)
               WHERE id=1 AND updated_at=${expectedVersion}::BIGINT
-              RETURNING id
+              RETURNING id, updated_at
             ), logged AS (
               INSERT INTO exam_record_operations (
                 idempotency_key, action, source_record_id, result_record_id,
@@ -1067,19 +1085,23 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
               archived_at=CASE WHEN ${action === 'archive'} THEN ${now} WHEN ${action === 'unarchive'} THEN NULL ELSE archived_at END,
               actual_start_at=COALESCE(${patch.actualStartAt ?? null}::BIGINT, actual_start_at),
               actual_end_at=COALESCE(${patch.actualEndAt ?? null}::BIGINT, actual_end_at),
+              items=COALESCE(${patch.items === undefined ? null : JSON.stringify(patch.items)}::jsonb, items),
               end_at=COALESCE(${patch.endAt ?? null}::BIGINT, end_at),
               paused_at=CASE WHEN ${hasPausedAt} THEN ${pausedAtValue}::BIGINT ELSE paused_at END,
               paused_ms=COALESCE(${patch.pausedMs ?? null}::BIGINT, paused_ms),
               stop_requested_at=CASE WHEN ${hasStopRequestedAt} THEN ${stopRequestedAtValue}::BIGINT ELSE stop_requested_at END,
               updated_at=${now}, version=version+1
             WHERE id=${recordId} AND EXISTS (SELECT 1 FROM logged)
-            RETURNING *
+            RETURNING *, (SELECT updated_at FROM updated) AS snapshot_updated_at
           `,
           projectCurrentExamRecords(transaction),
         ]);
         const updatedRows = (transitionResults[1] ?? []) as unknown as RecordRow[];
         if (updatedRows[0]) {
-          result = { record: recordJson(updatedRows[0], now) };
+          result = {
+            record: recordJson(updatedRows[0], now),
+            updatedAt: number((updatedRows[0] as Record<string, unknown>).snapshot_updated_at, now),
+          };
         } else if (idempotencyKey) {
           // 幂等键竞争失败：另一个同键请求已经写成功，回放它的结果。
           const replayRows = (await sql`SELECT * FROM exam_records WHERE id=${recordId}`) as unknown as RecordRow[];
@@ -1125,7 +1147,18 @@ async function handleRecordAction(req: VercelRequest, res: VercelResponse, actio
     ...(logReason ? { reason: logReason } : {}),
     ...(publishScope ? { publishScope } : {}),
   });
-  res.status(200).json({ ok: true, data: result.record, idempotent: result.idempotent === true });
+  if (!(result.updatedAt && result.updatedAt > 0)) {
+    const versionRows = (await sql`SELECT updated_at FROM exam_data WHERE id=1`) as unknown as Array<{
+      updated_at?: number | string;
+    }>;
+    result.updatedAt = Number(versionRows[0]?.updated_at ?? 0);
+  }
+  res.status(200).json({
+    ok: true,
+    data: result.record,
+    updatedAt: result.updatedAt,
+    idempotent: result.idempotent === true,
+  });
 }
 
 /**

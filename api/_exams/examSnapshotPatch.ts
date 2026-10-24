@@ -109,6 +109,7 @@ export function preserveServerLifecycleFields(currentMajors: unknown[], bodyMajo
  * 只写补丁里出现过的字段（用 hasOwnProperty 判断可空字段），避免把未涉及的字段抹掉。
  */
 export function applyOperationPatchToMajor(major: Record<string, unknown>, patch: ExamOperationPatch): void {
+  if (patch.items !== undefined) major.items = patch.items;
   if (patch.actualStartAt !== undefined) major.actualStartAt = patch.actualStartAt;
   if (patch.actualEndAt !== undefined) major.actualEndAt = patch.actualEndAt;
   if (patch.endAt !== undefined) major.endAt = patch.endAt;

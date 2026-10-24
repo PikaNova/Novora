@@ -1,0 +1,106 @@
+name: Build signed Windows application update
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing stable version tag, for example v2.8.2
+        required: true
+        type: string
+      minimum_version:
+        description: Oldest compatible source version with updater support
+        required: true
+        default: '2.8.1'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: novora
+          POSTGRES_PASSWORD: novora
+          POSTGRES_DB: novora_integration
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U novora -d novora_integration"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TZ: Asia/Shanghai
+      INTEGRATION_TEST_CONFIRM: novora-disposable
+      INTEGRATION_DATABASE_URL: postgres://novora:novora@127.0.0.1:5432/novora_integration?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+  build:
+    needs: integration
+    runs-on: windows-latest
+    environment: windows-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Validate version and source range
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          MINIMUM_VERSION: ${{ inputs.minimum_version }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:RELEASE_TAG -ne "v$version") { throw 'Tag must match stable package version' }
+          if ($env:MINIMUM_VERSION -notmatch '^\d+\.\d+\.\d+$' -or [version]$env:MINIMUM_VERSION -ge [version]$version) { throw 'Invalid minimum source version' }
+          if (-not (Test-Path "docs/CHANGELOG-$version.md")) { throw 'Missing version release notes' }
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - run: npm ci
+      - run: npm run verify:full
+      - run: npm run serve:build
+      - name: Verify update engine and signed package import
+        run: dotnet run --project packaging/windows/Novora.Update.Tests -c Release
+      - name: Stage production application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts/update-stage -Force | Out-Null
+          Copy-Item dist,server-build artifacts/update-stage -Recurse
+          Copy-Item package.json,package-lock.json artifacts/update-stage
+          npm ci --omit=dev --prefix artifacts/update-stage
+          if ($LASTEXITCODE -ne 0) { throw 'Production dependency staging failed' }
+          # Release-specific additive migration selection is explicit, never the full migration history.
+          if (Test-Path packaging/windows/update-migrations) { Copy-Item packaging/windows/update-migrations artifacts/update-stage -Recurse }
+      - name: Sign application update assets
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.NOVORA_UPDATE_SIGNING_KEY_PEM }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          MINIMUM_VERSION: ${{ inputs.minimum_version }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_KEY)) { throw 'Configure NOVORA_UPDATE_SIGNING_KEY_PEM in windows-release before signing' }
+          $keyFile = Join-Path $env:RUNNER_TEMP 'novora-update-signing.pem'
+          try {
+            [IO.File]::WriteAllText($keyFile, $env:UPDATE_SIGNING_KEY)
+            $env:UPDATE_SIGNING_KEY = ''
+            ./packaging/windows/build-update.ps1 -Stage artifacts/update-stage -Output artifacts/signed-update -Repository $env:RELEASE_REPOSITORY -MinimumVersion $env:MINIMUM_VERSION -NotesFile "docs/CHANGELOG-$($env:RELEASE_VERSION).md" -SigningKeyFile $keyFile
+          } finally { if (Test-Path -LiteralPath $keyFile) { Remove-Item -LiteralPath $keyFile -Force } }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-signed-application-update
+          path: artifacts/signed-update/*
+          if-no-files-found: error

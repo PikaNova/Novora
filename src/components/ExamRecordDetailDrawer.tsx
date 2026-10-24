@@ -16,6 +16,7 @@ import {
   fetchExamRecordPrecheck,
   type ExamRecordListEntry,
   type ExamRecordOperationEntry,
+  type ExamRecordSubjectEntry,
 } from '../services/examRecords';
 import {
   availableExamRecordActions,
@@ -28,6 +29,7 @@ import { buildExamDeviceSummary, filterExamDevices, isDeviceOnline } from '../ut
 import { buildExamRecordTimeline } from '../utils/examRecordTimeline';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
+import { formatDateTimeInZone, getZonedParts, parseZonedTime } from '../utils/zonedTime';
 
 const DEFAULT_EXTEND_MINUTES = 15;
 const MAX_EXTEND_MINUTES = 600;
@@ -35,6 +37,22 @@ const MAX_EXTEND_MINUTES = 600;
 /** 操作日志里会出现、但不属于「记录动作」的条目（例如快速考试转正式）。 */
 const EXTRA_OPERATION_LABELS: Record<string, string> = {
   promote: '转为正式考试',
+  auto_start: '系统自动开考',
+  auto_end: '系统自动结束',
+  auto_archive: '系统自动归档',
+  request_stop: '申请停止（历史操作）',
+  force_end: '强制结束（历史操作）',
+  publish: '发布考试',
+  archive: '归档考试',
+  unarchive: '取消归档',
+};
+
+const OPERATION_STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  published: '已发布',
+  ongoing: '进行中',
+  ended: '已结束',
+  archived: '已归档',
 };
 
 type Props = {
@@ -81,8 +99,18 @@ const ACTION_CONFIRM: Record<
     tone: 'warning',
     label: '暂停',
   },
-  resume: { title: '继续考试', message: '恢复后剩余时间按累计暂停时长顺延。', tone: 'info', label: '继续' },
-  extend: { title: '延长考试', message: '延长会同时顺延结束时间与倒计时。', tone: 'info', label: '延长' },
+  resume: {
+    title: '继续考试',
+    message: '恢复后倒计时重新开始，预计结束时间会按本次暂停时长顺延。',
+    tone: 'info',
+    label: '继续',
+  },
+  extend: {
+    title: '延长当前科目',
+    message: '仅延长当前正在进行的子考试，其他子考试的计划时间保持不变。',
+    tone: 'info',
+    label: '确认延长',
+  },
   end: {
     title: '结束考试',
     message: '立即结束本场考试：教室大屏马上不再显示它，不用等系统判定，之后只能归档或复制。',
@@ -106,14 +134,43 @@ const ACTION_CONFIRM: Record<
 
 function formatDateTime(value: number | null | undefined): string {
   if (!value || !Number.isFinite(value)) return '—';
-  return new Date(value).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return formatDateTimeInZone(value);
+}
+
+function subjectTime(value: string, recordStartAt: number | null): number {
+  if (!value) return Number.NaN;
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) return Date.parse(value);
+  if (value.includes('T')) return parseZonedTime(value);
+  if (recordStartAt == null || !/^\d{1,2}:\d{2}(?::\d{2})?$/.test(value)) return Number.NaN;
+  const date = getZonedParts(recordStartAt);
+  const clock = value.length === 5 ? `${value}:00` : value;
+  return parseZonedTime(
+    `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}T${clock}`,
+  );
+}
+
+function subjectStatus(item: ExamRecordSubjectEntry, startAt: number, endAt: number, now: number): string {
+  if (!item.enabled) return '未启用';
+  if (Number.isFinite(startAt) && Number.isFinite(endAt)) {
+    if (now < startAt) return '未开始';
+    if (now < endAt) return '进行中';
+    return '已结束';
+  }
+  return '时间未设置';
+}
+
+function operationResult(entry: ExamRecordOperationEntry): string {
+  const known: Record<string, string> = {
+    pause: '已暂停',
+    resume: '已继续',
+    extend: '当前子考试时间已延长',
+    end: '已结束',
+    auto_start: '系统已开考',
+    auto_end: '系统已结束',
+    auto_archive: '系统已归档',
+  };
+  if (known[entry.action]) return known[entry.action];
+  return entry.toStatus ? `状态变更为${OPERATION_STATUS_LABELS[entry.toStatus] ?? entry.toStatus}` : '已完成';
 }
 
 function formatDuration(ms: number): string {
@@ -152,6 +209,7 @@ function ExamRecordDetailBody({
   const [actionNotice, setActionNotice] = useState('');
   const [retry, setRetry] = useState<PendingAction | null>(null);
   const [minutes, setMinutes] = useState(String(DEFAULT_EXTEND_MINUTES));
+  const [now, setNow] = useState(() => Date.now());
   const [reason, setReason] = useState('');
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
@@ -162,6 +220,11 @@ function ExamRecordDetailBody({
   const [unboundOpen, setUnboundOpen] = useState(false);
 
   const canReadDevices = can('device.read');
+
+  useEffect(() => {
+    const timer = globalThis.setInterval(() => setNow(Date.now()), 1000);
+    return () => globalThis.clearInterval(timer);
+  }, []);
 
   const loadOperations = useCallback(async () => {
     setLoadingOperations(true);
@@ -229,6 +292,29 @@ function ExamRecordDetailBody({
     [operations],
   );
   const effectiveEndAt = record.endAt == null ? null : record.endAt + record.pausedMs;
+  const resumedEndAt =
+    effectiveEndAt != null && record.pausedAt != null
+      ? effectiveEndAt + Math.max(0, now - record.pausedAt)
+      : effectiveEndAt;
+  const subjects = useMemo(() => {
+    const rows = (record.items ?? []).map((item) => {
+      const startAt = subjectTime(item.startTime, record.startAt);
+      let endAt = subjectTime(item.endTime, record.startAt);
+      if (Number.isFinite(startAt) && Number.isFinite(endAt) && endAt <= startAt && !item.endTime.includes('T')) {
+        endAt += 24 * 60 * 60_000;
+      }
+      return { item, startAt, endAt, status: subjectStatus(item, startAt, endAt, now) };
+    });
+    return rows.sort((left, right) => {
+      const activeFirst = Number(right.status === '进行中') - Number(left.status === '进行中');
+      if (activeFirst) return activeFirst;
+      const leftTime = Number.isFinite(left.startAt) ? left.startAt : Number.MAX_SAFE_INTEGER;
+      const rightTime = Number.isFinite(right.startAt) ? right.startAt : Number.MAX_SAFE_INTEGER;
+      return leftTime - rightTime || left.item.order - right.item.order;
+    });
+  }, [now, record.items, record.startAt]);
+  const currentSubject = subjects.find((subject) => subject.status === '进行中') ?? null;
+  const extendUnavailable = Boolean(record.items?.length && !currentSubject);
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
   // 筛选/排序/汇总的规则在 utils/examDeviceDisplay.ts，那边有回归测试。
@@ -315,6 +401,15 @@ function ExamRecordDetailBody({
       }
     }
     const confirm = ACTION_CONFIRM[action];
+    const extendBaseEndAt = currentSubject?.endAt ?? effectiveEndAt;
+    const proposedEndAt =
+      action === 'extend' && extendBaseEndAt != null && extendMinutes != null
+        ? extendBaseEndAt + extendMinutes * 60_000
+        : null;
+    const proposedExamEndAt =
+      action === 'extend' && proposedEndAt != null && record.endAt != null
+        ? Math.max(effectiveEndAt ?? record.endAt, proposedEndAt + record.pausedMs)
+        : null;
     // 发布前检查（T-286-01）：设备在线情况只做提示，不阻断发布。
     let publishWarning = '';
     if (action === 'publish') {
@@ -333,8 +428,14 @@ function ExamRecordDetailBody({
       title: confirm.title,
       message:
         action === 'extend'
-          ? `${confirm.message}本次延长 ${extendMinutes} 分钟，可随时再次延长。`
-          : `${confirm.message}${publishWarning}`,
+          ? `${confirm.message}\n延长目标：${currentSubject?.item.name ?? record.name}（当前进行中）\n当前科目预计结束：${formatDateTime(extendBaseEndAt)} → ${formatDateTime(proposedEndAt)}\n整场预计结束：${formatDateTime(effectiveEndAt)} → ${formatDateTime(proposedExamEndAt)}\n大型考试下其他子考试的计划时间保持不变；教室端会更新当前科目结束时间。`
+          : action === 'resume'
+            ? `${confirm.message}\n继续后预计结束时间：${formatDateTime(resumedEndAt)}\n本次暂停时长：${formatDuration(Math.max(0, now - (record.pausedAt ?? now)))}`
+            : action === 'pause'
+              ? `${confirm.message}\n当前预计结束时间：${formatDateTime(effectiveEndAt)}${reason.trim() ? `\n备注：${reason.trim()}` : ''}`
+              : action === 'end'
+                ? `${confirm.message}${reason.trim() ? `\n备注：${reason.trim()}` : ''}`
+                : `${confirm.message}${publishWarning}`,
       tone: confirm.tone,
       confirmLabel: confirm.label,
     });
@@ -409,6 +510,30 @@ function ExamRecordDetailBody({
         </header>
 
         <div className="exam-record-detail__body">
+          {(record.displayStatus === 'ongoing' || record.pausedAt != null) && (
+            <section
+              className={`exam-record-detail__live ${record.pausedAt != null ? 'is-paused' : 'is-ongoing'}`}
+              aria-live="polite"
+            >
+              <div>
+                <strong>{record.pausedAt != null ? '考试已暂停' : '考试正在进行'}</strong>
+                <span>
+                  {record.pausedAt != null
+                    ? `暂停中 · 整场预计结束 ${formatDateTime(effectiveEndAt)}`
+                    : currentSubject
+                      ? `当前科目：${currentSubject.item.name} · 预计结束 ${formatDateTime(currentSubject.endAt)}`
+                      : `整场预计结束 ${formatDateTime(effectiveEndAt)}`}
+                </span>
+              </div>
+              <b>
+                {record.pausedAt != null
+                  ? '倒计时已暂停'
+                  : currentSubject
+                    ? `本科目剩余 ${formatDuration(currentSubject.endAt - now)}`
+                    : `整场剩余 ${formatDuration((effectiveEndAt ?? now) - now)}`}
+              </b>
+            </section>
+          )}
           <section className="exam-record-detail__facts" aria-label="基本信息">
             <h3>基本信息</h3>
             <dl>
@@ -441,15 +566,31 @@ function ExamRecordDetailBody({
                 <dt>计划时间</dt>
                 <dd>
                   {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
-                  {/* P1-⑤：最近一次动时间的操作原文（含旧 → 新），避免时间悄悄变了没提示。 */}
-                  {latestTimeChange && <em className="exam-record-detail__time-note">{latestTimeChange.reason}</em>}
                 </dd>
               </div>
+              <div>
+                <dt>实际开考</dt>
+                <dd>{formatDateTime(record.actualStartAt)}</dd>
+              </div>
+              <div>
+                <dt>实际结束</dt>
+                <dd>{formatDateTime(record.actualEndAt ?? record.endedAt)}</dd>
+              </div>
+              <div className="exam-record-detail__expected-end">
+                <dt>整场预计结束</dt>
+                <dd>{formatDateTime(effectiveEndAt)}</dd>
+              </div>
+              {latestTimeChange?.reason && (
+                <div className="exam-record-detail__time-change">
+                  <dt>最近时间调整</dt>
+                  <dd>{latestTimeChange.reason}</dd>
+                </div>
+              )}
               <div>
                 <dt>累计暂停</dt>
                 <dd>
                   {formatDuration(record.pausedMs)}
-                  {effectiveEndAt ? `（顺延至 ${formatDateTime(effectiveEndAt)}）` : ''}
+                  {effectiveEndAt ? `（整场预计结束 ${formatDateTime(effectiveEndAt)}）` : ''}
                 </dd>
               </div>
               {/* 「申请停止」不是立刻停：教室里照常显示，等系统判定后才会结束，这里要说清楚。 */}
@@ -465,6 +606,31 @@ function ExamRecordDetailBody({
                 </div>
               )}
             </dl>
+          </section>
+
+          <section className="exam-record-detail__subjects" aria-label="考试科目">
+            <h3>
+              考试科目 <span>{subjects.length}</span>
+            </h3>
+            {subjects.length === 0 ? (
+              <p className="exam-record-detail__hint">详情接口暂未提供科目时间。</p>
+            ) : (
+              <ol>
+                {subjects.map(({ item, startAt, endAt, status }) => (
+                  <li key={item.id} className={status === '进行中' ? 'is-current' : undefined}>
+                    <strong>{item.name}</strong>
+                    <span>
+                      {Number.isFinite(startAt) ? formatDateTime(startAt) : item.startTime || '—'} –{' '}
+                      {Number.isFinite(endAt) ? formatDateTime(endAt) : item.endTime || '—'}
+                    </span>
+                    <em className={`is-${status === '进行中' ? 'ongoing' : status === '已结束' ? 'ended' : 'pending'}`}>
+                      {status === '进行中' ? '当前科目 · ' : ''}
+                      {status}
+                    </em>
+                  </li>
+                ))}
+              </ol>
+            )}
           </section>
 
           <section className="exam-record-detail__devices" aria-label="设备状态">
@@ -604,9 +770,11 @@ function ExamRecordDetailBody({
                     <span>{entry.actorName || (entry.actorId == null ? '系统' : `#${entry.actorId}`)}</span>
                     {entry.fromStatus && entry.toStatus && entry.fromStatus !== entry.toStatus && (
                       <em>
-                        {entry.fromStatus} → {entry.toStatus}
+                        {OPERATION_STATUS_LABELS[entry.fromStatus] ?? entry.fromStatus} →{' '}
+                        {OPERATION_STATUS_LABELS[entry.toStatus] ?? entry.toStatus}
                       </em>
                     )}
+                    <em>结果：{operationResult(entry)}</em>
                     {entry.reason && <em>{entry.reason}</em>}
                   </li>
                 ))}
@@ -617,19 +785,42 @@ function ExamRecordDetailBody({
 
         <footer className="exam-record-detail__actions">
           {actions.includes('extend') && (
-            <label className="exam-record-detail__minutes">
-              延长
-              <input
-                className="admin-input"
-                type="number"
-                min="1"
-                max={MAX_EXTEND_MINUTES}
-                value={minutes}
-                onChange={(event) => setMinutes(event.target.value)}
-                aria-label="延长分钟数"
-              />
-              分钟
-            </label>
+            <div className="exam-record-detail__extend">
+              <label className="exam-record-detail__minutes">
+                延长当前科目
+                <input
+                  className="admin-input"
+                  type="number"
+                  min="1"
+                  max={MAX_EXTEND_MINUTES}
+                  value={minutes}
+                  onChange={(event) => setMinutes(event.target.value)}
+                  disabled={busyAction !== null}
+                  aria-label="延长分钟数"
+                />
+                分钟
+              </label>
+              <div className="exam-record-detail__extend-presets" aria-label="常用延长时长">
+                {[5, 10, 15, 30].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    disabled={busyAction !== null}
+                    className={Number(minutes) === preset ? 'is-active' : undefined}
+                    onClick={() => setMinutes(String(preset))}
+                  >
+                    +{preset}
+                  </button>
+                ))}
+                {effectiveEndAt != null && Number(minutes) > 0 && Number(minutes) <= MAX_EXTEND_MINUTES && (
+                  <span>
+                    {currentSubject
+                      ? `${currentSubject.item.name}：${formatDateTime(currentSubject.endAt)} → ${formatDateTime(currentSubject.endAt + Math.floor(Number(minutes)) * 60_000)}；其他子考试不变`
+                      : `整场考试：${formatDateTime(effectiveEndAt)} → ${formatDateTime(effectiveEndAt + Math.floor(Number(minutes)) * 60_000)}`}
+                  </span>
+                )}
+              </div>
+            </div>
           )}
           <label className="exam-record-detail__reason">
             备注
@@ -638,19 +829,23 @@ function ExamRecordDetailBody({
               value={reason}
               maxLength={200}
               onChange={(event) => setReason(event.target.value)}
+              disabled={busyAction !== null}
               placeholder="可选，会写入操作记录"
               aria-label="操作备注"
             />
           </label>
           <div className="exam-record-detail__buttons">
             {actions.length === 0 && <span className="exam-record-detail__hint">当前账号没有可执行的操作。</span>}
+            {actions.includes('extend') && extendUnavailable && (
+              <span className="exam-record-detail__hint">当前没有进行中的子考试，无法延长。</span>
+            )}
             {actions.map((action) => (
               <button
                 key={action}
                 className={`admin-btn ${action === 'end' || action === 'archive' ? 'admin-btn--danger' : 'admin-btn--primary'}`}
                 type="button"
                 onClick={() => void startAction(action)}
-                disabled={busyAction !== null}
+                disabled={busyAction !== null || (action === 'extend' && extendUnavailable)}
               >
                 {busyAction === action ? '处理中…' : EXAM_RECORD_ACTION_LABELS[action]}
               </button>

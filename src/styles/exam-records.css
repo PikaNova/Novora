@@ -853,6 +853,36 @@
   margin: 14px 0;
   padding-right: 4px;
 }
+.exam-record-detail__live {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid rgba(76, 190, 140, 0.38);
+  border-radius: 6px;
+  background: rgba(76, 190, 140, 0.09);
+  color: var(--adm-text-2, #a9bdd0);
+}
+.exam-record-detail__live > div {
+  display: grid;
+  gap: 3px;
+}
+.exam-record-detail__live strong {
+  color: var(--adm-success, #4cbe8c);
+  font-size: 13px;
+}
+.exam-record-detail__live span,
+.exam-record-detail__live b {
+  font-size: 12px;
+}
+.exam-record-detail__live.is-paused {
+  border-color: rgba(230, 162, 60, 0.42);
+  background: rgba(230, 162, 60, 0.1);
+}
+.exam-record-detail__live.is-paused strong {
+  color: #e6a23c;
+}
 .exam-record-detail__facts dl {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -867,6 +897,59 @@
   margin: 3px 0 0;
   color: var(--adm-text-2, #a9bdd0);
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.exam-record-detail__facts .exam-record-detail__expected-end dd {
+  color: var(--adm-text, #eaf2f8);
+  font-weight: 700;
+}
+.exam-record-detail__facts .exam-record-detail__time-change {
+  grid-column: 1 / -1;
+}
+.exam-record-detail__subjects ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exam-record-detail__subjects li {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.5fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  border-radius: 6px;
+  color: var(--adm-text-3, #879caf);
+  font-size: 12px;
+}
+.exam-record-detail__subjects li strong {
+  color: var(--adm-text, #eaf2f8);
+  overflow-wrap: anywhere;
+}
+.exam-record-detail__subjects li > span {
+  overflow-wrap: anywhere;
+}
+.exam-record-detail__subjects li em {
+  color: var(--adm-text-3, #879caf);
+  font-style: normal;
+  white-space: nowrap;
+}
+.exam-record-detail__subjects li em.is-ongoing {
+  color: var(--adm-success, #4cbe8c);
+  font-weight: 700;
+}
+.exam-record-detail__subjects li em.is-ended {
+  color: var(--adm-text-3, #879caf);
+}
+.exam-record-detail__subjects li.is-current {
+  border-color: rgba(76, 190, 140, 0.45);
+  background: rgba(76, 190, 140, 0.07);
+}
+.exam-record-detail__subjects h3 span {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
 }
 .exam-record-detail h3 {
   display: flex;
@@ -1044,6 +1127,33 @@
 .exam-record-detail__minutes .admin-input {
   width: 72px;
 }
+.exam-record-detail__extend {
+  display: grid;
+  gap: 5px;
+}
+.exam-record-detail__extend-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.exam-record-detail__extend-presets button {
+  min-width: 36px;
+  min-height: 28px;
+  border: 1px solid var(--adm-line-strong, rgba(148, 180, 208, 0.24));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--adm-text-2, #a9bdd0);
+  cursor: pointer;
+}
+.exam-record-detail__extend-presets button.is-active {
+  border-color: var(--adm-accent, #3b8fd0);
+  color: var(--adm-accent, #3b8fd0);
+}
+.exam-record-detail__extend-presets span {
+  color: var(--adm-text-3, #879caf);
+  font-size: 11px;
+}
 .exam-record-detail__reason .admin-input {
   width: 190px;
 }
@@ -1075,14 +1185,18 @@
   .exam-record-detail__devices {
     grid-area: 1 / 2;
   }
-  /* 5 个阶段挤在半栏里每段只剩 ~97px，「2026/09/19 17:38」这种时间会折行，所以让这两段横跨整幅。 */
-  .exam-record-detail__timeline {
+  .exam-record-detail__subjects {
     grid-area: 2 / 1 / 3 / 3;
   }
-  .exam-record-detail__operations {
+  /* 5 个阶段挤在半栏里每段只剩 ~97px，「2026/09/19 17:38」这种时间会折行，所以让这两段横跨整幅。 */
+  .exam-record-detail__timeline {
     grid-area: 3 / 1 / 4 / 3;
   }
+  .exam-record-detail__operations {
+    grid-area: 4 / 1 / 5 / 3;
+  }
   .exam-record-detail__facts,
+  .exam-record-detail__subjects,
   .exam-record-detail__devices,
   .exam-record-detail__timeline,
   .exam-record-detail__operations {
@@ -1168,6 +1282,26 @@
 }
 
 @media (max-width: 700px) {
+  .exam-record-detail__subjects li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .exam-record-detail__subjects li > span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .exam-record-detail__subjects li em {
+    grid-area: 1 / 2;
+  }
+  .exam-record-detail__live {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .exam-record-detail__extend {
+    width: 100%;
+  }
+  .exam-record-detail__extend-presets span {
+    flex-basis: 100%;
+  }
   .exam-record-detail__buttons {
     margin-left: 0;
   }
@@ -1229,6 +1363,11 @@
   }
   .exam-record-detail__facts dl {
     grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  }
+  .exam-record-detail__subjects li > span,
+  .exam-record-detail__operations li em,
+  .exam-record-detail__timeline li em {
+    overflow-wrap: anywhere;
   }
   .exam-record-detail__minutes .admin-input {
     width: 64px;

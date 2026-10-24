@@ -1,4 +1,4 @@
-# Novora v2.8.1
+# Novora v2.8.3
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
@@ -54,10 +54,10 @@ Novora 是面向学校教室大屏的考试与周测安排系统，包含客户�
 
 部署时只需要填写下面 3 个环境变量：
 
-| 环境变量                 | 必填                 | 说明                                                                              |
-| ------------------------ | -------------------- | --------------------------------------------------------------------------------- |
-| `DATABASE_URL`           | 是                   | Neon 新加坡 pooled connection string                                              |
-| `ADMIN_PASSWORD`         | 是                   | 首次创建 `admin` 超级管理员的初始密码，至少 8 位，建议 12 位以上                  |
+| 环境变量                 | 必填                 | 说明                                                                                                          |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | 是                   | Neon 新加坡 pooled connection string                                                                          |
+| `ADMIN_PASSWORD`         | 是                   | 首次创建 `admin` 超级管理员的初始密码，至少 8 位，建议 12 位以上                                              |
 | `VERCEL_DEPLOY_HOOK_URL` | 是（项目创建后补充） | Vercel `Settings → Git → Deploy Hooks` 创建的当前部署分支钩子（生产 `main`，Beta `beta`），用于设置页一键部署 |
 
 其他配置均由系统默认值、Vercel 自动变量或运行时降级逻辑处理：更新检查默认使用 `https://github.com/PikaNova/Novora`，公告与文档默认走作者端公开地址；遥测与错误上报不再需要部署者填写固定密钥，会在服务端运行时向作者端换取短期上报凭据。作者端暂不可用时会自动跳过上报，不影响考试看板、管理后台和数据库同步。诊断日志重试队列的 Cron 消费端点可选配 `DIAGNOSTIC_WORKER_SECRET`（见「诊断日志上报」），不配也能用。
@@ -242,6 +242,16 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 
 ## 更新日志
 
+### V2.8.3
+
+- [2.8.3 更新日志：后台考试修改与教室端同步可靠性](docs/CHANGELOG-2.8.3.md)
+
+### V2.8.1
+
+- [v2.8.1 开发资料、文件分类与发布检查](docs/2.8.1/README.md)
+- [v2.8.1 完整更新日志](docs/CHANGELOG-2.8.1.md)
+- [v2.8.1 新功能介绍](docs/FEATURES-2.8.1.md)
+
 ### V2.8.0
 
 - 考试中心：后台暂停、继续、延长、结束等操作会实时同步到教室端，倒计时与状态展示即时更新。
@@ -389,3 +399,7 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 - Docker Compose 一键启动：应用 + 内嵌 PostgreSQL 16
 - 无 Docker：Node 22 + 本机 PostgreSQL，npm run serve
 - 与云端部署共存于同一仓库，互不冲突；server/ 适配器复用全部 api/* handler
+
+### Windows 控制中心
+
+Windows 安装包现使用自包含 WPF 控制中心作为 `NovoraLauncher.exe`，提供服务和数据库状态、局域网地址、日志、备份及 Windows 设置；原 WinForms 托盘和服务宿主继续沿用。打包与验证方式见 [Windows 部署说明](packaging/windows/README.md)。

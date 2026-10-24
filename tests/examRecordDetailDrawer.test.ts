@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 // 先装浏览器常量/存储，再引服务与组件（ESM 按 import 顺序求值）。
 import './helpers/browserGlobals.js';
 import { fetchExamRecord } from '../src/services/examRecords.js';
+import { getZonedParts, parseZonedTime } from '../src/utils/zonedTime.js';
 
 /**
  * 回归背景：考试详情抽屉以前在「当前板块列表页那一页数据」里按 id 找记录，找不到就整个
@@ -86,6 +87,17 @@ test('fetchExamRecord: 按 id 单取一条考试记录', async () => {
   }
 });
 
+test('fetchExamRecord: 保留详情接口返回的科目安排', async () => {
+  const subjects = [{ id: 'math', name: '数学', startTime: '09:00', endTime: '10:00', enabled: true, order: 0 }];
+  globalThis.fetch = (async () => jsonResponse({ ok: true, data: { ...RECORD, items: subjects } })) as typeof fetch;
+  try {
+    const record = await fetchExamRecord(RECORD.id);
+    assert.deepEqual(record.items, subjects);
+  } finally {
+    globalThis.fetch = ORIGINAL_FETCH;
+  }
+});
+
 test('fetchExamRecord: 记录不存在时抛出服务端错误码，不返回空壳', async () => {
   globalThis.fetch = (async () =>
     jsonResponse({ ok: false, code: 'RECORD_NOT_FOUND', error: '考试记录不存在或无权访问' }, 404)) as typeof fetch;
@@ -154,13 +166,16 @@ test('考试详情抽屉：记录不在调用方列表里（只给 id）也能�
 });
 
 /** 用一条给定的记录渲染详情抽屉，返回渲染树文本（创建人显示名的回归用）。 */
-async function renderDrawerTree(record: Record<string, unknown>): Promise<string> {
+async function renderDrawerTree(
+  record: Record<string, unknown>,
+  operations: unknown[] = [],
+): Promise<string> {
   installCssHook();
   const { default: ExamRecordDetailDrawer } = await import('../src/components/ExamRecordDetailDrawer.js');
   const granted = new Set(['major.read', 'device.read']);
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes('resource=record-operations')) return jsonResponse({ ok: true, data: [] });
+    if (url.includes('resource=record-operations')) return jsonResponse({ ok: true, data: operations });
     if (url.includes('record-precheck')) return jsonResponse({ ok: true, data: {} });
     if (url.includes('device-bindings')) return jsonResponse({ ok: true, bindings: [] });
     if (url.includes('resource=record&')) return jsonResponse({ ok: true, data: record });
@@ -209,4 +224,40 @@ test('考试详情抽屉：创建人显示姓名，读不到姓名才回退 #id'
 
   const fallback = await renderDrawerTree({ ...RECORD, createdBy: 7, createdByName: '' });
   assert.ok(fallback.includes('#7'), '没有显示名时回退到 #7');
+});
+
+test('考试详情抽屉：当前科目置顶并展示科目状态，自动操作记录使用中文', async () => {
+  const now = Date.now();
+  const localTime = (timestamp: number) => {
+    const value = getZonedParts(timestamp);
+    const date = `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`;
+    return `${date}T${String(value.hour).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}:00`;
+  };
+  const subjects = [
+    { id: 'future', name: '英语', startTime: localTime(now + 60 * 60_000), endTime: localTime(now + 2 * 60 * 60_000), enabled: true, order: 2 },
+    { id: 'current', name: '数学', startTime: localTime(now - 30 * 60_000), endTime: localTime(now + 30 * 60_000), enabled: true, order: 1 },
+    { id: 'past', name: '语文', startTime: localTime(now - 2 * 60 * 60_000), endTime: localTime(now - 60 * 60_000), enabled: true, order: 0 },
+  ];
+  // Ensure the generated local timestamp parser agrees with the Shanghai wall clock.
+  assert.ok(Math.abs(parseZonedTime(subjects[1].startTime) - (now - 30 * 60_000)) < 60_000);
+  const tree = await renderDrawerTree({ ...RECORD, items: subjects }, [
+    {
+      action: 'auto_start',
+      fromStatus: 'published',
+      toStatus: 'ongoing',
+      createdAt: now,
+      actorId: null,
+      actorName: '',
+      reason: '到达计划开考时间',
+      resultRecordId: RECORD.id,
+    },
+  ]);
+  assert.ok(tree.indexOf('数学') < tree.indexOf('英语'), '当前科目应排在未开始科目前');
+  assert.ok(tree.includes('当前科目') && tree.includes('进行中'), tree.slice(tree.indexOf('数学') - 100, tree.indexOf('数学') + 500));
+  assert.ok(tree.includes('未开始'));
+  assert.ok(tree.includes('已结束'));
+  assert.ok(tree.includes('系统自动开考'));
+  assert.ok(tree.includes('结果：') && tree.includes('系统已开考'));
+  assert.ok(tree.includes('进行中'));
+  assert.ok(tree.includes('到达计划开考时间'));
 });

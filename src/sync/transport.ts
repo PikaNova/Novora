@@ -24,8 +24,10 @@ export type HeartbeatOutcome = {
   revoked: boolean;
   binding: DeviceBinding | null;
   command: DeviceCommand | null;
-  /** 服务端当前快照版本；只有启用了版本驱动同步的部署（Vercel）才会返回。 */
+  /** 服务端当前考试快照版本；所有部署都返回，用于触发教室端拉取最新快照。 */
   version?: number;
+  /** 是否支持长期缓存版本化快照；与同步版本字段分离。 */
+  versionedSnapshotCache?: boolean;
   timeControl?: { revision: number; offsetMs: number; syncRequestId: string; syncRequestedAt: number };
 };
 
@@ -68,7 +70,7 @@ export type HttpPollTransportDeps = {
   setTimer: (callback: () => void, delayMs: number) => number;
   clearTimer: (handle: number) => void;
   random?: () => number;
-  onVersionAdvertised?: () => void;
+  onVersionAdvertised?: (versionedSnapshotCache: boolean) => void;
   currentPage?: () => string;
 };
 
@@ -143,7 +145,7 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
   // 最近一次执行失败的命令与原因：随每轮心跳回执（服务端只会对 pending/claimed 生效一次）。
   let failedCommandId = '';
   let commandFailureReason = '';
-  let edgeCapabilityMarked = false;
+  let lastEdgeCacheSupport: boolean | null = null;
   let timeControlRevision = 0;
   let timeSyncRequest: DeviceHeartbeatInput | null = null;
 
@@ -196,12 +198,15 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
       } else if (outcome.binding) {
         for (const listener of listeners) listener.onBinding?.(outcome.binding);
       }
-      if (typeof outcome.version === 'number' && Number.isFinite(outcome.version)) {
-        // 只在第一次落盘，避免每轮心跳都写一次 localStorage。
-        if (!edgeCapabilityMarked) {
-          edgeCapabilityMarked = true;
-          onVersionAdvertised();
+      if (typeof outcome.versionedSnapshotCache === 'boolean' || typeof outcome.version === 'number') {
+        // 新版服务端显式报告缓存能力；旧版只在边缘部署带 version，继续按旧契约兼容。
+        const supportsVersionedSnapshotCache = outcome.versionedSnapshotCache ?? true;
+        if (supportsVersionedSnapshotCache !== lastEdgeCacheSupport) {
+          lastEdgeCacheSupport = supportsVersionedSnapshotCache;
+          onVersionAdvertised(supportsVersionedSnapshotCache);
         }
+      }
+      if (typeof outcome.version === 'number' && Number.isFinite(outcome.version)) {
         for (const listener of listeners) listener.onVersion?.(outcome.version);
       }
       if (outcome.timeControl) for (const listener of listeners) listener.onTimeControl?.(outcome.timeControl);

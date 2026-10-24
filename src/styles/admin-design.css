@@ -653,6 +653,24 @@
   font-weight: 750;
   font-family: var(--font-region-display);
 }
+.major-editor-live {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(230, 162, 60, 0.42);
+  border-radius: 6px;
+  background: rgba(230, 162, 60, 0.1);
+  color: var(--adm-text-2);
+  font-size: 12px;
+}
+.major-editor-live strong {
+  color: #e6a23c;
+  font-size: 13px;
+}
+.major-editor-live small {
+  color: var(--adm-text-3);
+}
 .admin-major-add-actions {
   gap: 8px;
 }

@@ -17,7 +17,6 @@ import SubjectIcon from './SubjectIcon';
 import TimeRangePickerModal from './TimeRangePickerModal';
 import { COMMON_EXAM_SUBJECTS } from '../data/subjects';
 import { getMajorExamLock, majorExamLockMessage } from '../utils/majorExamLock';
-import { getAppSettings } from '../utils/appSettings';
 
 const COMMON_SUBJECTS = COMMON_EXAM_SUBJECTS;
 const DURATION_PRESETS = [45, 60, 75, 90, 120, 150];

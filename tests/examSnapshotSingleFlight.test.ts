@@ -38,6 +38,10 @@ testGlobals.__COMMIT_SHA__ = 'test';
 const {
   fetchExamsFromServer,
   invalidateExamSnapshotReuse,
+  notifyCloudSnapshotChanged,
+  CLOUD_VERSION_STORAGE_KEY,
+  CLOUD_CHANGE_SIGNAL_STORAGE_KEY,
+  CLOUD_VERSION_EVENT,
   __resetSnapshotFlightForTests,
   __setSnapshotReuseWindowForTests,
 } = await import('../src/services/examService.js');
@@ -171,6 +175,69 @@ test('强制刷新：绕过结果复用窗口读取最新快照', async () => {
     restore();
     __setSnapshotReuseWindowForTests(1_000);
   }
+});
+
+test('强制刷新：等待旧条件请求结束，并让并发普通读取复用新快照', async () => {
+  testGlobals.localStorage?.clear();
+  __resetSnapshotFlightForTests();
+  let releaseOld!: () => void;
+  let calls = 0;
+  const oldResponse = new Promise<Response>((resolve) => {
+    releaseOld = () => resolve(snapshotResponse('旧快照'));
+  });
+  const { calls: recorded, restore } = installFetch(async () => {
+    calls += 1;
+    return calls === 1 ? oldResponse : snapshotResponse('新快照');
+  });
+  try {
+    const old = fetchExamsFromServer();
+    await Promise.resolve();
+    const fresh = fetchExamsFromServer(undefined, { fresh: true });
+    const ordinary = fetchExamsFromServer();
+    await Promise.resolve();
+    assert.equal(recorded.length, 1, '旧请求完成前不能再发条件请求或强制请求');
+    releaseOld();
+    const [oldResult, freshResult, ordinaryResult] = await Promise.all([old, fresh, ordinary]);
+    assert.equal(recorded.length, 2, '强制刷新随后只发一条独立完整快照请求');
+    assert.equal(oldResult?.title, '旧快照');
+    assert.equal(freshResult?.title, '新快照');
+    assert.equal(ordinaryResult?.title, '新快照');
+  } finally {
+    restore();
+  }
+});
+
+test('快照写操作通知同页与同源其他标签页', () => {
+  testGlobals.localStorage?.clear();
+  __resetSnapshotFlightForTests();
+  const globalWithWindow = globalThis as unknown as { window?: EventTarget };
+  const originalWindow = globalWithWindow.window;
+  const eventTarget = new EventTarget();
+  globalWithWindow.window = eventTarget;
+  let eventVersion = 0;
+  const onChange = (event: Event) => {
+    eventVersion = (event as CustomEvent<{ version?: number }>).detail?.version ?? 0;
+  };
+  eventTarget.addEventListener(CLOUD_VERSION_EVENT, onChange);
+  try {
+    notifyCloudSnapshotChanged(1_789_223_000_000);
+    assert.equal(eventVersion, 1_789_223_000_000);
+    assert.equal(testGlobals.localStorage?.getItem(CLOUD_VERSION_STORAGE_KEY), '1789223000000');
+    assert.match(testGlobals.localStorage?.getItem(CLOUD_CHANGE_SIGNAL_STORAGE_KEY) ?? '', /^1789223000000:/);
+  } finally {
+    eventTarget.removeEventListener(CLOUD_VERSION_EVENT, onChange);
+    if (originalWindow) globalWithWindow.window = originalWindow;
+    else delete globalWithWindow.window;
+  }
+});
+
+test('较旧快照通知不会让本机版本信号倒退', () => {
+  testGlobals.localStorage?.clear();
+  __resetSnapshotFlightForTests();
+  testGlobals.localStorage?.setItem(CLOUD_VERSION_STORAGE_KEY, '1789223000001');
+  notifyCloudSnapshotChanged(1_789_223_000_000);
+  assert.equal(testGlobals.localStorage?.getItem(CLOUD_VERSION_STORAGE_KEY), '1789223000001');
+  assert.match(testGlobals.localStorage?.getItem(CLOUD_CHANGE_SIGNAL_STORAGE_KEY) ?? '', /^1789223000001:/);
 });
 
 test('快照复用窗口：窗口过期照常重取，写入会立刻作废窗口', async () => {
