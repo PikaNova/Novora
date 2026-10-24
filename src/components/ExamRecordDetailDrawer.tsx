@@ -338,7 +338,7 @@ function ExamRecordDetailBody({
     visibleSubjectRows[0] ??
     null;
   const visibleActions = actions;
-  const hasMoreActions = can('major.read') || (Boolean(onDiscard) && record.displayStatus === 'draft');
+  const hasMoreActions = Boolean(onDiscard) && record.displayStatus === 'draft';
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
   // 筛选/排序/汇总的规则在 utils/examDeviceDisplay.ts，那边有回归测试。
@@ -494,6 +494,18 @@ function ExamRecordDetailBody({
                 发送公告
               </button>
             )}
+            {can('major.read') && (
+              <button
+                className="admin-btn admin-btn--ghost"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  navigate(adminSectionUrl({ tab: 'announcements' }));
+                }}
+              >
+                公告管理
+              </button>
+            )}
             {((onEdit && (canEditRecord?.(record) ?? true)) || (!onEdit && can('major.edit'))) && (
               <button
                 className="admin-btn admin-btn--ghost"
@@ -514,18 +526,7 @@ function ExamRecordDetailBody({
               <details className="exam-record-detail__more">
                 <summary className="admin-btn admin-btn--ghost">更多</summary>
                 <div className="exam-record-detail__more-menu">
-                  {can('major.read') && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        navigate(adminSectionUrl({ tab: 'announcements' }));
-                      }}
-                    >
-                      公告管理
-                    </button>
-                  )}
-                  {onDiscard && record.displayStatus === 'draft' && (
+                  {onDiscard && (
                     <button className="is-danger" type="button" onClick={() => onDiscard(record)}>
                       删除草稿
                     </button>
@@ -610,6 +611,70 @@ function ExamRecordDetailBody({
               </dd>
             </div>
           </dl>
+
+          <section className="exam-record-detail__facts exam-record-detail__top-details" aria-label="考试详情">
+            <div className="exam-record-detail__section-head">
+              <div>
+                <h3>考试详情</h3>
+                <p>范围、时间与运行记录常驻展示，不随科目选择收起。</p>
+              </div>
+            </div>
+            <dl>
+              <div>
+                <dt>记录编号</dt>
+                <dd>
+                  <code>{record.id}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>创建人</dt>
+                <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
+              </div>
+              <div>
+                <dt>创建时间</dt>
+                <dd>{formatDateTime(record.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>更新时间</dt>
+                <dd>{formatDateTime(record.updatedAt)}</dd>
+              </div>
+              <div>
+                <dt>计划时间</dt>
+                <dd>
+                  {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
+                </dd>
+              </div>
+              <div>
+                <dt>实际开考</dt>
+                <dd>{formatDateTime(record.actualStartAt)}</dd>
+              </div>
+              <div>
+                <dt>实际结束</dt>
+                <dd>{formatDateTime(record.actualEndAt ?? record.endedAt)}</dd>
+              </div>
+              <div>
+                <dt>累计暂停</dt>
+                <dd>{formatDuration(record.pausedMs)}</dd>
+              </div>
+              {latestTimeChange?.reason && (
+                <div className="exam-record-detail__time-change">
+                  <dt>最近时间调整</dt>
+                  <dd>{latestTimeChange.reason}</dd>
+                </div>
+              )}
+              {record.stopRequestedAt != null && (
+                <div className="exam-record-detail__time-change">
+                  <dt>停止申请</dt>
+                  <dd>
+                    {formatDateTime(record.stopRequestedAt)}
+                    <em className="exam-record-detail__time-note">
+                      等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
+                    </em>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
 
           <div className="exam-record-detail__workspace">
             <section className="exam-record-detail__subjects" aria-label="考试科目">
@@ -850,96 +915,29 @@ function ExamRecordDetailBody({
                   </>
                 )}
               </section>
-
-              <details className="exam-record-detail__disclosure">
-                <summary>
-                  <span>
-                    <strong>考试详情</strong>
-                    <em>范围、时间、生命周期</em>
-                  </span>
-                  <i aria-hidden="true" />
-                </summary>
-                <div className="exam-record-detail__disclosure-panel">
-                  <section className="exam-record-detail__facts" aria-label="基本信息">
-                    <h3>基本信息</h3>
-                    <dl>
-                      <div>
-                        <dt>记录编号</dt>
-                        <dd>
-                          <code>{record.id}</code>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>创建人</dt>
-                        <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
-                      </div>
-                      <div>
-                        <dt>创建时间</dt>
-                        <dd>{formatDateTime(record.createdAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>更新时间</dt>
-                        <dd>{formatDateTime(record.updatedAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>计划时间</dt>
-                        <dd>
-                          {record.startAt
-                            ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}`
-                            : '未设置'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>实际开考</dt>
-                        <dd>{formatDateTime(record.actualStartAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>实际结束</dt>
-                        <dd>{formatDateTime(record.actualEndAt ?? record.endedAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>累计暂停</dt>
-                        <dd>{formatDuration(record.pausedMs)}</dd>
-                      </div>
-                      {latestTimeChange?.reason && (
-                        <div className="exam-record-detail__time-change">
-                          <dt>最近时间调整</dt>
-                          <dd>{latestTimeChange.reason}</dd>
-                        </div>
-                      )}
-                      {record.stopRequestedAt != null && (
-                        <div className="exam-record-detail__time-change">
-                          <dt>停止申请</dt>
-                          <dd>
-                            {formatDateTime(record.stopRequestedAt)}
-                            <em className="exam-record-detail__time-note">
-                              等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
-                            </em>
-                          </dd>
-                        </div>
-                      )}
-                    </dl>
-                  </section>
-
-                  <section className="exam-record-detail__timeline" aria-label="生命周期">
-                    <h3>生命周期</h3>
-                    <ol>
-                      {timeline.map((stage) => (
-                        <li key={stage.key} className={stage.at ? 'is-done' : ''}>
-                          <span className="exam-record-detail__dot" aria-hidden="true" />
-                          <div>
-                            <strong>{stage.label}</strong>
-                            <span>{formatDateTime(stage.at)}</span>
-                            {stage.note && <em>{stage.note}</em>}
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  </section>
-                </div>
-              </details>
             </aside>
           </div>
+
+          <section className="exam-record-detail__timeline" aria-label="生命周期">
+            <div className="exam-record-detail__section-head">
+              <div>
+                <h3>生命周期</h3>
+                <p>考试从创建到归档的关键节点。</p>
+              </div>
+            </div>
+            <ol>
+              {timeline.map((stage) => (
+                <li key={stage.key} className={stage.at ? 'is-done' : ''}>
+                  <span className="exam-record-detail__dot" aria-hidden="true" />
+                  <div>
+                    <strong>{stage.label}</strong>
+                    <span>{formatDateTime(stage.at)}</span>
+                    {stage.note && <em>{stage.note}</em>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
 
           <details className="exam-record-detail__disclosure exam-record-detail__operations">
             <summary>

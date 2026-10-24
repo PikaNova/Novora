@@ -306,3 +306,19 @@ test('考试详情抽屉：没有进行中的单科时仍显示快捷延长入�
   assert.ok(tree.includes('快捷延长'), '快捷延长入口不能因为当前无科目就直接消失');
   assert.ok(tree.includes('单科开考后可用快捷延长'), '不可用时应当说明原因');
 });
+
+test('考试详情抽屉：详情置顶、科目居中、生命周期位于底部', async () => {
+  const tree = await renderDrawerTree(RECORD);
+  const details = tree.indexOf('考试详情');
+  const subjects = tree.indexOf('科目进度');
+  const timeline = tree.indexOf('生命周期');
+  assert.ok(details >= 0 && subjects >= 0 && timeline >= 0);
+  assert.ok(details < subjects, '考试详情应位于科目进度之前');
+  assert.ok(subjects < timeline, '生命周期应位于科目进度之后');
+});
+
+test('考试详情抽屉：公告管理独立显示，没有低频操作时不显示更多', async () => {
+  const tree = await renderDrawerTree(RECORD);
+  assert.ok(tree.includes('公告管理'), '公告管理应从更多菜单中独立出来');
+  assert.ok(!tree.includes('更多'), '没有删除草稿等低频操作时不显示更多菜单');
+});
