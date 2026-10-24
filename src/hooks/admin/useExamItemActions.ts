@@ -23,9 +23,10 @@ export function useExamItemActions(params: {
   activeMajor: MajorExam;
   commitItems: (nextItems: ExamItem[], syncLabel?: string) => void;
   editingMajorId: string;
+  adminNow?: number;
   autoTrackClassIdsForMajorItem: (major: MajorExam, subject: string) => string[] | undefined;
 }) {
-  const { items, activeMajor, commitItems, editingMajorId, autoTrackClassIdsForMajorItem } = params;
+  const { items, activeMajor, commitItems, editingMajorId, adminNow = nowMs(), autoTrackClassIdsForMajorItem } = params;
 
   const [editing, setEditing] = useState<EditItem | null>(null);
   const [customSubjectActive, setCustomSubjectActive] = useState(false);
@@ -80,6 +81,28 @@ export function useExamItemActions(params: {
     if (!draft.name.trim()) return { ok: false, error: '请输入考试名称' };
     if (!draft.startTime || !draft.endTime) return { ok: false, error: '请输入开始与结束时间' };
     if (new Date(draft.startTime) >= new Date(draft.endTime)) return { ok: false, error: '结束时间必须晚于开始时间' };
+    const original = draft.id ? items.find((item) => item.id === draft.id) : undefined;
+    const originalStart = original ? new Date(original.startTime).getTime() : NaN;
+    const originalEnd = original ? new Date(original.endTime).getTime() : NaN;
+    const nextStart = new Date(draft.startTime).getTime();
+    const nextEnd = new Date(draft.endTime).getTime();
+    const changesTime = original && (originalStart !== nextStart || originalEnd !== nextEnd);
+    const isOngoing = Boolean(original?.enabled && originalStart <= adminNow && originalEnd > adminNow);
+    if (changesTime && isOngoing) {
+      const deltaMinutes = Math.round((nextEnd - originalEnd) / 60_000);
+      const impact = deltaMinutes > 0
+        ? `结束时间将延后 ${deltaMinutes} 分钟。`
+        : deltaMinutes < 0
+          ? `结束时间将提前 ${Math.abs(deltaMinutes)} 分钟。`
+          : '结束时间不变，但开考时间或考试时长会改变。';
+      const confirmed = await confirmDialog({
+        title: '正在进行中的考试',
+        message: `「${original.name}」当前正在进行。\n原时间：${new Date(original.startTime).toLocaleString('zh-CN')} - ${new Date(original.endTime).toLocaleString('zh-CN')}\n修改后：${new Date(draft.startTime).toLocaleString('zh-CN')} - ${new Date(draft.endTime).toLocaleString('zh-CN')}\n${impact}\n保存后教室端倒计时和考试状态会同步更新。`,
+        tone: 'warning',
+        confirmLabel: '确认修改并同步',
+      });
+      if (!confirmed) return { ok: false, error: '' };
+    }
     const overlaps = items.some(
       (x) =>
         x.id !== draft.id &&

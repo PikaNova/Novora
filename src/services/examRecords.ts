@@ -10,6 +10,7 @@ import { logger } from '../utils/logger';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { authHeaders as sessionAuthHeaders } from './auth/session';
 import { runQueued } from './syncQueue';
+import { invalidateExamSnapshotReuse, notifyCloudSnapshotChanged } from './examService';
 
 /** 动作名 → `/api/exams` 的 action 参数。 */
 export const EXAM_RECORD_ACTION_ROUTES: Record<ExamRecordActionName, string> = {
@@ -62,6 +63,15 @@ export type ExamRecordOperationEntry = {
   createdAt: number;
 };
 
+export type ExamRecordSubjectEntry = {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  enabled: boolean;
+  order: number;
+};
+
 /** 列表与详情页共用的记录形状（字段全部来自数据库，前端不推断）。 */
 export type ExamRecordListEntry = {
   id: string;
@@ -72,6 +82,8 @@ export type ExamRecordListEntry = {
   targetClassIds: string[];
   source: 'regular' | 'quick';
   itemCount: number;
+  /** 详情接口提供完整科目；列表接口可能省略。 */
+  items?: ExamRecordSubjectEntry[];
   createdBy: number | null;
   /** 创建人显示名；服务端读不到用户时是空串，界面回退成 #id。 */
   createdByName: string;
@@ -143,6 +155,25 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function parseRecordItems(value: unknown): ExamRecordSubjectEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((raw, index) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const item = raw as Record<string, unknown>;
+    const id = textValue(item.id) || `subject-${index}`;
+    const name = textValue(item.name);
+    if (!name) return [];
+    return [{
+      id,
+      name,
+      startTime: textValue(item.startTime),
+      endTime: textValue(item.endTime),
+      enabled: item.enabled !== false,
+      order: typeof item.order === 'number' && Number.isFinite(item.order) ? item.order : index,
+    }];
+  });
+}
+
 function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
@@ -168,6 +199,7 @@ function parseRecordEntry(raw: unknown): ExamRecordListEntry | null {
     targetClassIds: stringList(row.targetClassIds),
     source: row.source === 'quick' ? 'quick' : 'regular',
     itemCount: typeof row.itemCount === 'number' && Number.isFinite(row.itemCount) ? row.itemCount : 0,
+    items: parseRecordItems(row.items),
     createdBy: numberOrNull(row.createdBy),
     createdByName: textValue(row.createdByName),
     createdAt: numberOrNull(row.createdAt) ?? 0,
@@ -413,7 +445,9 @@ function writeSlotRetryWaitMs(retryAfterMs: number | undefined): number {
 }
 
 /** 执行一次考试记录动作；写槽繁忙时自动重试；失败抛 ApiError，调用方用 formatApiError 展示。 */
-export async function runExamRecordAction(input: ExamRecordActionRequest): Promise<{ idempotent: boolean }> {
+export async function runExamRecordAction(
+  input: ExamRecordActionRequest,
+): Promise<{ idempotent: boolean; updatedAt: number }> {
   const idempotencyKey =
     input.idempotencyKey || (requiresIdempotencyKey(input.action) ? newIdempotencyKey(input.action, input.id) : '');
   const body: Record<string, unknown> = {
@@ -422,6 +456,7 @@ export async function runExamRecordAction(input: ExamRecordActionRequest): Promi
   };
   if (input.minutes != null) body.minutes = input.minutes;
   if (input.reason) body.reason = input.reason;
+  invalidateExamSnapshotReuse();
 
   for (let attempt = 1; ; attempt += 1) {
     let response: Response;
@@ -449,9 +484,16 @@ export async function runExamRecordAction(input: ExamRecordActionRequest): Promi
       }
       throw error;
     }
-    const payload = (await response.json().catch(() => null)) as { ok?: boolean; idempotent?: boolean } | null;
+    const payload = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      idempotent?: boolean;
+      updatedAt?: unknown;
+    } | null;
     if (!payload?.ok) throw await apiErrorFromResponse(response, '考试操作失败');
-    return { idempotent: payload.idempotent === true };
+    const updatedAt =
+      typeof payload.updatedAt === 'number' && Number.isFinite(payload.updatedAt) ? payload.updatedAt : 0;
+    if (updatedAt > 0) notifyCloudSnapshotChanged(updatedAt);
+    return { idempotent: payload.idempotent === true, updatedAt };
   }
 }
 

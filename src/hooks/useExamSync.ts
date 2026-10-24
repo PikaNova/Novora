@@ -13,8 +13,8 @@ import {
 } from '../utils/appSettings';
 import {
   CLOUD_VERSION_EVENT,
+  CLOUD_CHANGE_SIGNAL_STORAGE_KEY,
   fetchExamsFromServer,
-  getCloudVersion,
   getLastExamApiError,
   type ExamPayload,
 } from '../services/examService';
@@ -62,6 +62,7 @@ export function useExamSync({
   const staleFirstSyncRetryDone = useRef(false);
   const bootstrapResolved = useRef(false);
   const versionDriven = useRef(false);
+  const lastAdvertisedVersion = useRef(0);
   const bootstrapInstanceIdRef = useRef(bootstrapInstanceId);
   if (!bootstrapResolved.current && bootstrapInstanceId) bootstrapInstanceIdRef.current = bootstrapInstanceId;
   const onUpdateRef = useRef(onUpdate);
@@ -323,28 +324,38 @@ export function useExamSync({
     };
     schedule();
     const onOnline = () => {
-      void pull();
+      if (!cancelled) void refresh(true);
     };
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void pull();
+      if (!cancelled && document.visibilityState === 'visible') void refresh(true);
     };
     const onFocus = () => {
-      void pull();
+      if (!cancelled) void refresh(true);
     };
     const onPageShow = () => {
-      void pull();
+      if (!cancelled) void refresh(true);
     };
     const onLocalChanged = () => {
       applyLocal();
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key === APP_SETTINGS_KEY) applyLocal();
+      if (event.key === CLOUD_CHANGE_SIGNAL_STORAGE_KEY) {
+        const version = parseExamVersion(event.newValue?.split(':', 1)[0]);
+        if (version) {
+          versionDriven.current = true;
+          if (!cancelled) void refresh(true);
+        }
+      }
     };
     const onCloudVersion = (event: Event) => {
       const version = parseExamVersion((event as CustomEvent<{ version?: unknown }>).detail?.version);
       if (!version) return;
       versionDriven.current = true;
-      if (version > getCloudVersion()) void refresh(true);
+      if (version > lastAdvertisedVersion.current) {
+        lastAdvertisedVersion.current = version;
+        void refresh(true);
+      }
     };
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
