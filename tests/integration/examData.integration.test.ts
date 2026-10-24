@@ -761,6 +761,7 @@ test('database reset route: a full reset clears exam and device state together',
   const response = await postReset(admin.token, ['all']);
   assert.equal(response.statusCode, 200);
   const payload = await readPayload();
+  assert.equal(Number(response.body.updatedAt), payload.updatedAt, '重置响应必须返回实际落库的快照版本');
   assert.deepEqual(payload.majors, []);
   assert.deepEqual(payload.grades, []);
   assert.deepEqual(payload.classes, []);

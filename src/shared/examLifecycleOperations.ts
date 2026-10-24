@@ -4,6 +4,8 @@
  * 权限、写槽、审计与落库仍在路由层，便于单测覆盖在途状态的各种边界。
  */
 import type { ExamRecord } from './examRecordContracts.js';
+import type { ExamItem } from '../types/index.js';
+import { getZonedParts, parseZonedTime } from '../utils/zonedTime.js';
 
 /**
  * 管理员可发起的时间字段操作：暂停 / 继续 / 延长 / 结束。
@@ -19,6 +21,7 @@ export type ExamOperationPatch = {
   pausedAt?: number | null;
   pausedMs?: number;
   stopRequestedAt?: number | null;
+  items?: ExamItem[];
 };
 
 export type ExamOperationPlan =
@@ -29,7 +32,44 @@ export const MAX_EXTEND_MINUTES = 600;
 type PlanInput = Pick<
   ExamRecord,
   'status' | 'startAt' | 'actualStartAt' | 'actualEndAt' | 'endAt' | 'pausedAt' | 'pausedMs'
->;
+> & { items?: ExamItem[] };
+
+function endTimeAfter(value: string, endAt: number, minutes: number): string | null {
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  if (!Number.isFinite(endAt)) return null;
+  if (hasOffset) return new Date(endAt + minutes * 60_000).toISOString();
+  const parts = getZonedParts(endAt + minutes * 60_000);
+  const date = `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  return `${date}T${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`;
+}
+
+function extendCurrentItem(
+  items: ExamItem[],
+  at: number,
+  minutes: number,
+): { items: ExamItem[]; endAt: number } | null {
+  const active = items
+    .map((item, index) => {
+      if (!item.enabled || !item.startTime || !item.endTime) return null;
+      const startAt = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(item.startTime)
+        ? Date.parse(item.startTime)
+        : parseZonedTime(item.startTime);
+      let endAt = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(item.endTime)
+        ? Date.parse(item.endTime)
+        : parseZonedTime(item.endTime);
+      if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) return null;
+      if (endAt <= startAt) endAt += 24 * 60 * 60_000;
+      return at >= startAt && at < endAt ? { item, index, endAt } : null;
+    })
+    .filter((candidate): candidate is { item: ExamItem; index: number; endAt: number } => candidate != null)
+    .sort((left, right) => left.item.order - right.item.order || left.index - right.index)[0];
+  if (!active) return null;
+
+  const nextEndTime = endTimeAfter(active.item.endTime, active.endAt, minutes);
+  if (!nextEndTime) return null;
+  const nextItems = items.map((item, index) => (index === active.index ? { ...item, endTime: nextEndTime } : item));
+  return { items: nextItems, endAt: active.endAt + minutes * 60_000 };
+}
 
 export function planExamOperation(
   record: PlanInput,
@@ -69,6 +109,17 @@ export function planExamOperation(
       if (!Number.isFinite(minutes) || minutes <= 0 || minutes > MAX_EXTEND_MINUTES)
         return { ok: false, code: 'MISSING_ARGUMENT', error: `延长分钟数需在 1-${MAX_EXTEND_MINUTES} 之间` };
       if (record.endAt == null) return illegal('考试没有结束时间，无法延长');
+      if (record.items?.length) {
+        const extended = extendCurrentItem(record.items, at, minutes);
+        if (!extended) return illegal('当前没有进行中的子考试，无法延长');
+        return {
+          ok: true,
+          patch: {
+            items: extended.items,
+            endAt: Math.max(record.endAt, extended.endAt),
+          },
+        };
+      }
       return { ok: true, patch: { endAt: record.endAt + minutes * 60_000 } };
     }
     default:

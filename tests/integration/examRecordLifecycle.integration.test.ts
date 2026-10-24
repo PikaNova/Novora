@@ -1334,9 +1334,19 @@ test('手动结束：立即生效，不等系统判定，也不写停止申请',
   await sleep(120);
 
   const at = Date.now();
+  const beforeEndVersionRows = (await database()`SELECT updated_at FROM exam_data WHERE id=1`) as unknown as Array<{
+    updated_at: number | string;
+  }>;
+  const beforeEndVersion = Number(beforeEndVersionRows[0]?.updated_at ?? 0);
   const ended = await act(admin.token, 'record-end', { id: 'manual-end', reason: '考场突发事件' });
   assert.equal(ended.statusCode, 200, '管理员必须能直接结束考试');
   assert.equal(data(ended).status, 'ended');
+  const afterEndVersionRows = (await database()`SELECT updated_at FROM exam_data WHERE id=1`) as unknown as Array<{
+    updated_at: number | string;
+  }>;
+  const afterEndVersion = Number(afterEndVersionRows[0]?.updated_at ?? 0);
+  assert.ok(afterEndVersion > beforeEndVersion, '后台动作必须严格推进教室端读取的快照版本');
+  assert.equal(Number(ended.body.updatedAt), afterEndVersion, '动作响应版本必须等于实际落库快照版本');
   assert.ok(Number(data(ended).actualEndAt) >= at - 1_000, '实际结束时间就是点下去的那一刻');
   assert.ok(Number(data(ended).actualEndAt) <= Date.now(), '结束时间不能跑到未来');
   assert.equal(data(ended).pausedAt, null);

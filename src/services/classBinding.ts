@@ -405,8 +405,10 @@ export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<
   revoked: boolean;
   binding: DeviceBinding | null;
   command: DeviceCommand | null;
-  /** 服务端当前快照版本号；只有启用了该优化的部署（Vercel）才会返回。 */
+  /** 服务端当前考试快照版本号；所有部署都返回。 */
   version?: number;
+  /** 仅支持长期缓存版本化快照的部署返回 true。 */
+  versionedSnapshotCache?: boolean;
   timeControl?: { revision: number; offsetMs: number; syncRequestId: string; syncRequestedAt: number };
 }> {
   if (heartbeatInFlight) return { revoked: false, binding: null, command: null };
@@ -452,6 +454,8 @@ export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<
     }
     const command = parseDeviceCommand(data.command);
     const version = parseExamVersion(data.version);
+    const versionedSnapshotCache =
+      typeof data.versionedSnapshotCache === 'boolean' ? data.versionedSnapshotCache : undefined;
     const control = asRecord(data.timeControl);
     const revision = Number(control.revision);
     const offsetMs = Number(control.offsetMs);
@@ -469,6 +473,7 @@ export async function sendDeviceHeartbeat(input: DeviceHeartbeatInput): Promise<
       binding,
       command,
       ...(version > 0 ? { version } : {}),
+      ...(versionedSnapshotCache === undefined ? {} : { versionedSnapshotCache }),
       ...(timeControl ? { timeControl } : {}),
     };
   } catch {

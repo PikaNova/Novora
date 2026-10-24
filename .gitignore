@@ -1,7 +1,5 @@
 node_modules/
 dist/
-__pycache__/
-*.pyc
 dist-ui-check/
 .api-check/
 .test-check/
@@ -29,4 +27,6 @@ CHANGELIST.md
 server-build/
 data/
 
+# Build output.
+artifacts/
 .integration-check/

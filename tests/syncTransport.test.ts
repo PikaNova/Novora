@@ -72,7 +72,7 @@ function harness(outcomes: Array<HeartbeatOutcome | Error>) {
       if (index >= 0) timers.splice(index, 1);
     },
     random: () => 0,
-    onVersionAdvertised: () => events.push('capability'),
+    onVersionAdvertised: (supported) => events.push(`cache-capability:${supported}`),
     currentPage: () => '/exam',
   });
   const flush = async () => {
@@ -110,12 +110,36 @@ test('the first subscriber runs a cycle immediately and schedules the next one',
   assert.equal(h.timers.length, 0, 'stopping the last subscriber clears the timer');
 });
 
-test('a version from the server is forwarded and marks the edge capability', async () => {
-  const h = harness([{ ...idle, version: 1789223000000 }]);
+test('a local server version triggers sync without enabling edge snapshot caching', async () => {
+  const h = harness([{ ...idle, version: 1789223000000, versionedSnapshotCache: false }]);
   h.transport.start(h.handlers);
   await h.flush();
-  assert.ok(h.events.includes('capability'));
+  assert.ok(h.events.includes('cache-capability:false'));
   assert.ok(h.events.includes('version:1789223000000'));
+  h.transport.stop(h.handlers);
+});
+
+test('an edge server version enables versioned snapshot caching', async () => {
+  const h = harness([{ ...idle, version: 1789223000000, versionedSnapshotCache: true }]);
+  h.transport.start(h.handlers);
+  await h.flush();
+  assert.ok(h.events.includes('cache-capability:true'));
+  assert.ok(h.events.includes('version:1789223000000'));
+  h.transport.stop(h.handlers);
+});
+
+test('snapshot cache capability follows a server deployment change', async () => {
+  const h = harness([
+    { ...idle, version: 1789223000000, versionedSnapshotCache: false },
+    { ...idle, version: 1789223000000, versionedSnapshotCache: true },
+  ]);
+  h.transport.start(h.handlers);
+  await h.flush();
+  await h.runDueTimers();
+  assert.deepEqual(
+    h.events.filter((event) => event.startsWith('cache-capability:')),
+    ['cache-capability:false', 'cache-capability:true'],
+  );
   h.transport.stop(h.handlers);
 });
 

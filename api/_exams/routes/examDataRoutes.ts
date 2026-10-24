@@ -237,7 +237,14 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   for (const field of ['alerts', 'activeWeeklyPlanIdByClassId', 'weeklyConflictPolicy', 'designPolicy']) {
     if (invalidField(field, (value) => value === null || isRecord(value), 'must be an object or null')) return;
   }
-  if (invalidField('activeWeeklyPlanId', (value) => value === null || typeof value === 'string', 'must be a string or null')) return;
+  if (
+    invalidField(
+      'activeWeeklyPlanId',
+      (value) => value === null || typeof value === 'string',
+      'must be a string or null',
+    )
+  )
+    return;
   // 快速考试走本地优先保存管道，没有显式动作；这里留下旧 majors 以便保存后补记生命周期转换。
   let priorMajors: unknown = null;
   let currentPayload: ReturnType<typeof examPayload> | null = null;
@@ -494,7 +501,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
               (${hasInitialization}::boolean AND initialization IS DISTINCT FROM ${initializationJson}::jsonb)
               THEN 1 ELSE 0 END
           ),
-          updated_at = ${updatedAt}
+          updated_at = GREATEST(${updatedAt}::BIGINT, updated_at + 1)
       -- 携带 baseRevisions 时按域判定并发（只看本次要写的域），否则沿用整行版本比较。
       -- 显式 BIGINT：毫秒级 baseUpdatedAt 不能在与字面量 0 比较时被 PostgreSQL 推断为 INTEGER。
       WHERE id = 1 AND CASE WHEN ${usesRevisions}::boolean THEN (
@@ -553,6 +560,7 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
     });
     return;
   }
+  const persistedUpdatedAt = Number(updatedRows[0]?.updated_at ?? updatedAt);
   if (removedGradeIds.length || removedClassIds.length) {
     const authDb = authSql();
     await Promise.all([
@@ -575,9 +583,9 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
           idempotency_key, action, source_record_id, result_record_id,
           actor_id, from_status, to_status, reason, created_at
         )
-        VALUES (${operationLogKey(transition.recordId, transition.action, updatedAt)}, ${transition.action},
+        VALUES (${operationLogKey(transition.recordId, transition.action, persistedUpdatedAt)}, ${transition.action},
           ${transition.recordId}, ${transition.recordId}, ${actor?.id ?? null},
-          ${transition.fromStatus}, ${transition.toStatus}, '', ${updatedAt})
+          ${transition.fromStatus}, ${transition.toStatus}, '', ${persistedUpdatedAt})
         ON CONFLICT (idempotency_key) DO NOTHING
       `,
       ),
@@ -585,12 +593,12 @@ export async function handleExamDataPost(req: VercelRequest, res: VercelResponse
   }
   if (actor)
     await writeAudit(actor, 'exam-data.update', 'exam_data', '1', {
-      updatedAt,
+      updatedAt: persistedUpdatedAt,
     });
   res.setHeader('Server-Timing', `app;dur=${Date.now() - startedAt}`);
   res.status(200).json({
     ok: true,
-    updatedAt,
+    updatedAt: persistedUpdatedAt,
     // 客户端用它推进「本次提交过的域」的并发基线，其余域保持旧修订号（本地内容仍基于旧版本）。
     revisions: parseExamRevisions((updatedRows[0] as { revisions?: unknown } | undefined)?.revisions),
     ...(recoveryKey ? { recoveryKey } : {}),

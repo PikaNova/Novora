@@ -223,8 +223,8 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
         })
       : null;
     const hasBinding = !!device && (device.revoked === true || device.is_management === true || !!device.class_id);
-    // 仅 Vercel：把当前快照版本号随心跳带回，设备据此决定要不要再拉一次快照，
-    // 这样常规轮询只剩心跳这一条请求；本地部署后续走 WSS 推送，不带这个字段。
+    // 把当前快照版本号随心跳带回，所有部署都用它触发教室端拉取最新快照，
+    // 这样后台修改后不依赖 30/60 秒的兜底轮询。
     const examVersion = parseExamVersion(device?.exam_version);
     const controls =
       (await sql`SELECT offset_ms, revision, sync_request_id, sync_requested_at FROM app_time_control WHERE id=1`) as unknown as Array<{
@@ -253,7 +253,8 @@ export async function handleDeviceHeartbeat(req: VercelRequest, res: VercelRespo
         syncRequestId: device?.is_management || device?.time_sync_request_id === syncRequestId ? '' : syncRequestId,
         syncRequestedAt: Number(control?.sync_requested_at ?? 0),
       },
-      ...(isEdgeDeployment() ? { version: examVersion } : {}),
+      version: examVersion,
+      versionedSnapshotCache: isEdgeDeployment(),
     });
   };
   try {

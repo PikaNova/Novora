@@ -41,7 +41,8 @@ export type { ExamPayload };
 
 const API_URL = '/api/exams';
 const LOGIN_URL = '/api/login';
-const CLOUD_VERSION_KEY = 'exam_cloud_updated_at';
+export const CLOUD_VERSION_STORAGE_KEY = 'exam_cloud_updated_at';
+export const CLOUD_CHANGE_SIGNAL_STORAGE_KEY = 'exam_cloud_change_signal';
 const CLOUD_SNAPSHOT_KEY = 'exam_cloud_snapshot';
 const CLOUD_ETAG_KEY = 'exam_cloud_etag';
 /**
@@ -54,14 +55,13 @@ const CLOUD_ETAG_KEY = 'exam_cloud_etag';
  */
 const CLOUD_CONFLICT_BASE_KEY = 'exam_cloud_conflict_base';
 /**
- * 边缘缓存能力标记：只有服务端在某次心跳里回过 version 才会置位。
- * 置位后客户端才使用版本化快照 URL、并放弃公告的缓存穿透参数；
- * 本地 / Docker / 内网部署不会置位，因此连请求形状都保持改造前不变，
- * 后续本地改用 WSS 推送时也不会被这里的判断牵动。
+ * 版本化快照的部署能力标记：只有服务端在某次心跳里明确报告支持长期缓存时才置位。
+ * 同步版本号本身在所有部署都返回，但本地 / Docker / 内网部署仍走普通快照请求，
+ * 避免把云端边缘缓存策略误套到本地服务。
  */
 const EDGE_CACHE_SUPPORT_KEY = 'exam_board_edge_cache_support';
 /**
- * 心跳会带上服务端当前的快照版本号（仅 Vercel 部署）。收到事件后由 useExamSync 决定
+ * 心跳会带上服务端当前的快照版本号（所有部署）。收到事件后由 useExamSync 决定
  * 是否需要拉取快照，避免再单独轮询一次。
  */
 export const CLOUD_VERSION_EVENT = 'exam-board:cloud-version';
@@ -83,17 +83,35 @@ export function takeGeneratedRecoveryKey(): string | null {
 
 function rememberCloudSnapshot(payload: ExamPayload): void {
   try {
-    localStorage.setItem(CLOUD_VERSION_KEY, String(payload.updatedAt));
+    if (payload.updatedAt < getCloudVersion()) return;
+    localStorage.setItem(CLOUD_VERSION_STORAGE_KEY, String(payload.updatedAt));
     localStorage.setItem(CLOUD_SNAPSHOT_KEY, JSON.stringify(payload));
   } catch {
     /* 离线/隐私模式下仍可正常使用当前会话数据 */
   }
 }
 
+/** A successful exam snapshot write is visible to this tab and every same-origin tab. */
+export function notifyCloudSnapshotChanged(version: number): void {
+  const parsed = parseExamVersion(version);
+  if (!parsed) return;
+  const currentVersion = Math.max(parsed, getCloudVersion());
+  invalidateExamSnapshotReuse();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(CLOUD_VERSION_EVENT, { detail: { version: currentVersion } }));
+  }
+  try {
+    localStorage.setItem(CLOUD_VERSION_STORAGE_KEY, String(currentVersion));
+    localStorage.setItem(CLOUD_CHANGE_SIGNAL_STORAGE_KEY, `${currentVersion}:${Date.now()}`);
+  } catch {
+    /* Same-tab notification remains available when storage is disabled. */
+  }
+}
+
 /** 本机已应用的云端快照版本号；0 表示还没同步过。 */
 export function getCloudVersion(): number {
   try {
-    return parseExamVersion(localStorage.getItem(CLOUD_VERSION_KEY));
+    return parseExamVersion(localStorage.getItem(CLOUD_VERSION_STORAGE_KEY));
   } catch {
     return 0;
   }
@@ -107,9 +125,9 @@ export function supportsEdgeCache(): boolean {
   }
 }
 
-export function markEdgeCacheSupport(): void {
+export function markEdgeCacheSupport(enabled = true): void {
   try {
-    localStorage.setItem(EDGE_CACHE_SUPPORT_KEY, '1');
+    localStorage.setItem(EDGE_CACHE_SUPPORT_KEY, enabled ? '1' : '0');
   } catch {
     /* 隐私模式下退化为普通轮询 */
   }
@@ -149,6 +167,8 @@ function classifyFetchError(err: unknown): ApiError {
  * 大屏轮询都调这里，收敛成一次就能砍掉大半。
  */
 let snapshotFlight: Promise<ExamPayload | null> | null = null;
+let freshSnapshotFlight: Promise<ExamPayload | null> | null = null;
+let snapshotGeneration = 0;
 
 /**
  * 结果窗口：刚取到的快照在这段时间内直接被复用，不再发条件请求。
@@ -164,11 +184,14 @@ let lastSnapshot: { at: number; payload: ExamPayload | null } | null = null;
 /** 写操作后调用：保证紧接着的读取不会拿到写完之前的快照。 */
 export function invalidateExamSnapshotReuse(): void {
   lastSnapshot = null;
+  snapshotGeneration += 1;
 }
 
 /** 仅供测试：清掉正在共享的那次读取与结果窗口。 */
 export function __resetSnapshotFlightForTests(): void {
   snapshotFlight = null;
+  freshSnapshotFlight = null;
+  snapshotGeneration = 0;
   lastSnapshot = null;
 }
 
@@ -183,19 +206,53 @@ export async function fetchExamsFromServer(
 ): Promise<ExamPayload | null> {
   // bootstrap 带设备身份、URL 也不同，单独走，不与普通快照合并。
   if (bootstrapInstanceId) return fetchExamsOnce(bootstrapInstanceId);
+  if (options.fresh && freshSnapshotFlight) return freshSnapshotFlight;
+  // 强制读取正在进行时，普通读取也复用它，避免旧的条件请求与强制请求并行，
+  // 让旧响应在强制刷新之后回写本地缓存。
+  if (!options.fresh && freshSnapshotFlight) return freshSnapshotFlight;
   if (!options.fresh && lastSnapshot && Date.now() - lastSnapshot.at < snapshotReuseWindowMs) {
     return lastSnapshot.payload;
   }
-  if (snapshotFlight) return snapshotFlight;
-  snapshotFlight = fetchExamsOnce(undefined, knownSnapshotRevisions())
-    .then((payload) => {
-      lastSnapshot = { at: Date.now(), payload };
-      return payload;
-    })
-    .finally(() => {
-      snapshotFlight = null;
-    });
-  return snapshotFlight;
+  if (!options.fresh && snapshotFlight) return snapshotFlight;
+  if (options.fresh) {
+    const previous = snapshotFlight;
+    const fresh = (async () => {
+      // 强制读取必须等旧条件请求结束，避免旧响应在新响应之后回写缓存。
+      if (previous) await previous.catch(() => null);
+      return startSnapshotFlight(true);
+    })();
+    freshSnapshotFlight = fresh;
+    fresh.then(
+      () => {
+        if (freshSnapshotFlight === fresh) freshSnapshotFlight = null;
+      },
+      () => {
+        if (freshSnapshotFlight === fresh) freshSnapshotFlight = null;
+      },
+    );
+    return fresh;
+  }
+  return startSnapshotFlight(false);
+}
+
+function startSnapshotFlight(fresh: boolean): Promise<ExamPayload | null> {
+  const generation = ++snapshotGeneration;
+  const flight = fetchExamsOnce(undefined, fresh ? null : knownSnapshotRevisions(), fresh).then((payload) => {
+    if (generation === snapshotGeneration) lastSnapshot = { at: Date.now(), payload };
+    return payload;
+  });
+  if (!fresh) {
+    snapshotFlight = flight;
+    flight.then(
+      () => {
+        if (snapshotFlight === flight) snapshotFlight = null;
+      },
+      () => {
+        if (snapshotFlight === flight) snapshotFlight = null;
+      },
+    );
+  }
+  return flight;
 }
 
 /**
@@ -232,18 +289,21 @@ function examSnapshotSinceQuery(since: Record<string, number>): string {
 async function fetchExamsOnce(
   bootstrapInstanceId?: string,
   since: Record<string, number> | null = null,
+  fresh = false,
 ): Promise<ExamPayload | null> {
   try {
     const headers: Record<string, string> = {};
     const isBootstrap = !!bootstrapInstanceId;
-    const etag = isBootstrap ? null : localStorage.getItem(CLOUD_ETAG_KEY);
+    const etag = isBootstrap || fresh ? null : localStorage.getItem(CLOUD_ETAG_KEY);
     if (etag) headers['If-None-Match'] = etag;
-    // 只有服务端确认支持（心跳带过 version）且本机已知版本时，才改用版本化快照 URL：
+    // 只有服务端明确支持版本化边缘缓存且本机已知版本时，才改用版本化快照 URL：
     // 数据没变就是同一个 URL，可被边缘长期缓存；其它情况保持原来的请求形状。
-    const cloudVersion = isBootstrap ? 0 : getCloudVersion();
+    const cloudVersion = isBootstrap || fresh ? 0 : getCloudVersion();
     let url = API_URL;
     if (isBootstrap) {
       url = `${API_URL}?action=bootstrap&instanceId=${encodeURIComponent(bootstrapInstanceId)}`;
+    } else if (fresh) {
+      url = `${API_URL}?_fresh=${Date.now()}-${Math.random().toString(36).slice(2)}`;
     } else if (since) {
       // 有完整本地缓存：只问变了的那几个域（整份 135KB → 常见情况几 KB）。
       url = `${API_URL}?${examSnapshotSinceQuery(since)}`;
@@ -253,14 +313,15 @@ async function fetchExamsOnce(
 
     const res = await fetchWithTimeout(
       url,
-      { method: 'GET', headers, cache: isBootstrap ? 'no-store' : 'no-cache' },
+      { method: 'GET', headers, cache: isBootstrap || fresh ? 'no-store' : 'no-cache' },
       15_000,
     );
 
     if (res.status === 304) {
       const snap = getCloudSnapshot();
       if (snap) return snap;
-      const full = await fetchWithTimeout(API_URL, { method: 'GET', cache: 'no-cache' }, 15_000);
+      const fullUrl = fresh ? `${API_URL}?_fresh=${Date.now()}-${Math.random().toString(36).slice(2)}` : API_URL;
+      const full = await fetchWithTimeout(fullUrl, { method: 'GET', cache: fresh ? 'no-store' : 'no-cache' }, 15_000);
       if (!full.ok) {
         lastExamApiError = await apiErrorFromResponse(full, '读取考试与班级数据失败');
         return null;
@@ -303,7 +364,7 @@ async function fetchExamsOnce(
     if (data?.partial === true) {
       const base = getCloudSnapshot();
       const merged = mergeExamSnapshotPartial(base as unknown as Record<string, unknown> | null, data);
-      if (!merged) return fetchExamsOnce(bootstrapInstanceId, null);
+      if (!merged) return fetchExamsOnce(bootstrapInstanceId, null, fresh);
       const mergedPayload = parseExamPayload(merged);
       rememberCloudSnapshot(mergedPayload);
       lastExamApiError = null;
@@ -479,7 +540,7 @@ function recordSaveSummary(domains: readonly ExamSaveDomain[], bytes: number, sk
 
 async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsResult> {
   try {
-    const baseUpdatedAt = input.baseUpdatedAt ?? Number(localStorage.getItem(CLOUD_VERSION_KEY) ?? 0);
+    const baseUpdatedAt = input.baseUpdatedAt ?? getCloudVersion();
     // 只提交改动的域：先与服务端基线快照逐域比对。拿不到可比基线（版本对不上或没有快照）
     // 时退回整份提交，行为与改动前完全一致。
     const base = saveBaseSnapshot(baseUpdatedAt);
@@ -581,6 +642,7 @@ async function saveExamsToServerNow(input: SaveExamsInput): Promise<SaveExamsRes
       majorBatchPresets: previousSnapshot?.majorBatchPresets,
       updatedAt,
     });
+    notifyCloudSnapshotChanged(updatedAt);
     lastExamApiError = null;
     return updatedAt;
   } catch (err) {
@@ -632,7 +694,8 @@ export async function saveDesignPolicy(designPolicy: DesignPolicy): Promise<Desi
     const snapshot = getCloudSnapshot();
     if (snapshot)
       rememberCloudSnapshot({ ...snapshot, designPolicy: saved, updatedAt: Number(data.updatedAt ?? saved.updatedAt) });
-    else localStorage.setItem(CLOUD_VERSION_KEY, String(data.updatedAt ?? saved.updatedAt));
+    else localStorage.setItem(CLOUD_VERSION_STORAGE_KEY, String(data.updatedAt ?? saved.updatedAt));
+    notifyCloudSnapshotChanged(Number(data.updatedAt ?? saved.updatedAt));
     return saved;
   } catch (err) {
     if (!(err instanceof ApiError)) {
@@ -673,7 +736,8 @@ export async function saveMajorBatchPresets(presets: {
       majorBatchPresets: saved,
       updatedAt: Number(data.updatedAt ?? saved.updatedAt),
     });
-  else localStorage.setItem(CLOUD_VERSION_KEY, String(data.updatedAt ?? saved.updatedAt));
+  else localStorage.setItem(CLOUD_VERSION_STORAGE_KEY, String(data.updatedAt ?? saved.updatedAt));
+  notifyCloudSnapshotChanged(Number(data.updatedAt ?? saved.updatedAt));
   return saved;
 }
 
@@ -958,4 +1022,5 @@ export async function resetCloudData(categories: ResetCategory[]): Promise<void>
   if (!data?.ok) {
     throw new Error((data?.error as string | undefined) ?? '数据库重置失败');
   }
+  notifyCloudSnapshotChanged(Number(data.updatedAt ?? 0));
 }
