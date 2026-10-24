@@ -1609,8 +1609,8 @@
 }
 
 .exam-record-detail__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   margin: 14px 0;
   padding-right: 4px;
@@ -1622,8 +1622,8 @@
  * 否则宽屏会出现“内容全挤在左半栏、右半栏整片空白”。
  */
 .admin-modal.exam-record-detail > .exam-record-detail__body {
-  grid-template-columns: minmax(0, 1fr);
-  grid-auto-rows: auto;
+  display: flex;
+  flex-direction: column;
   align-items: stretch;
   min-height: 0;
   max-height: 100%;
@@ -1634,9 +1634,8 @@
 }
 
 .admin-modal.exam-record-detail > .exam-record-detail__body > * {
-  grid-column: 1 / -1;
-  grid-row: auto;
-  grid-area: auto;
+  flex: none;
+  width: 100%;
 }
 
 .admin-modal.exam-record-detail .exam-record-detail__workspace > .exam-record-detail__subjects,
