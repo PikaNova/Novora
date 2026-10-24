@@ -1,5 +1,7 @@
 node_modules/
 dist/
+__pycache__/
+*.pyc
 dist-ui-check/
 .api-check/
 .test-check/
