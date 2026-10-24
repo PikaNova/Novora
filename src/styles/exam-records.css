@@ -1513,7 +1513,9 @@
   --detail-font-caption: 11px;
   width: min(1180px, calc(100vw - 48px));
   max-width: min(1180px, calc(100vw - 48px));
+  height: min(90vh, 860px);
   max-height: min(90vh, 860px);
+  overflow: hidden;
   padding: 22px 24px 18px;
 }
 
@@ -1623,6 +1625,12 @@
   grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: auto;
   align-items: stretch;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
 }
 
 .admin-modal.exam-record-detail > .exam-record-detail__body > * {
@@ -1656,6 +1664,14 @@
 
 .exam-record-detail__body > :nth-child(4) {
   animation-delay: 105ms;
+}
+
+.exam-record-detail__body > :nth-child(5) {
+  animation-delay: 140ms;
+}
+
+.exam-record-detail__body > :nth-child(6) {
+  animation-delay: 175ms;
 }
 
 .exam-record-detail__live {
@@ -1759,6 +1775,8 @@
 
 .exam-record-detail__subjects,
 .exam-record-detail__devices,
+.exam-record-detail__top-details,
+.exam-record-detail__timeline,
 .exam-record-detail__disclosure {
   overflow: hidden;
   border: 1px solid var(--adm-line, rgba(148, 180, 208, 0.14));
@@ -1767,13 +1785,27 @@
 }
 
 .exam-record-detail__subjects,
-.exam-record-detail__devices {
+.exam-record-detail__devices,
+.exam-record-detail__top-details,
+.exam-record-detail__timeline {
   padding: 14px;
 }
 
 .exam-record-detail__side {
   display: grid;
   gap: 10px;
+}
+
+.exam-record-detail__top-details {
+  background: linear-gradient(90deg, rgba(59, 143, 208, 0.055), transparent 55%), var(--adm-card, #0c1219);
+}
+
+.exam-record-detail__top-details dl {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.exam-record-detail__top-details .exam-record-detail__time-change {
+  grid-column: 1 / -1;
 }
 
 .exam-record-detail__section-head {
@@ -2125,9 +2157,7 @@
 }
 
 .exam-record-detail__timeline {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--adm-line, rgba(148, 180, 208, 0.12));
+  margin-top: 0;
 }
 
 .exam-record-detail__timeline ol {
@@ -2155,6 +2185,12 @@
 
 .exam-record-detail__operations ul {
   gap: 6px;
+  max-height: min(320px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
 }
 
 .exam-record-detail__operations li {
@@ -2356,8 +2392,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .admin-modal.exam-record-detail .exam-record-detail__side {
+  .exam-record-detail__top-details dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-modal.exam-record-detail .exam-record-detail__side {
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
   }
 }
@@ -2366,6 +2406,8 @@
   .exam-record-detail {
     width: 100%;
     max-width: 100%;
+    height: 92dvh;
+    max-height: 92dvh;
     padding: 18px 16px max(16px, env(safe-area-inset-bottom));
   }
 
