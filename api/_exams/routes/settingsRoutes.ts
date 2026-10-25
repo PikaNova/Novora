@@ -12,6 +12,8 @@ export type DesignPolicyRule = {
   designId: string;
 };
 
+type SnapshotUpdateRow = { updated_at?: number | string; design_policy?: unknown; major_batch_presets?: unknown };
+
 export function sanitizeDesignPolicyRules(rawRules: unknown): DesignPolicyRule[] {
   const rules = Array.isArray(rawRules) ? rawRules : [];
   const allowedScopes = new Set(['school', 'grade', 'class', 'device']);
@@ -53,18 +55,31 @@ export async function handleDesignPolicy(req: VercelRequest, res: VercelResponse
   }
   const source = req.body?.designPolicy;
   const rules = sanitizeDesignPolicyRules(source?.rules);
-  const updatedAt = Date.now();
-  const designPolicy = { rules, updatedAt };
+  const requestedAt = Date.now();
   if (!(await acquireWriteSlotOrReject(req, res))) return;
-  const run = async () =>
-    sql`UPDATE exam_data SET design_policy=${JSON.stringify(designPolicy)}::jsonb, updated_at=${updatedAt} WHERE id=1`;
+  const run = async (): Promise<SnapshotUpdateRow[]> =>
+    (await sql`
+      UPDATE exam_data
+      SET design_policy=jsonb_set(
+            ${JSON.stringify({ rules })}::jsonb,
+            '{updatedAt}',
+            to_jsonb(GREATEST(${requestedAt}::BIGINT, updated_at + 1)),
+            true
+          ),
+          updated_at=GREATEST(${requestedAt}::BIGINT, updated_at + 1)
+      WHERE id=1
+      RETURNING updated_at, design_policy
+    `) as unknown as SnapshotUpdateRow[];
+  let rows: SnapshotUpdateRow[];
   try {
-    await run();
+    rows = await run();
   } catch (error) {
     if (!missingRelation(error)) throw error;
     await ensureTableOnce();
-    await run();
+    rows = await run();
   }
+  const updatedAt = Number(rows[0]?.updated_at ?? requestedAt);
+  const designPolicy = { rules, updatedAt };
   await writeAudit(designActor, 'settings.design-policy', 'exam_data', '1', { ruleCount: rules.length });
   res.status(200).json({ ok: true, designPolicy, updatedAt });
   return;
@@ -88,18 +103,31 @@ export async function handleMajorBatchPresets(req: VercelRequest, res: VercelRes
   const source =
     (req.body as Record<string, unknown>)?.presets ?? (req.body as Record<string, unknown>)?.majorBatchPresets;
   const presets = sanitizeMajorBatchPresets(source);
-  const updatedAt = Date.now();
-  const payload = { ...presets, updatedAt };
+  const requestedAt = Date.now();
   if (!(await acquireWriteSlotOrReject(req, res))) return;
-  const run = async () =>
-    sql`UPDATE exam_data SET major_batch_presets=${JSON.stringify(payload)}::jsonb, updated_at=${updatedAt} WHERE id=1`;
+  const run = async (): Promise<SnapshotUpdateRow[]> =>
+    (await sql`
+      UPDATE exam_data
+      SET major_batch_presets=jsonb_set(
+            ${JSON.stringify(presets)}::jsonb,
+            '{updatedAt}',
+            to_jsonb(GREATEST(${requestedAt}::BIGINT, updated_at + 1)),
+            true
+          ),
+          updated_at=GREATEST(${requestedAt}::BIGINT, updated_at + 1)
+      WHERE id=1
+      RETURNING updated_at, major_batch_presets
+    `) as unknown as SnapshotUpdateRow[];
+  let rows: SnapshotUpdateRow[];
   try {
-    await run();
+    rows = await run();
   } catch (error) {
     if (!missingRelation(error)) throw error;
     await ensureTableOnce();
-    await run();
+    rows = await run();
   }
+  const updatedAt = Number(rows[0]?.updated_at ?? requestedAt);
+  const payload = { ...presets, updatedAt };
   await writeAudit(presetActor, 'settings.major-batch-presets', 'exam_data', '1', {
     subjectGroups: payload.subjectGroups.length,
     timeGroups: payload.timeGroups.length,
@@ -148,7 +176,7 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
   await ensureTableOnce();
   if (!(await acquireWriteSlotOrReject(req, res))) return;
   const at = Date.now();
-  await sql.transaction((transaction) => [
+  const resetResults = await sql.transaction((transaction) => [
     transaction`UPDATE exam_data SET
     items=CASE WHEN ${resetMajor} THEN '[]'::jsonb ELSE items END,
     title=CASE WHEN ${resetMajor} THEN '' ELSE title END,
@@ -175,14 +203,18 @@ export async function handleResetData(req: VercelRequest, res: VercelResponse): 
         'classes', COALESCE((revisions->>'classes')::bigint, 0) + CASE WHEN ${resetSchool} THEN 1 ELSE 0 END,
         'initialization', COALESCE((revisions->>'initialization')::bigint, 0) + CASE WHEN ${resetSchool} THEN 1 ELSE 0 END
       ),
-      updated_at=${at} WHERE id=1`,
+      updated_at=GREATEST(${at}::BIGINT, updated_at + 1) WHERE id=1
+      RETURNING updated_at`,
     ...(resetDevices
       ? [transaction`DELETE FROM device_instances`, transaction`DELETE FROM classisland_plugin_instances`]
       : []),
   ]);
+  const persistedUpdatedAt = Number(
+    ((resetResults[0] ?? []) as unknown as Array<{ updated_at?: number | string }>)[0]?.updated_at ?? at,
+  );
   await writeAudit(resetActor, 'database.reset', 'exam_data', '1', {
     categories,
   });
-  res.status(200).json({ ok: true, updatedAt: at });
+  res.status(200).json({ ok: true, updatedAt: persistedUpdatedAt });
   return;
 }

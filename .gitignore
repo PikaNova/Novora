@@ -29,4 +29,6 @@ CHANGELIST.md
 server-build/
 data/
 
+# Build output.
+artifacts/
 .integration-check/

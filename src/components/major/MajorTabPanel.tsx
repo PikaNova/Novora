@@ -133,6 +133,16 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
     setExamEnabled,
     setDeleteTarget,
   } = props;
+  const editingOriginal = editing?.id ? items.find((item) => item.id === editing.id) : undefined;
+  const editingOriginalEnd = editingOriginal ? new Date(editingOriginal.endTime).getTime() : NaN;
+  const editingIsOngoing = Boolean(
+    editingOriginal?.enabled &&
+      new Date(editingOriginal.startTime).getTime() <= adminNow &&
+      editingOriginalEnd > adminNow,
+  );
+  const editingEndDelta = editing && editingOriginal
+    ? Math.round((new Date(editing.endTime).getTime() - editingOriginalEnd) / 60_000)
+    : 0;
   return (
     <>
       <aside className="admin-sidebar">
@@ -317,6 +327,20 @@ export default function MajorTabPanel(props: MajorTabPanelProps) {
           (editing ? (
             <div className="admin-form-card">
               <h2 className="admin-form-card__title">{editing.id ? '编辑分考试' : '添加分考试'}</h2>
+              {editingIsOngoing && editingOriginal && (
+                <div className="major-editor-live" role="status">
+                  <strong>这场考试正在进行</strong>
+                  <span>
+                    原结束时间 {fmtLocal(editingOriginal.endTime)}
+                    {editingEndDelta > 0
+                      ? ` · 修改后延长 ${editingEndDelta} 分钟`
+                      : editingEndDelta < 0
+                        ? ` · 修改后提前 ${Math.abs(editingEndDelta)} 分钟`
+                        : ' · 结束时间不变'}
+                  </span>
+                  <small>保存时会再次确认，确认后修改会同步到教室端倒计时。</small>
+                </div>
+              )}
               {editError && <div className="admin-error">{editError}</div>}
               <div className="admin-form">
                 <label className="admin-label">

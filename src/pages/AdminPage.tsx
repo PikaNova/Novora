@@ -6,9 +6,10 @@ import {
   isQuickTemporaryMajorFullyInScope,
 } from '../utils/majorOwnership';
 import type { MajorExam } from '../types';
-import { getAppSettings, updateExamSettings } from '../utils/appSettings';
+import { getAppSettings, updateAlertsSettings, updateExamSettings } from '../utils/appSettings';
 import {
   adminCan,
+  CLOUD_VERSION_EVENT,
   fetchExamsFromServer,
   getCloudSnapshot,
   saveExamsToServer,
@@ -414,6 +415,7 @@ export default function AdminPage() {
     activeMajor,
     commitItems,
     editingMajorId,
+    adminNow,
     autoTrackClassIdsForMajorItem,
   });
   const {
@@ -672,6 +674,94 @@ export default function AdminPage() {
       });
     }
   }, [ready, adminUser, adminTab, route.examView, availableExamViews, navigate, location.search]);
+
+  // The device heartbeat advertises the current server snapshot version. The
+  // classroom sync hook consumes it, but the admin exam center also needs the
+  // updated schedule so its timeline does not stay on the boot snapshot.
+  const appliedAdminSnapshotVersion = useRef(Math.max(getCloudSnapshot()?.updatedAt ?? 0, initial.updatedAt ?? 0));
+  const adminSnapshotRefreshRef = useRef(false);
+  useEffect(() => {
+    if (!ready || adminTab !== 'exam') return;
+    let cancelled = false;
+    const refreshSnapshot = async (event: Event) => {
+      const version = Number((event as CustomEvent<{ version?: unknown }>).detail?.version);
+      if (!Number.isFinite(version) || version <= appliedAdminSnapshotVersion.current) return;
+      if (pendingRef.current || getPendingExamSync() || editingRef.current || editorModalOpen || majorModal) return;
+      if (adminSnapshotRefreshRef.current) return;
+      adminSnapshotRefreshRef.current = true;
+      try {
+        const remote = await fetchExamsFromServer(undefined, { fresh: true });
+        if (cancelled || !remote || remote.updatedAt <= appliedAdminSnapshotVersion.current) return;
+        if (pendingRef.current || getPendingExamSync() || editingRef.current || editorModalOpen || majorModal) return;
+        const updates: Record<string, unknown> = {
+          items: remote.items,
+          title: remote.title,
+          majors: remote.majors,
+          activeMajorId: remote.activeMajorId,
+          updatedAt: remote.updatedAt,
+        };
+        if (remote.scheduleMode !== undefined) updates.scheduleMode = remote.scheduleMode;
+        if (remote.weeklyPlans !== undefined) updates.weeklyPlans = remote.weeklyPlans;
+        if (remote.activeWeeklyPlanId !== undefined) updates.activeWeeklyPlanId = remote.activeWeeklyPlanId;
+        if (remote.activeWeeklyPlanIdByClassId !== undefined)
+          updates.activeWeeklyPlanIdByClassId = remote.activeWeeklyPlanIdByClassId;
+        if (remote.grades !== undefined) updates.grades = remote.grades;
+        if (remote.classes !== undefined) updates.classes = remote.classes;
+        if (remote.initialization !== undefined) updates.initialization = remote.initialization;
+        if (remote.weeklyConflictPolicy !== undefined) updates.weeklyConflictPolicy = remote.weeklyConflictPolicy;
+        if (remote.majorExamCreationLockEnabled !== undefined)
+          updates.majorExamCreationLockEnabled = remote.majorExamCreationLockEnabled;
+        if (remote.majorBatchPresets !== undefined) updates.majorBatchPresets = remote.majorBatchPresets;
+        if (remote.designPolicy !== undefined) updates.designPolicy = remote.designPolicy;
+        updateExamSettings(updates as never);
+        if (remote.alerts) updateAlertsSettings(remote.alerts);
+        const merged = getAppSettings().exam;
+        const nextActiveMajorId = merged.activeMajorId || merged.majors[0]?.id || '';
+        syncMajorStateRef(stateRef, merged.majors, nextActiveMajorId);
+        setMajors(merged.majors);
+        setActiveMajorId(nextActiveMajorId);
+        setEditingMajorId((current) =>
+          merged.majors.some((item) => item.id === current) ? current : nextActiveMajorId,
+        );
+        setScheduleMode(merged.scheduleMode);
+        setWeeklyPlans(merged.weeklyPlans);
+        setActiveWeeklyPlanId(merged.activeWeeklyPlanId);
+        setActiveWeeklyPlanIdByClassId(merged.activeWeeklyPlanIdByClassId);
+        setGrades(merged.grades);
+        setClasses(merged.classes);
+        setWeeklyConflictPolicy(merged.weeklyConflictPolicy);
+        setInitialization(merged.initialization);
+        if (remote.alerts) setAlerts(getAppSettings().alerts);
+        appliedAdminSnapshotVersion.current = remote.updatedAt;
+      } finally {
+        adminSnapshotRefreshRef.current = false;
+      }
+    };
+    const onCloudVersion = (event: Event) => void refreshSnapshot(event);
+    window.addEventListener(CLOUD_VERSION_EVENT, onCloudVersion);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CLOUD_VERSION_EVENT, onCloudVersion);
+    };
+  }, [
+    ready,
+    adminTab,
+    editorModalOpen,
+    majorModal,
+    setMajors,
+    setActiveMajorId,
+    setEditingMajorId,
+    setScheduleMode,
+    setWeeklyPlans,
+    setActiveWeeklyPlanId,
+    setActiveWeeklyPlanIdByClassId,
+    setGrades,
+    setClasses,
+    setWeeklyConflictPolicy,
+    setInitialization,
+    setAlerts,
+    stateRef,
+  ]);
 
   if (!ready || !adminUser)
     return <LoadingState kind="auth" title="正在获取权限" message="正在确认你的后台管理范围…" />;

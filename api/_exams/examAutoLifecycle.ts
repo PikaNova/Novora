@@ -68,9 +68,9 @@ type SystemTransitionInput = {
 
 /**
  * 一次系统推进：权威快照 + 操作日志 + 投影表在同一条语句链里完成。
- * 返回 true 表示本次真的写了（投影行数 = 1）；false 表示被并发写者抢先，下一轮惰性推进再试。
+ * 返回持久化后的快照版本表示本次真的写了；null 表示被并发写者抢先，下一轮惰性推进再试。
  */
-async function commitSystemTransition(input: SystemTransitionInput): Promise<boolean> {
+async function commitSystemTransition(input: SystemTransitionInput): Promise<number | null> {
   const sql = database();
   const { recordId, majors, expectedVersion, now, action, toStatus, reason, patch, guard } = input;
   const hasPausedAt = Object.prototype.hasOwnProperty.call(patch, 'pausedAt');
@@ -83,12 +83,13 @@ async function commitSystemTransition(input: SystemTransitionInput): Promise<boo
     transaction`SELECT pg_advisory_xact_lock(${SCHEMA_MIGRATION_LOCK_ID})`,
     transaction`
       WITH updated AS (
-        UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb, updated_at=${now},
+        UPDATE exam_data SET majors=${JSON.stringify(majors)}::jsonb,
+          updated_at=GREATEST(${now}::BIGINT, updated_at + 1),
           -- 生命周期写回快照的 majors 时同步推进 major 修订号：否则携带 baseRevisions 的客户端
           -- 会拿着「暂停前」的修订号通过并发校验，把自动开考/结束的结果覆盖掉。
           revisions = COALESCE(revisions, '{}'::jsonb) || jsonb_build_object('major', COALESCE((revisions->>'major')::bigint, 0) + 1)
         WHERE id=1 AND updated_at=${expectedVersion}::BIGINT
-        RETURNING id
+        RETURNING id, updated_at
       ), logged AS (
         INSERT INTO exam_record_operations (
           idempotency_key, action, source_record_id, result_record_id,
@@ -121,11 +122,11 @@ async function commitSystemTransition(input: SystemTransitionInput): Promise<boo
             AND actual_end_at IS NOT NULL AND actual_end_at <= ${archiveCutoff})
         )
         AND EXISTS (SELECT 1 FROM logged)
-      RETURNING id
+      RETURNING id, (SELECT updated_at FROM updated) AS snapshot_updated_at
     `,
   ]);
-  const rows = (results[1] ?? []) as unknown as Array<{ id?: unknown }>;
-  return rows.length > 0;
+  const rows = (results[1] ?? []) as unknown as Array<{ id?: unknown; snapshot_updated_at?: unknown }>;
+  return rows.length > 0 ? number(rows[0]?.snapshot_updated_at, 0) || null : null;
 }
 
 /** 返回本次真正开考了几场（0 表示没有到点的）。 */
@@ -158,7 +159,7 @@ export async function autoStartDueRecords(now: number = Date.now()): Promise<num
     const nextMajors = majors.map((major, i) => (i === index ? { ...major } : major));
     const patch: ExamOperationPatch = { actualStartAt: startedAt };
     applyOperationPatchToMajor(nextMajors[index], patch);
-    const written = await commitSystemTransition({
+    const persistedVersion = await commitSystemTransition({
       recordId,
       majors: nextMajors,
       expectedVersion,
@@ -169,10 +170,10 @@ export async function autoStartDueRecords(now: number = Date.now()): Promise<num
       patch,
       guard: 'start',
     });
-    if (!written) continue;
+    if (persistedVersion == null) continue;
     // 同一轮里连续推进多场：写完一次后快照版本与内容都变了，循环内跟着更新。
     majors = nextMajors;
-    expectedVersion = now;
+    expectedVersion = persistedVersion;
     startedCount += 1;
   }
   return startedCount;
@@ -237,7 +238,7 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
       stopRequestedAt: null,
     };
     applyOperationPatchToMajor(nextMajors[index], patch);
-    const written = await commitSystemTransition({
+    const persistedVersion = await commitSystemTransition({
       recordId,
       majors: nextMajors,
       expectedVersion,
@@ -249,9 +250,9 @@ export async function autoEndRequestedRecords(now: number = Date.now()): Promise
       patch,
       guard: 'end',
     });
-    if (!written) continue;
+    if (persistedVersion == null) continue;
     majors = nextMajors;
-    expectedVersion = now;
+    expectedVersion = persistedVersion;
     endedCount += 1;
   }
   return endedCount;
@@ -289,7 +290,7 @@ export async function archiveFinishedQuickRecords(now: number = Date.now()): Pro
     if (index < 0) continue;
     const nextMajors = majors.map((major, i) => (i === index ? { ...major } : major));
     nextMajors[index].archivedAt = now;
-    const written = await commitSystemTransition({
+    const persistedVersion = await commitSystemTransition({
       recordId,
       majors: nextMajors,
       expectedVersion,
@@ -301,9 +302,9 @@ export async function archiveFinishedQuickRecords(now: number = Date.now()): Pro
       guard: 'archive',
       archiveCutoff: cutoff,
     });
-    if (!written) continue;
+    if (persistedVersion == null) continue;
     majors = nextMajors;
-    expectedVersion = now;
+    expectedVersion = persistedVersion;
     archivedCount += 1;
   }
   return archivedCount;

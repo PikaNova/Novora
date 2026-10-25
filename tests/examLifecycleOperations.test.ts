@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { effectiveEndAt, planAutoStart, planExamOperation } from '../src/shared/examLifecycleOperations.js';
+import { getZonedParts, parseZonedTime } from '../src/utils/zonedTime.js';
 
 const AT = 1_700_000_000_000;
 const base = {
@@ -71,6 +72,64 @@ test('extend：按分钟顺延，越界或缺结束时间都拒绝', () => {
     );
   }
   assert.equal(planExamOperation({ ...base, endAt: null }, { action: 'extend', at: AT, extendMinutes: 5 }).ok, false);
+});
+
+test('extend：只延长当前进行中的子考试，其他子考试时间保持不变', () => {
+  const localIso = (value: number) => {
+    const parts = getZonedParts(value);
+    return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}T${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:00`;
+  };
+  const items = [
+    {
+      id: 'current',
+      name: '数学',
+      startTime: localIso(AT - 30 * 60_000),
+      endTime: localIso(AT + 15 * 60_000),
+      enabled: true,
+      order: 0,
+    },
+    {
+      id: 'later',
+      name: '英语',
+      startTime: localIso(AT + 60 * 60_000),
+      endTime: localIso(AT + 2 * 60 * 60_000),
+      enabled: true,
+      order: 1,
+    },
+  ];
+  const result = planExamOperation(
+    { ...base, endAt: parseZonedTime(items[1].endTime), items },
+    { action: 'extend', at: AT, extendMinutes: 10 },
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.patch.items?.[0]?.endTime, localIso(AT + 25 * 60_000));
+  assert.equal(result.patch.items?.[1]?.endTime, items[1].endTime);
+  assert.equal(
+    result.patch.endAt,
+    parseZonedTime(items[1].endTime),
+    '后续子考试仍是整场结束时间，不应被当前科目延长影响',
+  );
+});
+
+test('extend：保留子考试时间格式，不能因其他子考试解析异常缩短整场结束时间', () => {
+  const items = [
+    {
+      id: 'current',
+      name: '数学',
+      startTime: new Date(AT - 30 * 60_000).toISOString(),
+      endTime: new Date(AT + 15 * 60_000).toISOString(),
+      enabled: true,
+      order: 0,
+    },
+    { id: 'later', name: '英语', startTime: 'invalid', endTime: 'invalid', enabled: true, order: 1 },
+  ];
+  const result = planExamOperation({ ...base, items }, { action: 'extend', at: AT, extendMinutes: 10 });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.patch.items?.[0]?.endTime, new Date(AT + 25 * 60_000).toISOString());
+  assert.deepEqual(result.patch.items?.[1], items[1]);
+  assert.equal(result.patch.endAt, base.endAt, '整场已有结束时间较晚时不能因其他科目时间格式缩短');
 });
 
 test('end：结算暂停时长并置为已结束', () => {

@@ -16,6 +16,7 @@ import {
   fetchExamRecordPrecheck,
   type ExamRecordListEntry,
   type ExamRecordOperationEntry,
+  type ExamRecordSubjectEntry,
 } from '../services/examRecords';
 import {
   availableExamRecordActions,
@@ -28,6 +29,7 @@ import { buildExamDeviceSummary, filterExamDevices, isDeviceOnline } from '../ut
 import { buildExamRecordTimeline } from '../utils/examRecordTimeline';
 import type { SchoolClass, SchoolGrade } from '../types/school';
 import { adminSectionUrl } from '../hooks/admin/adminRoutes';
+import { formatDateTimeInZone, getZonedParts, parseZonedTime } from '../utils/zonedTime';
 
 const DEFAULT_EXTEND_MINUTES = 15;
 const MAX_EXTEND_MINUTES = 600;
@@ -35,6 +37,22 @@ const MAX_EXTEND_MINUTES = 600;
 /** 操作日志里会出现、但不属于「记录动作」的条目（例如快速考试转正式）。 */
 const EXTRA_OPERATION_LABELS: Record<string, string> = {
   promote: '转为正式考试',
+  auto_start: '系统自动开考',
+  auto_end: '系统自动结束',
+  auto_archive: '系统自动归档',
+  request_stop: '申请停止（历史操作）',
+  force_end: '强制结束（历史操作）',
+  publish: '发布考试',
+  archive: '归档考试',
+  unarchive: '取消归档',
+};
+
+const OPERATION_STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  published: '已发布',
+  ongoing: '进行中',
+  ended: '已结束',
+  archived: '已归档',
 };
 
 type Props = {
@@ -81,8 +99,18 @@ const ACTION_CONFIRM: Record<
     tone: 'warning',
     label: '暂停',
   },
-  resume: { title: '继续考试', message: '恢复后剩余时间按累计暂停时长顺延。', tone: 'info', label: '继续' },
-  extend: { title: '延长考试', message: '延长会同时顺延结束时间与倒计时。', tone: 'info', label: '延长' },
+  resume: {
+    title: '继续考试',
+    message: '恢复后倒计时重新开始，预计结束时间会按本次暂停时长顺延。',
+    tone: 'info',
+    label: '继续',
+  },
+  extend: {
+    title: '延长当前科目',
+    message: '仅延长当前正在进行的子考试，其他子考试的计划时间保持不变。',
+    tone: 'info',
+    label: '确认延长',
+  },
   end: {
     title: '结束考试',
     message: '立即结束本场考试：教室大屏马上不再显示它，不用等系统判定，之后只能归档或复制。',
@@ -106,14 +134,43 @@ const ACTION_CONFIRM: Record<
 
 function formatDateTime(value: number | null | undefined): string {
   if (!value || !Number.isFinite(value)) return '—';
-  return new Date(value).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return formatDateTimeInZone(value);
+}
+
+function subjectTime(value: string, recordStartAt: number | null): number {
+  if (!value) return Number.NaN;
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) return Date.parse(value);
+  if (value.includes('T')) return parseZonedTime(value);
+  if (recordStartAt == null || !/^\d{1,2}:\d{2}(?::\d{2})?$/.test(value)) return Number.NaN;
+  const date = getZonedParts(recordStartAt);
+  const clock = value.length === 5 ? `${value}:00` : value;
+  return parseZonedTime(
+    `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}T${clock}`,
+  );
+}
+
+function subjectStatus(item: ExamRecordSubjectEntry, startAt: number, endAt: number, now: number): string {
+  if (!item.enabled) return '未启用';
+  if (Number.isFinite(startAt) && Number.isFinite(endAt)) {
+    if (now < startAt) return '未开始';
+    if (now < endAt) return '进行中';
+    return '已结束';
+  }
+  return '时间未设置';
+}
+
+function operationResult(entry: ExamRecordOperationEntry): string {
+  const known: Record<string, string> = {
+    pause: '已暂停',
+    resume: '已继续',
+    extend: '当前子考试时间已延长',
+    end: '已结束',
+    auto_start: '系统已开考',
+    auto_end: '系统已结束',
+    auto_archive: '系统已归档',
+  };
+  if (known[entry.action]) return known[entry.action];
+  return entry.toStatus ? `状态变更为${OPERATION_STATUS_LABELS[entry.toStatus] ?? entry.toStatus}` : '已完成';
 }
 
 function formatDuration(ms: number): string {
@@ -152,16 +209,28 @@ function ExamRecordDetailBody({
   const [actionNotice, setActionNotice] = useState('');
   const [retry, setRetry] = useState<PendingAction | null>(null);
   const [minutes, setMinutes] = useState(String(DEFAULT_EXTEND_MINUTES));
+  const [now, setNow] = useState(() => Date.now());
   const [reason, setReason] = useState('');
   const [devices, setDevices] = useState<DeviceBindingInfo[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [devicesError, setDevicesError] = useState('');
   const [devicesTruncated, setDevicesTruncated] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState<'all' | 'online' | 'offline'>('all');
-  const [devicesExpanded, setDevicesExpanded] = useState(false);
   const [unboundOpen, setUnboundOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [subjectFilter, setSubjectFilter] = useState<'open' | 'ended' | 'all'>(
+    record.displayStatus === 'ended' || record.displayStatus === 'archived' ? 'ended' : 'open',
+  );
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
 
   const canReadDevices = can('device.read');
+
+  useEffect(() => {
+    const timer = globalThis.setInterval(() => setNow(Date.now()), 1000);
+    return () => globalThis.clearInterval(timer);
+  }, []);
 
   const loadOperations = useCallback(async () => {
     setLoadingOperations(true);
@@ -229,6 +298,46 @@ function ExamRecordDetailBody({
     [operations],
   );
   const effectiveEndAt = record.endAt == null ? null : record.endAt + record.pausedMs;
+  const resumedEndAt =
+    effectiveEndAt != null && record.pausedAt != null
+      ? effectiveEndAt + Math.max(0, now - record.pausedAt)
+      : effectiveEndAt;
+  const subjects = useMemo(() => {
+    const rows = (record.items ?? []).map((item) => {
+      const startAt = subjectTime(item.startTime, record.startAt);
+      let endAt = subjectTime(item.endTime, record.startAt);
+      if (Number.isFinite(startAt) && Number.isFinite(endAt) && endAt <= startAt && !item.endTime.includes('T')) {
+        endAt += 24 * 60 * 60_000;
+      }
+      return { item, startAt, endAt, status: subjectStatus(item, startAt, endAt, now) };
+    });
+    return rows.sort((left, right) => {
+      const activeFirst = Number(right.status === '进行中') - Number(left.status === '进行中');
+      if (activeFirst) return activeFirst;
+      const leftTime = Number.isFinite(left.startAt) ? left.startAt : Number.MAX_SAFE_INTEGER;
+      const rightTime = Number.isFinite(right.startAt) ? right.startAt : Number.MAX_SAFE_INTEGER;
+      return leftTime - rightTime || left.item.order - right.item.order;
+    });
+  }, [now, record.items, record.startAt]);
+  const currentSubject = subjects.find((subject) => subject.status === '进行中') ?? null;
+  const extendUnavailable = !currentSubject;
+  const upcomingSubject = subjects.find((subject) => subject.status === '未开始') ?? null;
+  const endedSubjectCount = subjects.filter((subject) => subject.status === '已结束').length;
+  const openSubjectCount = subjects.length - endedSubjectCount;
+  const subjectMatchesFilter = (status: string) => {
+    if (subjectFilter === 'all') return true;
+    if (subjectFilter === 'ended') return status === '已结束';
+    return status !== '已结束';
+  };
+  const visibleSubjectRows = subjects.filter((subject) => subjectMatchesFilter(subject.status));
+  const selectedSubject =
+    visibleSubjectRows.find((subject) => subject.item.id === selectedSubjectId) ??
+    visibleSubjectRows.find((subject) => subject.status === '进行中') ??
+    visibleSubjectRows.find((subject) => subject.status === '未开始') ??
+    visibleSubjectRows[0] ??
+    null;
+  const visibleActions = actions;
+  const hasMoreActions = Boolean(onDiscard) && record.displayStatus === 'draft';
 
   // 设备状态只做「这场考试覆盖的教室设备在不在线」的汇总，不做任何控制类操作。
   // 筛选/排序/汇总的规则在 utils/examDeviceDisplay.ts，那边有回归测试。
@@ -250,7 +359,6 @@ function ExamRecordDetailBody({
     () => filterExamDevices(deviceSummary.devices, deviceFilter, Date.now()),
     [deviceFilter, deviceSummary.devices],
   );
-  const visibleDevices = devicesExpanded ? filteredDevices : filteredDevices.slice(0, 6);
   const deviceChipClass = (tone: 'online' | 'warn' | null, active: boolean) =>
     [tone ? `is-${tone}` : '', active ? 'is-active' : ''].filter(Boolean).join(' ') || undefined;
 
@@ -315,6 +423,15 @@ function ExamRecordDetailBody({
       }
     }
     const confirm = ACTION_CONFIRM[action];
+    const extendBaseEndAt = currentSubject?.endAt ?? effectiveEndAt;
+    const proposedEndAt =
+      action === 'extend' && extendBaseEndAt != null && extendMinutes != null
+        ? extendBaseEndAt + extendMinutes * 60_000
+        : null;
+    const proposedExamEndAt =
+      action === 'extend' && proposedEndAt != null && record.endAt != null
+        ? Math.max(effectiveEndAt ?? record.endAt, proposedEndAt + record.pausedMs)
+        : null;
     // 发布前检查（T-286-01）：设备在线情况只做提示，不阻断发布。
     let publishWarning = '';
     if (action === 'publish') {
@@ -333,12 +450,19 @@ function ExamRecordDetailBody({
       title: confirm.title,
       message:
         action === 'extend'
-          ? `${confirm.message}本次延长 ${extendMinutes} 分钟，可随时再次延长。`
-          : `${confirm.message}${publishWarning}`,
+          ? `${confirm.message}\n延长目标：${currentSubject?.item.name ?? record.name}（当前进行中）\n当前科目预计结束：${formatDateTime(extendBaseEndAt)} → ${formatDateTime(proposedEndAt)}\n整场预计结束：${formatDateTime(effectiveEndAt)} → ${formatDateTime(proposedExamEndAt)}\n大型考试下其他子考试的计划时间保持不变；教室端会更新当前科目结束时间。`
+          : action === 'resume'
+            ? `${confirm.message}\n继续后预计结束时间：${formatDateTime(resumedEndAt)}\n本次暂停时长：${formatDuration(Math.max(0, now - (record.pausedAt ?? now)))}`
+            : action === 'pause'
+              ? `${confirm.message}\n当前预计结束时间：${formatDateTime(effectiveEndAt)}${reason.trim() ? `\n备注：${reason.trim()}` : ''}`
+              : action === 'end'
+                ? `${confirm.message}${reason.trim() ? `\n备注：${reason.trim()}` : ''}`
+                : `${confirm.message}${publishWarning}`,
       tone: confirm.tone,
       confirmLabel: confirm.label,
     });
     if (!confirmed) return;
+    if (action === 'extend') setExtendOpen(false);
     await perform({
       action,
       minutes: extendMinutes,
@@ -354,21 +478,20 @@ function ExamRecordDetailBody({
           <div className="exam-record-detail__head-main">
             <div className="exam-record-detail__title-row">
               <h2 className="admin-modal__title">{record.name || '未命名考试'}</h2>
-              {/* 状态徽标从「基本信息」里挪上来：宽屏两栏之后，它属于标题而不是某个字段。 */}
               <span className={`exam-records-status is-${record.displayStatus}`}>
                 {EXAM_RECORD_STATUS_LABELS[record.displayStatus]}
               </span>
             </div>
-            <code className="exam-record-detail__id">{record.id}</code>
+            <span className="exam-record-detail__head-meta">
+              {scopeLabel()} · {record.itemCount} 个科目 · 预计 {formatDateTime(effectiveEndAt)} 结束
+            </span>
           </div>
           <div className="exam-record-detail__head-actions">
-            {/* T-286-03 一期：从这场考试直接给它的范围发公告（可选全校）。 */}
             {can('major.edit') && (
               <button className="admin-btn admin-btn--ghost" type="button" onClick={() => setAnnounceOpen(true)}>
                 发送公告
               </button>
             )}
-            {/* 公告管理页是发布/撤回的统一入口，详情页只做快捷跳转。 */}
             {can('major.read') && (
               <button
                 className="admin-btn admin-btn--ghost"
@@ -379,11 +502,6 @@ function ExamRecordDetailBody({
                 }}
               >
                 公告管理
-              </button>
-            )}
-            {onDiscard && record.displayStatus === 'draft' && (
-              <button className="admin-btn admin-btn--danger" type="button" onClick={() => onDiscard(record)}>
-                删除草稿
               </button>
             )}
             {((onEdit && (canEditRecord?.(record) ?? true)) || (!onEdit && can('major.edit'))) && (
@@ -402,6 +520,18 @@ function ExamRecordDetailBody({
                 编辑考试
               </button>
             )}
+            {hasMoreActions && (
+              <details className="exam-record-detail__more">
+                <summary className="admin-btn admin-btn--ghost">更多</summary>
+                <div className="exam-record-detail__more-menu">
+                  {onDiscard && (
+                    <button className="is-danger" type="button" onClick={() => onDiscard(record)}>
+                      删除草稿
+                    </button>
+                  )}
+                </div>
+              </details>
+            )}
             <button className="admin-btn admin-btn--ghost" type="button" onClick={onClose} aria-label="关闭详情">
               <X size={16} aria-hidden="true" />
             </button>
@@ -409,79 +539,288 @@ function ExamRecordDetailBody({
         </header>
 
         <div className="exam-record-detail__body">
-          <section className="exam-record-detail__facts" aria-label="基本信息">
-            <h3>基本信息</h3>
-            <dl>
+          {(record.displayStatus === 'ongoing' || record.pausedAt != null) && (
+            <section
+              className={`exam-record-detail__live ${
+                record.pausedAt != null ? 'is-paused' : currentSubject ? 'is-ongoing' : 'is-between'
+              }`}
+              aria-live="polite"
+            >
               <div>
-                <dt>适用范围</dt>
-                <dd>{scopeLabel()}</dd>
+                <span className="exam-record-detail__eyebrow">
+                  {record.pausedAt != null ? '整场考试已暂停' : '整场考试进行中'}
+                </span>
+                <strong>
+                  {record.pausedAt != null
+                    ? '倒计时已冻结'
+                    : currentSubject
+                      ? `当前科目 · ${currentSubject.item.name}`
+                      : upcomingSubject
+                        ? `当前无进行中科目 · 下一场 ${upcomingSubject.item.name}`
+                        : '当前无进行中科目'}
+                </strong>
+                <span>
+                  {record.pausedAt != null
+                    ? `暂停中 · 整场预计结束 ${formatDateTime(effectiveEndAt)}`
+                    : currentSubject
+                      ? `${formatDateTime(currentSubject.startAt)} – ${formatDateTime(currentSubject.endAt)}`
+                      : upcomingSubject
+                        ? `${formatDateTime(upcomingSubject.startAt)} – ${formatDateTime(upcomingSubject.endAt)}`
+                        : `整场预计结束 ${formatDateTime(effectiveEndAt)}`}
+                </span>
               </div>
+              <b>
+                {record.pausedAt != null
+                  ? '倒计时已暂停'
+                  : currentSubject
+                    ? `本科目剩余 ${formatDuration(currentSubject.endAt - now)}`
+                    : upcomingSubject
+                      ? `距开考 ${formatDuration(upcomingSubject.startAt - now)}`
+                      : `整场剩余 ${formatDuration((effectiveEndAt ?? now) - now)}`}
+              </b>
+            </section>
+          )}
+
+          <dl className="exam-record-detail__summary" aria-label="考试概要">
+            <div>
+              <dt>适用范围</dt>
+              <dd>{scopeLabel()}</dd>
+            </div>
+            <div>
+              <dt>考试类型</dt>
+              <dd>
+                {record.source === 'quick' ? '快速考试' : '正式考试'} · {record.itemCount} 科
+              </dd>
+            </div>
+            <div>
+              <dt>整场预计结束</dt>
+              <dd>{formatDateTime(effectiveEndAt)}</dd>
+            </div>
+            <div>
+              <dt>当前焦点</dt>
+              <dd>
+                {currentSubject
+                  ? currentSubject.item.name
+                  : upcomingSubject
+                    ? `下一场 · ${upcomingSubject.item.name}`
+                    : endedSubjectCount
+                      ? '全部科目已结束'
+                      : '暂无科目安排'}
+              </dd>
+            </div>
+          </dl>
+
+          <section className="exam-record-detail__facts exam-record-detail__top-details" aria-label="考试详情">
+            <div className="exam-record-detail__section-head">
               <div>
-                <dt>来源</dt>
-                <dd>{record.source === 'quick' ? '快速考试' : '正式考试'}</dd>
+                <h3>考试详情</h3>
+                <p>范围、时间与运行记录</p>
               </div>
-              <div>
-                <dt>科目数</dt>
-                <dd>{record.itemCount}</dd>
-              </div>
-              <div>
-                <dt>创建人</dt>
-                {/* 服务端顺带带出创建人显示名；老数据或用户已删时退回 #id。 */}
-                <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
-              </div>
-              <div>
-                <dt>创建时间</dt>
-                <dd>{formatDateTime(record.createdAt)}</dd>
-              </div>
-              <div>
-                <dt>更新时间</dt>
-                <dd>{formatDateTime(record.updatedAt)}</dd>
-              </div>
-              <div>
-                <dt>计划时间</dt>
-                <dd>
-                  {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
-                  {/* P1-⑤：最近一次动时间的操作原文（含旧 → 新），避免时间悄悄变了没提示。 */}
-                  {latestTimeChange && <em className="exam-record-detail__time-note">{latestTimeChange.reason}</em>}
-                </dd>
-              </div>
-              <div>
-                <dt>累计暂停</dt>
-                <dd>
-                  {formatDuration(record.pausedMs)}
-                  {effectiveEndAt ? `（顺延至 ${formatDateTime(effectiveEndAt)}）` : ''}
-                </dd>
-              </div>
-              {/* 「申请停止」不是立刻停：教室里照常显示，等系统判定后才会结束，这里要说清楚。 */}
-              {record.stopRequestedAt != null && (
+              <button
+                className="exam-record-detail__details-toggle"
+                type="button"
+                aria-expanded={detailsOpen}
+                aria-controls="exam-record-details-panel"
+                onClick={() => setDetailsOpen((value) => !value)}
+              >
+                {detailsOpen ? '收起详情' : '展开详情'}
+                <i aria-hidden="true" />
+              </button>
+            </div>
+            {detailsOpen && (
+              <dl id="exam-record-details-panel" className="exam-record-detail__reveal">
                 <div>
-                  <dt>停止申请</dt>
+                  <dt>记录编号</dt>
                   <dd>
-                    {formatDateTime(record.stopRequestedAt)}
-                    <em className="exam-record-detail__time-note">
-                      等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
-                    </em>
+                    <code>{record.id}</code>
                   </dd>
                 </div>
-              )}
-            </dl>
+                <div>
+                  <dt>创建人</dt>
+                  <dd>{record.createdByName || (record.createdBy == null ? '系统' : `#${record.createdBy}`)}</dd>
+                </div>
+                <div>
+                  <dt>创建时间</dt>
+                  <dd>{formatDateTime(record.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>更新时间</dt>
+                  <dd>{formatDateTime(record.updatedAt)}</dd>
+                </div>
+                <div>
+                  <dt>计划时间</dt>
+                  <dd>
+                    {record.startAt ? `${formatDateTime(record.startAt)} - ${formatDateTime(record.endAt)}` : '未设置'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>实际开考</dt>
+                  <dd>{formatDateTime(record.actualStartAt)}</dd>
+                </div>
+                <div>
+                  <dt>实际结束</dt>
+                  <dd>{formatDateTime(record.actualEndAt ?? record.endedAt)}</dd>
+                </div>
+                <div>
+                  <dt>累计暂停</dt>
+                  <dd>{formatDuration(record.pausedMs)}</dd>
+                </div>
+                {latestTimeChange?.reason && (
+                  <div className="exam-record-detail__time-change">
+                    <dt>最近时间调整</dt>
+                    <dd>{latestTimeChange.reason}</dd>
+                  </div>
+                )}
+                {record.stopRequestedAt != null && (
+                  <div className="exam-record-detail__time-change">
+                    <dt>停止申请</dt>
+                    <dd>
+                      {formatDateTime(record.stopRequestedAt)}
+                      <em className="exam-record-detail__time-note">
+                        等待系统判定：到结束时间 / 教室端全部结束 / 长时间无在线设备
+                      </em>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
           </section>
 
-          <section className="exam-record-detail__devices" aria-label="设备状态">
-            <h3>设备状态</h3>
-            {!canReadDevices ? (
-              <p className="exam-record-detail__hint">当前账号没有查看设备的权限。</p>
-            ) : devicesError ? (
-              <p className="exam-record-detail__hint is-error">{devicesError}</p>
-            ) : !devicesLoaded ? (
-              <p className="exam-record-detail__hint">正在读取设备状态…</p>
-            ) : (
-              <>
-                {deviceSummary.devices.length === 0 ? (
+          <div className="exam-record-detail__workspace">
+            <section className="exam-record-detail__subjects" aria-label="考试科目">
+              <div className="exam-record-detail__section-head">
+                <div>
+                  <h3>
+                    科目进度 <span>{subjects.length}</span>
+                  </h3>
+                  <p>选择科目查看安排；已结束科目默认收起。</p>
+                </div>
+                <div className="exam-record-detail__subject-tabs" role="group" aria-label="筛选考试科目">
+                  <button
+                    type="button"
+                    className={subjectFilter === 'open' ? 'is-active' : undefined}
+                    aria-pressed={subjectFilter === 'open'}
+                    onClick={() => setSubjectFilter('open')}
+                  >
+                    未结束 <span>{openSubjectCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={subjectFilter === 'ended' ? 'is-active' : undefined}
+                    aria-pressed={subjectFilter === 'ended'}
+                    onClick={() => setSubjectFilter('ended')}
+                  >
+                    已结束 <span>{endedSubjectCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={subjectFilter === 'all' ? 'is-active' : undefined}
+                    aria-pressed={subjectFilter === 'all'}
+                    onClick={() => setSubjectFilter('all')}
+                  >
+                    全部
+                  </button>
+                </div>
+              </div>
+
+              {subjects.length === 0 ? (
+                <p className="exam-record-detail__hint">详情接口暂未提供科目时间。</p>
+              ) : (
+                <>
+                  <ol>
+                    {subjects.map(({ item, startAt, endAt, status }) => {
+                      const matchesFilter = subjectMatchesFilter(status);
+                      const selected = selectedSubject?.item.id === item.id;
+                      return (
+                        <li
+                          key={item.id}
+                          hidden={!matchesFilter}
+                          className={[status === '进行中' ? 'is-current' : '', selected ? 'is-selected' : '']
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          <button type="button" aria-pressed={selected} onClick={() => setSelectedSubjectId(item.id)}>
+                            <strong>{item.name}</strong>
+                            <span>
+                              {Number.isFinite(startAt) ? formatDateTime(startAt) : item.startTime || '—'} –{' '}
+                              {Number.isFinite(endAt) ? formatDateTime(endAt) : item.endTime || '—'}
+                            </span>
+                            <em
+                              className={`is-${
+                                status === '进行中' ? 'ongoing' : status === '已结束' ? 'ended' : 'pending'
+                              }`}
+                            >
+                              {status}
+                            </em>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  {visibleSubjectRows.length === 0 ? (
+                    <div className="exam-record-detail__empty-subjects">
+                      <span>当前筛选下没有科目。</span>
+                      <button type="button" onClick={() => setSubjectFilter('all')}>
+                        查看全部科目
+                      </button>
+                    </div>
+                  ) : (
+                    selectedSubject && (
+                      <article
+                        key={selectedSubject.item.id}
+                        className="exam-record-detail__selected-subject"
+                        aria-live="polite"
+                      >
+                        <div>
+                          <span>当前选择</span>
+                          <strong>{selectedSubject.item.name}</strong>
+                        </div>
+                        <div>
+                          <span>安排时间</span>
+                          <b>
+                            {formatDateTime(selectedSubject.startAt)} – {formatDateTime(selectedSubject.endAt)}
+                          </b>
+                        </div>
+                        <em
+                          className={`is-${
+                            selectedSubject.status === '进行中'
+                              ? 'ongoing'
+                              : selectedSubject.status === '已结束'
+                                ? 'ended'
+                                : 'pending'
+                          }`}
+                        >
+                          {selectedSubject.status === '进行中'
+                            ? '当前可暂停、延长或结束'
+                            : selectedSubject.status === '已结束'
+                              ? '该科目已结束'
+                              : '等待开考，可在编辑考试中调整计划'}
+                        </em>
+                      </article>
+                    )
+                  )}
+                </>
+              )}
+            </section>
+
+            <aside className="exam-record-detail__side">
+              <section className="exam-record-detail__devices" aria-label="设备管理">
+                <div className="exam-record-detail__section-head">
+                  <div>
+                    <h3>设备管理</h3>
+                    <p>设备列表默认展开，内容较多时在面板内滚动。</p>
+                  </div>
+                </div>
+                {!canReadDevices ? (
+                  <p className="exam-record-detail__hint">当前账号没有查看设备的权限。</p>
+                ) : devicesError ? (
+                  <p className="exam-record-detail__hint is-error">{devicesError}</p>
+                ) : !devicesLoaded ? (
+                  <p className="exam-record-detail__hint">正在读取设备状态…</p>
+                ) : deviceSummary.devices.length === 0 ? (
                   <p className="exam-record-detail__hint">这场考试范围内还没有绑定设备。</p>
                 ) : (
                   <>
-                    {/* chip 兼筛选器：点「离线 8」就只看离线那批，排查时最常用。 */}
                     <p className="exam-record-detail__device-summary">
                       <button
                         type="button"
@@ -489,7 +828,7 @@ function ExamRecordDetailBody({
                         aria-pressed={deviceFilter === 'all'}
                         onClick={() => setDeviceFilter('all')}
                       >
-                        覆盖 {deviceSummary.devices.length} 台设备
+                        覆盖 {deviceSummary.devices.length} 台
                       </button>
                       <button
                         type="button"
@@ -498,7 +837,7 @@ function ExamRecordDetailBody({
                           deviceFilter === 'online',
                         )}
                         aria-pressed={deviceFilter === 'online'}
-                        onClick={() => setDeviceFilter((value) => (value === 'online' ? 'all' : 'online'))}
+                        onClick={() => setDeviceFilter('online')}
                       >
                         在线 {deviceSummary.online}
                       </button>
@@ -506,7 +845,7 @@ function ExamRecordDetailBody({
                         type="button"
                         className={deviceChipClass(null, deviceFilter === 'offline')}
                         aria-pressed={deviceFilter === 'offline'}
-                        onClick={() => setDeviceFilter((value) => (value === 'offline' ? 'all' : 'offline'))}
+                        onClick={() => setDeviceFilter('offline')}
                       >
                         离线 {deviceSummary.offline}
                       </button>
@@ -517,56 +856,53 @@ function ExamRecordDetailBody({
                           aria-expanded={unboundOpen}
                           onClick={() => setUnboundOpen((value) => !value)}
                         >
-                          {deviceSummary.unboundClasses} 个班级未绑定设备
+                          {deviceSummary.unboundClasses} 个班级未绑定
                         </button>
                       )}
                     </p>
                     {unboundOpen && deviceSummary.unboundClassNames.length > 0 && (
-                      <p className="exam-record-detail__hint">
+                      <p className="exam-record-detail__hint exam-record-detail__reveal">
                         未绑定设备：{deviceSummary.unboundClassNames.join('、')}
                       </p>
                     )}
+                    <div className="exam-record-detail__device-detail">
+                      {filteredDevices.length > 0 ? (
+                        <ul>
+                          {filteredDevices.map((item) => {
+                            const online = isDeviceOnline(item, Date.now());
+                            return (
+                              <li key={item.instanceId}>
+                                <strong>{classLabel(item.gradeId, item.classId)}</strong>
+                                <span className={online ? 'is-online' : 'is-offline'}>{online ? '在线' : '离线'}</span>
+                                <em>
+                                  {item.currentExam
+                                    ? `当前显示：${item.currentExam}`
+                                    : `最后在线 ${formatDateTime(item.lastSeenAt)}`}
+                                </em>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <p className="exam-record-detail__hint">当前筛选下没有设备。</p>
+                      )}
+                      {devicesTruncated && (
+                        <p className="exam-record-detail__hint">设备总数超过一次读取上限，这里只统计了前 500 台。</p>
+                      )}
+                    </div>
                   </>
                 )}
-                {filteredDevices.length > 0 && (
-                  <ul className={devicesExpanded && filteredDevices.length > 6 ? 'is-scroll' : undefined}>
-                    {visibleDevices.map((item) => {
-                      const online = isDeviceOnline(item, Date.now());
-                      return (
-                        <li key={item.instanceId}>
-                          <strong>{classLabel(item.gradeId, item.classId)}</strong>
-                          <span className={online ? 'is-online' : 'is-offline'}>{online ? '在线' : '离线'}</span>
-                          <em>
-                            {item.currentExam
-                              ? `当前显示：${item.currentExam}`
-                              : `最后在线 ${formatDateTime(item.lastSeenAt)}`}
-                          </em>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                {deviceSummary.devices.length > 0 && filteredDevices.length === 0 && (
-                  <p className="exam-record-detail__hint">当前筛选下没有设备。</p>
-                )}
-                {filteredDevices.length > 6 && (
-                  <button
-                    className="admin-btn admin-btn--ghost admin-btn--sm exam-record-detail__devices-more"
-                    type="button"
-                    onClick={() => setDevicesExpanded((value) => !value)}
-                  >
-                    {devicesExpanded ? '收起' : `展开全部 ${filteredDevices.length} 台`}
-                  </button>
-                )}
-                {devicesTruncated && (
-                  <p className="exam-record-detail__hint">设备总数超过一次读取上限，这里只统计了前 500 台。</p>
-                )}
-              </>
-            )}
-          </section>
+              </section>
+            </aside>
+          </div>
 
           <section className="exam-record-detail__timeline" aria-label="生命周期">
-            <h3>生命周期</h3>
+            <div className="exam-record-detail__section-head">
+              <div>
+                <h3>生命周期</h3>
+                <p>考试从创建到归档的关键节点。</p>
+              </div>
+            </div>
             <ol>
               {timeline.map((stage) => (
                 <li key={stage.key} className={stage.at ? 'is-done' : ''}>
@@ -581,81 +917,177 @@ function ExamRecordDetailBody({
             </ol>
           </section>
 
-          <section className="exam-record-detail__operations" aria-label="操作记录">
-            <h3>
-              <History size={15} aria-hidden="true" /> 操作记录
-            </h3>
-            {loadingOperations ? (
-              <p className="exam-record-detail__hint">正在读取…</p>
-            ) : operationsError ? (
-              <p className="exam-record-detail__hint is-error">{operationsError}</p>
-            ) : operations.length === 0 ? (
-              <p className="exam-record-detail__hint">还没有操作记录。</p>
-            ) : (
-              <ul>
-                {operations.map((entry) => (
-                  <li key={`${entry.action}-${entry.createdAt}-${entry.resultRecordId}`}>
-                    <strong>
-                      {EXAM_RECORD_ACTION_LABELS[entry.action as ExamRecordActionName] ??
-                        EXTRA_OPERATION_LABELS[entry.action] ??
-                        entry.action}
-                    </strong>
-                    <span>{formatDateTime(entry.createdAt)}</span>
-                    <span>{entry.actorName || (entry.actorId == null ? '系统' : `#${entry.actorId}`)}</span>
-                    {entry.fromStatus && entry.toStatus && entry.fromStatus !== entry.toStatus && (
-                      <em>
-                        {entry.fromStatus} → {entry.toStatus}
-                      </em>
-                    )}
-                    {entry.reason && <em>{entry.reason}</em>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <details className="exam-record-detail__disclosure exam-record-detail__operations">
+            <summary>
+              <span>
+                <strong>
+                  <History size={15} aria-hidden="true" /> 操作记录
+                </strong>
+                <em>{loadingOperations ? '正在读取' : `${operations.length} 条记录`}</em>
+              </span>
+              <i aria-hidden="true" />
+            </summary>
+            <div className="exam-record-detail__disclosure-panel">
+              {loadingOperations ? (
+                <p className="exam-record-detail__hint">正在读取…</p>
+              ) : operationsError ? (
+                <p className="exam-record-detail__hint is-error">{operationsError}</p>
+              ) : operations.length === 0 ? (
+                <p className="exam-record-detail__hint">还没有操作记录。</p>
+              ) : (
+                <ul>
+                  {operations.map((entry) => (
+                    <li key={`${entry.action}-${entry.createdAt}-${entry.resultRecordId}`}>
+                      <strong>
+                        {EXAM_RECORD_ACTION_LABELS[entry.action as ExamRecordActionName] ??
+                          EXTRA_OPERATION_LABELS[entry.action] ??
+                          entry.action}
+                      </strong>
+                      <span>{formatDateTime(entry.createdAt)}</span>
+                      <span>{entry.actorName || (entry.actorId == null ? '系统' : `#${entry.actorId}`)}</span>
+                      {entry.fromStatus && entry.toStatus && entry.fromStatus !== entry.toStatus && (
+                        <em>
+                          {OPERATION_STATUS_LABELS[entry.fromStatus] ?? entry.fromStatus} →{' '}
+                          {OPERATION_STATUS_LABELS[entry.toStatus] ?? entry.toStatus}
+                        </em>
+                      )}
+                      <em>结果：{operationResult(entry)}</em>
+                      {entry.reason && <em>{entry.reason}</em>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
         </div>
 
         <footer className="exam-record-detail__actions">
-          {actions.includes('extend') && (
-            <label className="exam-record-detail__minutes">
-              延长
+          <div className="exam-record-detail__action-bar">
+            <div className="exam-record-detail__selection">
+              <span>{selectedSubject ? `${selectedSubject.status}科目` : '操作范围'}</span>
+              <strong>{selectedSubject?.item.name ?? record.name}</strong>
+            </div>
+            <div className="exam-record-detail__buttons">
+              {visibleActions.length === 0 && (
+                <span className="exam-record-detail__hint">当前账号没有可执行的操作。</span>
+              )}
+              {actions.includes('extend') && extendUnavailable && (
+                <span className="exam-record-detail__action-note">单科开考后可用快捷延长</span>
+              )}
+              <button
+                className={`admin-btn admin-btn--ghost exam-record-detail__note-toggle${
+                  reason.trim() ? ' has-note' : ''
+                }`}
+                type="button"
+                aria-expanded={noteOpen}
+                onClick={() => setNoteOpen((value) => !value)}
+              >
+                {reason.trim() ? '备注已填' : '备注'}
+              </button>
+              {visibleActions.map((action) => (
+                <button
+                  key={action}
+                  className={`admin-btn ${
+                    action === 'end'
+                      ? 'admin-btn--danger'
+                      : action === 'copy' || action === 'archive' || action === 'unarchive'
+                        ? 'admin-btn--ghost'
+                        : 'admin-btn--primary'
+                  }`}
+                  type="button"
+                  aria-expanded={action === 'extend' ? extendOpen : undefined}
+                  aria-controls={action === 'extend' ? 'exam-record-extend-panel' : undefined}
+                  onClick={() => (action === 'extend' ? setExtendOpen((value) => !value) : void startAction(action))}
+                  disabled={busyAction !== null || (action === 'extend' && extendUnavailable)}
+                  title={action === 'extend' && extendUnavailable ? '仅当单科考试进行中时可快捷延长' : undefined}
+                >
+                  {busyAction === action
+                    ? '处理中…'
+                    : action === 'extend'
+                      ? '快捷延长'
+                      : EXAM_RECORD_ACTION_LABELS[action]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {noteOpen && (
+            <label className="exam-record-detail__reason exam-record-detail__reveal">
+              操作备注
               <input
                 className="admin-input"
-                type="number"
-                min="1"
-                max={MAX_EXTEND_MINUTES}
-                value={minutes}
-                onChange={(event) => setMinutes(event.target.value)}
-                aria-label="延长分钟数"
+                value={reason}
+                maxLength={200}
+                onChange={(event) => setReason(event.target.value)}
+                disabled={busyAction !== null}
+                placeholder="可选，会写入操作记录"
+                aria-label="操作备注"
+                autoFocus
               />
-              分钟
             </label>
           )}
-          <label className="exam-record-detail__reason">
-            备注
-            <input
-              className="admin-input"
-              value={reason}
-              maxLength={200}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="可选，会写入操作记录"
-              aria-label="操作备注"
-            />
-          </label>
-          <div className="exam-record-detail__buttons">
-            {actions.length === 0 && <span className="exam-record-detail__hint">当前账号没有可执行的操作。</span>}
-            {actions.map((action) => (
-              <button
-                key={action}
-                className={`admin-btn ${action === 'end' || action === 'archive' ? 'admin-btn--danger' : 'admin-btn--primary'}`}
-                type="button"
-                onClick={() => void startAction(action)}
-                disabled={busyAction !== null}
-              >
-                {busyAction === action ? '处理中…' : EXAM_RECORD_ACTION_LABELS[action]}
-              </button>
-            ))}
-          </div>
+
+          {extendOpen && visibleActions.includes('extend') && (
+            <div id="exam-record-extend-panel" className="exam-record-detail__extend exam-record-detail__reveal">
+              <div className="exam-record-detail__extend-head">
+                <div>
+                  <strong>延长当前科目</strong>
+                  <span>{currentSubject?.item.name} · 其他科目时间保持不变</span>
+                </div>
+                <button type="button" onClick={() => setExtendOpen(false)} aria-label="收起延长时间设置">
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+              <label className="exam-record-detail__minutes">
+                延长时间
+                <input
+                  className="admin-input"
+                  type="number"
+                  min="1"
+                  max={MAX_EXTEND_MINUTES}
+                  value={minutes}
+                  onChange={(event) => setMinutes(event.target.value)}
+                  disabled={busyAction !== null}
+                  aria-label="延长分钟数"
+                />
+                分钟
+              </label>
+              <div className="exam-record-detail__extend-presets" aria-label="常用延长时长">
+                {[5, 10, 15, 30].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    disabled={busyAction !== null}
+                    className={Number(minutes) === preset ? 'is-active' : undefined}
+                    onClick={() => setMinutes(String(preset))}
+                  >
+                    +{preset}
+                  </button>
+                ))}
+                {effectiveEndAt != null && Number(minutes) > 0 && Number(minutes) <= MAX_EXTEND_MINUTES && (
+                  <span>
+                    {currentSubject
+                      ? `${currentSubject.item.name}：${formatDateTime(currentSubject.endAt)} → ${formatDateTime(currentSubject.endAt + Math.floor(Number(minutes)) * 60_000)}；其他子考试不变`
+                      : `整场考试：${formatDateTime(effectiveEndAt)} → ${formatDateTime(effectiveEndAt + Math.floor(Number(minutes)) * 60_000)}`}
+                  </span>
+                )}
+              </div>
+              <div className="exam-record-detail__extend-actions">
+                <button className="admin-btn admin-btn--ghost" type="button" onClick={() => setExtendOpen(false)}>
+                  取消
+                </button>
+                <button
+                  className="admin-btn admin-btn--primary"
+                  type="button"
+                  disabled={busyAction !== null}
+                  onClick={() => void startAction('extend')}
+                >
+                  确认延长
+                </button>
+              </div>
+            </div>
+          )}
+
           {actionError && (
             <div className="exam-record-detail__feedback is-error">
               <span>{actionError}</span>
