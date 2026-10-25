@@ -68,6 +68,7 @@ function mediaBlock(css: string, query: string): string {
 
 const adminCss = readStyle('admin.css');
 const sannCss = readStyle('school-announcements.css');
+const examRecordsCss = readStyle('exam-records.css');
 
 test('弹窗版式：普通弹窗统一封顶，不再顶到屏幕上下边缘', () => {
   const base = declarations(adminCss, '.admin-modal {');
@@ -77,6 +78,19 @@ test('弹窗版式：普通弹窗统一封顶，不再顶到屏幕上下边缘',
   const workflow = declarations(adminCss, '.admin-modal--workflow {');
   assert.match(workflow, /height:\s*min\(/, '向导类弹窗固定高度 + 内部滚动');
   assert.match(workflow, /overflow:\s*hidden/);
+});
+
+test('弹窗版式：考试详情在窄屏贴底，并受稳定视口高度约束', () => {
+  const desktop = mediaBlock(examRecordsCss, '(min-width: 761px)');
+  assert.match(
+    desktop,
+    /\.admin-modal\.exam-record-detail\s*\{[\s\S]*max-height:\s*min\(88dvh,\s*calc\(100dvh - 48px\),\s*820px\)\s*!important/,
+  );
+
+  const mobile = mediaBlock(examRecordsCss, '(max-width: 760px)');
+  assert.match(mobile, /\.admin-modal-overlay:has\(> \.exam-record-detail\)[\s\S]*align-items:\s*flex-end/);
+  assert.match(mobile, /\.admin-modal\.exam-record-detail\s*\{[\s\S]*height:\s*min\(92dvh,\s*calc\(100svh/);
+  assert.match(mobile, /\.admin-modal\.exam-record-detail\s*\{[\s\S]*max-height:\s*min\(92dvh,\s*calc\(100svh/);
 });
 
 test('弹窗版式：公告回执全宽摘要与明细、窄屏滚动、整窗封顶', () => {
