@@ -1435,6 +1435,25 @@
     transform: none;
   }
 }
+
+/* 详情抽屉的最终视口约束必须放在响应式精简布局之后，避免被后置规则覆盖。 */
+@media (min-width: 761px) {
+  .admin-modal.exam-record-detail {
+    max-height: min(88dvh, calc(100dvh - 48px), 820px) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-modal-overlay:has(> .exam-record-detail) {
+    align-items: flex-end;
+    padding: max(8px, env(safe-area-inset-top)) 0 0;
+  }
+
+  .admin-modal.exam-record-detail {
+    height: min(92dvh, calc(100svh - max(8px, env(safe-area-inset-top)))) !important;
+    max-height: min(92dvh, calc(100svh - max(8px, env(safe-area-inset-top)))) !important;
+  }
+}
 .exam-records-pagination__size {
   display: inline-flex;
   align-items: center;
