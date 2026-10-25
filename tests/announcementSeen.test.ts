@@ -107,7 +107,24 @@ test('公告看过计时：重复 setVisible(true) 不会重复计时或提前�
   assert.equal(seen.length, 1);
 });
 
-// 唯一一条用真实计时器的用例：验证"停在屏幕上不动，到点也会自己上报"。
+test('公告看过计时：计时器触发时尚差 1ms，仍会继续等待并自动上报', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { seen, onSeen } = collect();
+  const { tracker, advance } = makeTracker('ann_early', onSeen);
+  t.after(() => tracker.dispose());
+  tracker.setVisible(true);
+  advance(MIN_MS - 1);
+  t.mock.timers.tick(MIN_MS);
+  assert.equal(seen.length, 0, '不足门槛不能提前上报');
+  advance(1);
+  t.mock.timers.tick(1);
+  assert.equal(seen.length, 1, '剩余时间到点后应自动上报');
+  assert.equal(seen[0].seenMs, MIN_MS);
+  t.mock.timers.tick(MIN_MS);
+  assert.equal(seen.length, 1, '首次自动上报后不再重复调度');
+});
+
+// 真实计时器用例：验证"停在屏幕上不动，到点也会自己上报"。
 // 阈值压到 20ms、等待 300ms，留足余量，避免机器繁忙时抖动。
 test('公告看过计时：一直亮着也会在门槛到点后自动上报', async () => {
   const { seen, onSeen } = collect();
