@@ -76,6 +76,7 @@ export function createSeenTracker({
       if (visibleSince == null) return;
       settle();
       reportPending();
+      scheduleThreshold();
     }, need);
   };
 

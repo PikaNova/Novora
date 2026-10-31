@@ -11,7 +11,6 @@ export default tseslint.config(
       'dist-ui-check/**',
       'node_modules/**',
       'artifacts/**',
-      'packaging/windows/artifacts/**',
       '.api-check/**',
       '.integration-check/**',
       'server-build/**',

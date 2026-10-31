@@ -406,7 +406,3 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 - Docker Compose 一键启动：应用 + 内嵌 PostgreSQL 16
 - 无 Docker：Node 22 + 本机 PostgreSQL，npm run serve
 - 与云端部署共存于同一仓库，互不冲突；server/ 适配器复用全部 api/* handler
-
-### Windows 控制中心
-
-Windows 安装包现使用自包含 WPF 控制中心作为 `NovoraLauncher.exe`，提供服务和数据库状态、局域网地址、日志、备份及 Windows 设置；原 WinForms 托盘和服务宿主继续沿用。打包与验证方式见 [Windows 部署说明](packaging/windows/README.md)。
