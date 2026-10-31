@@ -22,7 +22,9 @@ Web 文件为 UTF-8 JSON，扩展名 `.novora-backup`；最大 20 MiB，上传/�
 
 配置私有 Vercel Blob 的 `BLOB_READ_WRITE_TOKEN`，以及至少 16 位的 `CRON_SECRET`。`vercel.json` 每日 UTC 00:00（上海时间 08:00）调用 `/api/backups`，使用 Bearer secret 验证；未配置密钥不开放任务接口。文件保存在私有 Blob，不依赖函数本地磁盘。
 
-Vercel Functions 当前单次请求或响应 body 上限为 4.5 MB；本项目用 512 KiB 分块，因此 20 MiB 是多次请求的应用层上限，不会把 20 MiB 作为一次函数请求发送。20 MiB 也不是 Vercel Blob 的单文件上限，但函数恢复会在内存中组装快照并受函数时长、内存和请求次数影响；备份数量还会产生 Blob 存储和读写费用。后续若备份持续增长，应改为客户端直传 Blob、流式/后台任务或数据库原生备份，而不是只提高这个阈值。
+Vercel Functions 当前单次请求或响应 body 上限为 4.5 MB；本项目用 512 KiB 分块（Base64 后每次约 0.67 MiB），因此 20 MiB 是多次请求的应用层上限，不会把 20 MiB 作为一次函数请求发送。Vercel Blob 单文件上限为 5 TB，20 MiB 是本项目保守限制。恢复会在内存中组装快照，并受函数时长、内存和请求次数影响；自动保留 14 份时，若每份都接近上限，存储约 280 MiB，费用还取决于 Blob 用量。
+
+当前下载接口为每个 512 KiB 分块重新读取整份 Blob。20 MiB 文件约 40 个分块，单次完整下载可能让函数重复读取约 800 MiB。扩大应用上限前应先改为只读所需范围或使用更合适的流式下载路径。参考：[Vercel Function limits](https://vercel.com/docs/functions/limitations)、[Blob usage and pricing](https://vercel.com/docs/vercel-blob/usage-and-pricing)、[Blob SDK limits](https://vercel.com/docs/vercel-blob/using-blob-sdk)。
 
 界面的调度就绪状态仅检查环境配置，不代表真实运行健康检查。发布前需在目标 Vercel 项目验证 Cron、套餐时限和私有 Blob 读写删除。首版没有应用内 Vercel 自动重试；失败后可手动备份，或等待后续定时触发。
 
