@@ -41,6 +41,8 @@ test('backup settings offers working downloads for every successful backup kind'
   const content = Buffer.from('备份学校\u0000\ufffd');
   let mode = 'local';
   let schedulerReady = true;
+  let previewMode = false;
+  const restoreRequests: Record<string, unknown>[] = [];
   const downloadedIds: string[] = [];
   const configs: Record<string, unknown>[] = [];
   const kinds = ['manual', 'automatic', 'protection'];
@@ -58,7 +60,22 @@ test('backup settings offers working downloads for every successful backup kind'
       });
     }
     if (init?.method === 'POST') {
-      configs.push(JSON.parse(String(init.body)));
+      const payload = JSON.parse(String(init.body));
+      if (previewMode && payload.action === 'preview')
+        return Response.json({
+          ok: true,
+          checksum: 'a'.repeat(64),
+          bytes: 1234,
+          createdAt: 1234,
+          tables: [
+            { table: 'app_users', rows: 2 },
+            { table: 'exam_records', rows: 8 },
+            { table: 'exam_announcements', rows: 1 },
+          ],
+          administrators: ['校务管理员'],
+        });
+      if (previewMode && payload.action === 'restore') restoreRequests.push(payload);
+      else configs.push(payload);
       return Response.json({ ok: true });
     }
     return Response.json({
@@ -127,7 +144,7 @@ test('backup settings offers working downloads for every successful backup kind'
       try {
         const checkbox = renderer.root.findByProps({ id: 'backup-automatic' });
         assert.equal(checkbox.props.disabled, false);
-        act(() => checkbox.props.onChange({ target: { checked: false } }));
+        act(() => checkbox.props.onChange(false));
         const save = renderer.root.findAllByType('button').find((button) => button.children.includes('保存'))!;
         assert.equal(save.props.disabled, false);
         await act(async () => {
@@ -136,6 +153,71 @@ test('backup settings offers working downloads for every successful backup kind'
         assert.equal(configs.at(-1)?.enabled, false);
       } finally {
         act(() => renderer.unmount());
+      }
+    });
+    await t.test('restore flow previews business content and confirms before replacing data', async () => {
+      mode = 'local';
+      schedulerReady = true;
+      previewMode = true;
+      restoreRequests.length = 0;
+      let restored = false;
+      const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+      const dialogTitles: string[] = [];
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: {
+          dispatchEvent(event: CustomEvent<{ title: string; resolve: (confirmed: boolean) => void }>) {
+            dialogTitles.push(event.detail.title);
+            event.detail.resolve(true);
+            return true;
+          },
+        },
+      });
+      let renderer!: TestRenderer.ReactTestRenderer;
+      try {
+        await act(async () => {
+          renderer = TestRenderer.create(
+            React.createElement(BackupRestoreSection, {
+              onRestored() {
+                restored = true;
+              },
+            }),
+          );
+        });
+        const picker = renderer.root.findByProps({ id: 'backup-file-input' });
+        const file = new File([Buffer.from('backup')], 'school-backup.novora-backup');
+        await act(async () => {
+          picker.props.onChange({ currentTarget: { value: '', files: [file] }, target: { files: [file] } });
+        });
+        const preview = renderer.root.findByProps({ className: 'set-backup__contents' });
+        const contentText = preview.findAllByType('li').map((item) => item.children[0]);
+        assert.deepEqual(contentText, ['管理员账号', '考试记录', '考试公告']);
+        assert.equal(
+          preview.findAll((node) =>
+            ['app_users', 'exam_records', 'exam_announcements'].includes(String(node.children[0] ?? '')),
+          ).length,
+          0,
+        );
+
+        const password = renderer.root.findByProps({ 'aria-label': '当前超级管理员密码' });
+        const confirmation = renderer.root.findByProps({ 'aria-label': '输入 RESTORE 确认恢复' });
+        act(() => password.props.onChange({ target: { value: 'current-password' } }));
+        act(() => confirmation.props.onChange({ target: { value: 'RESTORE' } }));
+        const button = renderer.root.findAllByType('button').find((item) => item.children.includes('确认恢复'))!;
+        await act(async () => {
+          button.props.onClick();
+          for (let attempt = 0; attempt < 50 && !restoreRequests.length; attempt++)
+            await new Promise((resolve) => originalTimer(resolve, 5));
+        });
+        assert.equal(restoreRequests.at(-1)?.password, 'current-password');
+        assert.equal(restoreRequests.at(-1)?.confirm, 'RESTORE');
+        assert.deepEqual(dialogTitles, ['确认恢复备份', '恢复完成']);
+        assert.equal(restored, true);
+      } finally {
+        act(() => renderer.unmount());
+        if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
+        else Reflect.deleteProperty(globalThis, 'window');
+        previewMode = false;
       }
     });
   } finally {

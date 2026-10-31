@@ -48,7 +48,7 @@ function visit(directory) {
     if (entry.isDirectory()) visit(filePath);
     else if (entry.isFile() && entry.name.endsWith('.js')) {
       const original = fs.readFileSync(filePath, 'utf8');
-      const rewritten = addJsExtension(original);
+      const rewritten = addJsExtension(original).replace(/^\s*import\s+(['"])[^'"\n]+\.css\1;?\s*$/gm, '');
       if (rewritten !== original) fs.writeFileSync(filePath, rewritten);
     }
   }
