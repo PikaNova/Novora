@@ -1,4 +1,4 @@
-# Novora v2.8.3
+# Novora v2.8.4
 
 Novora 是面向学校教室大屏的考试与周测安排系统，包含客户端大屏、管理后台、设备管理、网页预览和 A4 PDF 下载。技术栈为 React、TypeScript、Vite、Vercel Functions 与 Neon Postgres。
 
@@ -242,6 +242,13 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 
 ## 更新日志
 
+### V2.8.4
+
+- **全量备份与恢复**：设置页支持备份文件校验、内容预览和恢复；恢复前会先校验文件并生成保护备份。
+- **按部署平台处理备份**：Linux 自部署保存到本地目录；Vercel 生成后即时下载并保留备份记录，不提供历史文件再次下载；Windows 引导到控制中心管理备份。
+- **校验文件**：所有可下载备份同时生成 SHA-256 校验文件，恢复前必须通过完整性校验。
+- [2.8.4 更新日志：全量备份与恢复](docs/CHANGELOG-2.8.4.md)
+
 ### V2.8.3
 
 - [2.8.3 更新日志：后台考试修改与教室端同步可靠性](docs/CHANGELOG-2.8.3.md)
@@ -251,12 +258,6 @@ Vercel Pro 可在控制台挂 Cron 每分钟调用一次 `GET /api/diagnostic-wo
 - Windows 签名在线更新、安装初始化流程收口、维护互斥与控制中心稳定性改进。
 - 局域网 HTTP 登录、ClassIsland 条件同步与公告代理缓存、上海时区展示和跨天考试修复。
 - [v2.8.2 完整更新日志](docs/CHANGELOG-2.8.2.md)
-
-### V2.8.1
-
-- [v2.8.1 开发资料、文件分类与发布检查](docs/2.8.1/README.md)
-- [v2.8.1 完整更新日志](docs/CHANGELOG-2.8.1.md)
-- [v2.8.1 新功能介绍](docs/FEATURES-2.8.1.md)
 
 ### V2.8.0
 
