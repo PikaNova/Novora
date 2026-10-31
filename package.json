@@ -35,7 +35,6 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.5",
-    "@vercel/blob": "^2.8.2",
     "@vercel/speed-insights": "^1.2.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",

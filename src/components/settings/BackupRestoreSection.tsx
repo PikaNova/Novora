@@ -16,9 +16,11 @@ type BackupRun = {
   checksum: string;
   error: string;
   filename?: string;
+  file_sha256?: string;
+  fileStored?: boolean;
 };
 type Status = {
-  mode: 'local' | 'blob' | 'windows' | 'unconfigured';
+  mode: 'local' | 'vercel' | 'windows' | 'unconfigured';
   enabled: boolean;
   retention: number;
   schedulerReady: boolean;
@@ -35,6 +37,7 @@ type Preview = {
   tables: Array<{ table: string; rows: number }>;
   administrators: string[];
   filename: string;
+  fileSha256: string;
 };
 const CHUNK = 512 * 1024;
 const RETENTION_OPTIONS = Array.from({ length: 365 }, (_, index) => index + 1).map((value) => ({
@@ -73,6 +76,20 @@ async function encodeBase64(blob: Blob) {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
   return btoa(binary);
 }
+async function sha256(blob: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+function saveDownload(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
 async function request(url: string, init?: RequestInit) {
   const response = await apiFetch(url, init, 60_000);
   const body = await response.json().catch(() => ({}));
@@ -82,6 +99,7 @@ async function request(url: string, init?: RequestInit) {
 export default function BackupRestoreSection({ onRestored }: { onRestored: () => void }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [automatic, setAutomatic] = useState(false);
   const [retention, setRetention] = useState(14);
@@ -102,6 +120,7 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
     setBusy(true);
     setBusyMessage(message);
     setError('');
+    setNotice('');
     try {
       await action();
       if (reload) await refresh();
@@ -113,13 +132,26 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
     }
   };
   const create = () =>
-    act(async () => {
-      await request('/api/backups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create' }),
-      });
-    });
+    act(
+      async () => {
+        if (status?.mode === 'vercel') {
+          const generated = await request('/api/backups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'create' }),
+          });
+          await downloadTransient(generated, '备份已生成并下载');
+          return;
+        }
+        await request('/api/backups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'create' }),
+        });
+      },
+      true,
+      status?.mode === 'vercel' ? '正在生成、校验并下载备份…' : '正在创建并保存备份…',
+    );
   const saveConfig = () =>
     act(async () => {
       await request('/api/backups', {
@@ -128,23 +160,38 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
         body: JSON.stringify({ action: 'configure', enabled: automatic, retention }),
       });
     });
+  const downloadContent = async (id: string, expectedSha?: string) => {
+    const first = await request(`/api/backups?file=${encodeURIComponent(id)}&part=0`);
+    const chunks = [decodeBase64(first.content)];
+    for (let part = 1; part < first.total; part++) {
+      const next = await request(`/api/backups?file=${encodeURIComponent(id)}&part=${part}`);
+      chunks.push(decodeBase64(next.content));
+    }
+    const blob = new Blob(chunks, { type: 'application/octet-stream' });
+    const fileSha256 = await sha256(blob);
+    const expected = expectedSha || first.fileSha256;
+    if (expected && fileSha256 !== expected) throw new Error('备份文件 SHA-256 校验失败，未下载文件');
+    const filename = first.filename;
+    saveDownload(filename, blob);
+    saveDownload(
+      `${filename}.sha256`,
+      new Blob([`${fileSha256}  ${filename}\n`], { type: 'text/plain;charset=utf-8' }),
+    );
+    return { fileSha256, filename, checksum: first.checksum };
+  };
+  const downloadTransient = async (generated: { id: string; fileSha256: string; filename: string }, label: string) => {
+    const downloaded = await downloadContent(generated.id, generated.fileSha256);
+    await request('/api/backups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'downloadComplete', id: generated.id, fileSha256: downloaded.fileSha256 }),
+    });
+    setNotice(`${label}。SHA-256：${downloaded.fileSha256}`);
+    return downloaded;
+  };
   const download = (run: BackupRun) =>
     act(async () => {
-      const first = await request(`/api/backups?file=${encodeURIComponent(run.id)}&part=0`);
-      const chunks = [decodeBase64(first.content)];
-      for (let part = 1; part < first.total; part++) {
-        const next = await request(`/api/backups?file=${encodeURIComponent(run.id)}&part=${part}`);
-        chunks.push(decodeBase64(next.content));
-      }
-      const blob = new Blob(chunks, { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = first.filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await downloadContent(run.id, run.file_sha256 || undefined);
     }, false);
   const remove = async (run: BackupRun) => {
     if (
@@ -173,7 +220,9 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
         const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
         const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
         const total = Math.ceil(file.size / CHUNK);
-        if (!total || file.size > 20 * 1024 * 1024) throw new Error('文件为空或超过 20 MiB');
+        const maxBytes = status?.maxBytes ?? 20 * 1024 * 1024;
+        if (!total || file.size > maxBytes) throw new Error(`文件为空或超过 ${formatSize(maxBytes)}`);
+        const localFileSha256 = await sha256(file);
         for (let part = 0; part < total; part++) {
           const content = await encodeBase64(file.slice(part * CHUNK, (part + 1) * CHUNK));
           await request('/api/backups', {
@@ -187,17 +236,19 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'preview', uploadId: id }),
         });
-        setPreview({ ...info, uploadId: id, filename: file.name });
+        if (info.fileSha256 !== localFileSha256) throw new Error('上传文件 SHA-256 与原文件不一致');
+        setPreview({ ...info, uploadId: id, filename: file.name, fileSha256: localFileSha256 });
       },
       true,
-      '正在上传并检查备份文件…',
+      '正在上传并校验备份文件…',
     );
   const restore = async () => {
     if (!preview || confirm !== 'RESTORE' || !password) return;
     if (
       !(await confirmDialog({
         title: '确认恢复备份',
-        message: '恢复会替换当前学校数据和账号，并让所有会话重新登录。系统会先保存一份可下载的恢复前保护备份。',
+        message:
+          '恢复会替换当前学校数据和账号，并让所有会话重新登录。Vercel 会先生成并下载一份恢复前保护备份及其 SHA-256 校验文件，然后才开始恢复。',
         tone: 'danger',
         confirmLabel: '继续恢复',
       }))
@@ -205,6 +256,16 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
       return;
     void act(
       async () => {
+        let protection: { id: string; checksum: string; fileSha256: string } | undefined;
+        if (status?.mode === 'vercel') {
+          const generated = await request('/api/backups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'protect' }),
+          });
+          const downloaded = await downloadTransient(generated, '恢复前保护备份已校验并下载');
+          protection = { id: generated.id, checksum: generated.checksum, fileSha256: downloaded.fileSha256 };
+        }
         await request('/api/backups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -212,6 +273,10 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
             action: 'restore',
             uploadId: preview.uploadId,
             checksum: preview.checksum,
+            fileSha256: preview.fileSha256,
+            protectionId: protection?.id,
+            protectionChecksum: protection?.checksum,
+            protectionFileSha256: protection?.fileSha256,
             password,
             confirm,
           }),
@@ -223,7 +288,10 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
         clearAuthSession();
         await infoDialog({
           title: '恢复完成',
-          message: '数据已恢复，恢复前保护备份已保存，可在上方备份列表下载。请使用备份中的账号重新登录。',
+          message:
+            status?.mode === 'vercel'
+              ? '数据已恢复。恢复前保护备份及 SHA-256 校验文件已下载到本机；请使用备份中的账号重新登录。'
+              : '数据已恢复，恢复前保护备份已保存，可在上方备份列表下载。请使用备份中的账号重新登录。',
           confirmLabel: '知道了',
         });
         onRestored();
@@ -245,25 +313,29 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
         .dump 备份。
       </p>
       <p className="set-note">
-        当前存储：
-        {status?.mode === 'blob'
-          ? 'Vercel 私有 Blob'
+        备份方式：
+        {status?.mode === 'vercel'
+          ? 'Vercel 即时下载'
           : status?.mode === 'local'
-            ? 'NAS 持久目录'
+            ? 'Linux 自部署本地目录'
             : status?.mode === 'windows'
               ? 'Windows 客户端控制中心'
               : '尚未配置'}
         。
         {status?.mode === 'windows'
-          ? '提供原有 .dump 文件下载。'
-          : 'Web 单份备份上限 20 MiB；超出时请使用数据库原生备份。'}
+          ? '备份和恢复请使用控制中心。'
+          : status?.mode === 'vercel'
+            ? '立即生成并下载备份文件和 SHA-256 校验文件。'
+            : status?.mode === 'local'
+              ? `备份保存到 Linux 本地目录；当前上限 ${formatSize(status.maxBytes)}。`
+              : '请先配置备份存储。'}
       </p>
       {busy && (
         <p className="set-note" role="status" aria-live="polite">
           {busyMessage}
         </p>
       )}
-      {status?.mode !== 'windows' && (
+      {status?.mode === 'local' && (
         <>
           <div className="set-row set-backup__settings-row">
             <label className="set-label" htmlFor="backup-automatic">
@@ -279,9 +351,7 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
             <span className="set-note">{status?.schedulerReady ? '每天自动执行' : '需配置持久存储和任务运行器'}</span>
           </div>
           <div className="set-row set-backup__settings-row">
-            <label className="set-label">
-              自动备份保留份数
-            </label>
+            <label className="set-label">自动备份保留份数</label>
             <InlineSelect
               className="set-input set-backup__retention"
               value={String(retention)}
@@ -298,65 +368,64 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
               保存
             </button>
           </div>
-          <div className="set-row">
-            <button
-              className="set-btn"
-              disabled={busy || !status || status.busy || status.mode === 'unconfigured'}
-              onClick={() => void create()}
-            >
-              <Play size={15} />
-              立即备份
-            </button>
-            <button className="set-btn" disabled={busy} onClick={() => void act(async () => {})}>
-              <RefreshCw size={15} />
-              刷新
-            </button>
-          </div>
         </>
       )}
-      {status?.runs.map((run) => (
-        <div className="set-row" key={run.id}>
-          <div className="set-backup__run-info">
-            <strong>
-              {run.kind === 'windows'
-                ? 'Windows 数据库备份'
-                : run.kind === 'protection'
-                  ? '恢复前保护备份'
-                  : run.kind === 'automatic'
-                    ? '自动备份'
-                    : '手动备份'}
-            </strong>
-            <div className="set-note">
-              {run.filename && <span>{run.filename} · </span>}
-              {formatDate(Number(run.created_at))} · {formatSize(Number(run.size_bytes))} ·{' '}
-              {run.status === 'success' ? '完成' : run.status === 'running' ? '执行中' : '失败'} {run.error}
-            </div>
-          </div>
-          {run.status === 'success' && (
-            <button
-              className="set-btn"
-              title="下载备份"
-              aria-label="下载备份"
-              disabled={busy}
-              onClick={() => void download(run)}
-            >
-              <Download size={16} />
-              下载
-            </button>
-          )}
-          {status.mode !== 'windows' && (
-            <button
-              className="set-btn"
-              title="删除备份"
-              aria-label="删除备份"
-              disabled={busy}
-              onClick={() => remove(run)}
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+      {(status?.mode === 'local' || status?.mode === 'vercel') && (
+        <div className="set-row">
+          <button className="set-btn" disabled={busy || !status || status.busy} onClick={() => void create()}>
+            <Play size={15} />
+            {status.mode === 'vercel' ? '生成并下载备份' : '立即备份'}
+          </button>
+          <button className="set-btn" disabled={busy} onClick={() => void act(async () => {})}>
+            <RefreshCw size={15} />
+            刷新
+          </button>
         </div>
-      ))}
+      )}
+      {status?.mode !== 'vercel' &&
+        status?.runs.map((run) => (
+          <div className="set-row" key={run.id}>
+            <div className="set-backup__run-info">
+              <strong>
+                {run.kind === 'windows'
+                  ? 'Windows 数据库备份'
+                  : run.kind === 'protection'
+                    ? '恢复前保护备份'
+                    : run.kind === 'automatic'
+                      ? '自动备份'
+                      : '手动备份'}
+              </strong>
+              <div className="set-note">
+                {run.filename && <span>{run.filename} · </span>}
+                {formatDate(Number(run.created_at))} · {formatSize(Number(run.size_bytes))} ·{' '}
+                {run.status === 'success' ? '完成' : run.status === 'running' ? '执行中' : '失败'} {run.error}
+              </div>
+            </div>
+            {run.status === 'success' && status.mode !== 'vercel' && (
+              <button
+                className="set-btn"
+                title="下载备份"
+                aria-label="下载备份"
+                disabled={busy}
+                onClick={() => void download(run)}
+              >
+                <Download size={16} />
+                下载
+              </button>
+            )}
+            {status.mode !== 'windows' && (
+              <button
+                className="set-btn"
+                title="删除备份"
+                aria-label="删除备份"
+                disabled={busy}
+                onClick={() => remove(run)}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+        ))}
       {status?.hasMore && (
         <button
           className="set-btn"
@@ -401,7 +470,10 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
           <Upload size={15} />
           1. 选择备份文件
         </button>
-        <span className="set-note">仅支持 .novora-backup 文件（最大 20 MiB），选中后会先校验并展示内容。</span>
+        <span className="set-note">
+          仅支持 .novora-backup 文件（最大 {formatSize(status?.maxBytes ?? 20 * 1024 * 1024)}
+          ），选中后会先校验并展示内容。
+        </span>
       </div>
       {preview && (
         <div className="set-backup__preview">
@@ -461,6 +533,11 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
       {error && (
         <p className="set-note set-note--warn" role="alert">
           {error}
+        </p>
+      )}
+      {notice && (
+        <p className="set-note" role="status" aria-live="polite">
+          {notice}
         </p>
       )}
     </section>

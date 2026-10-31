@@ -16,6 +16,21 @@ function identifier(name: string, size: number, modified: number) {
     .update(JSON.stringify([name, size, modified]))
     .digest('hex');
 }
+async function fileSha256(path: string): Promise<string> {
+  const handle = await open(path, 'r');
+  const hash = createHash('sha256');
+  const buffer = Buffer.alloc(CHUNK_BYTES);
+  try {
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    return hash.digest('hex');
+  } finally {
+    await handle.close();
+  }
+}
 async function entries() {
   const root = directory();
   let names: string[];
@@ -81,7 +96,15 @@ export async function readWindowsPart(id: string, part: number) {
     const bytes = Buffer.alloc(Math.min(CHUNK_BYTES, info.size - part * CHUNK_BYTES));
     const { bytesRead } = await handle.read(bytes, 0, bytes.length, part * CHUNK_BYTES);
     if (bytesRead !== bytes.length) throw new BackupError('备份文件已变化，请重新下载', 409);
-    return { ok: true, id, part, total, content: bytes.toString('base64'), filename: file.name };
+    return {
+      ok: true,
+      id,
+      part,
+      total,
+      content: bytes.toString('base64'),
+      filename: file.name,
+      fileSha256: part === 0 ? await fileSha256(path) : '',
+    };
   } finally {
     await handle.close();
   }

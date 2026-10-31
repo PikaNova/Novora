@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { timingSafeEqual } from 'node:crypto';
 import { applyCors } from './_cors.js';
 import { checkLoginLockout, getActor, type AdminActor, writeAudit } from './_auth.js';
 import { authSql } from './_auth/db.js';
@@ -11,11 +10,13 @@ import {
   backupStatus,
   configureBackup,
   createBackup,
+  createTransientBackup,
+  readTransientPart,
+  completeTransientDownload,
   previewBackup,
   readBackup,
   removeBackup,
   restoreBackup,
-  runAutomaticBackup,
   uploadPart,
 } from './_backup/service.js';
 
@@ -26,15 +27,6 @@ function authorizedSuperAdmin(actor: AdminActor | null): actor is AdminActor {
     actor.roleId === 'super_admin' &&
     actor.permissions.includes('*') &&
     actor.scopes.some((scope) => scope.type === 'all')
-  );
-}
-function cronAuthorized(req: VercelRequest) {
-  const expected = process.env.CRON_SECRET ?? '';
-  const provided = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-  return (
-    expected.length >= 16 &&
-    Buffer.byteLength(provided) === Buffer.byteLength(expected) &&
-    timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
   );
 }
 function input(req: VercelRequest): Record<string, unknown> {
@@ -50,11 +42,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   if (!applyCors(req, res, { methods: ['GET', 'POST', 'DELETE'] })) return;
   try {
-    const isWorker = cronAuthorized(req);
-    if (isWorker) {
-      if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'Method not allowed' });
-      return res.status(200).json({ ok: true, ...(await runAutomaticBackup()) });
-    }
     const actor = await getActor(String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''));
     if (!authorizedSuperAdmin(actor))
       return res.status(actor ? 403 : 401).json({ ok: false, error: '需要超级管理员权限' });
@@ -62,8 +49,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (storageMode() === 'windows')
         return res.status(200).json(await readWindowsPart(String(req.query.file), Number(req.query.part ?? 0)));
       const id = idFrom(req, 'file');
-      const text = await readBackup(id);
       const part = Number(Array.isArray(req.query.part) ? req.query.part[0] : (req.query.part ?? 0));
+      if (storageMode() === 'vercel') return res.status(200).json(await readTransientPart(actor.id, id, part));
+      const text = await readBackup(id);
       const bytes = Buffer.from(text, 'utf8');
       const count = Math.max(1, Math.ceil(bytes.length / CHUNK_BYTES));
       if (!Number.isInteger(part) || part < 0 || part >= count) throw new BackupError('无效的下载分块');
@@ -74,15 +62,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         total: count,
         content: bytes.subarray(part * CHUNK_BYTES, (part + 1) * CHUNK_BYTES).toString('base64'),
         filename: `novora-backup-${id}.novora-backup`,
+        fileSha256: String(
+          (await authSql()`SELECT file_sha256 FROM app_backup_runs WHERE id=${id}`)[0]?.file_sha256 ?? '',
+        ),
       });
     }
     if (req.method === 'GET')
       return res.status(200).json({ ok: true, ...(await backupStatus(Number(req.query.offset ?? 0))) });
-    if (storageMode() === 'windows') throw new BackupError('Windows 备份创建、自动任务和恢复请使用客户端控制中心', 409);
+    if (storageMode() === 'windows')
+      throw new BackupError('Windows 备份创建、自动任务和恢复请使用 Windows 控制中心', 409);
     const body = input(req);
     if (req.method === 'POST' && body.action === 'create') {
+      if (storageMode() === 'vercel')
+        return res.status(201).json({ ok: true, ...(await createTransientBackup(actor.id)) });
       const id = await createBackup();
       return res.status(201).json({ ok: true, id });
+    }
+    if (req.method === 'POST' && body.action === 'protect') {
+      if (storageMode() !== 'vercel') throw new BackupError('恢复前保护备份由 Linux 自部署自动保存', 409);
+      return res.status(201).json({ ok: true, ...(await createTransientBackup(actor.id, 'protection')) });
+    }
+    if (req.method === 'POST' && body.action === 'downloadComplete') {
+      if (storageMode() !== 'vercel') throw new BackupError('下载会话不适用于当前部署', 409);
+      return res
+        .status(200)
+        .json(await completeTransientDownload(actor.id, String(body.id ?? ''), String(body.fileSha256 ?? '')));
     }
     if (req.method === 'POST' && body.action === 'configure') {
       await configureBackup(body.enabled, body.retention);
@@ -115,6 +119,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         uploadId: typeof body.uploadId === 'string' ? body.uploadId : undefined,
         id: typeof body.id === 'string' ? body.id : undefined,
         checksum: typeof body.checksum === 'string' ? body.checksum : undefined,
+        fileSha256: typeof body.fileSha256 === 'string' ? body.fileSha256 : undefined,
+        protectionId: typeof body.protectionId === 'string' ? body.protectionId : undefined,
+        protectionChecksum: typeof body.protectionChecksum === 'string' ? body.protectionChecksum : undefined,
+        protectionFileSha256: typeof body.protectionFileSha256 === 'string' ? body.protectionFileSha256 : undefined,
       });
       return res.status(200).json({ ok: true, protectionId: result.protectionId });
     }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -164,7 +164,11 @@ test('backup integration: persisted downloads, scheduling, guards and transactio
           content: Buffer.from(invalidText).toString('base64'),
         });
         await assert.rejects(
-          restoreBackup(login.actor, { uploadId: id, checksum: unpack(invalidText).checksum }),
+          restoreBackup(login.actor, {
+            uploadId: id,
+            checksum: unpack(invalidText).checksum,
+            fileSha256: createHash('sha256').update(invalidText, 'utf8').digest('hex'),
+          }),
           /事务已回滚/,
         );
         assert.equal((await sql`SELECT title FROM exam_data WHERE id=1`)[0].title, '恢复前数据');
@@ -191,6 +195,7 @@ test('backup integration: persisted downloads, scheduling, guards and transactio
           action: 'restore',
           id: manual,
           checksum: preview.file.checksum,
+          fileSha256: preview.preview.fileSha256,
           password: process.env.ADMIN_PASSWORD,
           confirm: 'RESTORE',
         });

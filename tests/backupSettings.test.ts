@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
@@ -39,11 +40,13 @@ test('backup settings offers working downloads for every successful backup kind'
     },
   });
   const content = Buffer.from('备份学校\u0000\ufffd');
+  const fileSha256 = createHash('sha256').update(content).digest('hex');
   let mode = 'local';
   let schedulerReady = true;
   let previewMode = false;
   const restoreRequests: Record<string, unknown>[] = [];
   const downloadedIds: string[] = [];
+  const completedDownloads: Record<string, unknown>[] = [];
   const configs: Record<string, unknown>[] = [];
   const kinds = ['manual', 'automatic', 'protection'];
   t.mock.method(globalThis, 'fetch', async (url: string, init?: RequestInit) => {
@@ -56,15 +59,33 @@ test('backup settings offers working downloads for every successful backup kind'
         ok: true,
         total: 2,
         content: (part === 0 ? content.subarray(0, 1) : content.subarray(1)).toString('base64'),
-        filename: mode === 'windows' ? `novora-${id}.dump` : `${id}.novora-backup`,
+        filename:
+          mode === 'windows'
+            ? `novora-${id}.dump`
+            : mode === 'vercel'
+              ? `novora-backup-${id}.novora-backup`
+              : `${id}.novora-backup`,
+        fileSha256,
       });
     }
     if (init?.method === 'POST') {
       const payload = JSON.parse(String(init.body));
+      if (mode === 'vercel' && payload.action === 'create')
+        return Response.json({
+          ok: true,
+          id: '3f456d23-dc88-4954-ad88-9b5fc77f3c70',
+          fileSha256,
+          filename: 'novora-backup-3f456d23-dc88-4954-ad88-9b5fc77f3c70.novora-backup',
+        });
+      if (mode === 'vercel' && payload.action === 'downloadComplete') {
+        completedDownloads.push(payload);
+        return Response.json({ ok: true });
+      }
       if (previewMode && payload.action === 'preview')
         return Response.json({
           ok: true,
           checksum: 'a'.repeat(64),
+          fileSha256: createHash('sha256').update('backup').digest('hex'),
           bytes: 1234,
           createdAt: 1234,
           tables: [
@@ -113,13 +134,19 @@ test('backup settings offers working downloads for every successful backup kind'
             const count = downloads.length;
             await act(async () => {
               button.props.onClick();
-              for (let attempt = 0; attempt < 50 && downloads.length === count; attempt++)
+              for (let attempt = 0; attempt < 50 && downloads.length < count + 2; attempt++)
                 await new Promise<void>((resolve) => originalTimer(resolve, 5));
             });
-            assert.equal(downloads.length, count + 1);
-            const download = downloads.at(-1)!;
+            assert.equal(downloads.length, count + 2);
+            const download = downloads.at(-2)!;
             assert.deepEqual(Buffer.from(await download.blob.arrayBuffer()), content);
             assert.match(download.filename, mode === 'windows' ? /^novora-.*\.dump$/ : /\.novora-backup$/);
+            const sidecar = downloads.at(-1)!;
+            assert.equal(sidecar.filename, `${download.filename}.sha256`);
+            assert.equal(
+              Buffer.from(await sidecar.blob.arrayBuffer()).toString(),
+              `${fileSha256}  ${download.filename}\n`,
+            );
           }
           if (mode === 'windows') {
             assert.equal(renderer.root.findAllByProps({ id: 'backup-automatic' }).length, 0);
@@ -134,6 +161,35 @@ test('backup settings offers working downloads for every successful backup kind'
       downloadedIds,
       [...kinds, ...kinds].flatMap((kind) => [kind, kind]),
     );
+    await t.test('Vercel creates and immediately downloads the backup and SHA-256 file', async () => {
+      mode = 'vercel';
+      const count = downloads.length;
+      let renderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(BackupRestoreSection, { onRestored() {} }));
+      });
+      try {
+        assert.equal(renderer.root.findAllByProps({ 'aria-label': '下载备份' }).length, 0);
+        const createButton = renderer.root
+          .findAllByType('button')
+          .find((button) => button.children.includes('生成并下载备份'))!;
+        await act(async () => {
+          createButton.props.onClick();
+          for (let attempt = 0; attempt < 100 && downloads.length < count + 2; attempt++)
+            await new Promise<void>((resolve) => originalTimer(resolve, 5));
+        });
+        assert.equal(downloads.length, count + 2);
+        assert.equal(downloads[count].filename, 'novora-backup-3f456d23-dc88-4954-ad88-9b5fc77f3c70.novora-backup');
+        assert.equal(downloads[count + 1].filename, `${downloads[count].filename}.sha256`);
+        assert.deepEqual(completedDownloads.at(-1), {
+          action: 'downloadComplete',
+          id: '3f456d23-dc88-4954-ad88-9b5fc77f3c70',
+          fileSha256,
+        });
+      } finally {
+        act(() => renderer.unmount());
+      }
+    });
     await t.test('automatic backup can be disabled after scheduler configuration is removed', async () => {
       mode = 'local';
       schedulerReady = false;
@@ -189,7 +245,16 @@ test('backup settings offers working downloads for every successful backup kind'
         await act(async () => {
           picker.props.onChange({ currentTarget: { value: '', files: [file] }, target: { files: [file] } });
         });
-        const preview = renderer.root.findByProps({ className: 'set-backup__contents' });
+        const previews = renderer.root.findAllByProps({ className: 'set-backup__contents' });
+        assert.equal(
+          previews.length,
+          1,
+          renderer.root
+            .findAllByProps({ role: 'alert' })
+            .map((node) => node.children.join(''))
+            .join('; '),
+        );
+        const preview = previews[0];
         const contentText = preview.findAllByType('li').map((item) => item.children[0]);
         assert.deepEqual(contentText, ['管理员账号', '考试记录', '考试公告']);
         assert.equal(

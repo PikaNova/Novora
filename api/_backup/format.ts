@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
+export const DEFAULT_LINUX_BACKUP_BYTES = 128 * 1024 * 1024;
 export const CHUNK_BYTES = 512 * 1024;
 // In dependency order. Only application data, never deployment credentials or queues.
 export const BACKUP_TABLES = [
@@ -50,14 +51,17 @@ export function canonical(value: unknown): string {
 export function digest(value: unknown): string {
   return createHash('sha256').update(canonical(value)).digest('hex');
 }
-export function pack(data: BackupData, schema: string, createdAt = Date.now()): string {
+function sizeLimitLabel(maxBytes: number): string {
+  return `${(maxBytes / 1024 / 1024).toLocaleString('en-US', { maximumFractionDigits: 0 })} MiB`;
+}
+export function pack(data: BackupData, schema: string, createdAt = Date.now(), maxBytes = MAX_BACKUP_BYTES): string {
   const body = { format: 'novora-backup' as const, version: 1 as const, createdAt, schema, data };
   const text = JSON.stringify({ ...body, checksum: digest(body) });
-  if (Buffer.byteLength(text) > MAX_BACKUP_BYTES) throw new BackupError('备份超过 20 MiB，请使用数据库原生备份', 413);
+  if (Buffer.byteLength(text) > maxBytes) throw new BackupError(`备份超过 ${sizeLimitLabel(maxBytes)}`, 413);
   return text;
 }
-export function unpack(text: string): BackupFile {
-  if (Buffer.byteLength(text) > MAX_BACKUP_BYTES) throw new BackupError('备份超过 20 MiB', 413);
+export function unpack(text: string, maxBytes = MAX_BACKUP_BYTES): BackupFile {
+  if (Buffer.byteLength(text) > maxBytes) throw new BackupError(`备份超过 ${sizeLimitLabel(maxBytes)}`, 413);
   let value: BackupFile;
   try {
     value = JSON.parse(text);
