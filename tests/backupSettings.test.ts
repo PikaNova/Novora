@@ -252,7 +252,14 @@ test('backup settings displays records across modes and only allows downloads wh
         await act(async () => {
           picker.props.onChange({ currentTarget: { value: '', files: [file] }, target: { files: [file] } });
         });
-        const previews = renderer.root.findAllByProps({ className: 'set-backup__contents' });
+        let previews = renderer.root.findAllByProps({ className: 'set-backup__contents' });
+        for (let attempt = 0; attempt < 100 && previews.length === 0; attempt++) {
+          await act(async () => {
+            await new Promise<void>((resolve) => originalTimer(resolve, 10));
+          });
+          previews = renderer.root.findAllByProps({ className: 'set-backup__contents' });
+          if (renderer.root.findAllByProps({ role: 'alert' }).length > 0) break;
+        }
         assert.equal(
           previews.length,
           1,
