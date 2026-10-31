@@ -196,8 +196,11 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
   const remove = async (run: BackupRun) => {
     if (
       !(await confirmDialog({
-        title: '删除服务端备份',
-        message: '删除后无法从服务端下载这份备份，已保存到本机的文件不受影响。',
+        title: status?.mode === 'vercel' ? '删除备份记录' : '删除服务端备份',
+        message:
+          status?.mode === 'vercel'
+            ? '删除后将清除云端保留的这条记录和 SHA-256 校验值。已下载到本机的文件不受影响。'
+            : '删除后无法从服务端下载这份备份，已保存到本机的文件不受影响。',
         tone: 'danger',
         confirmLabel: '删除',
       }))
@@ -325,7 +328,7 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
         {status?.mode === 'windows'
           ? '备份和恢复请使用控制中心。'
           : status?.mode === 'vercel'
-            ? '立即生成并下载备份文件和 SHA-256 校验文件。'
+            ? '立即生成并下载备份文件和 SHA-256 校验文件；历史记录仅保留生成时间、大小和校验值，不提供再次下载。'
             : status?.mode === 'local'
               ? `备份保存到 Linux 本地目录；当前上限 ${formatSize(status.maxBytes)}。`
               : '请先配置备份存储。'}
@@ -382,50 +385,49 @@ export default function BackupRestoreSection({ onRestored }: { onRestored: () =>
           </button>
         </div>
       )}
-      {status?.mode !== 'vercel' &&
-        status?.runs.map((run) => (
-          <div className="set-row" key={run.id}>
-            <div className="set-backup__run-info">
-              <strong>
-                {run.kind === 'windows'
-                  ? 'Windows 数据库备份'
-                  : run.kind === 'protection'
-                    ? '恢复前保护备份'
-                    : run.kind === 'automatic'
-                      ? '自动备份'
-                      : '手动备份'}
-              </strong>
-              <div className="set-note">
-                {run.filename && <span>{run.filename} · </span>}
-                {formatDate(Number(run.created_at))} · {formatSize(Number(run.size_bytes))} ·{' '}
-                {run.status === 'success' ? '完成' : run.status === 'running' ? '执行中' : '失败'} {run.error}
-              </div>
+      {status?.runs.map((run) => (
+        <div className="set-row" key={run.id}>
+          <div className="set-backup__run-info">
+            <strong>
+              {run.kind === 'windows'
+                ? 'Windows 数据库备份'
+                : run.kind === 'protection'
+                  ? '恢复前保护备份'
+                  : run.kind === 'automatic'
+                    ? '自动备份'
+                    : '手动备份'}
+            </strong>
+            <div className="set-note">
+              {run.filename && <span>{run.filename} · </span>}
+              {formatDate(Number(run.created_at))} · {formatSize(Number(run.size_bytes))} ·{' '}
+              {run.status === 'success' ? '完成' : run.status === 'running' ? '执行中' : '失败'} {run.error}
             </div>
-            {run.status === 'success' && status.mode !== 'vercel' && (
-              <button
-                className="set-btn"
-                title="下载备份"
-                aria-label="下载备份"
-                disabled={busy}
-                onClick={() => void download(run)}
-              >
-                <Download size={16} />
-                下载
-              </button>
-            )}
-            {status.mode !== 'windows' && (
-              <button
-                className="set-btn"
-                title="删除备份"
-                aria-label="删除备份"
-                disabled={busy}
-                onClick={() => remove(run)}
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
           </div>
-        ))}
+          {run.status === 'success' && status.mode !== 'vercel' && (
+            <button
+              className="set-btn"
+              title="下载备份"
+              aria-label="下载备份"
+              disabled={busy}
+              onClick={() => void download(run)}
+            >
+              <Download size={16} />
+              下载
+            </button>
+          )}
+          {status.mode !== 'windows' && (
+            <button
+              className="set-btn"
+              title={status.mode === 'vercel' ? '删除备份记录' : '删除备份'}
+              aria-label={status.mode === 'vercel' ? '删除备份记录' : '删除备份'}
+              disabled={busy}
+              onClick={() => remove(run)}
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+      ))}
       {status?.hasMore && (
         <button
           className="set-btn"

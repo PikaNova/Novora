@@ -7,7 +7,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 Object.assign(globalThis, { __APP_VERSION__: 'test', __COMMIT_SHA__: 'test' });
 const { default: BackupRestoreSection } = await import('../src/components/settings/BackupRestoreSection.js');
 
-test('backup settings offers working downloads for every successful backup kind', async (t) => {
+test('backup settings displays records across modes and only allows downloads where files are stored', async (t) => {
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const downloads: Array<{ filename: string; blob: Blob }> = [];
   let selectedBlob: Blob;
@@ -161,7 +161,7 @@ test('backup settings offers working downloads for every successful backup kind'
       downloadedIds,
       [...kinds, ...kinds].flatMap((kind) => [kind, kind]),
     );
-    await t.test('Vercel creates and immediately downloads the backup and SHA-256 file', async () => {
+    await t.test('Vercel downloads once and keeps a non-downloadable history record', async () => {
       mode = 'vercel';
       const count = downloads.length;
       let renderer!: TestRenderer.ReactTestRenderer;
@@ -170,6 +170,13 @@ test('backup settings offers working downloads for every successful backup kind'
       });
       try {
         assert.equal(renderer.root.findAllByProps({ 'aria-label': '下载备份' }).length, 0);
+        assert.equal(renderer.root.findAllByProps({ className: 'set-backup__run-info' }).length, 4);
+        assert.equal(renderer.root.findAllByProps({ 'aria-label': '删除备份记录' }).length, 4);
+        assert.deepEqual(
+          renderer.root.findAllByType('strong').map((node) => node.children.join('')),
+          ['手动备份', '自动备份', '恢复前保护备份', '手动备份'],
+        );
+        assert.ok(renderer.root.findAllByType('p').some((node) => node.children.join('').includes('不提供再次下载')));
         const createButton = renderer.root
           .findAllByType('button')
           .find((button) => button.children.includes('生成并下载备份'))!;
