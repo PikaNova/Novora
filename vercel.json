@@ -129,6 +129,10 @@
     {
       "path": "/api/platform-usage-worker",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/backups",
+      "schedule": "0 0 * * *"
     }
   ]
 }

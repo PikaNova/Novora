@@ -9,6 +9,7 @@ import { createVercelRequest, createVercelResponse, readBody } from './adapter.j
 const MODULE_FOR_NAME: Record<string, string> = {
   'announcement-images': 'announcements',
   announcements: 'announcements',
+  backups: 'backups',
   'email-worker': 'system',
   'diagnostic-worker': 'system',
   'error-report': 'telemetry',

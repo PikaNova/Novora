@@ -35,6 +35,7 @@ import { Switch } from '../components/settings/Switch';
 import SystemStatusSection from '../components/settings/SystemStatusSection';
 import PlatformUsageSection from '../components/settings/PlatformUsageSection';
 import DiagnosticLogsSection from '../components/settings/DiagnosticLogsSection';
+import BackupRestoreSection from '../components/settings/BackupRestoreSection';
 import { Activity, ArrowLeft, DatabaseZap, Info, ListChecks, Mail, RadioTower, School, ScrollText } from 'lucide-react';
 
 /** 设置分组只剩导航职责，具体权限在下面按分组判定；见 groups 计算。 */
@@ -315,6 +316,14 @@ export default function SettingsPage() {
             <section id="set-group-maintenance" className="set-group" data-group="maintenance">
               <h2 className="set-group__title">数据与维护</h2>
               <div className="set-group__body">
+                {adminUser?.roleId === 'super_admin' &&
+                  adminUser.permissions.includes('*') &&
+                  adminUser.scopes.some((scope) => scope.type === 'all') &&
+                  !adminUser.mustChangePassword && (
+                    <BackupRestoreSection
+                      onRestored={() => window.location.replace('/login?next=/settings/maintenance')}
+                    />
+                  )}
                 <SettingsCollapsibleCard
                   storageKey="novora_set_collapse_maintenance"
                   title="数据维护"

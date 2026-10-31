@@ -44,7 +44,7 @@ export function listCredentialResolvers(): string[] {
 
 export async function getActor(token: string | undefined): Promise<AdminActor | null> {
   if (!token) return null;
-  const auth = await config();
+  const auth = await config(true);
   if (!auth) return null;
   const parts = Buffer.from(token, 'base64url').toString().split('.');
   for (const resolver of credentialResolvers.values()) {

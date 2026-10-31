@@ -1912,3 +1912,29 @@ select.set-input {
     transition: none;
   }
 }
+.set-backup {
+  margin-bottom: 18px;
+}
+
+.set-backup .set-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.set-backup__run-info {
+  flex: 1;
+  min-width: min(220px, 100%);
+  overflow-wrap: anywhere;
+}
+
+.set-backup .set-input {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.set-backup__preview {
+  border-left: 3px solid var(--set-accent, #3498db);
+  margin: 16px 0;
+  padding: 8px 0 8px 16px;
+}

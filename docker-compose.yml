@@ -48,12 +48,38 @@
       PORT: 3000
       COMMIT_SHA: ${COMMIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-novora}:${POSTGRES_PASSWORD:-novora}@db:5432/${POSTGRES_DB:-novora}
+      BACKUP_STORAGE_DIR: /var/lib/novora/backups
+      BACKUP_WORKER_ENABLED: '1'
     env_file:
       - .env
+    volumes:
+      - novora_backupdata:/var/lib/novora/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backup-worker:
+    build:
+      context: .
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        COMMIT_SHA: ${COMMIT_SHA:-}
+    restart: unless-stopped
+    command: ['node', 'server-build/server/backupWorker.js']
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-novora}:${POSTGRES_PASSWORD:-novora}@db:5432/${POSTGRES_DB:-novora}
+      BACKUP_STORAGE_DIR: /var/lib/novora/backups
+      BACKUP_WORKER_ENABLED: '1'
+    env_file:
+      - .env
+    volumes:
+      - novora_backupdata:/var/lib/novora/backups
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   novora_pgdata:
+  novora_backupdata:
   novora_integration_pgdata:

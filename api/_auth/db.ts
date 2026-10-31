@@ -81,12 +81,12 @@ export async function ensureAuthTables(): Promise<void> {
   return setupPromise;
 }
 
-export async function config(): Promise<AuthRow | null> {
+export async function config(fresh = false): Promise<AuthRow | null> {
   await ensureAuthTables();
   const now = Date.now();
-  if (authConfigCache && now - authConfigCache.at < AUTH_CONFIG_CACHE_MS) return authConfigCache.row;
+  if (!fresh && authConfigCache && now - authConfigCache.at < AUTH_CONFIG_CACHE_MS) return authConfigCache.row;
   const rows = assertRows(
-    await authSql()`SELECT password_hash, password_salt, token_secret, token_version FROM app_auth WHERE id = 1`,
+    await authSql()`SELECT password_hash, password_salt, COALESCE(session_secret, token_secret) AS token_secret, token_version FROM app_auth WHERE id = 1`,
     isAuthRow,
     'app_auth',
   );

@@ -20,6 +20,7 @@ export const UNKNOWN_AUDIT_ACTION_LABEL = '未识别的操作';
 export const AUDIT_ACTION_LABEL: Record<string, string> = {
   // 登录与账号
   'auth.login': '登录后台',
+  'auth.login.failed': '密码验证失败',
   'auth.guest.login': '教室设备登录',
   'auth.email.code': '发送邮箱验证码',
   'auth.email.code.queued': '邮箱验证码已排入发送队列',
@@ -65,6 +66,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
 
   // 运维
   'database.reset': '重置数据库数据',
+  'backup.restore': '恢复备份数据',
   'deployment.trigger': '触发重新部署',
   'diagnostics.runtime.approve': '审批设备日志凭证',
   'diagnostics.runtime.collect': '收集设备运行日志',

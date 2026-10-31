@@ -18,6 +18,8 @@ export function authSchemaStatements(tx: SqlTx) {
       )`,
     tx`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_hash TEXT`,
     tx`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS recovery_key_salt TEXT`,
+    // Session signing can rotate independently of SMTP/platform encryption keys.
+    tx`ALTER TABLE app_auth ADD COLUMN IF NOT EXISTS session_secret TEXT`,
     tx`CREATE TABLE IF NOT EXISTS app_telemetry_config (
         id INTEGER PRIMARY KEY DEFAULT 1,
         ip_salt TEXT NOT NULL,
