@@ -64,6 +64,8 @@ export interface PendingExamSync {
   savedAt: number;
   /** The authenticated user that created this retryable draft. */
   ownerId?: number;
+  /** Drafts from before a restore remain local and cannot overwrite restored data. */
+  restoreGeneration?: string;
   retryCount?: number;
   lastAttemptAt?: number;
   lastError?: string;
@@ -95,6 +97,7 @@ export function getPendingExamSync(): PendingExamSync | null {
   const ownerId = currentOwnerId();
   if (!ownerId) return null;
   const pending = readPendingExamSync(ownerOutboxKey(ownerId));
+  if ((pending?.restoreGeneration ?? '') !== (getAdminUser()?.restoreGeneration ?? '')) return null;
   return pending?.ownerId === ownerId ? pending : null;
 }
 
@@ -102,7 +105,15 @@ export function queuePendingExamSync(pending: PendingExamSync): void {
   try {
     const ownerId = currentOwnerId();
     if (ownerId) {
-      localStorage.setItem(ownerOutboxKey(ownerId), JSON.stringify({ ...pending, ownerId }));
+      const restoreGeneration = pending.restoreGeneration ?? getAdminUser()?.restoreGeneration ?? '';
+      const key = ownerOutboxKey(ownerId);
+      const previous = readPendingExamSync(key);
+      if (previous && (previous.restoreGeneration ?? '') !== restoreGeneration)
+        localStorage.setItem(
+          `${key}:before-restore:${previous.restoreGeneration || 'legacy'}`,
+          JSON.stringify(previous),
+        );
+      localStorage.setItem(key, JSON.stringify({ ...pending, ownerId, restoreGeneration }));
     } else {
       // Do not overwrite the pre-owner legacy key. Anonymous drafts are retained but never auto-flushed.
       localStorage.setItem(ANONYMOUS_OUTBOX_KEY, JSON.stringify(pending));

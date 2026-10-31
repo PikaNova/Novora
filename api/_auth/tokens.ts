@@ -14,7 +14,7 @@ export async function issueTokenForUser(row: {
   token_version: number;
 }): Promise<{ token: string; expiresAt: number } | null> {
   await ensureAuthTables();
-  const auth = await config();
+  const auth = await config(true);
   if (!auth) return null;
   const userId = Number(row.id);
   const expiresAt = Date.now() + TOKEN_TTL;
@@ -43,7 +43,7 @@ export async function issueGuestToken(
   classId: string,
 ): Promise<{ token: string; expiresAt: number } | null> {
   await ensureAuthTables();
-  const auth = await config();
+  const auth = await config(true);
   if (!auth) return null;
   const expiresAt = Date.now() + GUEST_TOKEN_TTL;
   const version = auth.token_version;

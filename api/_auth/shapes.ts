@@ -23,6 +23,7 @@ export type AdminActor = {
   permissions: Permission[];
   scopes: AdminScope[];
   mustChangePassword: boolean;
+  restoreGeneration?: string;
 };
 
 export type AuthRow = { password_hash: string; password_salt: string; token_secret: string; token_version: number };

@@ -92,3 +92,21 @@ test('legacy unowned drafts are retained but never auto-flushed', async () => {
     storage.clear();
   }
 });
+
+test('restore generation isolates old offline drafts even after re-login and force retry', async () => {
+  storage.clear();
+  selectOwner(7);
+  queuePendingExamSync(pending(401));
+  const old = storage.getItem('exam_pending_sync:user:7');
+  const user = JSON.parse(storage.getItem('admin_user_context')!);
+  storage.setItem('admin_user_context', JSON.stringify({ ...user, restoreGeneration: 'restored-instance' }));
+  assert.equal(getPendingExamSync(), null);
+  assert.deepEqual(await flushPendingExamSync(true), { kind: 'none' });
+  assert.equal(storage.getItem('exam_pending_sync:user:7'), old, 'retain the old draft locally');
+  queuePendingExamSync(pending(402));
+  assert.equal(getPendingExamSync()?.savedAt, 402);
+  assert.equal(storage.getItem('exam_pending_sync:user:7:before-restore:legacy'), old);
+  clearPendingExamSync(402);
+  assert.equal(getPendingExamSync(), null);
+  storage.clear();
+});

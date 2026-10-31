@@ -9,7 +9,7 @@ import type { DbClient } from './_dbAdapter.js';
 export const NOVORA_SCHEMA_VERSION = 3;
 
 export const SCHEMA_COMPONENT_VERSIONS: Record<SchemaComponent, number> = {
-  auth: 3,
+  auth: 4,
   // 5：新增学校侧考试公告表 exam_announcements（与 0005 迁移同一步）。
   // 6：公告增加展示样式 style 与公告图片表 exam_announcement_images（与 0006 迁移同一步）。
   // 7：新增公告回执表 exam_announcement_receipts（与 0007 迁移同一步）。

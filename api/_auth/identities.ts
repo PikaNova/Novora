@@ -1,6 +1,7 @@
 // api/_auth/identities.ts
 // 把 app_users / app_user_scopes 的行拼成对话主体 AdminActor。
 // 权限判定本身不在这里，而在 src/shared/permissionRules.ts（前后端共用同一份）。
+import { createHash } from 'node:crypto';
 import { assertRows } from '../_validation.js';
 import { authSql } from './db.js';
 import { parsePermissions } from './roles.js';
@@ -12,7 +13,11 @@ export async function actorFromUserRow(row: UserRow): Promise<AdminActor> {
     isScopeRow,
     'app_user_scopes',
   );
+  const [state] = await authSql()`SELECT session_secret FROM app_auth WHERE id=1`;
   return {
+    restoreGeneration: state?.session_secret
+      ? createHash('sha256').update(String(state.session_secret)).digest('hex')
+      : '',
     id: Number(row.id),
     username: row.username,
     displayName: row.display_name,

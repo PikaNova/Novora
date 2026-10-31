@@ -818,6 +818,7 @@ export type AdminUserContext = {
   permissions: string[];
   scopes: AdminScope[];
   mustChangePassword: boolean;
+  restoreGeneration?: string;
 };
 
 export type LoginSession = {
@@ -849,6 +850,7 @@ function parseAdminUserContext(data: unknown): AdminUserContext | null {
     permissions: u.permissions,
     scopes,
     mustChangePassword: u.mustChangePassword === true,
+    restoreGeneration: typeof u.restoreGeneration === 'string' ? u.restoreGeneration : '',
   };
 }
 
