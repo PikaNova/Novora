@@ -327,9 +327,11 @@ function BoundExamPage() {
   useEffect(() => {
     const refresh = () => setItems(getResolvedExamItems());
     window.addEventListener(TEMPORARY_EXAM_EVENT, refresh);
+    window.addEventListener('exam-board:settings-changed', refresh);
     const interval = window.setInterval(refresh, 2000);
     return () => {
       window.removeEventListener(TEMPORARY_EXAM_EVENT, refresh);
+      window.removeEventListener('exam-board:settings-changed', refresh);
       window.clearInterval(interval);
     };
   }, []);
@@ -545,11 +547,15 @@ function BoundExamPage() {
   }, [classroomSnapshot]);
   const currentKind = raw.currentExam && (raw.currentExam as { kind?: string }).kind;
   const displayMasterTitle =
-    currentKind === 'weekly'
-      ? '周测'
-      : currentKind === 'temporary'
-        ? `${raw.currentExam?.name} - 临时考试`
-        : raw.currentExam?.majorName || title || 'Novora';
+    raw.phase === 'empty'
+      ? '暂无考试'
+      : raw.phase === 'ended'
+        ? '考试已结束'
+        : currentKind === 'weekly'
+          ? '周测'
+          : currentKind === 'temporary'
+            ? `${raw.currentExam?.name} - 临时考试`
+            : raw.currentExam?.majorName || title || 'Novora';
   const { notification, dismiss } = useExamNotify(raw.currentExam);
 
   // 全屏提醒浮层：将通知事件与自定义提醒映射为对应设计风格的浮层
@@ -1016,7 +1022,7 @@ function BoundExamPage() {
         item={overlayItem}
         now={nowTick}
         designId={designId}
-        masterTitle={title}
+        masterTitle={displayMasterTitle}
         timeSynced={isTimeSyncReady()}
       />
       {/* 后台动作的常驻提示：暂停中 / 已申请停止（教室端必须看得见） */}

@@ -51,7 +51,7 @@ export function getResolvedExamItems(
   modeOverride?: ScheduleMode,
 ): ExamItem[] {
   const formal = getResolvedSchedule(now, options, modeOverride).activeItems;
-  const temporary = resolveTemporaryItem(formal, now);
+  const temporary = resolveTemporaryItem(formal, now, getAppSettings().exam.selectedClassId);
   if (!temporary) return formal;
   const priority = (temporary as ExamItem & { kind?: string }).kind === 'temporary' && getTemporaryExamPriority();
   const visibleFormal = priority

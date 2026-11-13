@@ -52,13 +52,14 @@ export default function TemporaryExamLauncher({
   externalOpen?: boolean;
   onExternalHandled?: () => void;
 }) {
-  const current = getTemporaryExam();
+  const storedTemporary = getTemporaryExam();
   const creationLockEnabled = getAppSettings().exam.majorExamCreationLockEnabled === true;
   const majorLock = useMemo(
     () => (creationLockEnabled ? getMajorExamLock(formalItems) : { locked: false, name: '', endAt: null }),
     [creationLockEnabled, formalItems],
   );
   const settings = getAppSettings().exam;
+  const current = storedTemporary?.classId === settings.selectedClassId ? storedTemporary : null;
   const boundClass = classDisplayName(settings.grades, settings.classes, settings.selectedClassId);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
@@ -199,6 +200,7 @@ export default function TemporaryExamLauncher({
       return;
     saveTemporaryExam({
       id: `temp_${Date.now()}`,
+      classId: settings.selectedClassId,
       subject: finalSubject,
       startTime: isoLocal(startMs),
       endTime: isoLocal(endMs),

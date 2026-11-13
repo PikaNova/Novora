@@ -155,11 +155,16 @@ export default function DashboardPanel() {
   const [now, setNow] = useState(Date.now());
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [error, setError] = useState('');
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(0);
+  const refreshingRef = useRef(false);
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
       try {
         const res = await fetch('/api/exams?action=dashboard', {
+          cache: 'no-store',
           headers: authHeaders(),
           signal,
         });
@@ -178,12 +183,15 @@ export default function DashboardPanel() {
           return;
         }
         setData(body as DashboardPayload);
+        setLastRefreshedAt(Date.now());
         setError('');
       } catch (err) {
         // 离开大屏时 cleanup 会 abort 在途请求，30 秒轮询也可能遇到网络失败；两者
         // 都必须在组件内接住，否则会变成 unhandledrejection 上报到遥测台。
         if (isAbortError(err)) return;
         setError('数据读取失败，请稍后重试');
+      } finally {
+        refreshingRef.current = false;
       }
     },
     [navigate],
@@ -191,13 +199,18 @@ export default function DashboardPanel() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') void refresh(controller.signal);
+    };
     void refresh(controller.signal);
-    const timer = window.setInterval(() => void refresh(), 30_000);
+    const timer = window.setInterval(refreshVisible, 5_000);
+    document.addEventListener('visibilitychange', refreshVisible);
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => {
       controller.abort();
       window.clearInterval(timer);
       window.clearInterval(clock);
+      document.removeEventListener('visibilitychange', refreshVisible);
     };
   }, [refresh]);
 
@@ -312,7 +325,7 @@ export default function DashboardPanel() {
             </section>
           </section>
           <div className="dashboard__foot">
-            最后同步 {data?.updatedAt ? new Date(data.updatedAt).toLocaleString('zh-CN') : '—'} · 每 30 秒自动刷新
+            最后更新 {lastRefreshedAt ? new Date(lastRefreshedAt).toLocaleTimeString('zh-CN') : '—'} · 每 5 秒自动刷新
           </div>
         </>
       )}

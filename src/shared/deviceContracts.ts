@@ -94,6 +94,7 @@ export type DeviceHeartbeatInput = {
   clientVersion?: string;
   status?: string;
   currentExam?: string;
+  currentExamKind?: string;
   currentSubject?: string;
   examStart?: string;
   examEnd?: string;
@@ -143,6 +144,7 @@ export interface DeviceBindingInfo extends DeviceBinding {
   clientVersion: string;
   status: string;
   currentExam: string;
+  currentExamKind?: string;
   currentSubject: string;
   examStart: string;
   examEnd: string;
@@ -357,6 +359,7 @@ export function parseDeviceBindingInfo(value: unknown): DeviceBindingInfo | null
     clientVersion: text(source.clientVersion),
     status: text(source.status),
     currentExam: text(source.currentExam),
+    ...(typeof source.currentExamKind === 'string' ? { currentExamKind: text(source.currentExamKind) } : {}),
     currentSubject: text(source.currentSubject),
     examStart: text(source.examStart),
     examEnd: text(source.examEnd),

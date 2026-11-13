@@ -8,6 +8,7 @@ import {
   aggregateStats,
   buildGradeDistribution,
   buildOnlineDevices,
+  buildOngoingTemporaryDevices,
   buildOngoing,
   buildRecentEnded,
   buildSubjectDistribution,
@@ -87,6 +88,9 @@ const devices: DashboardDevice[] = [
     is_management: false,
     last_seen_at: now - 10_000,
     current_exam: '语文',
+    status: 'exam-running',
+    exam_start: todayKey + 'T11:00',
+    exam_end: todayKey + 'T13:00',
   },
   {
     instance_id: 'd2',
@@ -114,6 +118,9 @@ const devices: DashboardDevice[] = [
     is_management: false,
     last_seen_at: now - 1_000,
     current_exam: '数学',
+    status: 'exam-running',
+    exam_start: todayKey + 'T11:00',
+    exam_end: todayKey + 'T13:00',
   },
   {
     instance_id: 'd5',
@@ -252,4 +259,104 @@ test('buildOnlineDevices drops stale devices outside the online window', () => {
   );
   const none = buildOnlineDevices(scoped, classes, now, 1);
   assert.deepEqual(none, []);
+});
+
+test('buildOngoingTemporaryDevices includes only live, online temporary exams in scoped classes', () => {
+  const rows = buildOngoingTemporaryDevices(
+    [
+      {
+        instance_id: 'temp-live',
+        class_id: 'c1',
+        last_seen_at: now - 1_000,
+        status: 'temporary-running',
+        current_exam_kind: 'temporary',
+        current_exam: '化学 - 临时考试',
+        current_subject: '化学',
+        exam_start: todayKey + 'T11:00',
+        exam_end: todayKey + 'T13:00',
+      },
+      {
+        instance_id: 'temp-waiting',
+        class_id: 'c2',
+        last_seen_at: now - 1_000,
+        status: 'waiting',
+        current_exam_kind: 'temporary',
+        current_exam: '物理 - 临时考试',
+        exam_start: todayKey + 'T13:00',
+        exam_end: todayKey + 'T14:00',
+      },
+      {
+        instance_id: 'temp-stale',
+        class_id: 'c1',
+        last_seen_at: now - 200_000,
+        status: 'temporary-running',
+        current_exam_kind: 'temporary',
+        current_exam: '英语 - 临时考试',
+        exam_start: todayKey + 'T11:00',
+        exam_end: todayKey + 'T13:00',
+      },
+    ],
+    classes,
+    now,
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 'temporary-device:temp-live');
+  assert.equal(rows[0].subject, '化学');
+  assert.equal(rows[0].majorName, '临时考试');
+  assert.equal(rows[0].scopeLabel, '高一1班');
+});
+
+test('dashboard running counts exclude waiting devices and temporary detection uses the explicit kind', () => {
+  const devices = [
+    {
+      instance_id: 'waiting',
+      last_seen_at: now - 1_000,
+      status: 'waiting',
+      current_exam: '化学 - 临时考试',
+      exam_start: todayKey + 'T13:00',
+      exam_end: todayKey + 'T14:00',
+    },
+    {
+      instance_id: 'formal',
+      class_id: 'c1',
+      last_seen_at: now - 1_000,
+      status: 'exam-running',
+      current_exam: '临时考试（语文）',
+      current_exam_kind: 'major',
+      exam_start: todayKey + 'T11:00',
+      exam_end: todayKey + 'T13:00',
+    },
+  ];
+  assert.equal(classifyDevices(devices, now).inExamDevices, 1);
+  assert.equal(buildOngoingTemporaryDevices(devices, classes, now).length, 0);
+});
+
+test('temporary ongoing entries drop paused, ended, revoked, management and unbound devices', () => {
+  const live: DashboardDevice = {
+    instance_id: 'temporary',
+    grade_id: 'g1',
+    class_id: 'c1',
+    last_seen_at: now - 1_000,
+    status: 'temporary-running',
+    current_exam_kind: 'temporary',
+    current_exam: '语文 - 临时考试',
+    current_subject: '语文',
+    exam_start: todayKey + 'T11:00',
+    exam_end: todayKey + 'T13:00',
+  };
+  for (const change of [
+    { status: 'temporary-paused' },
+    { status: 'idle' },
+    { exam_end: todayKey + 'T12:00' },
+    { exam_start: todayKey + 'T13:00' },
+    { revoked: true },
+    { is_management: true },
+    { class_id: '' },
+    { exam_end: 'invalid' },
+  ]) {
+    assert.deepEqual(buildOngoingTemporaryDevices([{ ...live, ...change }], classes, now), []);
+  }
+  const otherClass = { ...live, class_id: 'c2' };
+  const scoped = scopedDevices([live, otherClass], classAdminC1, classes);
+  assert.equal(buildOngoingTemporaryDevices(scoped, classes, now).length, 1);
 });

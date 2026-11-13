@@ -7,6 +7,7 @@ import {
   aggregateStats,
   buildGradeDistribution,
   buildOngoing,
+  buildOngoingTemporaryDevices,
   buildOnlineDevices,
   buildRecentEnded,
   buildSubjectDistribution,
@@ -47,22 +48,33 @@ export async function handleDashboard(req: VercelRequest, res: VercelResponse, s
   const majors = (Array.isArray(row.majors) ? row.majors : []) as DashboardMajor[];
   const grades = (Array.isArray(row.grades) ? row.grades : []) as DashboardGrade[];
   const classes = (Array.isArray(row.classes) ? row.classes : []) as DashboardClass[];
-  const deviceRows = (await sql`
-    SELECT instance_id, grade_id, class_id, revoked, is_management, last_seen_at, current_exam, exam_start, exam_end, status
+  const selectDevices = async () =>
+    (await sql`
+    SELECT instance_id, grade_id, class_id, revoked, is_management, last_seen_at, current_exam, current_exam_kind, current_subject, exam_start, exam_end, status
     FROM device_instances
   `) as unknown as DashboardDevice[];
+  let deviceRows: DashboardDevice[];
+  try {
+    deviceRows = await selectDevices();
+  } catch (error) {
+    if (!missingRelation(error)) throw error;
+    await ensureTableOnce();
+    deviceRows = await selectDevices();
+  }
   const now = Date.now();
   const items = collectScopedItems(majors, grades, classes, actor);
   const devices = scopedDevices(deviceRows, actor, classes);
   const deviceStats = classifyDevices(devices, now);
+  const ongoingTemporaryDevices = buildOngoingTemporaryDevices(devices, classes, now);
+  const scheduleStats = aggregateStats(items, now);
   const updatedAt = Number(row.updated_at ?? 0);
   res.setHeader('Server-Timing', 'app;dur=' + (Date.now() - startedAt));
   res.status(200).json({
     ok: true,
     scopeLabel: dashboardScopeLabel(actor, grades),
     isAllScope: actor.permissions.includes('*') || actor.scopes.some((scope) => scope.type === 'all'),
-    stats: { ...aggregateStats(items, now), ...deviceStats },
-    ongoing: buildOngoing(items, now),
+    stats: { ...scheduleStats, ongoing: scheduleStats.ongoing + ongoingTemporaryDevices.length, ...deviceStats },
+    ongoing: [...ongoingTemporaryDevices, ...buildOngoing(items, now)].slice(0, 5),
     upcoming: buildUpcoming(items, now),
     recentEnded: buildRecentEnded(items, now),
     subjectDistribution: buildSubjectDistribution(items, now),

@@ -8,6 +8,7 @@ const localIso = (value: number) =>
 
 export interface TemporaryExam {
   id: string;
+  classId?: string;
   subject: string;
   startTime: string;
   endTime: string;
@@ -98,11 +99,11 @@ export function applyTemporaryExamCommand(
   }
 }
 
-export function resolveTemporaryItem(formalItems: ExamItem[], now = Date.now()): ExamItem | null {
+export function resolveTemporaryItem(formalItems: ExamItem[], now = Date.now(), classId = ''): ExamItem | null {
   const exam = getTemporaryExam();
   // 暂停中的临时考试仍然要给出去（带 pausedAt）：教室端据此显示「已暂停」并冻结倒计时，
   // 而不是像以前那样整场消失、屏幕变成"没有考试"。
-  if (!exam || exam.status === 'ended') return null;
+  if (!exam || !classId || exam.classId !== classId || exam.status === 'ended') return null;
   const start = new Date(exam.startTime).getTime();
   const originalEnd = new Date(exam.endTime).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(originalEnd) || originalEnd <= now) return null;

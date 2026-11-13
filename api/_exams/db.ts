@@ -328,6 +328,7 @@ export function ensureTableOnce(): Promise<void> {
         await sql`INSERT INTO app_diagnostic_settings (id, updated_at) VALUES (1, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
         await Promise.all([
           ensureUpdatedAtBigIntOnce(),
+          sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS current_exam_kind TEXT NOT NULL DEFAULT ''`,
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS temporary_command JSONB`,
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS is_management BOOLEAN NOT NULL DEFAULT FALSE`,
           sql`ALTER TABLE device_instances ADD COLUMN IF NOT EXISTS management_actor_id BIGINT NOT NULL DEFAULT 0`,

@@ -93,7 +93,11 @@ export function buildDeviceHeartbeatInput(state: {
   const next = current ?? items.find((item) => item.enabled && parseZonedTime(item.startTime) > now);
   const settings = getAppSettings();
   const temporary = getTemporaryExam();
-  const temporaryActive = temporary && temporary.status !== 'ended' && new Date(temporary.endTime).getTime() > now;
+  const temporaryActive =
+    temporary &&
+    temporary.classId === settings.exam.selectedClassId &&
+    temporary.status !== 'ended' &&
+    new Date(temporary.endTime).getTime() > now;
   const reportedExam = current ?? next;
   const reportedKind = reportedExam?.kind;
   const reportedExamName = !reportedExam
@@ -108,9 +112,9 @@ export function buildDeviceHeartbeatInput(state: {
     clientVersion: APP_VERSION,
     // 状态按"哪种考试 + 是否暂停"区分：后台不再靠考试名里有没有「临时考试」来猜。
     status:
-      temporaryActive && temporary.status === 'paused'
+      current?.kind === 'temporary' && temporaryActive && temporary.status === 'paused'
         ? 'temporary-paused'
-        : temporaryActive
+        : current?.kind === 'temporary' && temporaryActive
           ? 'temporary-running'
           : current
             ? (current as { pausedAt?: number | null }).pausedAt != null
@@ -120,6 +124,7 @@ export function buildDeviceHeartbeatInput(state: {
               ? 'waiting'
               : 'idle',
     currentExam: reportedExamName,
+    currentExamKind: reportedKind ?? '',
     currentSubject: reportedExam?.name ?? '',
     examStart: reportedExam?.startTime ?? '',
     examEnd: reportedExam?.endTime ?? '',
@@ -175,7 +180,12 @@ export function createHttpPollTransport(deps: HttpPollTransportDeps): SyncTransp
       (item) => item.enabled && parseZonedTime(item.startTime) <= now && parseZonedTime(item.endTime) > now,
     );
     const temporary = getTemporaryExam();
-    const temporaryActive = !!temporary && temporary.status !== 'ended' && new Date(temporary.endTime).getTime() > now;
+    const settings = getAppSettings();
+    const temporaryActive =
+      !!temporary &&
+      temporary.classId === settings.exam.selectedClassId &&
+      temporary.status !== 'ended' &&
+      new Date(temporary.endTime).getTime() > now;
     const base = deps.intervalMsFor({ temporaryActive, hasCurrentExam: Boolean(current) });
     timer = deps.setTimer(runCycle, jitteredIntervalMs(base, random));
   };

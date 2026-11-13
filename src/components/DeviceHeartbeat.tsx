@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getClassBindingInstanceId } from '../services/classBinding';
 import { getAppSettings, updateExamSettings, updateTimeSyncSettings } from '../utils/appSettings';
 import { runManualTimeSync } from '../utils/timeSync';
-import { applyTemporaryExamCommand } from '../services/temporaryExam';
+import { applyTemporaryExamCommand, TEMPORARY_EXAM_EVENT } from '../services/temporaryExam';
 import { notify } from '../services/notify';
 import { pluginInstanceFromSearch, sendPluginViewerHeartbeat } from '../services/pluginPairing';
 import { CLOUD_VERSION_EVENT, logoutAdmin } from '../services/examService';
@@ -126,6 +126,7 @@ export default function DeviceHeartbeat() {
     const onVisible = () => {
       if (document.visibilityState === 'visible') transport.tick();
     };
+    const onTemporaryExamChanged = () => transport.tick();
     /**
      * 设置变更后的即时心跳要防抖：一次「保存并发布」会连着触发好几次
      * `exam-board:settings-changed`（保存快照、写动作、绑定回写…），每次都立刻发心跳
@@ -141,11 +142,13 @@ export default function DeviceHeartbeat() {
       }, SETTINGS_CHANGED_TICK_DEBOUNCE_MS);
     };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener(TEMPORARY_EXAM_EVENT, onTemporaryExamChanged);
     window.addEventListener('exam-board:settings-changed', onSettingsChanged);
     return () => {
       unsubscribe();
       if (settingsTickTimer !== null) clearTimeout(settingsTickTimer);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener(TEMPORARY_EXAM_EVENT, onTemporaryExamChanged);
       window.removeEventListener('exam-board:settings-changed', onSettingsChanged);
     };
   }, [navigate]);

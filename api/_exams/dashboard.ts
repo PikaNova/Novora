@@ -38,6 +38,8 @@ export type DashboardDevice = {
   is_management?: boolean;
   last_seen_at?: number | string | null;
   current_exam?: string | null;
+  current_exam_kind?: string | null;
+  current_subject?: string | null;
   exam_start?: number | string | null;
   exam_end?: number | string | null;
   status?: string | null;
@@ -254,6 +256,48 @@ export function buildOngoing(items: ScopedItem[], now: number, limit = 5): Dashb
     .map(entryFromItem);
 }
 
+export function buildOngoingTemporaryDevices(
+  devices: DashboardDevice[],
+  classes: DashboardClass[],
+  now: number,
+  onlineWindowMs = DEVICE_ONLINE_WINDOW_MS,
+): DashboardEntry[] {
+  const classById = new Map(classes.map((schoolClass) => [schoolClass.id, schoolClass]));
+  return devices
+    .filter((device) => {
+      const start = parseZonedTime(String(device.exam_start ?? ''));
+      const end = parseZonedTime(String(device.exam_end ?? ''));
+      const lastSeen = num(device.last_seen_at);
+      return (
+        device.revoked !== true &&
+        device.is_management !== true &&
+        device.status === 'temporary-running' &&
+        device.current_exam_kind === 'temporary' &&
+        !!device.class_id &&
+        lastSeen > 0 &&
+        lastSeen <= now &&
+        now - lastSeen <= onlineWindowMs &&
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        start <= now &&
+        now < end
+      );
+    })
+    .map((device) => {
+      const startTime = String(device.exam_start);
+      const endTime = String(device.exam_end);
+      return {
+        id: `temporary-device:${device.instance_id}`,
+        subject: String(device.current_subject || device.current_exam || '').replace(/\s*-\s*临时考试$/, ''),
+        majorName: '临时考试',
+        startTime,
+        endTime,
+        durationMinutes: Math.max(0, Math.round((parseZonedTime(endTime) - parseZonedTime(startTime)) / 60_000)),
+        scopeLabel: classById.get(device.class_id!)?.name ?? '未绑定班级',
+      };
+    });
+}
+
 export function buildRecentEnded(items: ScopedItem[], now: number, limit = 5): DashboardEntry[] {
   return items
     .filter((item) => isMajorEnded(item, now) || itemEndMs(item) <= now)
@@ -331,7 +375,17 @@ export function buildOnlineDevices(
     const lastSeen = num(device.last_seen_at);
     if (lastSeen <= 0 || now - lastSeen > onlineWindowMs) continue;
     const schoolClass = device.class_id ? classById.get(device.class_id) : undefined;
-    const inExam = Boolean(device.current_exam);
+    const start = parseZonedTime(String(device.exam_start ?? ''));
+    const end = parseZonedTime(String(device.exam_end ?? ''));
+    const inExam =
+      (device.status === 'exam-running' ||
+        device.status === 'temporary-running' ||
+        device.status === 'exam-paused' ||
+        device.status === 'temporary-paused') &&
+      Number.isFinite(start) &&
+      Number.isFinite(end) &&
+      start <= now &&
+      now < end;
     // 暂停中也算"在考试里"，但状态文案要说清楚是暂停，别和正在倒计时混在一起。
     const paused = device.status === 'exam-paused' || device.status === 'temporary-paused';
     rows.push({
@@ -339,7 +393,11 @@ export function buildOnlineDevices(
       scopeLabel: schoolClass?.name || '未绑定班级',
       statusLabel: inExam
         ? `${paused ? '已暂停' : '考试中'}${device.current_exam ? ' · ' + device.current_exam : ''}`
-        : '空闲',
+        : paused && device.current_exam
+          ? `已暂停 · ${device.current_exam}`
+          : device.status === 'waiting' && device.current_exam
+          ? `待开考 · ${device.current_exam}`
+          : '空闲',
       inExam,
       lastSeenAt: lastSeen,
     });
@@ -364,7 +422,15 @@ export function classifyDevices(
     const online = lastSeen > 0 && now - lastSeen <= onlineWindowMs;
     if (!online) continue;
     onlineDevices += 1;
-    if (device.current_exam) inExamDevices += 1;
+    const start = parseZonedTime(String(device.exam_start ?? ''));
+    const end = parseZonedTime(String(device.exam_end ?? ''));
+    if (
+      (device.status === 'exam-running' || device.status === 'temporary-running') &&
+      Number.isFinite(start) &&
+      Number.isFinite(end) &&
+      start <= now &&
+      now < end
+    ) inExamDevices += 1;
   }
   return { onlineDevices, inExamDevices };
 }
